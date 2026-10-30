@@ -388,7 +388,9 @@ swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the inclu
     time. So `float_t` is `double`, as with glibc under C cproc, while gcc says `float`. Decide
     whether to switch to 0.
   - cproc has no Apple target. Apple arm64 has signed `char` and an 8-byte `long double`, while
-    cproc's `aarch64` has unsigned `char` and a 16-byte `long double`.
+    cproc's `aarch64` has unsigned `char` and a 16-byte `long double`. The port adds target
+    `aarch64-apple` (signed `char`, `wchar_t` = `int`, 8-byte `long double`, and `va_list` =
+    `char *` as Apple's ABI and QBE's `arm64_apple` vastart expect); not diffable against C.
 
 ## Plan
 
@@ -461,6 +463,28 @@ for Linux and macOS (strategies under "Platform loading findings").
 **M3: cproc in Python.** Port cproc `d1c53dd`, restricted to freestanding C.
 - QBE IR text identical to C cproc on cproc's tests and on `kernels.c`.
 - Clear errors for unsupported features (see "Language").
+- **Port done 2026-10-30** (`python/cimo/cproc/`, 7k lines; conventions in its `PORTING.md`):
+  `cimo.cproc.compile(text, filename, target='aarch64')` and `python -m cimo.cproc` (= `cproc-qbe`:
+  `-E`, `-t`, `-o`). All of cproc-qbe is ported literally, including its own pp (`#define`,
+  `#undef`, line markers); `#include`/`#if` come from `cimo.cpp`. Targets `aarch64` (default),
+  `x86_64-sysv`, `riscv64`, plus `aarch64-apple`.
+- `python/tests/test_cproc.py`: stdout, stderr and exit status byte-identical to C `cproc-qbe`
+  on all 1704 cases: cproc's 196 tests (as `runtests` runs them, including expected errors and
+  `-E`), `scratch/qbe_eval/*.c` and `python/tests/cproc/*.c` through `cproc -E` on all 3 targets,
+  and 300+ raw snippets (errors, pp corners, folding) on all targets and `-E`. Also identical on
+  cproc's and QBE's own sources (52 files x 3 targets). Line coverage of the port: 94%.
+- `kernels.c` (1262 preprocessed lines) compiles in 27 ms on CPython 3.13 and 51 ms on 3.9
+  (C: about 2 ms). cproc + QBE sources (~25k lines with headers): 3.6 s.
+- Matching relies on: constant folding of `x / 0` etc. following aarch64 (quotient 0, remainder =
+  dividend), where the reference C build runs; C `assert`s, which the CLI mirrors with `abort()`;
+  places where C cproc segfaults (e.g. `extern int x;` redeclared in an inner block), where the
+  port raises an internal error (CLI status 70). cproc's quirks are kept on purpose, e.g.
+  `enum E : unsigned char { A }` is rejected, `_Bool b = 2` emits `b 2`, and initializing two
+  union members asserts.
+- Still open: switching `cimo.compile` from C cproc to the port, and the "clear errors"
+  criterion. cproc already rejects `_Complex`, `_Atomic`, inline asm and `volatile` stores
+  with a location; `long double` (16 bytes) fails only at use, as `cproc-qbe: long double is
+  not yet supported` without a location.
 
 **M4: middle stage.** Automate the transforms `scratch/qbe_eval/gen_opt.py` applies by hand, plus
 explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing and the loop-layout fix.
