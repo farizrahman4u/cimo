@@ -1,8 +1,8 @@
-"""Tests for cimo.cpp (the preprocessor) and the bundled headers in cimo/include.
+"""Tests for cimo.preprocessor (the preprocessor) and the bundled headers in cimo/include.
 
 The differential parts need GNU cpp (token comparison), C cproc at CIMO_CPROC_DIR (default
 ~/code/cproc; IR comparison) and C QBE + gcc (running the header test program); they are skipped
-when those are missing. `python3 python/tests/cpp_compare.py` prints the same comparisons as a
+when those are missing. `python3 python/tests/preprocessor_compare.py` prints the same comparisons as a
 report.
 """
 
@@ -17,13 +17,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 
-import cpp_compare  # noqa: E402
-from cimo import cpp  # noqa: E402
-from cimo.cpp import PreprocessError, preprocess  # noqa: E402
+import preprocessor_compare  # noqa: E402
+from cimo import preprocessor  # noqa: E402
+from cimo.preprocessor import PreprocessError, preprocess  # noqa: E402
 
 QBE = os.environ.get('CIMO_QBE', os.path.expanduser('~/code/qbe/qbe'))
 HAVE_CPP = shutil.which('cpp') is not None
-HAVE_CPROC = cpp_compare.cproc_available()
+HAVE_CPROC = preprocessor_compare.cproc_available()
 HAVE_GCC = shutil.which('gcc') is not None
 HAVE_QBE = os.path.exists(QBE)
 IS_ARM64_LINUX = sys.platform.startswith('linux') and os.uname().machine == 'aarch64'
@@ -31,7 +31,7 @@ IS_ARM64_LINUX = sys.platform.startswith('linux') and os.uname().machine == 'aar
 
 def toks(src, **kw):
     kw.setdefault('warn', lambda m: None)
-    return cpp_compare.tokens(preprocess(src, **kw))
+    return preprocessor_compare.tokens(preprocess(src, **kw))
 
 
 def err(src, **kw):
@@ -150,7 +150,7 @@ def test_pragmas():
     assert '#pragma omp parallel for num_threads(8)\n' in out
     assert '#pragma omp simd\n' in out
     assert 'GCC' not in out and 'STDC' not in out and 'once' not in out
-    assert cpp_compare.tokens(out) == ['#', 'pragma', 'omp', 'parallel', 'for', 'num_threads',
+    assert preprocessor_compare.tokens(out) == ['#', 'pragma', 'omp', 'parallel', 'for', 'num_threads',
                                        '(', '8', ')', 'x', ';', '#', 'pragma', 'omp', 'simd',
                                        'y', ';', 'z', ';']
     assert 'stop' in err('#pragma GCC error "stop"\n')
@@ -172,60 +172,60 @@ def test_cli(tmp_path):
     (tmp_path / 'inc').mkdir()
     (tmp_path / 'inc' / 'h.h').write_text('#define V v\n')
     env = dict(os.environ, PYTHONPATH=os.path.dirname(HERE))
-    p = subprocess.run([sys.executable, '-m', 'cimo.cpp', '-I', str(tmp_path / 'inc'),
+    p = subprocess.run([sys.executable, '-m', 'cimo.preprocessor', '-I', str(tmp_path / 'inc'),
                         '-DW=w', str(f)], capture_output=True, text=True, env=env)
     assert p.returncode == 0, p.stderr
-    assert cpp_compare.tokens(p.stdout) == ['v', 'w']
+    assert preprocessor_compare.tokens(p.stdout) == ['v', 'w']
     f.write_text('#error boom\n')
-    p = subprocess.run([sys.executable, '-m', 'cimo.cpp', str(f)], capture_output=True,
+    p = subprocess.run([sys.executable, '-m', 'cimo.preprocessor', str(f)], capture_output=True,
                        text=True, env=env)
     assert p.returncode == 1 and p.stderr.strip() == '%s:1: error: #error boom' % f
 
 
 def test_bundled_headers_preprocess():
-    names = sorted(os.listdir(cpp.BUNDLED_INCLUDE))
+    names = sorted(os.listdir(preprocessor.BUNDLED_INCLUDE))
     expected = ['ctype.h', 'float.h', 'iso646.h', 'limits.h', 'math.h', 'stdalign.h',
                 'stdarg.h', 'stdbool.h', 'stddef.h', 'stdint.h', 'stdlib.h', 'stdnoreturn.h',
                 'string.h']
     assert names == expected
     src = ''.join('#include <%s>\n' % n for n in names) * 2   # twice: include guards
-    for target in cpp.TARGETS:
+    for target in preprocessor.TARGETS:
         preprocess(src, target=target, warn=lambda m: pytest.fail(m))
 
 
 # --- Differential: GNU cpp, C cproc ----------------------------------------------------------
 
-CORPUS = cpp_compare.corpus()
-TOKEN_CORPUS = [f for f in CORPUS if not cpp_compare.missing_headers(f)
-                and not cpp_compare.uses_system_headers(f)]
+CORPUS = preprocessor_compare.corpus()
+TOKEN_CORPUS = [f for f in CORPUS if not preprocessor_compare.missing_headers(f)
+                and not preprocessor_compare.uses_system_headers(f)]
 
 
 def _id(path):
-    return os.path.relpath(path, os.path.dirname(os.path.dirname(cpp_compare.CPROC_DIR)))
+    return os.path.relpath(path, os.path.dirname(os.path.dirname(preprocessor_compare.CPROC_DIR)))
 
 
 @pytest.mark.skipif(not HAVE_CPP, reason='needs GNU cpp')
 @pytest.mark.parametrize('path', TOKEN_CORPUS, ids=_id)
 def test_tokens_match_gnu_cpp(path):
-    assert cpp_compare.compare_tokens(path) is None
+    assert preprocessor_compare.compare_tokens(path) is None
 
 
 @pytest.mark.skipif(not HAVE_CPROC, reason='needs C cproc and GNU cpp')
 @pytest.mark.parametrize('path', CORPUS, ids=_id)
 def test_cproc_ir_matches(path):
-    if cpp_compare.missing_headers(path):
+    if preprocessor_compare.missing_headers(path):
         # Headers cimo doesn't bundle (stdio.h): check against cproc -E on glibc's headers.
-        dirs = cpp_compare.system_include_dirs()
-        assert cpp_compare.compare_tokens(path, dirs) is None
-        assert cpp_compare.compare_ir(path, dirs, strip=False) is None
+        dirs = preprocessor_compare.system_include_dirs()
+        assert preprocessor_compare.compare_tokens(path, dirs) is None
+        assert preprocessor_compare.compare_ir(path, dirs, strip=False) is None
     else:
-        assert cpp_compare.compare_ir(path) is None
+        assert preprocessor_compare.compare_ir(path) is None
 
 
 @pytest.mark.skipif(not HAVE_CPP, reason='needs GNU cpp')
 def test_random_macros_match_gnu_cpp(tmp_path):
     """Random mutually recursive macros (rescanning, painting, #, ##, __VA_ARGS__)."""
-    failures, valid = cpp_compare.fuzz(1, 400, str(tmp_path))
+    failures, valid = preprocessor_compare.fuzz(1, 400, str(tmp_path))
     assert valid > 100
     assert failures == [], failures[0]
 
@@ -272,43 +272,43 @@ def test_system_headers_match_gnu_cpp(tmp_path, which):
     f = tmp_path / 'sys.c'
     f.write_text(src)
     dm = subprocess.run(['cpp', '-dM', '/dev/null'], capture_output=True, text=True).stdout
-    ours = dict(cpp.TARGETS['arm64'])
+    ours = dict(preprocessor.TARGETS['arm64'])
     defs = []
     for line in dm.splitlines():
         parts = line.split(' ', 2)
         if parts[1] in ours or parts[1] in ('__STDC__', '__STDC_VERSION__', '__STDC_HOSTED__'):
             continue
         defs.append((parts[1], parts[2] if len(parts) > 2 else ''))
-    dirs = extra + cpp_compare.system_include_dirs()
+    dirs = extra + preprocessor_compare.system_include_dirs()
     out = preprocess(src, str(f), dirs, defs, warn=lambda m: None)
     cmd = ['cpp', '-nostdinc', '-U__STDC_VERSION__', '-D__STDC_VERSION__=201112L',
            '-U__STDC_HOSTED__', '-D__STDC_HOSTED__=0']
     cmd += ['-I' + d for d in dirs]
-    cmd += ['-D%s=%s' % (n, '1' if v is None else v) for n, v in cpp.TARGETS['arm64']]
+    cmd += ['-D%s=%s' % (n, '1' if v is None else v) for n, v in preprocessor.TARGETS['arm64']]
     gnu = subprocess.run(cmd + [str(f)], capture_output=True, text=True)
     assert gnu.returncode == 0, gnu.stderr
-    assert cpp_compare.tokens(out) == cpp_compare.tokens(gnu.stdout)
+    assert preprocessor_compare.tokens(out) == preprocessor_compare.tokens(gnu.stdout)
 
 
 # --- Bundled headers under cproc ------------------------------------------------------------
 
-ALL_HEADERS = os.path.join(HERE, 'cpp_headers', 'all_headers.c')
+ALL_HEADERS = os.path.join(HERE, 'preprocessor_headers', 'all_headers.c')
 
 
 @pytest.mark.skipif(not HAVE_CPROC, reason='needs C cproc')
 def test_all_headers_compile_for_apple():
     out = preprocess(open(ALL_HEADERS).read(), ALL_HEADERS, target='arm64_apple')
-    rc, ir, errs = cpp_compare.qbe_ir(out)
+    rc, ir, errs = preprocessor_compare.qbe_ir(out)
     assert rc == 0, errs
 
 
 @pytest.mark.skipif(not (HAVE_CPROC and HAVE_QBE and HAVE_GCC and IS_ARM64_LINUX),
                     reason='needs C cproc, C QBE and gcc on Linux aarch64')
 def test_all_headers_values_match_gcc(tmp_path):
-    """Sizes, limits and library results: cimo.cpp + bundled headers + cproc + QBE vs gcc with
+    """Sizes, limits and library results: cimo.preprocessor + bundled headers + cproc + QBE vs gcc with
     the system headers. Only float_t differs (cproc defines __FLT_EVAL_METHOD__ as 1)."""
     pp = preprocess(open(ALL_HEADERS).read(), ALL_HEADERS)
-    rc, ir, errs = cpp_compare.qbe_ir(pp)
+    rc, ir, errs = preprocessor_compare.qbe_ir(pp)
     assert rc == 0, errs
     (tmp_path / 'a.qbe').write_text(ir)
     asm = subprocess.run([QBE, '-t', 'arm64', str(tmp_path / 'a.qbe')], capture_output=True,

@@ -119,4 +119,4 @@ def diagloc(loc):
 
 def error(loc, fmt, *args):
     msg = fmt % tuple("(null)" if a is None else a for a in args)
-    raise U.CprocError(diagloc(loc) + "error: " + msg)
+    raise U.FrontendError(diagloc(loc) + "error: " + msg)

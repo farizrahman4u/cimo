@@ -1,4 +1,4 @@
-"""cimo.jit: linking cimo.asm objects into the running process."""
+"""cimo.loader: linking cimo.assembler objects into the running process."""
 
 import ctypes
 import gc
@@ -7,8 +7,8 @@ import struct
 
 import pytest
 
-import asm_check as A
-from cimo import asm, jit
+import assembler_check as A
+from cimo import assembler, loader
 
 pytestmark = pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aarch64'),
                                 reason='arm64 only')
@@ -99,7 +99,7 @@ zeros:
 
 
 def _macho(text):
-    """The same program in Mach-O syntax, as cimo.qbe's arm64_apple target writes it."""
+    """The same program in Mach-O syntax, as cimo.backend's arm64_apple target writes it."""
     import re
     t = re.sub(r'\b(add3|call_labs|tail_labs|got_labs|get_ptr|bump|get_bss|get_fp|local_call|'
                r'helper|labs|value|table|zeros|counter)\b', r'_\1', text)
@@ -115,7 +115,7 @@ def _macho(text):
 @pytest.mark.parametrize('syntax', ['elf', 'macho'])
 def test_link_and_call(syntax):
     text = ELF if syntax == 'elf' else _macho(ELF)
-    img = jit.Image(asm.assemble(text, syntax))
+    img = loader.Image(assembler.assemble(text, syntax))
     f = lambda n, k=1: img.function(n, L, [L] * k)  # noqa: E731
     assert f('add3', 3)(1, 2, 3) == 6
     assert f('call_labs')(-5) == 5
@@ -132,8 +132,8 @@ def test_link_and_call(syntax):
 
 
 def test_undefined_symbol():
-    with pytest.raises(jit.LoadError, match='undefined symbol: no_such_function_xyz'):
-        jit.Image(asm.assemble('bl no_such_function_xyz\n'))
+    with pytest.raises(loader.LoadError, match='undefined symbol: no_such_function_xyz'):
+        loader.Image(assembler.assemble('bl no_such_function_xyz\n'))
 
 
 def test_resolver_override():
@@ -141,9 +141,9 @@ def test_resolver_override():
 
     def resolve(name):
         called.append(name)
-        return jit._dlsym('labs') if name == 'my_abs' else None
+        return loader._dlsym('labs') if name == 'my_abs' else None
 
-    img = jit.Image(asm.assemble('.globl f\nf:\n\tb my_abs\n'), resolve)
+    img = loader.Image(assembler.assemble('.globl f\nf:\n\tb my_abs\n'), resolve)
     assert img.function('f', L, [L])(-3) == 3
     assert called == ['my_abs']
 
@@ -153,8 +153,8 @@ def test_external_data_out_of_range():
     # rather than a silently wrong address. (If the mapping happens to land within 4 GB of
     # libc, it links fine, which is also correct.)
     try:
-        jit.Image(asm.assemble('adrp x0, environ\n\tadd x0, x0, #:lo12:environ\n\tret\n'))
-    except jit.LoadError as e:
+        loader.Image(assembler.assemble('adrp x0, environ\n\tadd x0, x0, #:lo12:environ\n\tret\n'))
+    except loader.LoadError as e:
         assert 'adrp range' in str(e)
 
 
@@ -169,7 +169,7 @@ def test_kernel_outlives_module():
 
 
 def test_close_unmaps():
-    img = jit.Image(asm.assemble('.globl f\nf:\n\tret\n'))
+    img = loader.Image(assembler.assemble('.globl f\nf:\n\tret\n'))
     assert img._maps
     img.close()
     assert img._maps == []
@@ -179,21 +179,21 @@ def test_close_unmaps():
 def test_flush_routine_encoding():
     if not A.have_gas():
         pytest.skip('GNU as not available')
-    sections, relocs, _ = A.parse_elf(A.gas(jit._FLUSH_ASM))
-    assert sections['.text'][0] == jit._FLUSH_CODE
+    sections, relocs, _ = A.parse_elf(A.gas(loader._FLUSH_ASM))
+    assert sections['.text'][0] == loader._FLUSH_CODE
     assert not relocs
 
 
 def test_flush_icache_runs():
     # rewrite code in place: make RW, write, make RX, flush, run the new code
-    if jit._MAC:
+    if loader._MAC:
         pytest.skip('Linux W^X path')
-    img = jit.Image(asm.assemble('.globl f\nf:\n\tmov x0, #1\n\tret\n'))
+    img = loader.Image(assembler.assemble('.globl f\nf:\n\tmov x0, #1\n\tret\n'))
     f = img.function('f', L, [])
     assert f() == 1
     base, size = img._maps[0]
-    jit._protect(base, img.code_size, jit.PROT_READ | jit.PROT_WRITE)
+    loader._protect(base, img.code_size, loader.PROT_READ | loader.PROT_WRITE)
     ctypes.memmove(img.address('f'), struct.pack('<I', 0xd2800040), 4)  # mov x0, #2
-    jit._protect(base, img.code_size, jit.PROT_READ | jit.PROT_EXEC)
-    jit.flush_icache(img.address('f'), 4)
+    loader._protect(base, img.code_size, loader.PROT_READ | loader.PROT_EXEC)
+    loader.flush_icache(img.address('f'), 4)
     assert f() == 2

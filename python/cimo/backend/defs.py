@@ -750,7 +750,7 @@ insb = [None] * NIns
 curi = NIns
 
 
-class QbeError(Exception):
+class BackendError(Exception):
     """err() / die(): message is printed by the driver, which exits with status 1."""
 inpath = ''
 lnum = 0

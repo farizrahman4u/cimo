@@ -1,7 +1,7 @@
-"""Compare cimo.asm against GNU as: assemble the same text with both and diff the sections,
-relocations and symbols. Used by test_asm.py; also a script:
+"""Compare cimo.assembler against GNU as: assemble the same text with both and diff the sections,
+relocations and symbols. Used by test_assembler.py; also a script:
 
-    python tests/asm_check.py [files.s/.ssa ...]     # default: QBE's tests + kernels.ssa
+    python tests/assembler_check.py [files.s/.ssa ...]     # default: QBE's tests + kernels.ssa
 
 Relocation targets are normalized to (section, offset) for local symbols, since GNU as rewrites
 references to local symbols as section symbol + addend.
@@ -20,7 +20,7 @@ PYROOT = os.path.dirname(HERE)
 REPO = os.path.dirname(PYROOT)
 sys.path.insert(0, PYROOT)
 
-from cimo import asm  # noqa: E402
+from cimo import assembler  # noqa: E402
 
 AS = os.environ.get('AS', 'as')
 
@@ -135,7 +135,7 @@ def parse_elf(data):
 
 
 def normalize(obj, secmap=None):
-    """cimo.asm.Object -> the same shape as parse_elf. secmap renames sections (Mach-O)."""
+    """cimo.assembler.Object -> the same shape as parse_elf. secmap renames sections (Mach-O)."""
     secmap = secmap or {}
 
     def sn(s):
@@ -205,15 +205,15 @@ def diff(a, b):
 
 
 def compare(text, syntax='elf'):
-    """Assemble `text` with GNU as and cimo.asm; return a list of differences."""
-    return diff(parse_elf(gas(text)), normalize(asm.assemble(text, syntax)))
+    """Assemble `text` with GNU as and cimo.assembler; return a list of differences."""
+    return diff(parse_elf(gas(text)), normalize(assembler.assemble(text, syntax)))
 
 
 def qbe_asm(path, target='arm64'):
     """QBE IR file -> assembly text with the Python QBE port (fresh process: QBE keeps global
     state such as label counters)."""
     env = dict(os.environ, PYTHONPATH=PYROOT)
-    p = subprocess.run([sys.executable, '-m', 'cimo.qbe', '-t', target, path],
+    p = subprocess.run([sys.executable, '-m', 'cimo.backend', '-t', target, path],
                        capture_output=True, env=env)
     if p.returncode != 0:
         raise RuntimeError('qbe failed on %s: %s' % (path, p.stderr.decode(errors='replace')))
@@ -248,7 +248,7 @@ def macho_to_elf(text):
 
 def compare_macho(text):
     return diff(parse_elf(gas(macho_to_elf(text))),
-                normalize(asm.assemble(text, 'macho'), MACHO_SECTIONS))
+                normalize(assembler.assemble(text, 'macho'), MACHO_SECTIONS))
 
 
 def main():
@@ -259,8 +259,8 @@ def main():
             text = open(f).read() if f.endswith('.s') else qbe_asm(f, target)
             try:
                 d = compare(text) if target == 'arm64' else compare_macho(text)
-            except asm.AsmError as e:
-                d = ['cimo.asm: %s' % e]
+            except assembler.AssemblerError as e:
+                d = ['cimo.assembler: %s' % e]
             if d:
                 bad += 1
                 print('%s (%s):\n  %s' % (os.path.basename(f), target, '\n  '.join(d[:8])))

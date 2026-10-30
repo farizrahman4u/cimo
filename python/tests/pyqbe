@@ -2,4 +2,4 @@
 # The Python QBE port with the same command line as qbe; for QBE's tools/test.sh:
 #   bin=python/tests/pyqbe ~/code/qbe/tools/test.sh all
 here=$(dirname "$0")
-PYTHONPATH="$here/.." exec python3 -m cimo.qbe "$@"
+PYTHONPATH="$here/.." exec python3 -m cimo.backend "$@"

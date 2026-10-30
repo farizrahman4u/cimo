@@ -1,5 +1,5 @@
 /* Includes every bundled header and prints sizes and limits. Built by cimo (bundled headers,
-   cimo.cpp, cproc, QBE) and by gcc (system headers); the outputs must match. */
+   cimo.preprocessor, frontend, backend) and by gcc (system headers); the outputs must match. */
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>

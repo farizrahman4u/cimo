@@ -1,4 +1,4 @@
-"""Link a `cimo.asm` object into executable memory of the running process (arm64).
+"""Link a `cimo.assembler` object into executable memory of the running process (arm64).
 
     img = Image(obj)                      # lay out, resolve, relocate, map, flush
     f = img.function('sum', ctypes.c_double, [ctypes.c_void_p, ctypes.c_int64])
@@ -84,7 +84,7 @@ def _protect(addr, size, prot):
 
 # flush(start, end): clean the data cache to the point of unification and invalidate the
 # instruction cache over [start, end), line sizes from CTR_EL0 (IDC/DIC bits skip the loops when
-# the core doesn't need them). Encodings from GNU as; test_jit.py rechecks them.
+# the core doesn't need them). Encodings from GNU as; test_loader.py rechecks them.
 _FLUSH_ASM = """\
 	mrs	x2, ctr_el0
 	tbnz	x2, #28, 1f

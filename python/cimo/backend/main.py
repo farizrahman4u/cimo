@@ -1,6 +1,6 @@
 """Port of QBE main.c: the qbe command line.
 
-python -m cimo.qbe [-d flags] [-o file] [-t target] {file.ssa, -}
+python -m cimo.backend [-d flags] [-o file] [-t target] {file.ssa, -}
 """
 
 import sys
@@ -180,7 +180,7 @@ def main(argv=None):
             parse(buf, f, drv.dbgfile, drv.data, drv.func)
         if not dbg:
             D.T.emitfin(outf)
-    except D.QbeError as e:
+    except D.BackendError as e:
         outf.flush()
         sys.stderr.write("%s\n" % e)
         return 1

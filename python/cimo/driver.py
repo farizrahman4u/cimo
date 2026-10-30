@@ -2,8 +2,8 @@
 
 Pipeline, all pure Python, in this process:
 
-    C --[cimo.cpp]--> preprocessed C --[cimo.cproc]--> QBE IR --[cimo.qbe]--> arm64 asm
-      --[cimo.asm]--> object --[cimo.jit]--> executable memory
+    C --[cimo.preprocessor]--> preprocessed C --[cimo.frontend]--> QBE IR --[cimo.backend]--> arm64 asm
+      --[cimo.assembler]--> object --[cimo.loader]--> executable memory
 
 External symbols (interim: `printf`, libm) are resolved against the running process. The
 assembly is cached by a hash of the preprocessed source; assembling and loading it takes
@@ -18,8 +18,8 @@ import platform
 import re
 import sys
 
-from . import asm as _asm
-from . import jit as _jit
+from . import assembler as _asm
+from . import loader as _jit
 
 __all__ = ['compile', 'load', 'Module', 'CompileError']
 
@@ -45,24 +45,24 @@ _VERSION = b'cimo-m3-1'  # part of the cache key: bump when the generated assemb
 
 def _qbe(ssa):
     """QBE IR text to assembly text, with the Python QBE port, in this process."""
-    from .qbe import defs as D
-    from .qbe.main import _Driver, _targets
-    from .qbe.parse import parse
+    from .backend import defs as D
+    from .backend.main import _Driver, _targets
+    from .backend.parse import parse
     D.T = _targets()[1 if _APPLE else 0]  # arm64_apple: Apple's ABI variant
     out = io.StringIO()
     try:
         parse(ssa.encode('latin-1'), '<cimo>', _Driver(out, 0).dbgfile, _Driver(out, 0).data,
               _Driver(out, 0).func)
         D.T.emitfin(out)
-    except D.QbeError as e:
+    except D.BackendError as e:
         raise CompileError(str(e)) from None
     return out.getvalue()
 
 
 def _build(src, filename='<string>', include_dirs=()):
     """C source -> (assembly text, signatures), cached by a hash of the preprocessed source."""
-    from .cpp import preprocess, PreprocessError
-    from .cproc import compile as cproc_compile, CprocError
+    from .preprocessor import preprocess, PreprocessError
+    from .frontend import compile as cproc_compile, FrontendError
     if platform.machine().lower() not in ('arm64', 'aarch64'):
         raise CompileError('cimo generates arm64 code only; this machine is %s'
                            % platform.machine())
@@ -79,7 +79,7 @@ def _build(src, filename='<string>', include_dirs=()):
             return f.read(), g.read()
     try:
         ssa = cproc_compile(pp, filename, target='aarch64-apple' if _APPLE else 'aarch64')
-    except CprocError as e:
+    except FrontendError as e:
         raise CompileError(str(e)) from None
     text = _qbe(ssa)
     sigs = '\n'.join('%s %s %s' % (m.group(2), m.group(1) or '-',
@@ -138,7 +138,7 @@ class Module:
         try:
             obj = _asm.assemble(text, 'macho' if _APPLE else 'elf')
             self._image = _jit.Image(obj)
-        except (_asm.AsmError, _jit.LoadError) as e:
+        except (_asm.AssemblerError, _jit.LoadError) as e:
             raise CompileError(str(e)) from None
         self._kernels = {}
         for line in sigs.splitlines():
