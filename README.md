@@ -101,15 +101,41 @@ Keep kernels in a `.c` file next to your module if you prefer:
 k = cimo.load("kernels.c")
 ```
 
-### Multicore, no threading runtime
+### Multicore with plain Python threads
 
-Kernels release the GIL, so cimo can split a launch across cores:
+A running kernel releases the GIL, and kernels are safe to call from several threads at once. So
+there's no special launch API: give the kernel a block number as an ordinary parameter and use
+the thread pool you already know.
 
-```python
-k.blur.launch(blocks=16, args=(h, w, src, dst))   # block index arrives as a hidden argument
+```c
+void blur(int block, int nblocks, int h, int w, const float src[h][w], float dst[h][w]) {
+    int rows = (h - 2 + nblocks - 1) / nblocks;
+    int lo = 1 + block * rows;
+    int hi = lo + rows < h - 1 ? lo + rows : h - 1;
+    for (int i = lo; i < hi; i++)
+        for (int j = 1; j < w - 1; j++)
+            dst[i][j] = 0.2f * (src[i][j] + src[i-1][j] + src[i+1][j]
+                                          + src[i][j-1] + src[i][j+1]);
+}
 ```
 
-Each worker gets its own heap, so `malloc` inside parallel kernels doesn't contend.
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+n = 16
+with ThreadPoolExecutor() as pool:
+    list(pool.map(lambda b: k.blur(b, n, h, w, src, dst), range(n)))
+```
+
+These are real OS threads in one process, sharing the same arrays, so nothing is pickled or
+copied. Split the work however you like: even chunks, a work queue, kernels alongside I/O, or
+free-threaded Python. The kernel stays ordinary C that gcc compiles too.
+
+`malloc` is thread-safe and takes no lock: every calling thread gets its own heap, and freeing
+memory that another thread allocated is handled for you.
+
+This is separate from SIMD, which works within one core: use GNU vector types for that, and
+use both together for peak throughput.
 
 ### Errors are Python exceptions
 

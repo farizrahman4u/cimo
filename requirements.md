@@ -133,9 +133,11 @@ no I/O and no OS. The only libc is the part that needs no OS.
   - The heap belongs to the module and persists across calls. Kernels may return `malloc`'d
     pointers for Python to free later, and Python can reset the whole heap at once, for per-call
     arena use.
-  - Under parallel launch, each worker has its own heap, selected by a hidden worker id. Freeing
-    memory from another worker's heap goes through a deferred free list built on one internal
-    compare-and-swap; users never see atomics.
+  - Each calling Python thread has its own heap: the runtime keys heaps on
+    `threading.get_ident()` and passes the heap to the kernel on every call. So `malloc` takes no
+    lock. Freeing memory from another thread's heap goes through a deferred free list built on one
+    internal compare-and-swap; users never see atomics. A heap outlives its thread (its blocks may
+    still be referenced) and is released with the module.
   - For the optimizer, each `malloc` result is a new base that aliases nothing (C guarantees this).
 - **Errors:** `assert`, `abort()` and traps unwind to the entry function's saved stack pointer and
   return an error code; Python raises an exception. Recursion depth is guarded with a stack limit check.
@@ -144,9 +146,13 @@ no I/O and no OS. The only libc is the part that needs no OS.
   ("compute-sanitizer for CPU kernels"), and detect use-after-free, double free, and leaks
   (reported when the module unloads).
   Optional `printf`-style debug output through a callback into Python.
-- **Parallel launch (v1):** ctypes releases the GIL during foreign calls, so a Python thread
-  pool can call the kernel on chunks in parallel, with the block index passed in. Real multicore
-  scaling with no threading runtime inside the kernel.
+- **Multicore (v1): bring your own threads.** Kernel calls release the GIL (ctypes does this for
+  foreign calls) and are safe to make concurrently from several Python threads. cimo has no launch
+  API, no hidden block index and no `cimo.h`. The user splits the work with ordinary parameters
+  (`block`, `nblocks`) and plain `threading` / `concurrent.futures`. Reasons: kernels stay
+  ordinary C that gcc compiles too; LLMs already write this Python fluently but would not know a
+  custom API; it composes with uneven splits, queues, asyncio and free-threaded CPython; and
+  Pyodide has no threads anyway. No threading runtime inside the kernel.
 
 ## Python interop API (to be designed)
 
@@ -155,7 +161,6 @@ The exact design is still open. Areas to cover:
 
 - how kernels are declared and loaded: inline source strings, `.c` files next to the `.py`, decorators
 - type mapping: numpy arrays / buffers, scalars, structs, return values, heap pointers handed back to Python
-- launch syntax and parallelism
 - error and debug surfaces
 - compile cache control and ahead-of-time packaging (e.g. shipping prebuilt cache entries)
 
@@ -207,7 +212,7 @@ Start from proven small C compilers instead of writing one from scratch:
 5. **Runtime library:** the heap allocator plus OS-free libc (`string.h`, `ctype.h`, OS-free
    `stdlib.h`, `math.h`), written in or ported to freestanding C and compiled by our own compiler.
 6. **Python runtime:** signature-based bindings, a content-hashed compile cache, heap region
-   management and the `grow` hook, error unwinding, debug checks, the parallel launcher.
+   management and the `grow` hook, error unwinding, debug checks, per-thread heaps.
 
 Estimated size: 25-35k lines of Python. It's large but mechanically verifiable, which suits
 agent-driven porting.
@@ -343,7 +348,7 @@ inbound rules needed.
 4. **Middle stage loop passes:** implement the transforms that `gen_opt.py` applies by hand, plus
    explicit `fma` emission and FMA selection in the backend. Target: about 1.2x of gcc's scalar
    `-O3` on the whole suite.
-5. **SIMD** (vector types, then auto-vectorization), **amd64**, **WASM**, **parallel launch**.
+5. **SIMD** (vector types, then auto-vectorization), **amd64**, **WASM**, **concurrent calls** (per-thread heaps).
 
 ## Milestones and acceptance criteria
 
@@ -366,7 +371,7 @@ explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing 
 - On the 15-kernel suite: within 1.2x of scalar `-O3` (gcc on Linux arm64, clang on Apple M4), with matching FMA settings.
 
 **M5 and later:** Python interop API, heap and runtime library, amd64 backend, WASM backend +
-Pyodide loading, SIMD (vector types, then auto-vectorization), parallel launch, debug mode,
+Pyodide loading, SIMD (vector types, then auto-vectorization), concurrent calls, debug mode,
 then the demos.
 
 ## Risks
