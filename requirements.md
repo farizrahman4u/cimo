@@ -342,6 +342,54 @@ inbound rules needed.
   - Unverified: synchronous compilation of larger modules on a browser's main thread. Chrome
     limits sync `WebAssembly.Module` size on the main thread; Pyodide usually runs in a worker.
 
+## Preprocessor and bundled headers (2026-10-30)
+
+cproc doesn't preprocess: its driver runs `cpp -undef` with the flags in cproc's `config.h`, and
+cproc-qbe only understands `#define`/`#undef`, gcc line markers and (ignored) `#pragma`.
+`python/cimo/cpp.py` replaces that step: `preprocess(src, filename, include_dirs, defines,
+target)` returns text with gcc line markers for cproc-qbe. The predefined macros are cproc's
+`config.h` list plus `__STDC_VERSION__` 201112L and `__STDC_HOSTED__` 0. `target='arm64_apple'`
+swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the includer's directory
+(quotes only), then `include_dirs`, then `cimo/include/`.
+
+- **Verified against GNU cpp 13.3:** the token streams match on cproc's tests, `scratch/qbe_eval`,
+  `python/tests/cpp_cases/` (including the C11 6.10.3.5 examples), glibc headers and `Python.h`
+  (with gcc's full predefined set), and 400 random mutually recursive macro programs. cproc-qbe's
+  IR, and its diagnostics including line:col, are byte-identical to the `cproc -E` pipeline on all
+  of them. Run `python3 python/tests/cpp_compare.py` or `pytest python/tests/test_cpp.py`.
+- **gcc behaviours copied on purpose** (the standard leaves them open, and cproc's output was
+  produced by gcc):
+  - a directive between a function-like macro's name and `(` means no invocation;
+  - an included file's end also ends a macro invocation;
+  - `, ## __VA_ARGS__` drops the comma only when the variable arguments are omitted, not empty;
+  - the first token of each output line keeps its source column, so cproc's columns match.
+- **Deliberate deviations from gcc:**
+  - character constants in `#if` have type `int`. gcc makes them unsigned when plain char is
+    unsigned, so `#if ~'a' > 7` is true under gcc on aarch64.
+  - digraphs are printed canonically, because cproc's scanner has no digraphs;
+  - `#pragma` is dropped, except `#pragma omp`, which is kept and macro-expanded (OpenMP rule);
+  - no trigraphs (also gcc's default) and no `__VA_OPT__`.
+- **Headers** (`python/cimo/include/`) are declarations only. For now the functions resolve from
+  the host libc at load time. `stdlib.h` has exactly the listed functions plus `abort`. `math.h`
+  has the double and float functions, not long double or `nexttoward`.
+  - `NAN`/`INFINITY` are `__builtin_nanf("")`/`__builtin_inff()`, cproc's only float builtins.
+    `HUGE_VAL` is a cast of the latter.
+  - `stdarg.h` uses `__builtin_va_*` and `offsetof` uses `__builtin_offsetof`.
+  - Apple differences are under `#ifdef __APPLE__`: signed char, `wchar_t` is `int`, `int64_t` is
+    `long long`, 64-bit `long double` limits.
+  - `python/tests/cpp_headers/all_headers.c` gives the same output when built by gcc with system
+    headers and by cimo.cpp + cproc + QBE, except `float_t`.
+- **For the cproc port (M3):**
+  - cproc emits unused `static` functions. math.h's 16 tiny classification and comparison
+    helpers (e.g. `isnan`, no double evaluation) land in every unit that includes it. Drop
+    unreferenced statics. QBE has no inliner, so `isnan(x)` is a call until the middle stage
+    inlines.
+  - cproc defines `__FLT_EVAL_METHOD__` as 1 but computes floats in single precision at run
+    time. So `float_t` is `double`, as with glibc under C cproc, while gcc says `float`. Decide
+    whether to switch to 0.
+  - cproc has no Apple target. Apple arm64 has signed `char` and an 8-byte `long double`, while
+    cproc's `aarch64` has unsigned `char` and a 16-byte `long double`.
+
 ## Plan
 
 1. ~~Validate the architecture~~ **Done: GO.** Good IR + patched QBE is within 1.04x of gcc's
