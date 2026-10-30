@@ -319,8 +319,13 @@ inbound rules needed.
 - **arm64 needs an instruction-cache flush** after writing code.
   - macOS: `sys_icache_invalidate`; Windows: `FlushInstructionCache`.
   - Linux: `__clear_cache` is exported by `libgcc_s.so.1`, but that library isn't guaranteed
-    (musl, minimal images). Plan to emit our own `dc cvau` / `ic ivau` flush routine; read the
-    cache line size from `CTR_EL0`.
+    (musl, minimal images). `cimo.jit` uses its own 25-instruction `dc cvau` / `ic ivau` routine
+    (line sizes from `CTR_EL0`, loops skipped when its IDC/DIC bits say so).
+  - Bootstrapping that routine: it gets its own page, written RW and then made executable once
+    with `mprotect`. Linux arm64 makes a user page I-cache coherent when it first becomes
+    executable (`set_pte_at` → `__sync_icache_dcache`), and the page is never rewritten or
+    unmapped, so it is safe to call before anything else is flushed. If `__clear_cache` is
+    already loaded in the process it is also run over that page.
 - **macOS code signing:** python.org Python runs under the hardened runtime with `allow-jit`,
   `disable-executable-page-protection` and `disable-library-validation`. An ad-hoc-signed
   hardened copy with only `disable-library-validation` (needed by anything that embeds Python)
@@ -366,16 +371,44 @@ inbound rules needed.
   calls `qsort` with comparators that have ties (rega, mem, load). Another libc may order ties
   differently; that's a C-side difference, not a port bug. Conventions: `python/cimo/qbe/PORTING.md`.
 
-**Interim `cimo.compile` (2026-10-30):** `python/cimo/compiler.py` already gives the Python API
+**`cimo.compile` (2026-10-30):** `python/cimo/compiler.py` gives the Python API
 (`cimo.compile`, `cimo.load`, `k.name(...)`, `k()` calls `main`) via C cproc → the Python QBE port →
-system `cc -shared` → ctypes, with a content-hashed cache in `~/.cache/cimo`. It links the host libc
-(so `printf` works) and binds signatures from the QBE IR (`l` params accept buffers). M2 replaces
-`cc` + `dlopen`, M3 replaces C cproc; the API should not change. `examples/` uses it.
+`cimo.asm` → `cimo.jit`, with the assembly cached by content hash in `~/.cache/cimo`. It binds
+signatures from the QBE IR (`l` params accept buffers). External symbols (`printf`, libm) resolve
+against the running process for now. M3 replaces C cproc; the API should not change. `examples/` uses it.
 
 **M2: encoder + loader.** arm64 machine-code encoder (no external assembler) and the JIT loader
 for Linux and macOS (strategies under "Platform loading findings").
 - All 15 kernels compile and run in-process from Python, with results matching gcc's.
 - `scratch/qbe_eval/edge.c` cases are bit-exact.
+- **Done 2026-10-30 on Linux arm64; macOS path written but untested.** `python/cimo/asm.py`
+  assembles QBE's GNU-syntax output (both `arm64` and `arm64_apple` syntax) into an in-memory
+  object; `python/cimo/jit.py` links it into the process. No `cc`, no `dlopen` of generated code.
+  - Byte-identical to GNU as (sections, relocations, symbols) on all 77 corpus inputs for both
+    targets (Apple syntax via a textual translation to ELF syntax), a hand-written file with every
+    emitter form, and sweeps of all logical immediates and random immediates/offsets
+    (`python/tests/test_asm.py`). `kernels.s` assembles in 4 ms; load + link takes a few ms.
+  - All 15 kernels are bit-identical to `gcc -O2 -ffp-contract=off` on the same inputs, and
+    `edge.c` (unchanged, its kernels pointed at the in-process code) is bit-exact
+    (`python/tests/test_m2.py`). CPython 3.9 and 3.12 both pass.
+- Assembler semantics follow GNU as where QBE relies on them: `mov #imm` picks movz, then movn,
+  then orr; `ldr`/`str` offsets that don't fit the scaled form become `ldur`/`stur`; `add`/`sub`
+  with `sp` and a register use the extended (UXTX) form; branches to non-global labels in the
+  same section are resolved, everything else becomes a relocation; `.comm` without alignment
+  gets the next power of 2 ≥ size, at most 16. Mach-O `.comm`'s third operand is log2 (QBE
+  passes the byte alignment, so Apple over-aligns commons; harmless).
+- Relocation types QBE needs: `CALL26`, `JUMP26`, `CONDBR19`, `ADR_PREL_PG_HI21`,
+  `ADD_ABS_LO12_NC`, `ADR_GOT_PAGE`, `LD64_GOT_LO12_NC`, `ABS64`, `ABS32` (plus `LDST*_LO12_NC`
+  and `ABS16`, supported but not emitted). Thread-local storage (`.tdata`, `mrs tpidr_el0`, `@tlvp`)
+  is rejected with a clear error.
+- Loader layout: code sections, then 16-byte stubs (`ldr x16, 8; br x16; .quad addr`) for calls
+  to external functions; then a RW region with GOT slots, data, bss and commons. An `adrp`
+  straight to an external *data* symbol only links if libc happens to be within 4 GB (error
+  otherwise); self-contained kernels never need it.
+- macOS: code goes in a `MAP_JIT` mapping, data in a separate RW mapping hinted right after it
+  (a `MAP_JIT` page is RX for the thread while kernels run, so writable data can't share it);
+  if that fails or lands beyond `adrp` range, fall back to one W^X mapping. Untested: needs a
+  run of `python/tests` on an M-series Mac.
 
 **M3: cproc in Python.** Port cproc `d1c53dd`, restricted to freestanding C.
 - QBE IR text identical to C cproc on cproc's tests and on `kernels.c`.
