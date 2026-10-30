@@ -197,6 +197,8 @@ code.pf-viz{display:inline-block;background:none;border:1px solid #1f2740;color:
 .pf-bars i b.slow{background:#3b4560}
 .proof.seen .pf-bars i b{width:var(--w)}
 .pf-bars em{font-style:normal;color:#8e98b0;text-align:right}
+.pf-link{display:inline-block;margin-top:12px;font-size:12.5px;font-weight:500;color:#93a8ff}.pf-link:hover{color:#c3ceff}
+.perf-btn{margin-top:16px}
 @media(max-width:900px){.proof-row{grid-template-columns:1fr 1fr}.pf{padding:24px 16px}.pf:nth-child(odd){padding-left:0}.pf:nth-child(3){border-left:0}.pf:nth-child(n+3){border-top:1px solid #151b2c}}
 @media(max-width:480px){.proof-row{grid-template-columns:1fr}.pf{padding:22px 0!important;border-left:0!important}.pf+.pf{border-top:1px solid #151b2c}}
 /* overlay scrollbar (fine pointers): the native one is hidden; a thin thumb shows while
@@ -412,6 +414,7 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
     <b>~<span class="count" data-to="1.0" data-dec="1">1.0</span>×</b>
     <p>the run time of gcc and clang <span class="m">-O3</span> on analyzable loops</p>
     <div class="pf-viz pf-bars"><span>gcc -O3</span><i><b style="--w:100%"></b></i><em>1.00</em><span>cimo</span><i><b style="--w:93%"></b></i><em>0.93</em></div>
+    <a class="pf-link" href="https://github.com/farizrahman4u/cimo/tree/main/python/bench">benchmarks →</a>
   </div>
   <div class="pf">
     <b>~<span class="count" data-to="100">100</span>×</b>
@@ -501,6 +504,7 @@ void ema(int n, const double x[n], double y[n], double a) {
       <div class="row"><span class="name">conv3x3</span><div class="bars"><div class="b" style="--v:1.04"><em>1.04×</em></div><div class="b c" style="--v:1.07"><em>1.07×</em></div></div></div>
       <div class="axis"><i></i><div><span style="left:0">0</span><span style="left:31.25%">0.5</span><span style="left:62.5%">1.0</span><span style="left:93.75%">1.5</span></div></div>
       <p class="note">Lower is better; dashed line is parity. Scalar code, FMA contraction off on both sides. Results are bit-identical to the reference compiler.</p>
+      <a class="btn btn-s perf-btn" href="https://github.com/farizrahman4u/cimo/tree/main/python/bench">View benchmarks <span aria-hidden="true">→</span></a>
     </div>
     <ul class="pts">
       <li><b>Loop optimizer.</b> Unrolling, unroll-and-jam, scalar replacement, strength reduction, runtime alias checks.</li>
