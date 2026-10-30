@@ -131,14 +131,23 @@ with ThreadPoolExecutor() as pool:
 your interpreter down with it.
 
 ```python
-k = cimo.compile(src, debug=True)
-k.blur(h, w, src, dst[:10])
-# cimo.BoundsError: blur: write to dst[10][1] is out of bounds (buffer is 10 x 4096)
-#   at kernels.c:5
+k = cimo.compile(r"""
+void blur(int h, int w, const float src[h][w], float dst[h][w]) {
+    for (int i = 1; i < h; i++)            /* should be h - 1 */
+        for (int j = 1; j < w - 1; j++)
+            dst[i][j] = 0.2f * (src[i][j] + src[i-1][j] + src[i+1][j]
+                                          + src[i][j-1] + src[i][j+1]);
+}
+""", debug=True)
+
+k.blur(*src.shape, src, dst)
+# cimo.BoundsError: blur: read of src[4096][1] is out of bounds (src is 4096 x 4096)
+#   at line 5
 ```
 
 Debug builds bounds-check every access, against both Python buffers and heap allocations, and catch
-use-after-free, double free and leaks.
+use-after-free, double free and leaks. Arrays that don't match a VLA parameter's shape are
+rejected at call time, in every build.
 
 ### Know why a loop is slow
 
