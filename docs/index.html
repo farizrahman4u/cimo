@@ -4,15 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light">
-<title>cimo · a C compiler in pure Python</title>
-<meta name="description" content="Write a C kernel as a string, call it on your numpy arrays a few hundred milliseconds later, at -O3 speed. No compiler, no SDK, no wheels. In the browser too.">
+<title>cimo · a C compiler written in pure Python</title>
+<meta name="description" content="cimo is a C compiler written in pure Python. It compiles C kernels at runtime and calls them on numpy arrays, without a system compiler, SDK or binary wheels, including in Pyodide.">
 <link rel="canonical" href="https://farizrahman4u.github.io/cimo/">
 <meta name="theme-color" content="#f5f6fa">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233f5cf6'/%3E%3Cpath d='M20.5 10.2A7 7 0 1 0 20.5 21.8' fill='none' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='16' r='1.9' fill='%23fff'/%3E%3C/svg%3E">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="cimo">
-<meta property="og:title" content="cimo · a C compiler in pure Python">
-<meta property="og:description" content="C kernels on your numpy arrays at -O3 speed. No compiler, no SDK, no wheels. In the browser too.">
+<meta property="og:title" content="cimo · a C compiler written in pure Python">
+<meta property="og:description" content="Compile C kernels at runtime and call them on numpy arrays, without a system compiler. Runs in CPython and Pyodide.">
 <meta property="og:url" content="https://farizrahman4u.github.io/cimo/">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -184,11 +184,11 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
 <header class="top"><a class="skip" href="#main">Skip to content</a><div class="wrap top-in">
   <a class="logo" href="#top" aria-label="cimo home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#3f5cf6"/><path d="M20.5 10.2A7 7 0 1 0 20.5 21.8" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/><circle cx="23" cy="16" r="1.9" fill="#fff"/></svg>cimo</a>
   <ul class="topnav">
-    <li class="hide-sm"><a href="#why">Why</a></li>
-    <li class="hide-sm"><a href="#speed">Speed</a></li>
-    <li class="hide-sm"><a href="#c">C support</a></li>
+    <li class="hide-sm"><a href="#why">Motivation</a></li>
+    <li class="hide-sm"><a href="#speed">Performance</a></li>
+    <li class="hide-sm"><a href="#c">Language</a></li>
     <li class="hide-sm"><a href="#browser">Browser</a></li>
-    <li class="hide-sm"><a href="#how">How it works</a></li>
+    <li class="hide-sm"><a href="#how">Architecture</a></li>
     <li class="navcta"><a class="btn btn-s" href="https://github.com/farizrahman4u/cimo">GitHub</a></li>
   </ul>
 </div></header>
@@ -196,18 +196,18 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
 <main id="main" tabindex="-1">
 <section class="hero" id="top"><div class="wrap hero-grid">
   <div>
-    <span class="k">A C compiler in pure Python</span>
-    <h1>C kernels on your numpy arrays, at <em style="white-space:nowrap">-O3 speed</em>. No toolchain.</h1>
-    <p class="lede">Write a C kernel as a string and call it a few hundred milliseconds later. No compiler, no SDK, no wheels, no build step. In the browser too.</p>
+    <span class="k">Open source · MIT</span>
+    <h1>A C compiler written in <em>pure Python</em>.</h1>
+    <p class="lede">cimo compiles C to native code at runtime and calls it on numpy arrays. It needs no system compiler, SDK or binary wheels, and runs wherever CPython or Pyodide does.</p>
     <div class="hero-cta">
       <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo">Copy</button></div>
-      <a class="btn btn-s" href="#how">How it works</a>
+      <a class="btn btn-s" href="https://github.com/farizrahman4u/cimo">Source on GitHub</a>
     </div>
-    <p class="hero-note">Standard library only · CPython 3.9+ and Pyodide · MIT</p>
+    <p class="hero-note">Standard library only · CPython 3.9+ and Pyodide</p>
   </div>
   <div class="carousel" tabindex="0" role="group" aria-roledescription="carousel" aria-label="Examples; use the left and right arrow keys to move between them">
     <div class="car-clip"><div class="car">
-      <div class="frame on" data-title="Script · compile a kernel, run it on numpy arrays in place"><div class="code win">
+      <div class="frame on" data-title="Script · compile a kernel and call it on numpy arrays"><div class="code win">
     <div class="bar"><span class="dots"><i></i><i></i><i></i></span>blur.py</div>
 <pre data-lang="py">import numpy as np
 import cimo
@@ -231,7 +231,7 @@ ref[1:-1, 1:-1] = 0.2 * (src[1:-1, 1:-1] + src[:-2, 1:-1] + src[2:, 1:-1]
                               + src[1:-1, :-2] + src[1:-1, 2:])
 assert np.array_equal(dst, ref)</pre>
   </div></div>
-      <div class="frame" data-title="Jupyter · the same loop, 73× faster than Python · measured on Linux arm64" aria-hidden="true"><div class="nb win"><div class="nb-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:8888/lab/tree/smoothing.ipynb</span></div><div class="nb-tool"><span class="tab">smoothing.ipynb</span><span class="kern">Python 3 (ipykernel)<i></i></span></div><div class="cells"><div class="cell"><span class="pr">[1]:</span><pre data-lang="py">import numpy as np, cimo
+      <div class="frame" data-title="Jupyter · the same loop in C and in Python, timed on Linux arm64" aria-hidden="true"><div class="nb win"><div class="nb-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:8888/lab/tree/smoothing.ipynb</span></div><div class="nb-tool"><span class="tab">smoothing.ipynb</span><span class="kern">Python 3 (ipykernel)<i></i></span></div><div class="cells"><div class="cell"><span class="pr">[1]:</span><pre data-lang="py">import numpy as np, cimo
 x = np.random.rand(1_000_000)
 y = np.empty_like(x)</pre></div><div class="cell"><span class="pr">[2]:</span><pre data-lang="py">k = cimo.compile(r"""
 void ema(int n, const double x[n], double y[n], double a) {
@@ -245,34 +245,34 @@ void ema(int n, const double x[n], double y[n], double a) {
         y[i] = a * x[i] + (1 - a) * y[i-1]
 %timeit ema_py(x, y, 0.1)</pre><span class="pr"></span><pre class="out">252 ms ± 2.36 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)</pre></div></div></div></div>
     </div></div>
-    <div class="car-bar"><span class="car-title">Script · compile a kernel, run it on numpy arrays in place</span><span class="car-ctl"><button type="button" class="car-prev" aria-label="Previous example">‹</button><span class="car-count">01 / 02</span><button type="button" class="car-next" aria-label="Next example">›</button></span></div>
+    <div class="car-bar"><span class="car-title">Script · compile a kernel and call it on numpy arrays</span><span class="car-ctl"><button type="button" class="car-prev" aria-label="Previous example">‹</button><span class="car-count">01 / 02</span><button type="button" class="car-next" aria-label="Next example">›</button></span></div>
   </div>
 </div></section>
 
 <div class="wrap">
   <div class="facts-row">
-    <div class="fact"><b>0</b><span>runtime dependencies. Ordinary Python.</span></div>
-    <div class="fact"><b>&lt; 1 s</b><span>to compile a kernel file. Cached by content hash.</span></div>
+    <div class="fact"><b>0</b><span>dependencies outside the standard library</span></div>
+    <div class="fact"><b>&lt; 1 s</b><span>to compile a kernel file; results are cached</span></div>
     <div class="fact"><b>~1.0×</b><span>gcc and clang <code>-O3</code> on analyzable loops</span></div>
-    <div class="fact"><b>~100×</b><span>faster than pure Python on stencils, flood fills, DP</span></div>
+    <div class="fact"><b>~100×</b><span>pure Python on stencils, flood fills and DP</span></div>
   </div>
 </div>
 
 <section class="s" id="why"><div class="wrap">
-  <span class="k">Why</span>
-  <h2>Native code wherever Python runs.</h2>
-  <p class="lede">Cython, cffi and C extensions need a toolchain on the user's machine. Numba needs LLVM wheels. cimo parses the C, optimizes it, encodes arm64, x86-64 or WebAssembly itself, maps it into executable memory and hands you a Python callable. Your numpy data is never copied.</p>
+  <span class="k">Motivation</span>
+  <h2>Why a C compiler in Python</h2>
+  <p class="lede">Cython, cffi and C extensions need a compiler on the user's machine, and Numba needs LLVM wheels. Some environments have neither. cimo parses and optimizes the C, encodes arm64, x86-64 or WebAssembly itself, and maps the result into executable memory. Arrays are passed by pointer, never copied.</p>
   <div class="cards">
-    <div class="card"><span class="tag">browser</span><h3>Pyodide, JupyterLite, marimo</h3><p>No compiler in the page. cimo compiles there anyway.</p></div>
-    <div class="card"><span class="tag">.py only</span><h3>Plugin repositories</h3><p>The QGIS plugin repository bans compiled binaries. cimo ships as source.</p></div>
-    <div class="card"><span class="tag">locked down</span><h3>Corporate machines, sandboxes</h3><p>Nothing to install beyond the package. If Python runs, your kernels run.</p></div>
+    <div class="card"><span class="tag">browser</span><h3>Pyodide, JupyterLite, marimo</h3><p>Browser Python has no C compiler.</p></div>
+    <div class="card"><span class="tag">.py only</span><h3>Plugin repositories</h3><p>Some, such as QGIS's, accept no compiled binaries.</p></div>
+    <div class="card"><span class="tag">locked down</span><h3>Restricted machines</h3><p>Corporate laptops and hosted sandboxes where a toolchain can't be installed.</p></div>
   </div>
 </div></section>
 
 <section class="s" id="speed"><div class="wrap">
-  <span class="k">Fast where it matters</span>
-  <h2>Matches gcc and clang at <span style="font-family:var(--mono);font-weight:600;white-space:nowrap">-O3.</span></h2>
-  <p class="lede">Not a one-pass compiler. A loop optimizer and real instruction selection.</p>
+  <span class="k">Performance</span>
+  <h2>Close to gcc and clang at <span style="font-family:var(--mono);font-weight:600;white-space:nowrap">-O3</span></h2>
+  <p class="lede">cimo has a loop optimizer and a full instruction-selecting backend rather than a one-pass code generator.</p>
   <div class="split wide-l">
     <div class="perf" role="img" aria-label="cimo run time relative to gcc -O3 and clang -O3: saxpy 0.79 and 1.43, gemm 0.89 and 1.11, jacobi2d 1.04 and 0.96, conv3x3 1.04 and 1.07">
       <div class="perf-h"><b>cimo time ÷ reference time</b><span class="legend"><span><i></i>gcc -O3 · Linux arm64</span><span><i class="c"></i>clang -O3 · Apple M4</span></span></div>
@@ -285,9 +285,9 @@ void ema(int n, const double x[n], double y[n], double a) {
     </div>
     <ul class="pts">
       <li><b>Loop optimizer.</b> Unrolling, unroll-and-jam, scalar replacement, strength reduction, runtime alias checks.</li>
-      <li><b>Real backend.</b> Instruction selection and register allocation, encoded to machine code in Python. No assembler, no linker.</li>
-      <li><b>Instant second run.</b> Compiled modules are cached by content hash.</li>
-      <li><b>Know why a loop is slow.</b> <code>python -m cimo report</code> says which loops were optimized and what blocked the rest.</li>
+      <li><b>Backend.</b> Instruction selection and register allocation, encoded to machine code in Python. No assembler, no linker.</li>
+      <li><b>Caching.</b> Compiled modules are cached by content hash.</li>
+      <li><b>Optimization reports.</b> <code>python -m cimo report</code> lists which loops were optimized and why the others were not.</li>
     </ul>
   </div>
   <div class="code" style="margin-top:18px">
@@ -299,16 +299,16 @@ kernels.c:31  loop over i: <span class="t-err">not optimized</span>: base of `p`
 </div></section>
 
 <section class="s" id="c"><div class="wrap">
-  <span class="k">Real C, not a subset</span>
-  <h2>C11, with its own C library.</h2>
-  <p class="lede">cimo bundles its libc, so a kernel behaves the same on every platform, the browser included.</p>
+  <span class="k">Language</span>
+  <h2>C11 and a bundled C library</h2>
+  <p class="lede">cimo ships its own libc, so kernels behave the same on every platform, including the browser.</p>
   <div class="split">
     <div>
       <ul class="pts">
-        <li><b>The whole language.</b> Structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs, VLAs, <code>goto</code>, <code>switch</code>, globals, <code>const</code> tables.</li>
-        <li><b>Bundled headers.</b> <code>stdio.h</code>, <code>stdlib.h</code>, <code>string.h</code>, <code>math.h</code>, <code>ctype.h</code>, <code>inttypes.h</code> and the freestanding headers. <code>printf</code> writes to <code>sys.stdout</code>, so output lands in your notebook.</li>
-        <li><b>Hand-written SIMD.</b> GNU vector types for NEON, AVX2 and AVX-512. <code>#pragma omp simd</code> and <code>restrict</code> honored as written.</li>
-        <li><b>The OS when you need it.</b> Link libc for files, clocks, threads and sockets, or any shared library: zlib, BLAS, the Python C API.</li>
+        <li><b>Language.</b> Structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs, VLAs, <code>goto</code>, <code>switch</code>, globals, <code>const</code> tables.</li>
+        <li><b>Headers.</b> <code>stdio.h</code>, <code>stdlib.h</code>, <code>string.h</code>, <code>math.h</code>, <code>ctype.h</code>, <code>inttypes.h</code> and the freestanding headers. <code>printf</code> writes to <code>sys.stdout</code>, so output appears in notebooks.</li>
+        <li><b>SIMD.</b> GNU vector types for NEON, AVX2 and AVX-512. <code>#pragma omp simd</code> and <code>restrict</code> honored as written.</li>
+        <li><b>System libraries.</b> Link the host libc for files, clocks, threads and sockets, or any shared library such as zlib, BLAS or the Python C API.</li>
       </ul>
       <p class="no">Not supported: inline assembly, <code>setjmp</code>/<code>longjmp</code>, 128-bit <code>long double</code>. Each is a compile error that says so.</p>
     </div>
@@ -330,11 +330,11 @@ k = cimo.load("kernels.c")   # or keep kernels in a file</pre>
 </div></section>
 
 <section class="s" id="threads"><div class="wrap">
-  <span class="k">Pythonic runtime</span>
-  <h2>Plain threads. Python exceptions.</h2>
+  <span class="k">Runtime</span>
+  <h2>Threads and error handling</h2>
   <div class="split">
     <div class="stack">
-      <p>Kernels release the GIL and are safe to call concurrently. No launch API; bring your own threads. <code>malloc</code> is lock-free, with a heap per thread.</p>
+      <p>Kernels release the GIL and are safe to call concurrently. There is no launch API; use ordinary Python threads. <code>malloc</code> is lock-free, with a heap per thread.</p>
       <div class="code">
         <div class="bar"><span class="dots"><i></i><i></i><i></i></span>16 threads, one kernel</div>
 <pre data-lang="py">from concurrent.futures import ThreadPoolExecutor
@@ -357,11 +357,11 @@ with ThreadPoolExecutor() as pool:
 </div></section>
 
 <section class="s" id="browser"><div class="wrap">
-  <span class="k">Runs in the browser</span>
-  <h2>The same compiler emits WebAssembly.</h2>
+  <span class="k">WebAssembly</span>
+  <h2>Running in the browser</h2>
   <div class="split">
     <div>
-      <p class="lede" style="margin-top:0">In Pyodide, JupyterLite or marimo, kernels compile in the page and link into Pyodide's own memory. They work on numpy arrays in place. No server, no 50 MB clang-in-WASM download.</p>
+      <p class="lede" style="margin-top:0">In Pyodide, JupyterLite and marimo, cimo compiles kernels to WebAssembly in the page and links them into Pyodide's memory, so they operate on numpy arrays in place. No server or clang-in-WASM download is involved.</p>
       <div class="chips"><span>Pyodide</span><span>JupyterLite</span><span>marimo</span></div>
     </div>
     <div class="code">
@@ -375,7 +375,7 @@ k = cimo.compile(src)   # compiled in the page</pre>
 
 <section class="s" id="platforms"><div class="wrap">
   <span class="k">Platforms</span>
-  <h2>One package, four targets.</h2>
+  <h2>Supported platforms</h2>
   <div class="tblw" style="margin-top:24px"><table class="tbl">
     <tr><th>Platform</th><th>Backend</th><th>Loader</th></tr>
     <tr><td>Linux arm64 / x86-64</td><td class="m">arm64, amd64</td><td class="m">mmap + mprotect (W^X)</td></tr>
@@ -387,24 +387,26 @@ k = cimo.compile(src)   # compiled in the page</pre>
 </div></section>
 
 <section class="s" id="how"><div class="wrap">
-  <span class="k">How it works</span>
-  <h2>Two small compilers, ported. A loop optimizer on top.</h2>
+  <span class="k">Design</span>
+  <h2>Architecture</h2>
   <div class="pipe">
     <div class="stage"><i>in</i><h3>C source</h3><p>A string or a <span style="font-family:var(--mono)">.c</span> file</p></div><span class="arr" aria-hidden="true"></span>
     <div class="stage"><i>from cproc</i><h3>Front end</h3><p>C11 parser and type checker</p></div><span class="arr" aria-hidden="true"></span>
-    <div class="stage own"><i>cimo's own</i><h3>Loop optimizer</h3><p>Closes the gap to gcc</p></div><span class="arr" aria-hidden="true"></span>
+    <div class="stage own"><i>cimo's own</i><h3>Loop optimizer</h3><p>Unrolling, scalar replacement, alias checks</p></div><span class="arr" aria-hidden="true"></span>
     <div class="stage"><i>from QBE</i><h3>Backend</h3><p>SSA, instruction selection, register allocation</p></div><span class="arr" aria-hidden="true"></span>
     <div class="stage own"><i>cimo's own</i><h3>Encoder</h3><p>arm64, amd64, WASM</p></div><span class="arr" aria-hidden="true"></span>
     <div class="stage"><i>out</i><h3>Executable memory</h3><p>JIT, or ELF / Mach-O / PE</p></div>
   </div>
-  <p class="lede" style="margin-top:22px"><a href="https://sr.ht/~mcf/cproc/">cproc</a> and <a href="https://c9x.me/compile/">QBE</a> are ported to Python and checked against the originals by diffing their IR pass by pass. Every release is differential-tested against gcc and clang on generated random programs.</p>
+  <p class="lede" style="margin-top:22px"><a href="https://sr.ht/~mcf/cproc/">cproc</a> and <a href="https://c9x.me/compile/">QBE</a> are ported to Python and checked against the originals by diffing their IR pass by pass. The loop optimizer and machine-code encoder are new. Every release is differential-tested against gcc and clang on generated random programs.</p>
 </div></section>
 
 <section class="end"><div class="wrap">
-  <h2>If Python runs, your kernels run.</h2>
+  <h2>Contributing</h2>
+  <p class="lede" style="margin:12px auto 0">cimo is developed in the open. Bug reports, benchmarks and pull requests are welcome.</p>
   <div class="hero-cta">
     <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo">Copy</button></div>
-    <a class="btn btn-p" href="https://github.com/farizrahman4u/cimo">View on GitHub</a>
+    <a class="btn btn-p" href="https://github.com/farizrahman4u/cimo">GitHub</a>
+    <a class="btn btn-s" href="https://github.com/farizrahman4u/cimo/issues">Issues</a>
   </div>
 </div></section>
 </main>
