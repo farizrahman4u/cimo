@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<title>cimo · a C compiler in pure Python</title>
+<meta name="description" content="Write a C kernel as a string, call it on your numpy arrays a few hundred milliseconds later, at -O3 speed. No compiler, no SDK, no wheels. In the browser too.">
+<link rel="canonical" href="https://farizrahman4u.github.io/cimo/">
+<meta name="theme-color" content="#f5f6fa">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233f5cf6'/%3E%3Cpath d='M20.5 10.2A7 7 0 1 0 20.5 21.8' fill='none' stroke='%23fff' stroke-width='3.2' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='16' r='1.9' fill='%23fff'/%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="cimo">
+<meta property="og:title" content="cimo · a C compiler in pure Python">
+<meta property="og:description" content="C kernels on your numpy arrays at -O3 speed. No compiler, no SDK, no wheels. In the browser too.">
+<meta property="og:url" content="https://farizrahman4u.github.io/cimo/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f5f6fa;--white:#fff;--ink:#0f172a;--ink2:#334155;--ink3:#5b687c;--ink4:#94a3b8;--line:#e2e8f0;--line2:#eef2f7;--brand:#3f5cf6;--brand2:#637fff;--brandD:#2737bd;--brand50:#eff4ff;--brand100:#dbe5ff;--brand200:#bdcdff;--ok:#059669;--bad:#be123c;--code:#0b1020;--code2:#161922;--codeline:#1f2740;--font:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;--mono:'DM Mono',ui-monospace,monospace;color-scheme:light}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;scroll-padding-top:72px}
+body{background:var(--bg);color:var(--ink2);font-family:var(--font);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden;font-feature-settings:"ss01","cv11"}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+@media(max-width:600px){.wrap{padding:0 16px}}
+h1,h2,h3{color:var(--ink);letter-spacing:-.025em;line-height:1.15;font-weight:700}
+h1{font-size:clamp(34px,4.4vw,52px);font-weight:800;letter-spacing:-.035em;line-height:1.06}
+h2{font-size:clamp(26px,3vw,34px);font-weight:800;letter-spacing:-.03em}
+h3{font-size:17px}
+.k{display:block;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--brand);margin-bottom:12px}
+.lede{font-size:17px;color:var(--ink2);max-width:62ch;margin-top:12px}
+code{font-family:var(--mono);font-size:.88em;color:var(--ink);background:var(--white);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+p a,.lede a,li a{color:var(--brand);font-weight:500}p a:hover,li a:hover{color:var(--brandD)}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:8px;font-weight:600;font-size:14px;border:1px solid transparent;cursor:pointer;font-family:var(--font);white-space:nowrap;transition:.15s}
+.btn-p{background:var(--brand);color:#fff}.btn-p:hover{background:var(--brandD)}
+.btn-s{background:var(--white);color:var(--ink);border-color:var(--line)}.btn-s:hover{border-color:var(--brand200)}
+.skip{position:absolute;left:12px;top:-60px;z-index:100;background:var(--brand);color:#fff;padding:8px 12px;border-radius:8px;font-weight:600}.skip:focus{top:12px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+/* top nav */
+.top{position:sticky;top:0;z-index:50;background:rgba(245,246,250,.9);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top-in{display:flex;align-items:center;justify-content:space-between;height:62px;gap:16px}
+.logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:16px;color:var(--ink);font-family:var(--mono);letter-spacing:-.02em}
+.logo svg{width:28px;height:28px}
+.topnav{display:flex;gap:4px;list-style:none;align-items:center}
+.topnav a{display:block;padding:7px 11px;border-radius:7px;font-size:14px;font-weight:500;color:var(--ink2)}
+.topnav a:hover{color:var(--ink);background:var(--white)}
+.topnav .navcta{margin-left:8px}
+.topnav a.btn-s{padding:8px 14px;color:var(--ink)}
+@media(max-width:860px){.topnav .hide-sm{display:none}}
+/* hero */
+.hero{padding:56px 0 40px}
+.hero-grid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:48px;align-items:center}
+.hero h1{font-size:clamp(32px,3.4vw,46px);letter-spacing:-.03em;line-height:1.08}
+.hero h1 em{font-style:normal;color:var(--brand)}
+.hero .lede{margin-top:18px}
+.hero-cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}
+.pip{display:inline-flex;align-items:center;gap:10px;background:var(--code);color:#e6edf3;border-radius:8px;padding:0 6px 0 14px;height:44px;font-family:var(--mono);font-size:14px;border:1px solid var(--codeline)}
+.pip span::before{content:"$ ";color:#6e7681}
+.pip button{background:#1e2640;border:0;color:#c9d1d9;font:600 12px var(--font);padding:6px 10px;border-radius:6px;cursor:pointer}
+.pip button:hover{background:#2a3456;color:#fff}
+.hero-note{margin-top:14px;font-size:13px;color:var(--ink3)}
+@media(max-width:1000px){.hero-grid{grid-template-columns:minmax(0,1fr);gap:32px}.hero h1{max-width:20ch}}
+@media(max-width:600px){.hero{padding:36px 0 24px}}
+/* code panels */
+.code{background:var(--code);border:1px solid var(--codeline);border-radius:12px;overflow:hidden;color:#c9d1d9;min-width:0}
+.code .bar{height:32px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #262b38;background:var(--code2);font-family:var(--mono);font-size:11.5px;color:#8e94a3}
+.code .dots{display:flex;gap:5px}.code .dots i{width:9px;height:9px;border-radius:50%;background:#2d3343}
+.code pre{margin:0;padding:14px 16px;font-family:var(--mono);font-size:13px;line-height:1.6;overflow-x:auto;white-space:pre;tab-size:4}
+.code pre+.bar{border-top:1px solid #262b38}
+.t-kw{color:#ff7b72}.t-ty{color:#ffa657}.t-fn{color:#d2a8ff}.t-str{color:#a5d6ff}.t-num{color:#79c0ff}.t-cm{color:#6e7681}.t-pp{color:#ff7b72}.t-ok{color:#4ade80}.t-err{color:#fda4af}.t-pr{color:#6e7681}
+@media(max-width:600px){.code pre{font-size:12px;padding:12px}}
+/* facts */
+.facts-row{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.fact{padding:22px 24px 22px 0}
+.fact+.fact{border-left:1px solid var(--line);padding-left:24px}
+.fact b{display:block;font-size:32px;font-weight:800;letter-spacing:-.03em;color:var(--ink);line-height:1.1}
+.fact span{display:block;font-size:13.5px;color:var(--ink3);margin-top:6px}
+@media(max-width:860px){.facts-row{grid-template-columns:1fr 1fr}.fact:nth-child(3){border-left:0;padding-left:0}.fact:nth-child(n+3){border-top:1px solid var(--line)}}
+@media(max-width:480px){.facts-row{grid-template-columns:1fr}.fact{border-left:0!important;padding-left:0!important;border-top:1px solid var(--line)}.fact:first-child{border-top:0}}
+/* sections */
+section.s{padding:72px 0 8px}
+@media(max-width:600px){section.s{padding:52px 0 4px}}
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:28px}
+.card{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:20px 20px 22px;transition:border-color .12s,transform .12s,box-shadow .12s}
+@media(hover:hover){.card:hover{transform:translateY(-3px);border-color:var(--brand200);box-shadow:0 10px 22px -12px rgba(16,24,40,.28)}}
+.card .tag{font-family:var(--mono);font-size:11px;color:var(--brand);display:block;margin-bottom:8px}
+.card p{font-size:14.5px;color:var(--ink3);margin-top:6px;line-height:1.5}
+@media(max-width:860px){.cards{grid-template-columns:minmax(0,1fr)}}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;margin-top:28px;align-items:start}
+.split.wide-l{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
+@media(max-width:960px){.split,.split.wide-l{grid-template-columns:minmax(0,1fr)}}
+.stack{display:flex;flex-direction:column;gap:14px;min-width:0}
+.note{font-size:13px;color:var(--ink3);margin-top:12px}
+/* perf */
+.perf{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:20px 22px 18px}
+.perf-h{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--ink3);margin-bottom:12px}
+.perf-h b{color:var(--ink);font-size:14px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px}.legend span{white-space:nowrap;display:inline-flex;align-items:center;gap:6px}.legend i{width:10px;height:10px;border-radius:3px;background:var(--brand)}.legend i.c{background:var(--brand200)}
+.row{display:grid;grid-template-columns:76px minmax(0,1fr);gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line2)}
+.row:first-of-type{border-top:0}
+.row .name{font-family:var(--mono);font-size:13px;color:var(--ink)}
+.bars{position:relative;display:flex;flex-direction:column;gap:5px}
+.bars{padding-right:44px}
+.bars::after{content:"";position:absolute;top:-4px;bottom:-4px;left:calc((100% - 44px)/1.6);border-left:1px dashed var(--ink4)}
+.b{position:relative;height:16px;border-radius:4px;background:var(--brand);width:calc(var(--v)/1.6*100%)}
+.b.c{background:var(--brand200)}
+.b em{position:absolute;left:calc(100% + 6px);top:0;line-height:16px;font-style:normal;font-family:var(--mono);font-size:11.5px;color:var(--ink2);white-space:nowrap}
+.axis{display:grid;grid-template-columns:76px minmax(0,1fr);gap:12px;font-family:var(--mono);font-size:11px;color:var(--ink3);margin-top:6px}
+.axis div{position:relative;height:14px;margin-right:44px}.axis div span{position:absolute;transform:translateX(-50%)}
+.pts{list-style:none;display:flex;flex-direction:column;gap:14px}
+.pts li{padding-left:18px;position:relative}
+.pts li::before{content:"";position:absolute;left:0;top:10px;width:7px;height:7px;border-radius:2px;background:var(--brand)}
+.pts b{color:var(--ink)}
+/* tables */
+.tbl{width:100%;border-collapse:collapse;background:var(--white);border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:14px}
+.tbl th{text-align:left;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);background:#fafbff;padding:10px 14px;border-bottom:1px solid var(--line)}
+.tbl td{padding:11px 14px;border-top:1px solid var(--line2);vertical-align:top}
+.tbl tr:nth-child(2) td{border-top:0}
+.tbl td:first-child{color:var(--ink);font-weight:500}
+.tbl .m{font-family:var(--mono);font-size:12.5px}
+.tblw{overflow-x:auto;border-radius:12px}
+/* pipeline */
+.pipe{display:flex;align-items:stretch;margin-top:28px}
+.stage{flex:1 1 0;min-width:0;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:14px 14px 16px}
+.stage.own{border-color:var(--brand200);background:linear-gradient(180deg,#f6f8ff,#fbfcff)}
+.stage i{display:block;font-style:normal;font-family:var(--mono);font-size:10.5px;color:var(--brand);margin-bottom:4px}
+.stage h3{font-size:14.5px;letter-spacing:-.01em}
+.stage p{font-size:12.5px;color:var(--ink3);margin-top:4px;line-height:1.4}
+.arr{flex:none;width:22px;display:flex;align-items:center;justify-content:center}
+.arr::before{content:"";width:12px;height:1px;background:var(--ink4)}
+.arr::after{content:"";width:5px;height:5px;border-right:1px solid var(--ink4);border-top:1px solid var(--ink4);transform:translateX(-5px) rotate(45deg)}
+@media(max-width:900px){.pipe{flex-direction:column}.arr{width:auto;height:20px;transform:rotate(90deg)}}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.chips span{font-family:var(--mono);font-size:12px;color:var(--ink2);background:var(--white);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+.no{font-size:14px;color:var(--ink3);margin-top:16px}
+/* cta + footer */
+.end{margin:80px 0 0;padding:44px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);text-align:center}
+.end h2{max-width:24ch;margin:0 auto}
+.end .hero-cta{justify-content:center}
+footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
+.foot{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+.foot-links{display:flex;gap:18px;flex-wrap:wrap}.foot-links a{padding:4px 0}.foot-links a:hover{color:var(--ink)}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.card{transition:none}}
+</style>
+</head>
+<body>
+<header class="top"><a class="skip" href="#main">Skip to content</a><div class="wrap top-in">
+  <a class="logo" href="#top" aria-label="cimo home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#3f5cf6"/><path d="M20.5 10.2A7 7 0 1 0 20.5 21.8" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/><circle cx="23" cy="16" r="1.9" fill="#fff"/></svg>cimo</a>
+  <ul class="topnav">
+    <li class="hide-sm"><a href="#why">Why</a></li>
+    <li class="hide-sm"><a href="#speed">Speed</a></li>
+    <li class="hide-sm"><a href="#c">C support</a></li>
+    <li class="hide-sm"><a href="#browser">Browser</a></li>
+    <li class="hide-sm"><a href="#how">How it works</a></li>
+    <li class="navcta"><a class="btn btn-s" href="https://github.com/farizrahman4u/cimo">GitHub</a></li>
+  </ul>
+</div></header>
+
+<main id="main" tabindex="-1">
+<section class="hero" id="top"><div class="wrap hero-grid">
+  <div>
+    <span class="k">A C compiler in pure Python</span>
+    <h1>C kernels on your numpy arrays, at <em style="white-space:nowrap">-O3 speed</em>. No toolchain.</h1>
+    <p class="lede">Write a C kernel as a string and call it a few hundred milliseconds later. No compiler, no SDK, no wheels, no build step. In the browser too.</p>
+    <div class="hero-cta">
+      <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo">Copy</button></div>
+      <a class="btn btn-s" href="#how">How it works</a>
+    </div>
+    <p class="hero-note">Standard library only · CPython 3.9+ and Pyodide · MIT</p>
+  </div>
+  <div class="code">
+    <div class="bar"><span class="dots"><i></i><i></i><i></i></span>blur.py</div>
+<pre data-lang="py">import numpy as np
+import cimo
+
+k = cimo.compile(r"""
+void blur(int h, int w, const float src[h][w], float dst[h][w]) {
+    for (int i = 1; i &lt; h - 1; i++)
+        for (int j = 1; j &lt; w - 1; j++)
+            dst[i][j] = 0.2f * (src[i][j] + src[i-1][j] + src[i+1][j]
+                                          + src[i][j-1] + src[i][j+1]);
+}
+""")
+
+src = np.random.rand(4096, 4096).astype(np.float32)
+dst = np.zeros_like(src)
+k.blur(*src.shape, src, dst)   # native code, on your arrays in place</pre>
+  </div>
+</div></section>
+
+<div class="wrap">
+  <div class="facts-row">
+    <div class="fact"><b>0</b><span>runtime dependencies. Ordinary Python.</span></div>
+    <div class="fact"><b>&lt; 1 s</b><span>to compile a kernel file. Cached by content hash.</span></div>
+    <div class="fact"><b>~1.0×</b><span>gcc and clang <code>-O3</code> on analyzable loops</span></div>
+    <div class="fact"><b>~100×</b><span>faster than pure Python on stencils, flood fills, DP</span></div>
+  </div>
+</div>
+
+<section class="s" id="why"><div class="wrap">
+  <span class="k">Why</span>
+  <h2>Native code wherever Python runs.</h2>
+  <p class="lede">Cython, cffi and C extensions need a toolchain on the user's machine. Numba needs LLVM wheels. cimo parses the C, optimizes it, encodes arm64, x86-64 or WebAssembly itself, maps it into executable memory and hands you a Python callable. Your numpy data is never copied.</p>
+  <div class="cards">
+    <div class="card"><span class="tag">browser</span><h3>Pyodide, JupyterLite, marimo</h3><p>No compiler in the page. cimo compiles there anyway.</p></div>
+    <div class="card"><span class="tag">.py only</span><h3>Plugin repositories</h3><p>The QGIS plugin repository bans compiled binaries. cimo ships as source.</p></div>
+    <div class="card"><span class="tag">locked down</span><h3>Corporate machines, sandboxes</h3><p>Nothing to install beyond the package. If Python runs, your kernels run.</p></div>
+  </div>
+</div></section>
+
+<section class="s" id="speed"><div class="wrap">
+  <span class="k">Fast where it matters</span>
+  <h2>Matches gcc and clang at <span style="font-family:var(--mono);font-weight:600;white-space:nowrap">-O3.</span></h2>
+  <p class="lede">Not a one-pass compiler. A loop optimizer and real instruction selection.</p>
+  <div class="split wide-l">
+    <div class="perf" role="img" aria-label="cimo run time relative to gcc -O3 and clang -O3: saxpy 0.79 and 1.43, gemm 0.89 and 1.11, jacobi2d 1.04 and 0.96, conv3x3 1.04 and 1.07">
+      <div class="perf-h"><b>cimo time ÷ reference time</b><span class="legend"><span><i></i>gcc -O3 · Linux arm64</span><span><i class="c"></i>clang -O3 · Apple M4</span></span></div>
+      <div class="row"><span class="name">saxpy</span><div class="bars"><div class="b" style="--v:.79"><em>0.79×</em></div><div class="b c" style="--v:1.43"><em>1.43×</em></div></div></div>
+      <div class="row"><span class="name">gemm</span><div class="bars"><div class="b" style="--v:.89"><em>0.89×</em></div><div class="b c" style="--v:1.11"><em>1.11×</em></div></div></div>
+      <div class="row"><span class="name">jacobi2d</span><div class="bars"><div class="b" style="--v:1.04"><em>1.04×</em></div><div class="b c" style="--v:.96"><em>0.96×</em></div></div></div>
+      <div class="row"><span class="name">conv3x3</span><div class="bars"><div class="b" style="--v:1.04"><em>1.04×</em></div><div class="b c" style="--v:1.07"><em>1.07×</em></div></div></div>
+      <div class="axis"><i></i><div><span style="left:0">0</span><span style="left:31.25%">0.5</span><span style="left:62.5%">1.0</span><span style="left:93.75%">1.5</span></div></div>
+      <p class="note">Lower is better; dashed line is parity. Scalar code, FMA contraction off on both sides. Results are bit-identical to the reference compiler.</p>
+    </div>
+    <ul class="pts">
+      <li><b>Loop optimizer.</b> Unrolling, unroll-and-jam, scalar replacement, strength reduction, runtime alias checks.</li>
+      <li><b>Real backend.</b> Instruction selection and register allocation, encoded to machine code in Python. No assembler, no linker.</li>
+      <li><b>Instant second run.</b> Compiled modules are cached by content hash.</li>
+      <li><b>Know why a loop is slow.</b> <code>python -m cimo report</code> says which loops were optimized and what blocked the rest.</li>
+    </ul>
+  </div>
+  <div class="code" style="margin-top:18px">
+    <div class="bar"><span class="dots"><i></i><i></i><i></i></span>terminal</div>
+<pre data-lang="sh"><span class="t-pr">$</span> python -m cimo report kernels.c
+kernels.c:12  loop over j: <span class="t-ok">optimized</span> (unrolled x4, alias check on src/dst)
+kernels.c:31  loop over i: <span class="t-err">not optimized</span>: base of `p` depends on a runtime branch</pre>
+  </div>
+</div></section>
+
+<section class="s" id="c"><div class="wrap">
+  <span class="k">Real C, not a subset</span>
+  <h2>C11, with its own C library.</h2>
+  <p class="lede">cimo bundles its libc, so a kernel behaves the same on every platform, the browser included.</p>
+  <div class="split">
+    <div>
+      <ul class="pts">
+        <li><b>The whole language.</b> Structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs, VLAs, <code>goto</code>, <code>switch</code>, globals, <code>const</code> tables.</li>
+        <li><b>Bundled headers.</b> <code>stdio.h</code>, <code>stdlib.h</code>, <code>string.h</code>, <code>math.h</code>, <code>ctype.h</code>, <code>inttypes.h</code> and the freestanding headers. <code>printf</code> writes to <code>sys.stdout</code>, so output lands in your notebook.</li>
+        <li><b>Hand-written SIMD.</b> GNU vector types for NEON, AVX2 and AVX-512. <code>#pragma omp simd</code> and <code>restrict</code> honored as written.</li>
+        <li><b>The OS when you need it.</b> Link libc for files, clocks, threads and sockets, or any shared library: zlib, BLAS, the Python C API.</li>
+      </ul>
+      <p class="no">Not supported: inline assembly, <code>setjmp</code>/<code>longjmp</code>, 128-bit <code>long double</code>. Each is a compile error that says so.</p>
+    </div>
+    <div class="stack">
+      <div class="code">
+        <div class="bar"><span class="dots"><i></i><i></i><i></i></span>link</div>
+<pre data-lang="py">k = cimo.compile(src, link=["libc"], host_headers=True)
+k = cimo.compile(src, link=["libz.so.1"])
+k = cimo.load("kernels.c")   # or keep kernels in a file</pre>
+      </div>
+      <div class="tblw"><table class="tbl">
+        <tr><th>C parameter</th><th>Pass from Python</th></tr>
+        <tr><td class="m">float *, const uint8_t *, VLAs</td><td>numpy arrays, <span class="m">bytearray</span>, <span class="m">memoryview</span></td></tr>
+        <tr><td class="m">int, double, size_t</td><td>Python numbers</td></tr>
+        <tr><td class="m">struct point</td><td>a ctypes structure or a <span class="m">dict</span></td></tr>
+      </table></div>
+    </div>
+  </div>
+</div></section>
+
+<section class="s" id="threads"><div class="wrap">
+  <span class="k">Pythonic runtime</span>
+  <h2>Plain threads. Python exceptions.</h2>
+  <div class="split">
+    <div class="stack">
+      <p>Kernels release the GIL and are safe to call concurrently. No launch API; bring your own threads. <code>malloc</code> is lock-free, with a heap per thread.</p>
+      <div class="code">
+        <div class="bar"><span class="dots"><i></i><i></i><i></i></span>16 threads, one kernel</div>
+<pre data-lang="py">from concurrent.futures import ThreadPoolExecutor
+
+n = 16
+with ThreadPoolExecutor() as pool:
+    list(pool.map(lambda b: k.blur(b, n, h, w, src, dst), range(n)))</pre>
+      </div>
+    </div>
+    <div class="stack">
+      <p><code>assert</code>, <code>abort()</code>, <code>exit()</code> and traps unwind back to Python. Debug builds bounds-check every access and catch use-after-free, double free and leaks.</p>
+      <div class="code">
+        <div class="bar"><span class="dots"><i></i><i></i><i></i></span>debug=True</div>
+<pre data-lang="py">k.blur(*src.shape, src, dst)
+<span class="t-err">cimo.BoundsError</span>: blur: read of src[4096][1] is out of bounds (src is 4096 x 4096)
+  at line 5</pre>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<section class="s" id="browser"><div class="wrap">
+  <span class="k">Runs in the browser</span>
+  <h2>The same compiler emits WebAssembly.</h2>
+  <div class="split">
+    <div>
+      <p class="lede" style="margin-top:0">In Pyodide, JupyterLite or marimo, kernels compile in the page and link into Pyodide's own memory. They work on numpy arrays in place. No server, no 50 MB clang-in-WASM download.</p>
+      <div class="chips"><span>Pyodide</span><span>JupyterLite</span><span>marimo</span></div>
+    </div>
+    <div class="code">
+      <div class="bar"><span class="dots"><i></i><i></i><i></i></span>notebook cell</div>
+<pre data-lang="py">import micropip; await micropip.install("cimo")
+import cimo
+k = cimo.compile(src)   # compiled in the page</pre>
+    </div>
+  </div>
+</div></section>
+
+<section class="s" id="platforms"><div class="wrap">
+  <span class="k">Platforms</span>
+  <h2>One package, four targets.</h2>
+  <div class="tblw" style="margin-top:24px"><table class="tbl">
+    <tr><th>Platform</th><th>Backend</th><th>Loader</th></tr>
+    <tr><td>Linux arm64 / x86-64</td><td class="m">arm64, amd64</td><td class="m">mmap + mprotect (W^X)</td></tr>
+    <tr><td>macOS, Apple silicon</td><td class="m">arm64</td><td class="m">MAP_JIT, W^X fallback</td></tr>
+    <tr><td>Windows x64</td><td class="m">amd64</td><td class="m">VirtualAlloc + VirtualProtect</td></tr>
+    <tr><td>Pyodide / browser</td><td class="m">WebAssembly</td><td class="m">shared-memory side module</td></tr>
+  </table></div>
+  <p class="note">Kernels run with the full privileges of your Python process, like ctypes. There is no sandbox.</p>
+</div></section>
+
+<section class="s" id="how"><div class="wrap">
+  <span class="k">How it works</span>
+  <h2>Two small compilers, ported. A loop optimizer on top.</h2>
+  <div class="pipe">
+    <div class="stage"><i>in</i><h3>C source</h3><p>A string or a <span style="font-family:var(--mono)">.c</span> file</p></div><span class="arr" aria-hidden="true"></span>
+    <div class="stage"><i>from cproc</i><h3>Front end</h3><p>C11 parser and type checker</p></div><span class="arr" aria-hidden="true"></span>
+    <div class="stage own"><i>cimo's own</i><h3>Loop optimizer</h3><p>Closes the gap to gcc</p></div><span class="arr" aria-hidden="true"></span>
+    <div class="stage"><i>from QBE</i><h3>Backend</h3><p>SSA, instruction selection, register allocation</p></div><span class="arr" aria-hidden="true"></span>
+    <div class="stage own"><i>cimo's own</i><h3>Encoder</h3><p>arm64, amd64, WASM</p></div><span class="arr" aria-hidden="true"></span>
+    <div class="stage"><i>out</i><h3>Executable memory</h3><p>JIT, or ELF / Mach-O / PE</p></div>
+  </div>
+  <p class="lede" style="margin-top:22px"><a href="https://sr.ht/~mcf/cproc/">cproc</a> and <a href="https://c9x.me/compile/">QBE</a> are ported to Python and checked against the originals by diffing their IR pass by pass. Every release is differential-tested against gcc and clang on generated random programs.</p>
+</div></section>
+
+<section class="end"><div class="wrap">
+  <h2>If Python runs, your kernels run.</h2>
+  <div class="hero-cta">
+    <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo">Copy</button></div>
+    <a class="btn btn-p" href="https://github.com/farizrahman4u/cimo">View on GitHub</a>
+  </div>
+</div></section>
+</main>
+
+<footer class="site"><div class="wrap foot">
+  <span>cimo · MIT. Bundled code from QBE (MIT), cproc (ISC) and musl (MIT) keeps its license.</span>
+  <nav class="foot-links" aria-label="Footer"><a href="https://github.com/farizrahman4u/cimo">GitHub</a><a href="https://github.com/farizrahman4u/cimo/blob/main/requirements.md">Design spec</a><a href="https://github.com/farizrahman4u/cimo/blob/main/LICENSE">License</a></nav>
+</div></footer>
+
+<script>
+// Copy buttons
+document.querySelectorAll("[data-copy]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    var done = function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1400); };
+    if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.copy).then(done, function () {});
+  });
+});
+// Minimal highlighter for Python with embedded C. Skips blocks that already carry spans.
+(function () {
+  var KW = "import|from|with|as|for|in|lambda|await|return|if|else|while|void|const|static|struct|int|float|double|char|unsigned|long|size_t|uint8_t";
+  var TY = /^(void|const|static|struct|int|float|double|char|unsigned|long|size_t|uint8_t)$/;
+  var re = new RegExp('(#[^\\n]*|/\\*[\\s\\S]*?\\*/)|(r?"""|"[^"\\n]*")|\\b(' + KW + ')\\b|\\b(\\d+(?:\\.\\d+)?f?)\\b|\\b([A-Za-z_]\\w*)(?=\\()', "g");
+  document.querySelectorAll('pre[data-lang="py"]').forEach(function (pre) {
+    if (pre.querySelector("span")) return;
+    pre.innerHTML = pre.innerHTML.replace(re, function (m, cm, str, kw, num, fn) {
+      if (cm) return '<span class="t-cm">' + m + "</span>";
+      if (str) return '<span class="t-str">' + m + "</span>";
+      if (kw) return '<span class="' + (TY.test(kw) ? "t-ty" : "t-kw") + '">' + m + "</span>";
+      if (num) return '<span class="t-num">' + m + "</span>";
+      return '<span class="t-fn">' + m + "</span>";
+    });
+  });
+})();
+</script>
+</body>
+</html>
