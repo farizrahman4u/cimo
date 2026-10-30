@@ -108,13 +108,11 @@ int step(int n, int T, int head, float *ring)
     *dx = -y - z;
     *dy = x + a * y;
     *dz = b + z * (x - c);`},
-    'Chen–Lee': {
-      spawn: '8.0f', dt: '0.004f', sub: 3, body: `
-    const float a = 5, b = -10, c = -0.38f;
-    *dx = a * x - y * z;
-    *dy = b * y + x * z;
-    *dz = c * z + x * y / 3;`},
   };
+
+  function slug(name) {
+    return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]+/g, '-');
+  }
 
   function source(name) {
     const p = PRESETS[name];
@@ -172,8 +170,13 @@ def build(src):
   };
   // before starting: the default source as static text
   ui.preset.innerHTML = Object.keys(PRESETS).map(n => `<option>${n}</option>`).join('');
+  // a random attractor per visit, unless the URL names one (?preset=Lorenz)
   const want = /[?&]preset=([^&#]+)/.exec(location.search);
-  if (want && PRESETS[decodeURIComponent(want[1])]) ui.preset.value = decodeURIComponent(want[1]);
+  const names = Object.keys(PRESETS);
+  ui.preset.value = want && PRESETS[decodeURIComponent(want[1])] ? decodeURIComponent(want[1])
+    : names[Math.floor(Math.random() * names.length)];
+  const poster = $('.demo-poster', root);
+  if (poster) poster.src = 'poster-' + slug(ui.preset.value) + '.jpg';
   ui.code.querySelector('pre').textContent = source(ui.preset.value);
 
   function script(src) {
@@ -242,7 +245,14 @@ def build(src):
 
   // ---- the ghost edit: once per visit, a few seconds after the demo starts, type a small
   // change into the field so it is obvious the code is live; stops as soon as the user acts
-  const GHOST = { 'Aizawa': ['*dx = (z - b) * x - d * y', ' + 0.6f * y * z'] };
+  const GHOST = {
+    'Aizawa': ['*dx = (z - b) * x - d * y', ' + 0.6f * y * z'],
+    'Lorenz': ['*dz = x * y - b * z', ' + 6 * sinf(x / 3)'],
+    'Thomas': ['*dz = sinf(x) - b * z', ' + 0.4f * cosf(2 * y)'],
+    'Halvorsen': ['*dz = -a * z - 4 * x - 4 * y - x * x', ' + 0.8f * y'],
+    'Dadras': ['*dz = d * x * y - e * z', ' + 3 * sinf(y)'],
+    'Rössler': ['*dy = x + a * y', ' + 0.15f * z'],
+  };
   let ghostTimer = null, ghostStop = null;
 
   function scheduleGhost() {
@@ -265,12 +275,11 @@ def build(src):
     let pos = start, i = 0, mark = editor.setBookmark(pos, { widget: caret });
     editor.scrollIntoView({ line: start.line, ch: 0 }, 60);
     const tick = () => {
-      if (i >= g[1].length) {
-        mark.clear();
+      if (i >= g[1].length) {  // done: the caret stays parked here until the user acts
         editor.markText(start, pos, { className: 'cm-ghost' });
         root.classList.add('ghosted');
         ghostTimer = setTimeout(() => root.classList.remove('ghosted'), 9000);
-        ghostStop = null;
+        ghostStop = () => mark.clear();
         return;
       }
       editor.replaceRange(g[1][i++], pos, pos, '+ghost');
@@ -279,7 +288,7 @@ def build(src):
       mark = editor.setBookmark(pos, { widget: caret });
       ghostTimer = setTimeout(tick, 70 + Math.random() * 60);
     };
-    ghostStop = () => { clearTimeout(ghostTimer); mark.clear(); ghostStop = null; };
+    ghostStop = () => { clearTimeout(ghostTimer); mark.clear(); };
     ghostTimer = setTimeout(tick, 500);
   }
 
@@ -292,7 +301,7 @@ def build(src):
     let timer = null;
     const userActs = () => {
       clearTimeout(ghostTimer);
-      if (ghostStop) ghostStop();
+      if (ghostStop) { ghostStop(); ghostStop = null; }
       root.classList.remove('ghosted');
     };
     editor.on('mousedown', userActs);
@@ -304,6 +313,7 @@ def build(src):
     });
     ui.preset.addEventListener('change', () => {
       userActs();
+      viewFor(ui.preset.value);
       editor.setValue(source(ui.preset.value));
       clearTimeout(timer);
       if (compile(true)) seed();
@@ -342,7 +352,14 @@ def build(src):
     return heap.subarray(ring >> 2, (ring >> 2) + N * T * 3);
   }
 
+  function viewFor(name) {  // the preset's camera angle, if it has one
+    const p = PRESETS[name];
+    yaw = p.yaw !== undefined ? p.yaw : 0.6;
+    pitch = p.pitch !== undefined ? p.pitch : 0.35;
+  }
+
   function setupView() {
+    viewFor(ui.preset.value);
     const canvas = ui.view.querySelector('canvas');
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -350,6 +367,7 @@ def build(src):
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
     group = new THREE.Group();
+    group.rotation.x = -Math.PI / 2;  // z up, as these systems are usually drawn
     scene.add(group);
 
     const geo = new THREE.BufferGeometry();
@@ -526,7 +544,7 @@ def build(src):
     points.geometry.setDrawRange(head * N, N);
     if (auto) yaw += dt * 0.00012;
     group.scale.setScalar(scale);
-    group.position.set(-center[0] * scale, -center[1] * scale, -center[2] * scale);
+    group.position.set(-center[0] * scale, -center[2] * scale, center[1] * scale);  // (z up)
     camera.position.set(dist * Math.cos(pitch) * Math.sin(yaw), dist * Math.sin(pitch), dist * Math.cos(pitch) * Math.cos(yaw));
     camera.lookAt(0, 0, 0);
     renderer.render(scene, camera);
