@@ -1,6 +1,6 @@
-/* cimo runtime: abort() and assert failures, which unwind back to Python (KernelError).
+/* cimo runtime: abort(), exit() and assert failures, which unwind back to Python (KernelError).
 
-   Exports: abort, __assert_fail (called by the assert macro in <assert.h>)
+   Exports: abort, exit, _Exit, __assert_fail (called by the assert macro in <assert.h>)
    Imports: __cimo_fail(code, expr, file, line, func), assembly glue in cimo/execution.py:
             records the error in the calling thread's context and unwinds to the innermost
             entry trampoline. The faulting function is taken from the caller of the function
@@ -23,4 +23,16 @@ _Noreturn void
 __assert_fail(const char *expr, const char *file, int line, const char *func)
 {
 	__cimo_fail(2, expr, file, line, func);
+}
+
+_Noreturn void
+exit(int status)
+{
+	__cimo_fail(6, 0, 0, status, 0);
+}
+
+_Noreturn void
+_Exit(int status)
+{
+	__cimo_fail(6, 0, 0, status, 0);
 }

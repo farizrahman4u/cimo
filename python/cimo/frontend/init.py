@@ -8,12 +8,13 @@ attribute, so stale values carry over exactly as in C.
 
 from .cc import (Init, BITS0, M64, TYPEARRAY, TYPESTRUCT, TYPEUNION, PROPSCALAR,
                  PROPINT, PROPCHAR, EXPRSTRING, TLBRACK, TPERIOD, TASSIGN, TIDENT, TRBRACK,
-                 TLBRACE, TRBRACE, TCOMMA)
+                 TLBRACE, TRBRACE, TCOMMA, TELLIPSIS)
 from .token import tok, error
 from .pp import next, expect, consume
 from .type import typecompatible
 from . import expr as E
 from . import util as U
+from . import diag as DG
 
 NOBJ = 32
 
@@ -107,6 +108,8 @@ def designator(s, p):
                 error(tok.loc, "index designator is only valid for array types")
             next()
             o.u = (E.intconstexpr(s, False) * t.base.size) & M64
+            if U.diagnostics and tok.kind == TELLIPSIS:
+                error(tok.loc, "range designators ('[a ... b]', a GNU extension) are not supported")
             if o.u >= t.size:
                 if not t.incomplete:
                     error(tok.loc, "index designator is larger than array length")

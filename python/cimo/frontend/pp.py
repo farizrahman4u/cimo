@@ -20,6 +20,7 @@ from . import token as TK
 from .token import tok, tokencheck, tokenstr, error
 from . import scan as S
 from . import util as U
+from . import diag as DG
 
 PARAMTOK = 1 << 0  # the parameter is used normally
 PARAMSTR = 1 << 1  # the parameter is used with the '#' operator
@@ -513,6 +514,10 @@ def next():
     k = _ALIASES.get(tok.kind)
     if k is not None:
         tok.kind = k
+    elif U.diagnostics:
+        k = DG.aliases.get(tok.kind)
+        if k is not None:
+            tok.kind = k
 
 
 def peek(kind):

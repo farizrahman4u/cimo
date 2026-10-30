@@ -25,9 +25,11 @@ import hashlib
 import json
 import os
 import sys
+import threading
 import time
 
 from . import assembler as _asm
+from .execution import CTX_OUT
 
 __all__ = ['LinkError', 'runtime', 'link', 'open_library', 'Stdout', 'RUNTIME_DIR']
 
@@ -371,14 +373,19 @@ def link(obj, hooks=None, libs=()):
 # ---------------------------------------------------------------------------------------------
 # stdout: the Python side of runtime/stdio/stdout.c
 
-_decoder = codecs.getincrementaldecoder('utf-8')('replace')
+_tls = threading.local()
 
 
 def _write(buf, n):
     """__cimo_hook_write: C output (UTF-8) to whatever sys.stdout is at the time, so
-    contextlib.redirect_stdout and Jupyter's capture see it."""
+    contextlib.redirect_stdout and Jupyter's capture see it. Decoded per thread: a character
+    split between two writes of one thread is not mixed with another thread's output."""
     try:
-        text = _decoder.decode(ctypes.string_at(buf, n))
+        try:
+            dec = _tls.decoder
+        except AttributeError:
+            dec = _tls.decoder = codecs.getincrementaldecoder('utf-8')('replace')
+        text = dec.decode(ctypes.string_at(buf, n))
         if text:
             sys.stdout.write(text)
     except Exception:  # never let an exception cross into C
@@ -389,23 +396,24 @@ _WRITE = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_size_t)(_write)
 
 
 class Stdout:
-    """A module's stdout buffer: binds its write hook and flushes it after each call."""
+    """A module's stdout: binds its write hook and flushes the calling thread's buffer (in its
+    execution context) after each call."""
 
-    __slots__ = ('_len', '_flush')
+    __slots__ = ('_flush',)
 
     @classmethod
     def attach(cls, image):
         """For an image linked with runtime/stdio/stdout.c, else None."""
         sym, pre = image.symbols, image.prefix
-        if pre + '__cimo_stdout' not in sym:
+        if pre + '__cimo_flush' not in sym:
             return None
         ctypes.c_void_p.from_address(sym[pre + '__cimo_hook_write']).value = \
             ctypes.cast(_WRITE, ctypes.c_void_p).value
         self = cls()
-        self._len = ctypes.c_size_t.from_address(sym[pre + '__cimo_stdout'])
         self._flush = ctypes.CFUNCTYPE(None)(sym[pre + '__cimo_flush'])
         return self
 
-    def flush(self):
-        if self._len.value:
+    def flush(self, ctx):
+        """ctx: the calling thread's context (cimo.execution)."""
+        if ctypes.c_size_t.from_address(ctypes.addressof(ctx) + CTX_OUT).value:
             self._flush()

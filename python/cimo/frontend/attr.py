@@ -1,12 +1,14 @@
 """Port of attr.c."""
 
-from .cc import (TIDENT, TCOLONCOLON, TLPAREN, TRPAREN, TLBRACK, TRBRACK, TCOMMA, TSTRINGLIT,
+from .cc import (TIDENT, TPPIDENT, TCOLONCOLON, TLPAREN, TRPAREN, TLBRACK, TRBRACK, TCOMMA, TSTRINGLIT,
                  T__ATTRIBUTE__, ATTRNORETURN, ATTRALIGNED, ATTRCONSTRUCTOR, ATTRDESTRUCTOR,
                  ATTRPACKED, ATTRSECTION)
 from .token import tok, tokenstr, error
 from .pp import next, consume, expect, peek
 from . import expr as E
 from . import scope as SC
+from . import util as U
+from . import diag as DG
 
 PREFIXNONE = 1  # standard attribute
 PREFIXGNU = 2
@@ -24,14 +26,19 @@ def strip(name):
 
 def parseattr(a, allowed, prefix):
     prefixname = ""
-    if tok.kind < TIDENT:
+    if tok.kind < TIDENT and not (U.diagnostics and tok.kind >= TPPIDENT):
+        # cimo: keywords are attribute names too, e.g. __attribute__((const)) as in gcc
         return False
     name = strip(tokenstr(tok.kind))
+    loc = tok.loc
+    vendor = ''
     next()
     if not prefix:
         if consume(TCOLONCOLON):
             if name == "gnu":
                 prefix = PREFIXGNU
+            vendor = name
+            loc = tok.loc
             name = strip(expect(TIDENT, "after attribute prefix"))
         else:
             prefix = PREFIXNONE
@@ -71,15 +78,18 @@ def parseattr(a, allowed, prefix):
             error(tok.loc, "%sattribute '%s' is not supported here", prefixname, name)
         if a:
             a.kind |= kind
-    elif consume(TLPAREN):
-        # skip arguments
-        paren = 1
-        while paren > 0:
-            if tok.kind == TLPAREN:
-                paren += 1
-            elif tok.kind == TRPAREN:
-                paren -= 1
-            next()
+    else:
+        if U.diagnostics:
+            DG.attribute(name, vendor, loc)  # ignored or rejected
+        if consume(TLPAREN):
+            # skip arguments
+            paren = 1
+            while paren > 0:
+                if tok.kind == TLPAREN:
+                    paren += 1
+                elif tok.kind == TRPAREN:
+                    paren -= 1
+                next()
     return True
 
 

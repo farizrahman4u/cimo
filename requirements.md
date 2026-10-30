@@ -100,12 +100,13 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
 
 - **Headers:** the C11 freestanding set (`stddef.h`, `stdint.h`, `stdbool.h`, `limits.h`,
   `float.h`, `stdarg.h`, `stdalign.h`, `stdnoreturn.h`, `iso646.h`) plus `math.h`,
-  `string.h`, `ctype.h`, `assert.h`, an OS-free `stdlib.h` and a minimal `stdio.h` (formatted
-  output only). All bundled.
+  `string.h`, `ctype.h`, `assert.h`, `inttypes.h`, an OS-free `stdlib.h` and a minimal
+  `stdio.h` (formatted output only). All bundled.
 - **Runtime library:** compiled from bundled C source (largely from musl, MIT) by our own compiler,
   then cached (or shipped precompiled):
   - `stdlib.h`: `malloc`, `calloc`, `realloc`, `free`, `aligned_alloc` (cimo's heap, see
-    "Execution model"), `qsort`, `bsearch`, `abs`/`labs`/`div`, `strtol`/`strtod`, `atoi`, `abort`
+    "Execution model"), `qsort`, `bsearch`, `abs`/`labs`/`div`, `strtol`/`strtod`, `atoi`,
+    `rand`/`srand` (musl's), `abort`, `exit` (raises `KernelError` with the status)
   - all of `string.h`, `ctype.h`, `math.h` (no `errno`: math functions are pure, so the optimizer
     may hoist and CSE them)
   - `stdio.h`: `printf`, `vprintf`, `puts`, `putchar`, `snprintf`, `vsnprintf`. Formatting is done
@@ -130,7 +131,12 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
   closing Python's file descriptors fight the interpreter, as with ctypes. Memory from a host
   allocator must be freed by that allocator, not by cimo's `free`.
 - **Builtins:** `memcpy`, `memset`, `memmove` (needed for struct copies anyway) and common GNU
-  builtins (`__builtin_expect`, etc.).
+  builtins: cproc's own (`__builtin_expect`, `__builtin_unreachable`, `__builtin_offsetof`,
+  ...), `__builtin_trap`, `__builtin_huge_val`/`inf`/`nan` (macros over cproc's `inff`/`nanf`),
+  and as runtime functions declared by the driver's prelude (`runtime/builtins.c`, portable C;
+  lowering them to `clz`/`rbit`/`cnt`/`rev` is future work): `popcount`, `clz`, `ctz`, `ffs`,
+  `parity`, `clrsb` (and `l`/`ll` versions), `bswap16/32/64`, `isnan`, `isinf`, `isfinite`,
+  `signbit`.
 - **Allowed:** structs, unions, bitfields, pointers of any depth, pointer arithmetic, recursion,
   function pointers, varargs, VLAs, `goto`, `switch`, mutable globals, `const` tables.
   Everything compiles correctly; not everything gets the fast path (see "Optimization model").
@@ -529,9 +535,8 @@ for Linux and macOS (strategies under "Platform loading findings").
   and `ABS16`, supported but not emitted). Thread-local storage (`.tdata`, `mrs tpidr_el0`, `@tlvp`)
   is rejected with a clear error.
 - Loader layout: code sections, then 16-byte stubs (`ldr x16, 8; br x16; .quad addr`) for calls
-  to external functions; then a RW region with GOT slots, data, bss and commons. An `adrp`
-  straight to an external *data* symbol only links if libc happens to be within 4 GB (error
-  otherwise); self-contained kernels never need it.
+  to external functions; then a RW region with GOT slots, data, bss and commons. External
+  data is always reached through a GOT slot (see M5), so library distance doesn't matter.
 - macOS: code goes in a `MAP_JIT` mapping, data in a separate RW mapping hinted right after it
   (a `MAP_JIT` page is RX for the thread while kernels run, so writable data can't share it);
   if that fails or lands beyond `adrp` range, fall back to one W^X mapping. Untested: needs a
@@ -539,7 +544,7 @@ for Linux and macOS (strategies under "Platform loading findings").
 
 **M3: cproc in Python.** Port cproc `d1c53dd`, restricted to freestanding C.
 - QBE IR text identical to C cproc on cproc's tests and on `kernels.c`.
-- Clear errors for unsupported features (see "Language").
+- Clear errors for unsupported features (see "Language"). **Done 2026-10-30**, see below.
 - **Port done 2026-10-30** (`python/cimo/frontend/`, 7k lines; conventions in its `PORTING.md`):
   `cimo.frontend.compile(text, filename, target='aarch64')` and `python -m cimo.frontend` (= `cproc-qbe`:
   `-E`, `-t`, `-o`). All of cproc-qbe is ported literally, including its own pp (`#define`,
@@ -558,10 +563,34 @@ for Linux and macOS (strategies under "Platform loading findings").
   port raises an internal error (CLI status 70). cproc's quirks are kept on purpose, e.g.
   `enum E : unsigned char { A }` is rejected, `_Bool b = 2` emits `b 2`, and initializing two
   union members asserts.
-- Still open: switching `cimo.compile` from C cproc to the port, and the "clear errors"
-  criterion. cproc already rejects `_Complex`, `_Atomic`, inline asm and `volatile` stores
-  with a location; `long double` (16 bytes) fails only at use, as `cproc-qbe: long double is
-  not yet supported` without a location.
+- **Clear errors done 2026-10-30** (`frontend/diag.py`, behind `compile(diagnostics=True)`, which
+  `cimo.compile` passes; the CLI stays cproc's; `python/tests/test_diagnostics.py`). Every error
+  has `file:line:col` and names the feature:
+  - Attributes: cproc's own (`aligned`, `packed`, `section`, `constructor`, `destructor`,
+    `noreturn`) work; an allowlist of hints that don't change meaning for cimo (`noinline`,
+    `unused`, `const`, `pure`, `format`, `nonnull`, `may_alias`, `visibility`, `weak`, ...) is
+    ignored; any other is "attribute 'X' is not supported" (`vector_size`: "not supported yet").
+    `aligned` after a declarator applies to the object/member, and on a struct typedef makes an
+    over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's
+    `#define __attribute__(x)` (made for non-GNU compilers), so attributes are never dropped.
+  - Declaring `long double` (16-byte), `__int128` (an opaque 16-byte type) or thread-locals is
+    fine (glibc's headers do); defining or using them is an error. `_Float16`, `__fp16`,
+    `__bf16`, `_Float128` etc. are rejected outright; an undeclared identifier followed by a
+    declarator is "unknown type name".
+  - Rejected GNU extensions: statement expressions, `&&label`/`goto *`, nested functions, case
+    ranges, range designators, `__label__`, `__auto_type`, `__builtin_choose_expr` and other
+    undeclared `__builtin_`/`__atomic_`/`__sync_` names, imaginary constants, empty structs,
+    inline assembly (`asm` is a keyword, as in gcc's default mode). `a ?: b` works (cproc
+    evaluates `a` once).
+  - Accepted: `__restrict(__)`, `__const(__)`, `__volatile`, `__alignof`, `asm` labels,
+    `__PRETTY_FUNCTION__`/`__FUNCTION__`, C23 `nullptr` (as `(void *)0`: cproc's `nullptr_t`
+    asserts in code generation). A C99 inline definition with no external definition in the
+    unit becomes a local function when referenced (cproc emits nothing, so the call failed to link).
+  - Driver hints: a missing header suggests `system_headers=True` (`setjmp.h`: unsupported);
+    undeclared hosted-libc names (`fopen`, `FILE`, `time`, `pthread_*`, ...) suggest
+    `system_headers=True, link=['libc']`.
+  - glibc 2.39 headers (stdio, stdlib, unistd, pthread, signal, math, sys/*, ...; 70+ tried) compile
+    except `complex.h` (`_Complex`) and `glob.h` (`__SIZE_TYPE__` is not predefined).
 
 **M4: middle stage.** Automate the transforms `scratch/qbe_eval/gen_opt.py` applies by hand, plus
 explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing and the loop-layout fix.
@@ -688,9 +717,11 @@ replacing host-libc resolution.
   buffer written through `__cimo_hook_write` (a function pointer Python sets to a ctypes
   callback, so modules import no symbol at all) at a newline, when full, and after every
   kernel call (Python reads the buffer length and calls `__cimo_flush` only if nonzero). The
-  callback decodes UTF-8 incrementally and writes to the current `sys.stdout`. Concurrent
-  printing from several threads is memory-safe (indices clamped) but may interleave or drop
-  output; moving the buffer into the per-thread context (needs a bigger context) fixes that.
+  callback decodes UTF-8 incrementally (per thread) and writes to the current `sys.stdout`.
+  The buffer is **per thread**, at offset 4096 of the thread's context (contexts are two
+  pages now), so concurrent threads' lines come out whole and in order per thread (checked:
+  8 threads x 2000 lines); a thread without a context (started by the kernel through a
+  linked libc) writes unbuffered.
 - Heap: size-class allocator in freestanding C, per-thread heaps with a lock-free fast path,
   cross-thread `free` via a deferred list (one internal compare-and-swap), `grow` hook into Python,
   heap reset from Python; stress-tested from many Python threads.
@@ -733,7 +764,7 @@ replacing host-libc resolution.
     against glibc. cimo's output is **identical to gcc-built musl** for all five; identical to
     glibc for string/ctype/stdlib (NaN payloads, invalid bases and `FP_ILOGB0` left out) and
     printf, except `%a` precision rounding, `%5%` and wide characters (C leaves them open)
-    and a musl 1.2.5 bug: `%#.3g` of 999.9995 prints `1.e+03` (C: `1.00e+03`); math within
+    and a glibc bug (2.39): `%#.3g` of 999.9995 prints `1.e+03` (C and musl: `1.00e+03`); math within
     1-2 ulps of glibc (lgamma/tgamma more), exact where Annex F pins it. The reference build
     needs `-fno-math-errno`, else gcc's `__builtin_sqrt` calls `sqrt` for negative inputs,
     which is the runtime's own `sqrt` (an endless tail call).
@@ -781,9 +812,13 @@ replacing host-libc resolution.
   defines is an error naming both. `test_default_build_resolves_nothing_from_the_process`
   links a module using printf, malloc, qsort, strtod, ctype and libm with the loader's dlsym
   patched to fail: the merged object has no undefined symbols.
-  Limitation: kernels can call host functions but not reference host *data* (`stdout`,
-  `errno`) unless the library lands within ±4 GB of the code (adrp); the loader would need to
-  map modules near the library or route data through the GOT.
+  Host *data* (`environ`, `optind`, glibc's `stdout`, `errno` via `__errno_location`) works at
+  any distance: cproc marks every external-linkage object `extern` in the IR, QBE loads its
+  address from a GOT slot (`adrp :got:` + `ldr`), and the loader fills the slot (defined
+  objects of the module stay direct `adrp` + `add`).
+- Kernels whose signature ctypes can't express (variadic, struct or union by value) are still
+  compiled and callable from C; calling them from Python raises `TypeError` (struct binding
+  is part of the interop API).
 
 **M6 and later:** Python interop API polish, amd64 backend, WASM backend +
 Pyodide loading, SIMD (vector types, then auto-vectorization), concurrent calls, debug mode,

@@ -27,9 +27,28 @@ from .execution import KernelError
 
 __all__ = ['compile', 'load', 'Module', 'CompileError', 'KernelError']
 
-_PRELUDE = '_Noreturn void __builtin_trap(void);\n'
+# Declarations every module sees: GNU builtins that are runtime functions (runtime/builtins.c)
+# or macros over cproc's own builtins.
+_PRELUDE = '''_Noreturn void __builtin_trap(void);
+int __builtin_popcount(unsigned); int __builtin_popcountl(unsigned long);
+int __builtin_popcountll(unsigned long long);
+int __builtin_clz(unsigned); int __builtin_clzl(unsigned long); int __builtin_clzll(unsigned long long);
+int __builtin_ctz(unsigned); int __builtin_ctzl(unsigned long); int __builtin_ctzll(unsigned long long);
+int __builtin_ffs(int); int __builtin_ffsl(long); int __builtin_ffsll(long long);
+int __builtin_parity(unsigned); int __builtin_parityl(unsigned long);
+int __builtin_parityll(unsigned long long);
+int __builtin_clrsb(int); int __builtin_clrsbl(long); int __builtin_clrsbll(long long);
+unsigned short __builtin_bswap16(unsigned short); unsigned __builtin_bswap32(unsigned);
+unsigned long __builtin_bswap64(unsigned long);
+int __builtin_isnan(double); int __builtin_isinf(double); int __builtin_isfinite(double);
+int __builtin_signbit(double);
+#define __builtin_huge_val() ((double)__builtin_inff())
+#define __builtin_huge_valf() __builtin_inff()
+#define __builtin_inf() ((double)__builtin_inff())
+#define __builtin_nan(s) ((double)__builtin_nanf(s))
+'''
 _CTYPE = {'w': ctypes.c_int32, 'l': ctypes.c_int64, 's': ctypes.c_float, 'd': ctypes.c_double}
-_SIG = re.compile(r'^export\s*\nfunction\s+(?:([wlsd])\s+)?\$(\w+)\(([^)]*)\)', re.M)
+_SIG = re.compile(r'^export\s*\nfunction\s+(?:([wlsd]|:[\w.]+)\s+)?\$(\w+)\(([^)]*)\)', re.M)
 
 
 class CompileError(Exception):
@@ -44,7 +63,7 @@ def _cache_dir():
 
 
 _APPLE = sys.platform == 'darwin'
-_VERSION = b'cimo-m5-exec1-rt1'  # part of the cache key: bump when the generated assembly changes
+_VERSION = b'cimo-m5-exec3-rt2-diag1'  # part of the cache key: bump when the generated assembly changes
 
 
 # the middle end's loop optimizations (cimo.middle); CIMO_MIDDLE=0 turns them off
@@ -90,6 +109,34 @@ def _frontend(pp, filename, **kw):
         _fq.paraminfo = None
 
 
+# hosted libc names that cimo's runtime does not provide (see _hint)
+_HOSTED = frozenset('''FILE stdin stdout stderr errno fopen freopen fclose fflush fread fwrite
+    fgets fputs fgetc fputc getc putc ungetc getchar gets fprintf vfprintf fscanf vfscanf scanf
+    vscanf sscanf vsscanf fseek ftell rewind fgetpos fsetpos feof ferror clearerr remove rename
+    tmpfile tmpnam perror setvbuf setbuf getline getenv setenv unsetenv system atexit at_quick_exit
+    quick_exit _Exit time clock difftime mktime localtime gmtime strftime asctime ctime
+    clock_gettime gettimeofday nanosleep sleep usleep open openat creat read write close lseek
+    pread pwrite unlink access getpid getppid fork execv execvp execl pipe dup dup2 isatty
+    getcwd chdir mkdir rmdir stat fstat lstat mmap munmap mprotect signal raise kill sigaction
+    opendir readdir closedir setlocale localeconv sysconf ioctl fcntl poll select socket
+    connect bind listen accept send recv dlopen dlsym'''.split())
+
+
+def _hint(msg, system_headers):
+    """A hint for errors about the hosted C library, which cimo does not bundle."""
+    host = ("pass system_headers=True to use the host's C headers (and link=['libc'] to "
+            "call their functions)")
+    m = re.search(r'([\w/.+-]+\.h): No such file or directory', msg)
+    if m and not system_headers:
+        if m.group(1) == 'setjmp.h':
+            return msg + '; setjmp/longjmp are not supported by cimo'
+        return msg + '; %s is not bundled with cimo: %s' % (m.group(1), host)
+    m = re.search(r"(?:undeclared identifier: |unknown type name ')(\w+)", msg)
+    if m and not system_headers and (m.group(1) in _HOSTED or m.group(1).startswith('pthread_')):
+        return msg + "; %s is not in cimo's runtime: %s" % (m.group(1), host)
+    return msg
+
+
 def _system_include_dirs():
     """The host's C header directories (for system_headers=True)."""
     if _APPLE:
@@ -121,9 +168,9 @@ def _build(src, filename='<string>', include_dirs=(), system_headers=False):
         include_dirs = tuple(include_dirs) + tuple(_system_include_dirs())
     try:
         pp = preprocess(_PRELUDE + '#line 1\n' + src, filename, include_dirs=include_dirs,
-                        target='arm64_apple' if _APPLE else 'arm64')
+                        target='arm64_apple' if _APPLE else 'arm64', keep_attributes=True)
     except PreprocessError as e:
-        raise CompileError(str(e)) from None
+        raise CompileError(_hint(str(e), system_headers)) from None
     key = hashlib.sha256(_VERSION + (b'apple' if _APPLE else b'') + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
                          + pp.encode()).hexdigest()[:24]
     path = os.path.join(_cache_dir(), key + '.s')
@@ -132,9 +179,9 @@ def _build(src, filename='<string>', include_dirs=(), system_headers=False):
         with open(path) as f, open(sig) as g:
             return f.read(), g.read()
     try:
-        ssa, params = _frontend(pp, filename, fma=FMA, builtins=True)
+        ssa, params = _frontend(pp, filename, fma=FMA, builtins=True, diagnostics=True)
     except FrontendError as e:
-        raise CompileError(str(e)) from None
+        raise CompileError(_hint(str(e), system_headers)) from None
     text = _qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
     sigs = '\n'.join('%s %s %s' % (m.group(2), m.group(1) or '-',
                                    ','.join(a.split()[0] for a in m.group(3).split(',')
@@ -169,12 +216,21 @@ class Kernel:
         self._state = state
         self._out = out  # the module's stdout buffer (cimo.linker.Stdout), if it has one
         self.address = image.address(name)
-        self._f = ctypes.CFUNCTYPE(_CTYPE.get(ret), *[_CTYPE[k] for k in params])(
-            image.address('__cimo_entry_' + name))
         self.__name__ = name
         self._params = params
+        self._f = None
+        if '...' in params:
+            self._unsupported = 'it is variadic'
+        elif any(k not in _CTYPE for k in params) or (ret is not None and ret not in _CTYPE):
+            self._unsupported = 'it passes or returns a struct or union by value'
+        else:
+            self._f = ctypes.CFUNCTYPE(_CTYPE.get(ret), *[_CTYPE[k] for k in params])(
+                image.address('__cimo_entry_' + name))
 
     def __call__(self, *args):
+        if self._f is None:
+            raise TypeError('%s() cannot be called from Python: %s (C callers in the module '
+                            'can still use it)' % (self.__name__, self._unsupported))
         if len(args) != len(self._params):
             raise TypeError('%s() takes %d arguments (%d given)'
                             % (self.__name__, len(self._params), len(args)))
@@ -188,7 +244,7 @@ class Kernel:
             return r
         finally:
             if self._out is not None:
-                self._out.flush()  # C output reaches sys.stdout before Python's next print
+                self._out.flush(ctx)  # C output reaches sys.stdout before Python's next print
 
     def __repr__(self):
         return '<cimo kernel %s>' % self.__name__

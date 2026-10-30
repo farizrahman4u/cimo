@@ -2,7 +2,7 @@
 
 from .cc import (SwitchCases, TCASE, TDEFAULT, TIDENT, TCOLON, TLBRACE, TRBRACE, TSEMICOLON,
                  TIF, TLPAREN, TRPAREN, TELSE, TSWITCH, TWHILE, TDO, TFOR, TGOTO, TCONTINUE,
-                 TBREAK, TRETURN, T__ASM__, PROPSCALAR, PROPINT)
+                 TBREAK, TRETURN, T__ASM__, PROPSCALAR, PROPINT, TELLIPSIS, TMUL)
 from .token import tok, tokenstr, error
 from .pp import next, expect, consume, peek
 from . import type as TY
@@ -11,6 +11,8 @@ from . import attr as A
 from . import decl as D
 from . import expr as E
 from . import qbe as Q
+from . import util as U
+from . import diag as DG
 
 
 def label(f, s):
@@ -24,6 +26,8 @@ def label(f, s):
         b = Q.mkblock("switch_case")
         Q.funclabel(f, b)
         i = E.intconstexpr(s, True)
+        if U.diagnostics and tok.kind == TELLIPSIS:
+            error(tok.loc, "case ranges ('case a ... b', a GNU extension) are not supported")
         Q.switchcase(s.switchcases, i, b)
         expect(TCOLON, "after case expression")
     elif k == TDEFAULT:
@@ -237,6 +241,8 @@ def stmt(f, s):
     # 6.8.6 Jump statements
     elif k == TGOTO:
         next()
+        if U.diagnostics and tok.kind == TMUL:
+            error(tok.loc, "computed goto ('goto *p', a GNU extension) is not supported")
         name = expect(TIDENT, "after 'goto'")
         Q.funcjmp(f, Q.funcgoto(f, name).label)
         expect(TSEMICOLON, "after 'goto' statement")
@@ -265,6 +271,8 @@ def stmt(f, s):
         expect(TSEMICOLON, "after 'return' statement")
 
     elif k == T__ASM__:
+        if U.diagnostics:
+            error(tok.loc, DG.INLINEASM)
         error(tok.loc, "inline assembly is not yet supported")
     else:
         e = E.expr(s)

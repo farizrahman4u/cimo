@@ -30,6 +30,7 @@ from . import eval as EV
 from . import init as IN
 from . import utf as UTF
 from . import util as U
+from . import diag as DG
 
 
 def mkexpr(k, t, b):
@@ -271,6 +272,8 @@ def inttype(val, decimal, suffix):
     types = (TY.typeint, TY.typeuint, TY.typelong, TY.typeulong, TY.typellong, TY.typeullong)
 
     def invalid():
+        if U.diagnostics:
+            DG.imaginary(suffix)
         error(tok.loc, "invalid integer constant suffix '%s'", suffix)
 
     # parse suffix
@@ -676,6 +679,8 @@ def primaryexpr(s):
             elif (end[0] == 'l' or end[0] == 'L') and len(end) == 1:
                 e.type = TY.typeldouble
             else:
+                if U.diagnostics:
+                    DG.imaginary(end)
                 error(tok.loc, "invalid floating constant suffix '%s'", end)
         else:
             src = lit
@@ -693,11 +698,14 @@ def primaryexpr(s):
         e.u = 1 if tok.kind == TTRUE else 0
         next()
     elif k == TNULLPTR:
-        e = Expr(EXPRCONST, TY.typenullptr, None)
+        # cimo: cproc's nullptr_t is incomplete (code generation asserts); use ((void *)0)
+        e = Expr(EXPRCONST, DG.typevoidptr if U.diagnostics else TY.typenullptr, None)
         e.u = 0
         next()
     elif k == TLPAREN:
         next()
+        if U.diagnostics:
+            DG.stmtexpr()
         e = expr(s)
         expect(TRPAREN, "after expression")
     elif k == T_GENERIC:
@@ -706,7 +714,11 @@ def primaryexpr(s):
         if tok.kind >= TIDENT:
             d = SC.scopegetdecl(s, tokenstr(tok.kind), 1)
             if not d:
+                if U.diagnostics:
+                    DG.undeclared(tokenstr(tok.kind))
                 error(tok.loc, "undeclared identifier: %s", tokenstr(tok.kind))
+            if U.diagnostics:
+                DG.identifier(d)
             e = Expr(EXPRIDENT, d.type, None)
             e.qual = d.qual
             e.lvalue = d.kind == DECLOBJECT
@@ -1010,6 +1022,8 @@ def unaryexpr(s):
             # XXX: __alignof__ is not the same as alignof on 32-bit archs
             # this needs to be considered if we gain support for those archs
             e = mkconstexpr(TY.typeulong, t.size if op == TSIZEOF else t.align)
+    elif op == TLAND and U.diagnostics:
+        error(tok.loc, "labels as values ('&&label', a GNU extension) are not supported")
     else:
         e = postfixexpr(s, None)
     return e
@@ -1020,6 +1034,8 @@ def castexpr(s):
     r = None
     last = None  # the cast whose base is `*end`; None means end == &r
     while consume(TLPAREN):
+        if U.diagnostics:
+            DG.stmtexpr()
         tq = Ref(QUALNONE)
         toeval = Ref(None)
         t = D.typename(s, tq, toeval)

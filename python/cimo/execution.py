@@ -21,12 +21,13 @@ Design (requirements.md, "Execution model"):
   host code); TLS (the loader would need TLS relocations and a TLS block per module); a
   hidden argument (changes every function's ABI and the frontend). The lookup costs about 20
   instructions and runs once per kernel call, `malloc` and `free`; never in loops otherwise.
-- One context per (module, thread), allocated by Python (one page). Its layout is shared by
+- One context per (module, thread), allocated by Python (two pages). Its layout is shared by
   the assembly below and runtime/heap.c (`CTX_HEAP`):
 
       0 err   8 msg   16 file   24 line   32 func   40 pc   48 depth   56 stack limit   64 tid
       128 frames: MAXDEPTH x 176 bytes (x19-x28, x29, lr, sp, d8-d15)
       3072 the thread's heap (struct heap in runtime/heap.c, at most 1024 bytes)
+      4096 the thread's stdout buffer (runtime/stdio/stdout.c: length, then 4088 bytes)
 
 - Re-entry (a kernel calls a Python callback that calls a kernel of the same module on the
   same thread) pushes another frame; an error unwinds only the innermost call.
@@ -49,28 +50,29 @@ from . import loader as _jit
 
 __all__ = ['KernelError', 'glue', 'stack_checked', 'State']
 
-CTX_SIZE = 4096
+CTX_SIZE = 8192
 ERR, MSG, FILE, LINE, FUNC, PC, DEPTH, LIMIT, TID = range(0, 72, 8)
 FRAMES, FRAMESZ, MAXDEPTH = 128, 176, 16
 CTX_HEAP = 3072
+CTX_OUT = 4096
 STACK_MARGIN = 128 << 10
 
-E_ABORT, E_ASSERT, E_TRAP, E_STACK, E_DEPTH = 1, 2, 3, 4, 5
+E_ABORT, E_ASSERT, E_TRAP, E_STACK, E_DEPTH, E_EXIT = 1, 2, 3, 4, 5, 6
 _HASH_K = 0x9E3779B97F4A7C15
 _M64 = (1 << 64) - 1
 
 
 class KernelError(Exception):
-    """A kernel called abort(), failed an assert, trapped or overflowed its stack.
-    Attributes: kind ('abort', 'assert', 'trap', 'stack overflow', 'nesting'), kernel (the
-    entry point Python called), function (where it happened, if known), and for assert:
-    expr, file, line."""
+    """A kernel called abort() or exit(), failed an assert, trapped or overflowed its stack.
+    Attributes: kind ('abort', 'exit', 'assert', 'trap', 'stack overflow', 'nesting'), kernel
+    (the entry point Python called), function (where it happened, if known), for assert:
+    expr, file, line, and for exit: status."""
 
     def __init__(self, message, kind=None, kernel=None, function=None, expr=None, file=None,
-                 line=None):
+                 line=None, status=None):
         Exception.__init__(self, message)
         self.kind, self.kernel, self.function = kind, kernel, function
-        self.expr, self.file, self.line = expr, file, line
+        self.expr, self.file, self.line, self.status = expr, file, line, status
 
 
 # ---------------------------------------------------------------------------------------------
@@ -426,8 +428,12 @@ class State:
         c.err = c.msg = c.file = c.line = c.func = c.pc = 0
         where = func or (self._symbol(pc) if pc else None)
         at = ' in %s()' % where if where else ''
+        status = None
         if code == E_ABORT:
             kind, msg = 'abort', 'abort() called%s' % at
+        elif code == E_EXIT:
+            status = ctypes.c_int32(line).value
+            kind, msg = 'exit', 'exit(%d) called%s' % (status, at)
         elif code == E_ASSERT:
             kind, msg = 'assert', 'assertion failed: %s, at %s:%d%s' % (expr, file, line, at)
         elif code == E_TRAP:
@@ -440,7 +446,7 @@ class State:
         else:
             kind, msg = 'error', 'kernel error %d%s' % (code, at)
         raise KernelError('%s (calling %s)' % (msg, kernel), kind, kernel, where, expr, file,
-                          line if code == E_ASSERT else None)
+                          line if code == E_ASSERT else None, status)
 
     def _symbol(self, pc):
         """Name of the function containing code address pc."""

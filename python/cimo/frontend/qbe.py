@@ -19,6 +19,7 @@ from . import decl as D
 from . import eval as EV
 from . import tree as TR
 from . import util as U
+from . import diag as DG
 
 out = U.out
 w = out.append
@@ -874,6 +875,8 @@ def funcbuiltin(f, e):
 
 
 def funcexpr(f, e):
+    if U.diagnostics:
+        DG.checktype(e.type)
     calcvla(f, e.type)
     k = e.kind
     if k == EXPRIDENT:
