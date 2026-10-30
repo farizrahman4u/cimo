@@ -119,9 +119,7 @@ def _globals(obj):
 def compile_runtime_source(path, target):
     """One runtime source file to assembly text, with the options the runtime is built with:
     the driver's optimizations and math builtins, but no FMA contraction (musl's algorithms
-    are written for -ffp-contract=off, which is how musl itself is built) and float
-    arithmetic declared as evaluated in float (__FLT_EVAL_METHOD__ 0, which is what cimo
-    does), so float_t is float as in a gcc build of musl. __FP_FAST_FMA(F) as gcc defines them
+    are written for -ffp-contract=off, which is how musl itself is built). __FP_FAST_FMA(F) as gcc defines them
     on arm64: musl's pow, log, exp2f, ... then use fma() (one instruction) for exact products."""
     from . import driver
     from . import execution as _exe
@@ -129,8 +127,7 @@ def compile_runtime_source(path, target):
     with open(path) as f:
         src = f.read()
     pp = preprocess(src, path, include_dirs=(RUNTIME_INCLUDE,),
-                    defines={'__FLT_EVAL_METHOD__': '0', '__FP_FAST_FMA': '1',
-                             '__FP_FAST_FMAF': '1'}, target=target,
+                    defines={'__FP_FAST_FMA': '1', '__FP_FAST_FMAF': '1'}, target=target,
                     warn=lambda *a, **k: None)
     ssa, params = driver._frontend(pp, path, fma=False, builtins=True, prune=True)
     return driver._qbe(ssa, params, stkchk=_exe.stack_checked(ssa))

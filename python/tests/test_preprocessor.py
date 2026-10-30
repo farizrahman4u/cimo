@@ -306,7 +306,7 @@ def test_all_headers_compile_for_apple():
                     reason='needs C cproc, C QBE and gcc on Linux aarch64')
 def test_all_headers_values_match_gcc(tmp_path):
     """Sizes, limits and library results: cimo.preprocessor + bundled headers + cproc + QBE vs gcc with
-    the system headers. Only float_t differs (cproc defines __FLT_EVAL_METHOD__ as 1)."""
+    the system headers."""
     pp = preprocess(open(ALL_HEADERS).read(), ALL_HEADERS)
     rc, ir, errs = preprocessor_compare.qbe_ir(pp)
     assert rc == 0, errs
@@ -324,4 +324,4 @@ def test_all_headers_values_match_gcc(tmp_path):
                          check=True).stdout.splitlines()
     assert len(ours) == len(gnu) > 200
     diffs = [(a, b) for a, b in zip(gnu, ours) if a != b]
-    assert diffs == [('sizeof(float_t) = 4, signed = 1', 'sizeof(float_t) = 8, signed = 1')]
+    assert diffs == []

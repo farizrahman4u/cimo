@@ -43,6 +43,4 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Small
 
-- `float_t`/`FLT_EVAL_METHOD` consistency (cimo evaluates float in float; the runtime is built
-  with `__FLT_EVAL_METHOD__` 0).
 - Demos (see "Demos (planned)" in `requirements.md`).

@@ -458,7 +458,7 @@ uses Apple's type macros (signed char and `wchar_t`, `int64_t` = `long long`). S
   - Apple differences are under `#ifdef __APPLE__`: signed char, `wchar_t` is `int`, `int64_t` is
     `long long`, 64-bit `long double` limits.
   - `python/tests/preprocessor_headers/all_headers.c` gives the same output when built by gcc with system
-    headers and by cimo.preprocessor + cproc + QBE, except `float_t`.
+    headers and by cimo.preprocessor + cproc + QBE.
 - **For the cproc port (M3):**
   - cproc emits unused `static` functions. math.h's 16 tiny classification and comparison
     helpers (e.g. `isnan`, no double evaluation) landed in every unit that includes it.
@@ -466,9 +466,10 @@ uses Apple's type macros (signed char and `wchar_t`, `int64_t` = `long long`). S
     and data no exported definition reaches (`frontend/prune.py`, on the IR text); the
     runtime's first build went from 8.8 s to 5.5 s. QBE has no inliner, so `isnan(x)` is a call
     until the middle stage inlines.
-  - cproc defines `__FLT_EVAL_METHOD__` as 1 but computes floats in single precision at run
-    time. So `float_t` is `double`, as with glibc under C cproc, while gcc says `float`. Decide
-    whether to switch to 0.
+  - cproc's config.h defines `__FLT_EVAL_METHOD__` as 1, but cproc + QBE compute floats in
+    single precision (at run time and when folding constants). `cimo.preprocessor` defines 0,
+    like gcc on arm64, so `float_t` is `float` (with 1 it was `double`: slower, and results
+    differing from gcc).
   - cproc has no Apple target. Apple arm64 has signed `char` and an 8-byte `long double`, while
     cproc's `aarch64` has unsigned `char` and a 16-byte `long double`. The port adds target
     `aarch64-apple` (signed `char`, `wchar_t` = `int`, 8-byte `long double`, and `va_list` =
@@ -756,9 +757,9 @@ replacing host-libc resolution.
   `ctype/ctype.c`; `internal/` holds cut-down musl headers (`libm.h` with macros instead of
   static inlines and no-op `FORCE_EVAL`/`fp_barrier`: no errno, no FP exception flags).
   Built with the driver's optimizations but **no FMA contraction** (musl builds with
-  `-std=c99`, i.e. `-ffp-contract=off`, and its algorithms assume it) and
-  `__FLT_EVAL_METHOD__` 0 (cimo evaluates float in float; with 1, `float_t` would be double
-  and the float functions would differ from musl's), and `__FP_FAST_FMA`/`__FP_FAST_FMAF` as
+  `-std=c99`, i.e. `-ffp-contract=off`, and its algorithms assume it), with
+  `__FLT_EVAL_METHOD__` 0 like all code (with 1, `float_t` would be double and the float
+  functions would differ from musl's), and `__FP_FAST_FMA`/`__FP_FAST_FMAF` as
   gcc defines them on arm64 (musl's `pow`, `log`, `log2` then use `fma()` for exact products;
   without them `pow` differs from gcc-built musl by an ulp).
   Fix over musl: floatscan's hex-float digit window is one digit wider (musl's is sized for its
