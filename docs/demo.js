@@ -245,14 +245,17 @@ def build(src):
 
   // ---- the ghost edit: on every visit, a few seconds after the demo starts, type a small
   // change into the field so it is obvious the code is live; stops as soon as the user acts
+  // [text before the number, the number, the new value]: changes that reshape the attractor
+  // and keep it bounded (checked for each preset)
   const GHOST = {
-    'Aizawa': ['*dx = (z - b) * x - d * y', ' + 0.6f * y * z'],
-    'Lorenz': ['*dz = x * y - b * z', ' + 6 * sinf(x / 3)'],
-    'Thomas': ['*dz = sinf(x) - b * z', ' + 0.4f * cosf(2 * y)'],
-    'Halvorsen': ['*dz = -a * z - 4 * x - 4 * y - x * x', ' + 0.8f * y'],
-    'Dadras': ['*dz = d * x * y - e * z', ' + 3 * sinf(y)'],
-    'Rössler': ['*dy = x + a * y', ' + 0.15f * z'],
+    'Aizawa': ['c = ', '0.6f', '1.1f'],
+    'Lorenz': ['r = ', '28', '60'],
+    'Thomas': ['b = ', '0.208186f', '0.15f'],
+    'Halvorsen': ['a = ', '1.89f', '1.4f'],
+    'Dadras': ['b = ', '2.7f', '1.7f'],
+    'Rössler': ['c = ', '5.7f', '13'],
   };
+  let ghosting = false;  // while the ghost types, edits do not recompile (no half-typed errors)
   let ghostTimer = null, ghostStop = null;
 
   function scheduleGhost() {
@@ -260,7 +263,7 @@ def build(src):
   }
 
   // the caption under the editor types itself out, like the edit above it
-  const CAPTION = 'Edited live and recompiled in your browser. Your turn: change anything.';
+  const CAPTION = 'Changed live and recompiled in your browser. Your turn: change anything.';
   let captionTimer = null;
   function caption() {
     const el = $('.demo-ghost .g-text', root);
@@ -280,29 +283,42 @@ def build(src):
   function ghost() {
     const g = GHOST[ui.preset.value];
     if (!g || !editor) return;
-    const text = editor.getValue(), at = text.indexOf(g[0]);
+    const at = editor.getValue().indexOf(g[0] + g[1]);
     if (at < 0) return;
     const start = editor.posFromIndex(at + g[0].length);
+    let pos = editor.posFromIndex(at + g[0].length + g[1].length);
     const caret = document.createElement('span');
     caret.className = 'ghost-caret';
-    let pos = start, i = 0, mark = editor.setBookmark(pos, { widget: caret });
+    let mark = editor.setBookmark(pos, { widget: caret });
+    const park = () => { mark.clear(); mark = editor.setBookmark(pos, { widget: caret }); };
     editor.scrollIntoView({ line: start.line, ch: 0 }, 60);
+    ghosting = true;
+    let del = g[1].length, i = 0;
     const tick = () => {
-      if (i >= g[1].length) {  // done: the caret stays parked here until the user acts
-        const hl = editor.markText(start, pos, { className: 'cm-ghost' });
-        caption();
-        ghostTimer = setTimeout(() => root.classList.remove('ghosted'), 12000);
-        ghostStop = () => { mark.clear(); hl.clear(); };  // caret and highlight go together
+      if (del > 0) {  // backspace over the old number
+        const p = editor.posFromIndex(editor.indexFromPos(pos) - 1);
+        editor.replaceRange('', p, pos, '+ghost');
+        pos = p;
+        park();
+        ghostTimer = setTimeout(tick, --del ? 90 : 420);
         return;
       }
-      editor.replaceRange(g[1][i++], pos, pos, '+ghost');
-      pos = editor.posFromIndex(editor.indexFromPos(pos) + 1);
-      mark.clear();
-      mark = editor.setBookmark(pos, { widget: caret });
-      ghostTimer = setTimeout(tick, 70 + Math.random() * 60);
+      if (i < g[2].length) {  // type the new one
+        editor.replaceRange(g[2][i++], pos, pos, '+ghost');
+        pos = editor.posFromIndex(editor.indexFromPos(pos) + 1);
+        park();
+        ghostTimer = setTimeout(tick, 110 + Math.random() * 70);
+        return;
+      }
+      ghosting = false;  // done: compile, highlight, and leave the caret parked
+      compile(false);
+      const hl = editor.markText(start, pos, { className: 'cm-ghost' });
+      caption();
+      ghostTimer = setTimeout(() => root.classList.remove('ghosted'), 12000);
+      ghostStop = () => { mark.clear(); hl.clear(); };
     };
-    ghostStop = () => { clearTimeout(ghostTimer); mark.clear(); };
-    ghostTimer = setTimeout(tick, 500);
+    ghostStop = () => { clearTimeout(ghostTimer); mark.clear(); ghosting = false; };
+    ghostTimer = setTimeout(tick, 600);
   }
 
   function setupEditor() {
@@ -324,6 +340,7 @@ def build(src):
     editor.on('touchstart', userActs);
     editor.on('change', () => {
       clearTimeout(timer);
+      if (ghosting) return;
       timer = setTimeout(() => compile(false), 250);
     });
     ui.preset.addEventListener('change', () => {
@@ -502,7 +519,7 @@ def build(src):
       c[d] = (lo + hi) / 2;
       r = Math.max(r, (hi - lo) / 2);
     }
-    const s = 1 / Math.max(r * 1.25, 1e-6), q = snap ? 1 : 0.08;
+    const s = 1 / Math.max(r * 1.25, 1e-6), q = snap ? 1 : 0.2;
     for (let d = 0; d < 3; d++) center[d] += (c[d] - center[d]) * q;
     scale += (s - scale) * q;
   }
@@ -554,7 +571,7 @@ def build(src):
         posAttr.needsUpdate = true;
       }
     }
-    if (--fitTimer <= 0) { fit(arr, head * N * 3, !fitReady); fitReady = true; fitTimer = 8; }
+    if (--fitTimer <= 0) { fit(arr, head * N * 3, !fitReady); fitReady = true; fitTimer = 4; }
     mat.uniforms.head.value = head;
     points.geometry.setDrawRange(head * N, N);
     if (auto) yaw += dt * 0.00012;
