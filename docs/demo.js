@@ -259,7 +259,14 @@ def build(src):
   let ghostTimer = null, ghostStop = null;
 
   function scheduleGhost() {
-    ghostTimer = setTimeout(ghost, /[?&]ghost\b/.test(location.search) ? 300 : 3500);
+    ghostTimer = setTimeout(whenVisible, /[?&]ghost\b/.test(location.search) ? 300 : 3500);
+  }
+
+  // only type while the banner is on screen: wait for the reader to come back to it
+  function whenVisible() {
+    const r = root.getBoundingClientRect();
+    if (r.bottom > 80 && r.top < innerHeight - 80 && !document.hidden) ghost();
+    else ghostTimer = setTimeout(whenVisible, 700);
   }
 
   // the caption under the editor types itself out, like the edit above it
@@ -291,7 +298,8 @@ def build(src):
     caret.className = 'ghost-caret';
     let mark = editor.setBookmark(pos, { widget: caret });
     const park = () => { mark.clear(); mark = editor.setBookmark(pos, { widget: caret }); };
-    editor.scrollIntoView({ line: start.line, ch: 0 }, 60);
+    // scroll the editor itself (scrollIntoView would also scroll the page to it)
+    editor.scrollTo(null, Math.max(0, editor.heightAtLine(start.line, 'local') - 60));
     ghosting = true;
     const tick = () => {
       if (i < g[1].length) {
