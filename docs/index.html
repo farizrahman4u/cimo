@@ -180,13 +180,31 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .t-kw{color:#ff7b72}.t-ty{color:#ffa657}.t-fn{color:#d2a8ff}.t-str{color:#a5d6ff}.t-num{color:#79c0ff}.t-cm{color:#6e7681}.t-pp{color:#ff7b72}.t-ok{color:#4ade80}.t-err{color:#fda4af}.t-pr{color:#6e7681}
 @media(max-width:600px){.code pre{font-size:12px;padding:12px}}
 /* facts */
-.facts-row{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.fact{padding:22px 24px 22px 0}
-.fact+.fact{border-left:1px solid var(--line);padding-left:24px}
-.fact b{display:block;font-size:32px;font-weight:800;letter-spacing:-.03em;color:var(--ink);line-height:1.1}
-.fact span{display:block;font-size:13.5px;color:var(--ink3);margin-top:6px}
-@media(max-width:860px){.facts-row{grid-template-columns:1fr 1fr}.fact:nth-child(3){border-left:0;padding-left:0}.fact:nth-child(n+3){border-top:1px solid var(--line)}}
-@media(max-width:480px){.facts-row{grid-template-columns:1fr}.fact{border-left:0!important;padding-left:0!important;border-top:1px solid var(--line)}.fact:first-child{border-top:0}}
+/* proof strip: the dark banner continues */
+.proof{background:#080b16;border-top:1px solid #151b2c;color:#c9d1d9}
+.proof-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.pf{padding:30px 26px 32px;min-width:0}
+.pf:first-child{padding-left:0}.pf+.pf{border-left:1px solid #151b2c}
+.pf>b{display:block;font-size:40px;font-weight:800;letter-spacing:-.035em;color:#fff;line-height:1}
+.pf p{margin-top:8px;font-size:13.5px;line-height:1.45;color:#8e98b0}
+.pf .m{font-family:var(--mono);font-size:.92em;color:#c9d1d9}
+.pf-viz{display:block;margin-top:14px;font-family:var(--mono);font-size:11.5px;color:#6f7a94}
+code.pf-viz{display:inline-block;background:none;border:1px solid #1f2740;color:#a5b4fc;padding:3px 8px;border-radius:6px}
+#pf-live.live{color:#7ee2b8}
+.pf-bars{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 8px;align-items:center}
+.pf-bars i{display:block;height:6px;border-radius:3px;background:#151b2c;overflow:hidden}
+.pf-bars i b{display:block;height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,#3f5cf6,#93a8ff);transition:width 1.1s cubic-bezier(.3,.7,.2,1)}
+.pf-bars i b.slow{background:#3b4560}
+.proof.seen .pf-bars i b{width:var(--w)}
+.pf-bars em{font-style:normal;color:#8e98b0;text-align:right}
+@media(max-width:900px){.proof-row{grid-template-columns:1fr 1fr}.pf{padding:24px 16px}.pf:nth-child(odd){padding-left:0}.pf:nth-child(3){border-left:0}.pf:nth-child(n+3){border-top:1px solid #151b2c}}
+@media(max-width:480px){.proof-row{grid-template-columns:1fr}.pf{padding:22px 0!important;border-left:0!important}.pf+.pf{border-top:1px solid #151b2c}}
+/* overlay scrollbar (fine pointers): the native one is hidden; a thin thumb shows while
+   scrolling or near the right edge */
+@media (pointer:fine){html{scrollbar-width:none}html::-webkit-scrollbar{display:none}}
+.sbar{position:fixed;top:0;right:0;bottom:0;width:14px;z-index:60;pointer-events:none}
+.sbar i{position:absolute;right:3px;width:6px;border-radius:3px;background:rgba(91,104,124,.55);opacity:0;transition:opacity .35s,width .15s,background .15s;pointer-events:auto;cursor:default}
+.sbar.on i{opacity:1}.sbar i:hover,.sbar.drag i{width:8px;background:rgba(91,104,124,.85)}
 /* sections */
 section.s{padding:72px 0 8px}
 @media(max-width:600px){section.s{padding:52px 0 4px}}
@@ -379,14 +397,28 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
   </div>
 </div></section>
 
-<div class="wrap">
-  <div class="facts-row">
-    <div class="fact"><b>0</b><span>dependencies outside the standard library</span></div>
-    <div class="fact"><b>&lt; 1 s</b><span>to compile a kernel file; results are cached</span></div>
-    <div class="fact"><b>~1.0×</b><span>gcc and clang <code>-O3</code> on analyzable loops</span></div>
-    <div class="fact"><b>~100×</b><span>pure Python on stencils, flood fills and DP</span></div>
+<section class="proof" aria-label="cimo in numbers"><div class="wrap proof-row">
+  <div class="pf">
+    <b><span class="count" data-to="0">0</span></b>
+    <p>dependencies outside the Python standard library</p>
+    <code class="pf-viz">import cimo</code>
   </div>
-</div>
+  <div class="pf">
+    <b>&lt; <span class="count" data-to="1">1</span> s</b>
+    <p>to compile a kernel file, then cached</p>
+    <div class="pf-viz" id="pf-live">the demo above compiles in your browser</div>
+  </div>
+  <div class="pf">
+    <b>~<span class="count" data-to="1.0" data-dec="1">1.0</span>×</b>
+    <p>the run time of gcc and clang <span class="m">-O3</span> on analyzable loops</p>
+    <div class="pf-viz pf-bars"><span>gcc -O3</span><i><b style="--w:100%"></b></i><em>1.00</em><span>cimo</span><i><b style="--w:93%"></b></i><em>0.93</em></div>
+  </div>
+  <div class="pf">
+    <b>~<span class="count" data-to="100">100</span>×</b>
+    <p>faster than pure Python on stencils, flood fills, DP</p>
+    <div class="pf-viz pf-bars"><span>Python</span><i><b class="slow" style="--w:100%"></b></i><em>252 ms</em><span>cimo</span><i><b style="--w:1.4%"></b></i><em>3.4 ms</em></div>
+  </div>
+</div></section>
 
 <section class="s" id="usage"><div class="wrap">
   <span class="k">Usage</span>
@@ -695,6 +727,61 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
   });
 })();
 </script>
-<script src="demo.js?v=5e214b85" defer></script>
+<script>
+// proof strip: count up once and grow the bars when it comes into view
+(function () {
+  var strip = document.querySelector('.proof');
+  if (!strip || !('IntersectionObserver' in window)) { if (strip) strip.classList.add('seen'); return; }
+  var reduce = matchMedia('(prefers-reduced-motion:reduce)').matches;
+  new IntersectionObserver(function (es, ob) {
+    if (!es[0].isIntersecting) return;
+    ob.disconnect();
+    strip.classList.add('seen');
+    if (reduce) return;
+    strip.querySelectorAll('.count').forEach(function (el) {
+      var to = parseFloat(el.dataset.to), dec = +(el.dataset.dec || 0), t0 = performance.now();
+      if (!to) return;
+      (function f(now) {
+        var k = Math.min(1, (now - t0) / 900), v = to * (1 - Math.pow(1 - k, 3));
+        el.textContent = v.toFixed(dec);
+        if (k < 1) requestAnimationFrame(f);
+      })(t0);
+    });
+  }, { threshold: 0.4 }).observe(strip);
+})();
+// overlay scrollbar for mouse and trackpad users
+(function () {
+  if (!matchMedia('(pointer:fine)').matches) return;
+  var bar = document.createElement('div'), th = document.createElement('i'), hide = null, drag = null;
+  bar.className = 'sbar'; bar.appendChild(th); document.body.appendChild(bar);
+  function layout() {
+    var h = innerHeight, H = document.documentElement.scrollHeight;
+    var t = Math.max(36, h * h / H);
+    th.style.height = t + 'px';
+    th.style.top = ((h - t) * scrollY / Math.max(1, H - h)) + 'px';
+    th.style.display = H > h + 1 ? '' : 'none';
+  }
+  function show() {
+    layout(); bar.classList.add('on');
+    clearTimeout(hide);
+    hide = setTimeout(function () { if (!drag && !th.matches(':hover')) bar.classList.remove('on'); }, 900);
+  }
+  addEventListener('scroll', show, { passive: true });
+  addEventListener('resize', layout);
+  addEventListener('mousemove', function (e) { if (e.clientX > innerWidth - 24) show(); }, { passive: true });
+  th.addEventListener('mouseleave', show);
+  th.addEventListener('pointerdown', function (e) {
+    drag = { y: e.clientY, s: scrollY }; th.setPointerCapture(e.pointerId); bar.classList.add('drag'); e.preventDefault();
+  });
+  th.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var h = innerHeight, H = document.documentElement.scrollHeight, t = th.offsetHeight;
+    scrollTo(0, drag.s + (e.clientY - drag.y) * (H - h) / Math.max(1, h - t));
+  });
+  th.addEventListener('pointerup', function () { drag = null; bar.classList.remove('drag'); show(); });
+  layout();
+})();
+</script>
+<script src="demo.js?v=23a4da19" defer></script>
 </body>
 </html>

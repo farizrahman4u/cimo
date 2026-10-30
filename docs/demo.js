@@ -360,6 +360,11 @@ def build(src):
     kernel = r;
     paused = false;
     ui.stats.dataset.compile = `compiled in ${r.ms.toFixed(0)} ms`;
+    const live = document.getElementById('pf-live');  // the proof strip under the banner
+    if (live && r.ms < 1000) {  // (the first compile also builds runtime parts: skip it)
+      live.textContent = `this page: ${r.ms.toFixed(0)} ms, just now, in your browser`;
+      live.classList.add('live');
+    }
     return true;
   }
 
