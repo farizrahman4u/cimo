@@ -66,17 +66,39 @@ def runtime_sources():
     return [os.path.relpath(p, RUNTIME_DIR) for p in _files(RUNTIME_DIR, ('.c',))]
 
 
-def _key(target):
-    h = hashlib.sha256(b'cimo-runtime-1\0' + target.encode() + b'\0')
-    paths = _files(RUNTIME_DIR, ('.c', '.h'))
-    for c in _COMPILER:
-        p = os.path.join(_HERE, c)
-        paths += _files(p, ('.py', '.h')) if os.path.isdir(p) else [p]
+def _hash(h, paths):
     for p in paths:
         h.update(os.path.relpath(p, _HERE).encode() + b'\0')
         with open(p, 'rb') as f:
             h.update(f.read())
         h.update(b'\0')
+
+
+def _compiler_paths():
+    paths = []
+    for c in _COMPILER:
+        p = os.path.join(_HERE, c)
+        paths += _files(p, ('.py', '.h')) if os.path.isdir(p) else [p]
+    return paths
+
+
+_compiler_key = None
+
+
+def compiler_key():
+    """Hash of the compiler's sources, computed once per process: part of every cache key, so
+    a changed compiler never reuses assembly the old one generated."""
+    global _compiler_key
+    if _compiler_key is None:
+        h = hashlib.sha256(b'cimo-compiler-1\0')
+        _hash(h, _compiler_paths())
+        _compiler_key = h.hexdigest()[:20]
+    return _compiler_key
+
+
+def _key(target):
+    h = hashlib.sha256(b'cimo-runtime-1\0' + target.encode() + b'\0')
+    _hash(h, _files(RUNTIME_DIR, ('.c', '.h')) + _compiler_paths())
     return h.hexdigest()[:20]
 
 

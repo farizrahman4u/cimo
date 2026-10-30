@@ -503,7 +503,8 @@ swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the inclu
 
 **`cimo.compile` (2026-10-30): pure Python.** `python/cimo/driver.py`: `cimo.preprocessor` → `cimo.frontend` →
 `cimo.backend` → `cimo.assembler` → `cimo.loader`, no external tools. The assembly is cached in `~/.cache/cimo`,
-keyed by the preprocessed source. Signatures come from the QBE IR (`l` params accept buffers).
+keyed by the preprocessed source, the flags and a hash of the compiler's own sources (so an edited
+or upgraded compiler never reuses old assembly). Signatures come from the QBE IR (`l` params accept buffers).
 Modules link statically with the bundled runtime library (M5); nothing resolves from the
 process unless named in `link=`. `examples/` uses it.
 Defaults: middle end on (`CIMO_MIDDLE=0` off), FMA contraction on (`CIMO_FMA=0` for results

@@ -43,9 +43,6 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Bugs
 
-- QBE folds 32-bit constants into an out-of-range immediate: with `CIMO_MIDDLE=0`,
-  `int f(int x){ int y = x + -1; return y + -30; }` fails with "immediate out of range:
-  sub w0, w0, #18446744065119617055". Upstream QBE (`e786f06` + patch) emits the same.
 - `glob.h` (with `system_headers=True`) needs `__SIZE_TYPE__`, which `cimo.preprocessor` does
   not predefine; check the other gcc predefined type macros too.
 - `nullptr` is `(void *)0` in the driver (cproc's `nullptr_t` is unfinished); `_Generic` and
