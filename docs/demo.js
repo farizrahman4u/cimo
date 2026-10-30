@@ -263,7 +263,7 @@ def build(src):
   }
 
   // the caption under the editor types itself out, like the edit above it
-  const CAPTION = 'Changed live and recompiled in your browser. Your turn: change anything.';
+  const CAPTION = 'Recompiled live in your browser. Your turn: change anything.';
   let captionTimer = null;
   function caption() {
     const el = $('.demo-ghost .g-text', root);
