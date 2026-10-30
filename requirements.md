@@ -145,6 +145,8 @@ no I/O and no OS. The only libc is the part that needs no OS.
   size, and the compiler tracks each pointer's base. So debug builds bounds-check every access
   ("compute-sanitizer for CPU kernels"), and detect use-after-free, double free, and leaks
   (reported when the module unloads).
+  In every build, arguments are checked at call time against VLA parameter shapes
+  (`float a[n][m]` must hold `n*m` floats).
   Optional `printf`-style debug output through a callback into Python.
 - **Multicore (v1): bring your own threads.** Kernel calls release the GIL (ctypes does this for
   foreign calls) and are safe to make concurrently from several Python threads. cimo has no launch
