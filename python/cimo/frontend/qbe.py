@@ -171,6 +171,11 @@ IVASTART = 87
 IVAARG = 88
 IARG = 89
 IVARARG = 90
+IFMA = 91  # cimo extension: "fma a, b, c" = a*b + c rounded once (arg2 is c)
+
+# cimo extension: contract a*b+c into fma within one expression, like clang's
+# -ffp-contract=on; off by default (stock cproc output), set by compile(fma=True)
+contract = False
 
 instname = [None] + [_s for _n, _s in _OPS]
 
@@ -186,7 +191,7 @@ class QbeType(object):
 
 
 class Inst(object):
-    __slots__ = ('kind', 'cls', 'res', 'arg0', 'arg1')
+    __slots__ = ('kind', 'cls', 'res', 'arg0', 'arg1', 'arg2')
 
 
 JUMP_NONE, JUMP_JMP, JUMP_JNZ, JUMP_RET, JUMP_HLT = range(5)
@@ -774,6 +779,41 @@ def _binop(op, t):
     return INONE
 
 
+def _ismul(e, t):
+    return e.kind == EXPRBINARY and e.op == TMUL and e.type is t
+
+
+def funcfma(f, e):
+    """cimo extension: a*b + c, c + a*b, a*b - c or c - a*b, where the product is an
+    operand of the add/sub itself (no cast, assignment or comma in between), as one fma.
+    Same choice as clang: the left operand is fused if it is a product, else the right.
+    Negating an fma operand is exact, so a*b - c = fma(a, b, -c), c - a*b = fma(-a, b, c)."""
+    t = e.type
+    if not (t.prop & PROPFLOAT) or t.size not in (4, 8) or e.op not in (TADD, TSUB):
+        return None
+    cls = qbetype(t).base
+    if _ismul(e.l, t):
+        a = funcexpr(f, e.l.l)
+        b = funcexpr(f, e.l.r)
+        c = funcexpr(f, e.r)
+        if e.op == TSUB:
+            c = funcinst(f, INEG, cls, c, None)
+    elif _ismul(e.r, t):
+        c = funcexpr(f, e.l)
+        a = funcexpr(f, e.r.l)
+        b = funcexpr(f, e.r.r)
+        if e.op == TSUB:
+            a = funcinst(f, INEG, cls, a, None)
+    else:
+        return None
+    if f.end.jump_kind:
+        funclabel(f, mkblock("dead"))
+    inst = mkinst(f, IFMA, cls, a, b)
+    inst.arg2 = c
+    f.end.insts.append(inst)
+    return inst.res
+
+
 def funcexpr(f, e):
     calcvla(f, e.type)
     k = e.kind
@@ -874,6 +914,10 @@ def funcexpr(f, e):
             funclabel(f, b2)
 
             return b2.phi_res
+        if contract:
+            v = funcfma(f, e)
+            if v is not None:
+                return v
         l = funcexpr(f, e.l)
         r = funcexpr(f, e.r)
         t = e.l.type
@@ -1162,6 +1206,18 @@ def emittype(t):
 def emitinst(insts, i, n):
     inst = insts[i]
     w('\t')
+    if inst.kind == IFMA:
+        emitvalue(inst.res)
+        w(" =")
+        emitclass(inst.cls, None)
+        w(" fma ")
+        emitvalue(inst.arg0)
+        w(", ")
+        emitvalue(inst.arg1)
+        w(", ")
+        emitvalue(inst.arg2)
+        w('\n')
+        return i + 1
     assert inst.kind < len(instname)
     if inst.res.kind:
         emitvalue(inst.res)
@@ -1229,6 +1285,25 @@ def emitjump(b):
         assert 0
 
 
+# cimo extension, off by default (None): when set to a dict, emitfunc records for each
+# function {name: [(param temporary, is_restrict), ...]} for the middle end's alias analysis
+paraminfo = None
+
+
+def _recordparams(f):
+    from .cc import QUALRESTRICT
+    out = []
+    p = f.type.params
+    vi = 0
+    while p:
+        v = f.paramtemps[vi]
+        name = '%' + (v.name or '') + ('.%d' % v.id if v.id else '')
+        out.append((name, bool(p.qual & QUALRESTRICT)))
+        p = p.next
+        vi += 1
+    paraminfo[f.decl.value.name] = out
+
+
 def emitfunc(f, glob):
     if f.end.jump_kind == JUMP_NONE:
         v = None
@@ -1259,6 +1334,8 @@ def emitfunc(f, glob):
             w(", ")
         w("...")
     w(") {\n")
+    if paraminfo is not None:
+        _recordparams(f)
     b = f.start
     while b:
         emitname(b.label)

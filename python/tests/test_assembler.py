@@ -119,13 +119,35 @@ def test_immediate_sweep():
     assert not d, '\n'.join(d)
 
 
+def test_fma_and_pairs():
+    """Forms the backend extensions emit (cimo.backend.ext): fmadd family, ldp/stp offsets."""
+    rnd = random.Random(2)
+    lines = []
+    for mn in ('fmadd', 'fmsub', 'fnmadd', 'fnmsub'):
+        for k in 'sd':
+            for _ in range(20):
+                lines.append('%s %s' % (mn, ', '.join('%s%d' % (k, rnd.randrange(32))
+                                                       for _ in range(4))))
+    for mn in ('ldp', 'stp'):
+        for k, sz in (('w', 4), ('x', 8), ('s', 4), ('d', 8)):
+            for off in range(-64 * sz, 64 * sz, sz):
+                a, b = rnd.sample(range(29), 2)
+                lines.append('%s %s%d, %s%d, [x%d, %d]' % (mn, k, a, k, b, rnd.randrange(31),
+                                                           off))
+            lines.append('%s %s1, %s2, [x29]' % (mn, k, k))
+    d = A.compare('\n'.join(lines) + '\n')
+    assert not d, '\n'.join(d)
+
+
 @pytest.mark.parametrize('src', [
     'mrs x0, tpidr_el0',
     'add x0, x0, #:tprel_lo12_nc:x',
     '.section .tdata,"awT"',
     '.section .tbss,"awT"',
     '.abort "unreachable"',
-    'fmadd d0, d1, d2, d3',
+    'fmadd d0, d1, s2, d3',
+    'ldp s0, s1, [x2, 2]',
+    'ldp d0, d1, [x2, 512]',
     'ldr x0, [x1, x2]',
     'ldr x0, [x1, 32768]',
     'ldr x0, [x1, -257]',

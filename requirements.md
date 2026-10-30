@@ -272,8 +272,8 @@ backend. Interleaved best-of-3; checked bit-exact against plain C for sizes 0-21
   op where C allows contraction (within one expression, like clang's default
   `-ffp-contract=on`), and the backend must select `fmadd`. Both are needed for parity with gcc's
   default build.
-- Loop back edges come out as `bcs exit; b loop`, an extra branch per iteration. A block-layout
-  fix in emit is still open.
+- Loop back edges come out as `bcs exit; b loop`, an extra branch per iteration. Fixed by
+  `ext.layout` (see M4).
 
 **macOS (Apple M4, macOS 26.7) vs Apple clang 21:** the patch works on QBE's `arm64_apple`
 target, and all 4 kernels are bit-exact. Same IR as above; `scratch/qbe_eval/mac_bench.sh` reproduces it.
@@ -404,7 +404,10 @@ swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the inclu
    diffs against the C originals, plus differential testing against gcc using generated random programs.
 4. **Middle stage loop passes:** implement the transforms that `gen_opt.py` applies by hand, plus
    explicit `fma` emission and FMA selection in the backend. Target: about 1.2x of gcc's scalar
-   `-O3` on the whole suite.
+   `-O3` on the whole suite. **Mostly done** (M4): geomean 1.11x; 12 of 15 kernels within
+   1.2x; edit_distance, nbody_acc and rgb2gray wait on backend items (csel, sqrt, int
+   constants/madd). Next for the middle stage: runtime alias checks (loop versioning on
+   address ranges) for non-restrict pointers, multi-block loop bodies, `--report`.
 5. **SIMD** (vector types, then auto-vectorization), **amd64**, **WASM**, **concurrent calls** (per-thread heaps).
 
 ## Milestones and acceptance criteria
@@ -426,6 +429,9 @@ swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the inclu
 keyed by the preprocessed source. Signatures come from the QBE IR (`l` params accept buffers).
 External symbols (`printf`, libm) resolve against the running process for now; the bundled
 runtime library (M5) replaces that. `examples/` uses it.
+Defaults: middle end on (`CIMO_MIDDLE=0` off), FMA contraction on (`CIMO_FMA=0` for results
+identical to `-ffp-contract=off`), ldp/stp pairing and loop layout on. Geomean over the 15
+kernels with these defaults: 1.07x of gcc nofma, 1.13x of novec, 1.69x of `-O3` (vectorized).
 
 **M2: encoder + loader.** arm64 machine-code encoder (no external assembler) and the JIT loader
 for Linux and macOS (strategies under "Platform loading findings").
@@ -489,6 +495,118 @@ for Linux and macOS (strategies under "Platform loading findings").
 **M4: middle stage.** Automate the transforms `scratch/qbe_eval/gen_opt.py` applies by hand, plus
 explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing and the loop-layout fix.
 - On the 15-kernel suite: within 1.2x of scalar `-O3` (gcc on Linux arm64, clang on Apple M4), with matching FMA settings.
+- **Harness:** `python3 python/bench/run.py [kernels...] [-n N] [--cimo NAME=fma,ldp,layout|none]
+  [--gen-opt]`. Kernels are called in-process through ctypes from the same C timing loops
+  (`python/bench/bench.c`, harness.c's sizes, per-kernel seeds), gcc builds as shared libraries
+  (`-O3 -mcpu=native` with `-fno-tree-vectorize -ffp-contract=off` / `-fno-tree-vectorize` /
+  nothing), configurations interleaved, best of N, checksums compared. `cimo` = `cimo.compile`;
+  `--cimo` builds use explicit extension flags; `--gen-opt` swaps in gen_opt.py's IR for 4 kernels.
+- **Baseline 2026-10-30** (cimo = cproc port + QBE port with the isel patch, no middle stage;
+  Snapdragon X / WSL2, gcc 13.3, best of 5), geomean over 15 kernels: **1.98x** vs gcc nofma,
+  2.08x vs novec (FMA), 3.10x vs `-O3`. Worst: conv3x3 10.2x, edit_distance 3.8x, gemm 3.5x,
+  jacobi2d 3.1x, rgb2gray 3.1x, isum 2.2x; dot, iir, prefix_sum, mandelbrot at 1.0x.
+- **Backend extensions (done 2026-10-30)**, each off by default (stock QBE output, so
+  `backend_diff.py`, QBE's suite and `test_frontend.py` are unchanged), switched on with
+  `cimo.backend.ext.options(fma=, ldp=, layout=)` and `frontend.compile(..., fma=True)`:
+  - **FMA.** IR: `%r =s fma %a, %b, %c` (a*b + c, rounded once), parsed only with `ext.fma`.
+    Stored as an adjacent pinned pair `fma0 %c; %r = fma1 %a, %b`, like QBE's `sel0/sel1`, so
+    every pass sees all three uses unchanged; `igroup` keeps the pair together, pinning keeps gvn
+    from merging and gcm from moving it (no LICM of FMAs). isel makes it one op whose 2nd and
+    3rd operands ride in a `Mem`'s base/index: liveness, spilling and rega already handle those,
+    so a reload can never land between the halves. Same-block `neg` of operands folds into
+    `fmsub`/`fnmsub`/`fnmadd`. Frontend: contracts only an add/sub whose operand is directly a
+    product of the same type (clang's `-ffp-contract=on`; left product preferred); never across
+    statements, assignments, commas or casts (clang does fuse across a same-type cast; we don't).
+    Bit-exact against cc with explicit `fma()` calls, incl. specials and a spill-heavy function
+    (`test_fma.py`). Measured: conv3x3 1.31x faster, mandelbrot 1.17x; dot and iir 1.35-1.40x
+    *slower* (fma latency on the loop-carried chain; gcc's default build pays the same on dot).
+    iir is 1.18x behind gcc-fast: clang's rule fuses `b0*x - a1*y1` as `b0*x + -(a1*y1)`,
+    keeping a multiply on the recurrence; gcc's contraction picks the other product.
+  - **Loop layout.** In emit, a block ending in `jmp H`, H earlier in the layout with ≤ 4
+    instructions and a conditional jump (cproc's top-tested loop header), gets a copy of H's
+    code and branch: one conditional branch per iteration instead of `b H` + test. When neither
+    successor of a conditional jump follows, the conditional branch goes to the backward
+    (loop) target. Measured on cproc IR: conv3x3 1.62x, isum 1.12x, saxpy 1.08x faster;
+    on gen_opt IR (already bottom-tested) saxpy 1.05x.
+  - **ldp/stp.** After isel (SSA), the second access of a pair (same base temp, offsets o and
+    o+size, plain 32/64-bit int/fp, lower offset in imm7 range) moves next to the first: loads
+    up, stores down, only past instructions that can't touch the memory (loads past loads; past
+    same-base accesses with disjoint ranges; never past calls or other-base accesses). emit then
+    pairs any adjacent fit, including spill slots and callee-save saves/restores. Hook for alias
+    knowledge: `ext.disjoint(fn, base1, base2)` (restrict) — without it, saxpy's x loads can't
+    cross y stores. No effect on cproc IR (addresses recomputed per access); on gen_opt IR
+    gemm 1.05x, others within noise on this core (M4 is where pairing should matter).
+  - Geomean on cproc IR, vs gcc nofma / novec: layout alone 1.89x / 1.98x; all three
+    1.96x / 2.06x (FMA's dot/iir losses offset its conv3x3 gain). The middle stage is what
+    closes the gap.
+- **Middle stage (done 2026-10-30, `python/cimo/middle/`, ~2.5k lines).** Runs on the backend's
+  `Fn` after GCM (clean SSA, GCM has already hoisted pure invariants, the ABI/isel passes haven't
+  run), then gvn/simplcfg/gcm run again. Off by default (`cimo.middle.enabled`); `cimo.driver`
+  switches it on (`CIMO_MIDDLE=0` turns it off). Restrict info comes from the frontend through
+  `frontend.qbe.paraminfo` (per function: param temporary, restrict flag; off by default), which
+  `driver._frontend` collects and `driver._qbe(ssa, params)` passes on. Phases, per function:
+  1. full unrolling of innermost loops with a constant trip count ≤ 16 (conv3x3's 3x3);
+  2. unroll-and-jam by 2 of a loop around an innermost loop (`jam.py`), when an inner store has
+     an address that doesn't depend on the outer IV (gemm's `c[i*n+j]`);
+  3. arithmetic if-conversion of small integer diamonds in innermost loops
+     (`x = b ^ ((a ^ b) & -c)`: the arm64 backend has no `sel`);
+  4. innermost loops (`inner.py`): versioned against the untouched original loop; guard computes
+     the exact trip count T and run-time checks; then strength reduction (one IV per
+     (base, stride) group), LICM incl. loads no store may alias, unroll by 4 + remainder loop
+     (bottom-tested, `iv != end`), scalar replacement of loads at contiguous offsets of one
+     array, and store-to-load forwarding / redundant load and dead store elimination within the
+     unrolled body (`LocalMem`).
+- **Overflow semantics.** QBE IR doesn't say whether a `w` add came from signed or unsigned C,
+  so nothing relies on "signed overflow is UB". Affine forms are exact mod 2^32/2^64 (add, sub,
+  mul, shl are ring homomorphisms); the only non-homomorphic step, `extsw`/`extuw` of a 32-bit
+  index, is checked at run time: the exact value at t = 0 and t = T-1 must fit (affine, so
+  that covers every t). The trip count formulas also check that the IV can't wrap past the
+  end of its type (`i += 3` near INT_MAX, unsigned wrap) and fall back to the original loop.
+  Cost: a few instructions per loop entry (checks of one array are merged into min/max).
+- **Alias analysis** (`memdep.py`): roots of an address through add/sub/copy/phi (64-bit
+  params, stack slots, globals), with must-roots (intersection over phis) so a pointer that is
+  `prev` or `cur` (edit_distance's swap) isn't treated as based on either one alone. A restrict
+  param in must(A) and not in may(B) proves no alias; without restrict, distinct pointer params
+  may alias and nothing moves across them (no runtime alias checks yet).
+- **Results** (driver default = middle stage only; Snapdragon X/WSL2, gcc 13.3, best of 3,
+  all checksums equal to gcc nofma): geomean **1.11x vs gcc nofma** (was 1.98x), 1.17x vs
+  novec, 1.75x vs `-O3`. With fma, ldp and layout on as well: 1.07x / 1.13x / 1.68x.
+
+  | kernel | before | middle | middle+fma,ldp,layout vs novec |
+  |---|---|---|---|
+  | saxpy | 1.78x | 0.77x | 0.63x |
+  | gemm | 3.54x | 0.89x | 0.87x |
+  | jacobi2d | 3.18x | 1.07x | 1.10x |
+  | conv3x3 | 10.5x | 1.04x | 1.14x |
+  | rgb2gray | 3.13x | 1.26x | 1.25x |
+  | isum | 2.21x | 0.85x | 0.98x |
+  | histogram | 1.83x | 0.96x | 0.96x |
+  | sieve | 1.25x | 1.08x | 1.08x |
+  | edit_distance | 3.69x | 2.48x | 2.57x |
+  | nbody_acc | 1.91x | 1.88x | 2.54x |
+  | flood_fill | 1.18x | 1.18x | 1.17x |
+  | dot, prefix_sum, iir, mandelbrot | 1.0x | 1.0x | 0.9-1.0x |
+
+  (ratio vs gcc `-O3 -fno-tree-vectorize -ffp-contract=off` unless noted.)
+- **Left for M4's 1.2x, all backend items:** edit_distance needs `csel` (arm64 `sel` support,
+  then QBE's ifopt instead of the 6-instruction arithmetic select on the critical path: gcc
+  37 ms, us 93 ms, 137 ms with branches). nbody_acc needs `sqrt` as an instruction (`fsqrt`;
+  today a call in the loop, so the loop isn't touched). rgb2gray: integer constants of `mul`
+  are rematerialized (`mov w6, #77`) at every use inside the loop, shifts take no immediate,
+  no `madd`. jacobi2d/flood_fill are within 1.2x.
+- **Backend bug found (pre-existing, also in C QBE + isel patch):** gvn folds 32-bit constant
+  chains in 64-bit without truncating, e.g. `(x + -1) + -30` (C: `int y = x + -1; return y +
+  -30;`), and the arm64 isel emits the unnormalized value as an immediate: assembler error or an
+  assert in emit. Fix belongs in isel (truncate w immediates). The middle stage works around it
+  (`ir.normalize_wcons`: w add/sub constants as positive values), so it only bites with the
+  middle stage off.
+- **Tests:** `tests/test_middle.py`: 72 loop shapes in `tests/middle/loops.c` (trip counts
+  0..100, steps ±1..4, `<=`/`!=`/down/unsigned/long/pointer IVs, INT_MAX/INT_MIN bounds,
+  unsigned wrap, symbolic strides, aliasing calls without restrict, early exits, nests) and the
+  15 kernels at sizes 0..21, 37, 64: middle on, middle off and gcc -O0 bit-identical.
+  `tests/test_middle_random.py`: random loop programs (`tests/middle_gen.py`, 40 functions per
+  seed, 6 seeds by default, `CIMO_RANDOM_SEEDS=a:b` for more; 120 seeds pass).
+- Compile time of kernels.c: 0.17 s with the middle stage (0.09 s without).
 
 **M5 and later:** Python interop API, heap and runtime library, amd64 backend, WASM backend +
 Pyodide loading, SIMD (vector types, then auto-vectorization), concurrent calls, debug mode,

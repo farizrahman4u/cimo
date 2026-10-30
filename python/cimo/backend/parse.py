@@ -7,10 +7,11 @@ from . import defs as D
 from .defs import (R, UNDEF, RTmp, RCon, RInt, RType, RSlot, RCall, RMem, Tmp0, NIns,
                    NPubOp, NField, Ins, Phi, Con, Typ, Field, Dat, Lnk, Fn, CBits, CAddr,
                    CUndef, SExt, SThr, Kx, Kw, Kl, Ks, Kd, Ke, optab, jtoa, TMP, TYPE,
-                   INT, req, rtype, rval, rsval, isstore, isret, s64)
+                   INT, KBASE, req, rtype, rval, rsval, isstore, isret, s64)
 from .util import (err, hash, intern, str_, newtmp, newcon, vgrow, idup, clsmerge,
                    bsinit, bszero, bsset, bshas, bsequal)
 from . import cfg
+from . import ext as _ext
 
 Ksb = 4  # matches Oarg/Opar/Jret
 Kub = 5
@@ -30,6 +31,7 @@ for _i, _t in enumerate(_toks):
     globals()['T' + _t] = NPubOp + _i
 Ntok = NPubOp + len(_toks)
 del _i, _t
+Tfma = Ntok  # cimo extension: only a keyword when ext.fma is on
 
 kwmap = {
     Tloadw: "loadw", Tloadl: "loadl", Tloads: "loads", Tloadd: "loadd",
@@ -211,6 +213,8 @@ def lex():
         return t
     t = _kwlookup.get(S.tokval_str)
     if t is None:
+        if S.tokval_str == 'fma' and _ext.fma:
+            return Tfma
         err("unknown keyword %s", S.tokval_str)
     return t
 
@@ -565,6 +569,14 @@ def parseline(ps):
         _setlink(S.plink, phi)
         S.plink = (phi, 'link')
         return PPhi
+    elif op == Tfma:
+        if i != 3 or KBASE(k) != 1:
+            err("fma needs three arguments and class s or d")
+        if D.curi >= NIns - 1:
+            err("too many instructions")
+        _put(Ins(D.Ofma0, k, R, arg[2], R))
+        _put(Ins(D.Ofma1, k, r, arg[0], arg[1]))
+        return PIns
     elif op == Tblit:
         if D.curi >= NIns - 1:
             err("too many instructions")
@@ -1098,8 +1110,20 @@ def printfn(fn, f):
                     f.write(", ")
                 n += 1
             p = p.link
-        for i in b.ins[:b.nins]:
+        for n, i in enumerate(b.ins[:b.nins]):
+            if i.op == D.Ofma0 and n + 1 < b.nins and b.ins[n + 1].op == D.Ofma1:
+                continue  # printed with its fma1, as "fma a, b, c"
             f.write("\t")
+            if i.op == D.Ofma1 and n > 0 and b.ins[n - 1].op == D.Ofma0:
+                printref(i.to, fn, f)
+                f.write(" =%c fma " % _ktoc[i.cls])
+                printref(i.arg[0], fn, f)
+                f.write(", ")
+                printref(i.arg[1], fn, f)
+                f.write(", ")
+                printref(b.ins[n - 1].arg[0], fn, f)
+                f.write("\n")
+                continue
             if not req(i.to, R):
                 printref(i.to, fn, f)
                 f.write(" =%c " % _ktoc[i.cls])

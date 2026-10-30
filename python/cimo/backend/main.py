@@ -73,6 +73,21 @@ class _Driver:
         gcm.gcm(fn)
         ssa.filluse(fn)
         ssa.ssacheck(fn)
+        from .. import middle
+        if middle.enabled:
+            # cimo's loop passes (off by default: stock QBE output otherwise), then QBE's
+            # cleanup passes again over the new code
+            cfg.filldom(fn)
+            if middle.run(fn):
+                ssa.ssacheck(fn)
+                gvn.gvn(fn)
+                cfg.fillcfg(fn)
+                cfg.simplcfg(fn)
+                ssa.filluse(fn)
+                cfg.filldom(fn)
+                gcm.gcm(fn)
+                ssa.filluse(fn)
+                ssa.ssacheck(fn)
         if T.cansel:
             ifopt.ifconvert(fn)
             cfg.fillcfg(fn)
