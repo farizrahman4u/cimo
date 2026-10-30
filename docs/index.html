@@ -198,7 +198,7 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
   <div>
     <span class="k">Open source · MIT</span>
     <h1>A C compiler written in <em>pure Python</em>.</h1>
-    <p class="lede">cimo compiles C to native code at runtime and calls it on numpy arrays. It needs no system compiler, SDK or binary wheels, and runs wherever CPython or Pyodide does.</p>
+    <p class="lede">cimo compiles C to native code at runtime and calls it on numpy arrays, on machines with no compiler, SDK or LLVM. It runs wherever CPython or Pyodide does.</p>
     <div class="hero-cta">
       <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo">Copy</button></div>
       <a class="btn btn-s" href="https://github.com/farizrahman4u/cimo">Source on GitHub</a>
@@ -260,12 +260,12 @@ void ema(int n, const double x[n], double y[n], double a) {
 
 <section class="s" id="why"><div class="wrap">
   <span class="k">Motivation</span>
-  <h2>Why a C compiler in Python</h2>
-  <p class="lede">Cython, cffi and C extensions need a compiler on the user's machine, and Numba needs LLVM wheels. Some environments have neither. cimo parses and optimizes the C, encodes arm64, x86-64 or WebAssembly itself, and maps the result into executable memory. Arrays are passed by pointer, never copied.</p>
+  <h2>Native code at runtime, without a toolchain</h2>
+  <p class="lede">Compute-graph engines, PDE solvers and symbolic code generators emit C at runtime and call the system compiler on the user's machine. Where there is none, they fail or fall back to slow paths. Numba avoids the compiler by bundling LLVM. cimo is a compiler written in Python: any machine that runs Python can compile and run C.</p>
   <div class="cards">
-    <div class="card"><span class="tag">browser</span><h3>Pyodide, JupyterLite, marimo</h3><p>Browser Python has no C compiler.</p></div>
-    <div class="card"><span class="tag">.py only</span><h3>Plugin repositories</h3><p>Some, such as QGIS's, accept no compiled binaries.</p></div>
-    <div class="card"><span class="tag">locked down</span><h3>Restricted machines</h3><p>Corporate laptops and hosted sandboxes where a toolchain can't be installed.</p></div>
+    <div class="card"><span class="tag">libraries</span><h3>Pure-Python packages</h3><p>Ship C kernels as source. No wheel matrix across OSes, architectures and Python versions, and no compiler needed for a source install.</p></div>
+    <div class="card"><span class="tag">apps</span><h3>Desktop applications</h3><p>Native-speed kernels in a frozen app, without bundling LLVM or installing a C compiler on every build machine.</p></div>
+    <div class="card"><span class="tag">sandboxed</span><h3>Browsers and restricted machines</h3><p>Pyodide, JupyterLite and marimo; plugin repositories that accept no binaries; machines where nothing can be installed.</p></div>
   </div>
 </div></section>
 
