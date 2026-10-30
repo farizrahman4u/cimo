@@ -100,6 +100,36 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .nb .t-kw{color:#cf222e}.nb .t-ty{color:#953800}.nb .t-fn{color:#8250df}.nb .t-str{color:#0a3069}.nb .t-num{color:#0550ae}.nb .t-cm{color:#6e7781}
 .code.win pre{font-size:12.5px}
 @media(max-width:600px){.cell pre{font-size:11px}.cell{grid-template-columns:30px minmax(0,1fr)}.nb-tool .kern{display:none}}
+/* live demo */
+.demo{margin-top:28px;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);grid-template-rows:560px auto;background:var(--code);border:1px solid var(--codeline);border-radius:14px;overflow:hidden;color:#c9d1d9}
+.demo-view{position:relative;min-width:0;border-right:1px solid #1d2438;background:#080b16}
+.demo-view canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.demo-cover{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:radial-gradient(ellipse at center,rgba(63,92,246,.18),rgba(8,11,22,.96) 70%)}
+.demo-status{max-width:40ch;font-size:13px;color:#9aa3b8}
+.demo.loading .demo-start{opacity:.5}
+.demo.running .demo-cover{display:none}
+.demo-hint{position:absolute;left:12px;bottom:10px;font-family:var(--mono);font-size:11px;color:#59627a;pointer-events:none;display:none}
+.demo.running .demo-hint{display:block}
+.demo-side{display:flex;flex-direction:column;min-width:0;min-height:0}
+.demo-bar{height:40px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px 0 14px;border-bottom:1px solid #262b38;background:var(--code2);font-family:var(--mono);font-size:12px;color:#8e94a3}
+.demo-bar span{flex:1}
+.demo-bar select,.demo-bar button{background:#1e2640;color:#dbe1ee;border:1px solid #2c3552;border-radius:6px;font:500 12px var(--font);padding:5px 8px;cursor:pointer}
+.demo-bar button:hover,.demo-bar select:hover{border-color:#4a5a8c}
+.demo-code{flex:1;min-height:0;overflow:auto}
+.demo-code pre{margin:0;padding:12px 14px;font-family:var(--mono);font-size:12.5px;line-height:1.6;white-space:pre;color:#c9d1d9}
+.demo-err{flex:none;padding:9px 14px;font-family:var(--mono);font-size:12px;color:#fecdd3;background:#3a1220;border-top:1px solid #5b1a2e;white-space:pre-wrap}
+.demo-foot{grid-column:1/-1;display:flex;justify-content:space-between;gap:16px;padding:9px 14px;border-top:1px solid #262b38;background:var(--code2);font-family:var(--mono);font-size:11.5px;color:#8e94a3;min-width:0}
+.demo-out{color:#a5d6ff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cm-s-cimo.CodeMirror{height:100%;background:transparent;color:#c9d1d9;font-family:var(--mono);font-size:12.5px;line-height:1.6}
+.cm-s-cimo .CodeMirror-gutters{background:transparent;border-right:1px solid #1d2438}
+.cm-s-cimo .CodeMirror-linenumber{color:#4b5468}
+.cm-s-cimo .CodeMirror-cursor{border-left:2px solid #93a8ff}
+.cm-s-cimo .CodeMirror-selected,.cm-s-cimo.CodeMirror-focused .CodeMirror-selected{background:#24305a}
+.cm-s-cimo .cm-keyword{color:#ff7b72}.cm-s-cimo .cm-type,.cm-s-cimo .cm-variable-3{color:#ffa657}
+.cm-s-cimo .cm-number{color:#79c0ff}.cm-s-cimo .cm-string{color:#a5d6ff}.cm-s-cimo .cm-comment{color:#6e7681}
+.cm-s-cimo .cm-meta{color:#d2a8ff}.cm-s-cimo .cm-def{color:#d2a8ff}.cm-s-cimo .cm-operator{color:#c9d1d9}
+.cm-err-line{background:rgba(190,18,60,.22)}
+@media(max-width:900px){.demo{grid-template-columns:minmax(0,1fr);grid-template-rows:380px 440px auto}.demo-view{border-right:0;border-bottom:1px solid #1d2438}.demo-foot{flex-direction:column;gap:4px}}
 /* code panels */
 .code{background:var(--code);border:1px solid var(--codeline);border-radius:12px;overflow:hidden;color:#c9d1d9;min-width:0}
 .code .bar{height:32px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #262b38;background:var(--code2);font-family:var(--mono);font-size:11.5px;color:#8e94a3}
@@ -133,7 +163,7 @@ section.s{padding:72px 0 8px}
 /* wheels */
 .vw-cap{position:absolute;left:12px;top:10px;font-size:11px;color:var(--brand);font-weight:500}
 .vw-cap span{position:absolute;white-space:nowrap;animation:7s infinite}
-.vw-cap .a{animation-name:vw-a}.vw-cap .b{animation-name:vw-b}
+.vw-cap .ca{animation-name:vw-a}.vw-cap .cb{animation-name:vw-b}
 .vw-grid{position:absolute;left:12px;right:12px;top:32px}
 .vw-row{display:flex;align-items:center;gap:4px;margin-bottom:5px}
 .vw-row span{width:38px;font-size:9.5px;color:var(--ink3)}
@@ -184,7 +214,7 @@ section.s{padding:72px 0 8px}
 @keyframes vb-blur{0%,62%{filter:none}78%,100%{filter:blur(3.5px)}}
 @media (prefers-reduced-motion:reduce){
   .viz *,.viz *::before,.viz *::after{animation:none!important}
-  .vw-grid,.vw-cap .a{display:none}.vw-cap .b{opacity:1}.vw-src{opacity:1;transform:translate(-50%,-50%);top:50%}
+  .vw-grid,.vw-cap .ca{display:none}.vw-cap .cb{opacity:1}.vw-src{opacity:1;transform:translate(-50%,-50%);top:50%}
   .vb-ln span{width:calc(var(--n)*1ch)}.vb-img i{filter:blur(3.5px)}
   .va-bundle .x::after{transform:none}
 }
@@ -328,7 +358,7 @@ void ema(int n, const double x[n], double y[n], double a) {
   <h2>Native code at runtime, without a toolchain</h2>
   <p class="lede">Compute-graph engines, PDE solvers and symbolic code generators emit C at runtime and call the system compiler on the user's machine. Where there is none, they fail or fall back to slow paths. Numba avoids the compiler by bundling LLVM. cimo is a compiler written in Python: any machine that runs Python can compile and run C.</p>
   <div class="cards motiv">
-    <div class="card"><div class="viz v-wheels" aria-hidden="true"><div class="vw-cap"><span class="a">24 wheels</span><span class="b">1 source file</span></div><div class="vw-grid"><div class="vw-row"><span>linux</span><i style="--d:0"></i><i style="--d:1" class=a></i><i style="--d:2"></i><i style="--d:3" class=a></i><i style="--d:4"></i><i style="--d:5" class=a></i><i style="--d:6"></i><i style="--d:7" class=a></i></div><div class="vw-row"><span>macos</span><i style="--d:8"></i><i style="--d:9" class=a></i><i style="--d:10"></i><i style="--d:11" class=a></i><i style="--d:12"></i><i style="--d:13" class=a></i><i style="--d:14"></i><i style="--d:15" class=a></i></div><div class="vw-row"><span>win</span><i style="--d:16"></i><i style="--d:17" class=a></i><i style="--d:18"></i><i style="--d:19" class=a></i><i style="--d:20"></i><i style="--d:21" class=a></i><i style="--d:22"></i><i style="--d:23" class=a></i></div><div class="vw-cols"><span>x86_64 · arm64 · cp310–cp313</span></div></div><div class="vw-src"><svg viewBox="0 0 24 24"><path d="M6 2.5h8l5 5V21a.5.5 0 0 1-.5.5h-12A.5.5 0 0 1 6 21z"/><path d="M14 2.5V8h5"/></svg><b>kernels.c</b><em>any OS · any arch</em></div></div><span class="tag">libraries</span><h3>Pure-Python packages</h3><p>Ship C kernels as source. No wheel matrix across OSes, architectures and Python versions, and no compiler needed for a source install.</p></div>
+    <div class="card"><div class="viz v-wheels" aria-hidden="true"><div class="vw-cap"><span class="ca">24 wheels</span><span class="cb">1 source file</span></div><div class="vw-grid"><div class="vw-row"><span>linux</span><i style="--d:0"></i><i style="--d:1" class=a></i><i style="--d:2"></i><i style="--d:3" class=a></i><i style="--d:4"></i><i style="--d:5" class=a></i><i style="--d:6"></i><i style="--d:7" class=a></i></div><div class="vw-row"><span>macos</span><i style="--d:8"></i><i style="--d:9" class=a></i><i style="--d:10"></i><i style="--d:11" class=a></i><i style="--d:12"></i><i style="--d:13" class=a></i><i style="--d:14"></i><i style="--d:15" class=a></i></div><div class="vw-row"><span>win</span><i style="--d:16"></i><i style="--d:17" class=a></i><i style="--d:18"></i><i style="--d:19" class=a></i><i style="--d:20"></i><i style="--d:21" class=a></i><i style="--d:22"></i><i style="--d:23" class=a></i></div><div class="vw-cols"><span>x86_64 · arm64 · cp310–cp313</span></div></div><div class="vw-src"><svg viewBox="0 0 24 24"><path d="M6 2.5h8l5 5V21a.5.5 0 0 1-.5.5h-12A.5.5 0 0 1 6 21z"/><path d="M14 2.5V8h5"/></svg><b>kernels.c</b><em>any OS · any arch</em></div></div><span class="tag">libraries</span><h3>Pure-Python packages</h3><p>Ship C kernels as source. No wheel matrix across OSes, architectures and Python versions, and no compiler needed for a source install.</p></div>
     <div class="card"><div class="viz v-app" aria-hidden="true"><div class="va-win"><div class="va-bar"><span class="dots"><i></i><i></i><i></i></span>Heat.app<b>native</b></div><div class="va-grid"><i style="--d:0"></i><i style="--d:1"></i><i style="--d:2"></i><i style="--d:3"></i><i style="--d:4"></i><i style="--d:5"></i><i style="--d:6"></i><i style="--d:7"></i><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12"></i><i style="--d:13"></i><i style="--d:1"></i><i style="--d:2"></i><i style="--d:3"></i><i style="--d:4"></i><i style="--d:5"></i><i style="--d:6"></i><i style="--d:7"></i><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12"></i><i style="--d:13"></i><i style="--d:14"></i><i style="--d:2"></i><i style="--d:3"></i><i style="--d:4"></i><i style="--d:5"></i><i style="--d:6"></i><i style="--d:7"></i><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12"></i><i style="--d:13"></i><i style="--d:14"></i><i style="--d:15"></i><i style="--d:3"></i><i style="--d:4"></i><i style="--d:5"></i><i style="--d:6"></i><i style="--d:7"></i><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12"></i><i style="--d:13"></i><i style="--d:14"></i><i style="--d:15"></i><i style="--d:16"></i><i style="--d:4"></i><i style="--d:5"></i><i style="--d:6"></i><i style="--d:7"></i><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12"></i><i style="--d:13"></i><i style="--d:14"></i><i style="--d:15"></i><i style="--d:16"></i><i style="--d:17"></i></div></div><div class="va-bundle"><span>app.py</span><span>kernels.c</span><span>cimo</span><span class="x">LLVM</span></div></div><span class="tag">apps</span><h3>Desktop applications</h3><p>Native-speed kernels in a frozen app, without bundling LLVM or installing a C compiler on every build machine.</p></div>
     <div class="card"><div class="viz v-web" aria-hidden="true"><div class="vb-win"><div class="vb-bar"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>jupyterlite</div><div class="vb-body"><div class="vb-code"><div class="vb-ln"><em>[1]</em><span class="t1" style="--n:21">k = cimo.compile(src)</span></div><div class="vb-ok"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>compiled in the page</div><div class="vb-ln"><em>[2]</em><span class="t2" style="--n:16">k.blur(img, out)</span></div></div><div class="vb-img"><i></i></div></div></div></div><span class="tag">sandboxed</span><h3>Browsers and restricted machines</h3><p>Pyodide, JupyterLite and marimo; plugin repositories that accept no binaries; machines where nothing can be installed.</p></div>
   </div>
@@ -424,18 +454,24 @@ with ThreadPoolExecutor() as pool:
 <section class="s" id="browser"><div class="wrap">
   <span class="k">WebAssembly</span>
   <h2>Running in the browser</h2>
-  <div class="split">
-    <div>
-      <p class="lede" style="margin-top:0">In Pyodide, JupyterLite and marimo, cimo compiles kernels to WebAssembly in the page and links them into Pyodide's memory, so they operate on numpy arrays in place. No server or clang-in-WASM download is involved.</p>
-      <div class="chips"><span>Pyodide</span><span>JupyterLite</span><span>marimo</span></div>
+  <p class="lede">In Pyodide, JupyterLite and marimo, cimo compiles C to WebAssembly in the page and links it into Pyodide's memory, so kernels work on numpy arrays in place. Below, cimo runs in your browser: 16,000 particles follow a vector field written in C. Edit the field and it recompiles as you type.</p>
+  <div class="demo" id="demo">
+    <div class="demo-view">
+      <canvas aria-label="Particles following the vector field"></canvas>
+      <div class="demo-cover">
+        <button type="button" class="btn btn-p demo-start">Run the demo</button>
+        <p class="demo-status">Loads Pyodide (about 7 MB) and cimo (a 1.1 MB Python file). Nothing runs on a server.</p>
+      </div>
+      <p class="demo-hint">drag to rotate · scroll to zoom</p>
     </div>
-    <div class="code">
-      <div class="bar"><span class="dots"><i></i><i></i><i></i></span>notebook cell</div>
-<pre data-lang="py">import micropip; await micropip.install("cimo")
-import cimo
-k = cimo.compile(src)   # compiled in the page</pre>
+    <div class="demo-side">
+      <div class="demo-bar"><span>attractor.c</span><select class="demo-preset" aria-label="Preset"></select><button type="button" class="demo-reseed">Reseed</button></div>
+      <div class="demo-code"><pre></pre></div>
+      <div class="demo-err" role="status" hidden></div>
     </div>
+    <div class="demo-foot"><span class="demo-stats">C → cimo (Python, in Pyodide) → WebAssembly → this canvas</span><span class="demo-out"></span></div>
   </div>
+  <p class="note">In a notebook: <code>await micropip.install("cimo")</code>, then <code>cimo.compile(src)</code> as anywhere else. Try a preset, then change a coefficient or add a term such as <code>+ 0.3f * sinf(4 * z)</code>.</p>
 </div></section>
 
 <section class="s" id="platforms"><div class="wrap">
@@ -583,5 +619,6 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
   });
 })();
 </script>
+<script src="demo.js" defer></script>
 </body>
 </html>
