@@ -259,6 +259,24 @@ def build(src):
     ghostTimer = setTimeout(ghost, /[?&]ghost\b/.test(location.search) ? 300 : 3500);
   }
 
+  // the caption under the editor types itself out, like the edit above it
+  const CAPTION = 'Edited live and recompiled in your browser. Your turn: change anything.';
+  let captionTimer = null;
+  function caption() {
+    const el = $('.demo-ghost .g-text', root);
+    if (!el) return;
+    el.textContent = '';
+    root.classList.add('ghosted', 'typing');
+    let i = 0;
+    clearTimeout(captionTimer);
+    const step = () => {
+      el.textContent = CAPTION.slice(0, ++i);
+      if (i < CAPTION.length) captionTimer = setTimeout(step, CAPTION[i - 1] === '.' ? 260 : 22);
+      else root.classList.remove('typing');
+    };
+    captionTimer = setTimeout(step, 350);
+  }
+
   function ghost() {
     const g = GHOST[ui.preset.value];
     if (!g || !editor) return;
@@ -271,10 +289,10 @@ def build(src):
     editor.scrollIntoView({ line: start.line, ch: 0 }, 60);
     const tick = () => {
       if (i >= g[1].length) {  // done: the caret stays parked here until the user acts
-        editor.markText(start, pos, { className: 'cm-ghost' });
-        root.classList.add('ghosted');
-        ghostTimer = setTimeout(() => root.classList.remove('ghosted'), 9000);
-        ghostStop = () => mark.clear();
+        const hl = editor.markText(start, pos, { className: 'cm-ghost' });
+        caption();
+        ghostTimer = setTimeout(() => root.classList.remove('ghosted'), 12000);
+        ghostStop = () => { mark.clear(); hl.clear(); };  // caret and highlight go together
         return;
       }
       editor.replaceRange(g[1][i++], pos, pos, '+ghost');
@@ -297,9 +315,11 @@ def build(src):
     const userActs = () => {
       clearTimeout(ghostTimer);
       if (ghostStop) { ghostStop(); ghostStop = null; }
-      root.classList.remove('ghosted');
+      clearTimeout(captionTimer);
+      root.classList.remove('ghosted', 'typing');
     };
     editor.on('mousedown', userActs);
+    editor.on('focus', userActs);
     editor.on('keydown', userActs);
     editor.on('touchstart', userActs);
     editor.on('change', () => {
