@@ -137,3 +137,35 @@ def test_bundle_prebuilt_read_only(built, tmp_path):
     assert 'building the runtime' not in err, err
     assert os.listdir(str(home)) == []
     assert out['runtime_key'] == linker.runtime().key
+
+
+def test_strip_keeps_code_and_notices():
+    """Stripped sources: same Python AST (minus docstrings), same C tokens; license comments
+    stay. Every file the bundle embeds is checked."""
+    import ast
+    from cimo import bundle, resources
+    from cimo.preprocessor import lex, FileInfo
+    files = bundle._package_files()
+    for rel, text in sorted(files.items()):
+        if rel.endswith('.py'):
+            out = bundle.strip_py(text)  # raises if the AST changes
+            assert bundle.strip_py(out) == out, rel  # idempotent: a bundle rebuilds itself
+        elif rel.endswith(('.c', '.h')):
+            out = bundle.strip_c(text)
+            key = lambda t: (t.kind, t.text, t.bol, t.space)
+            assert [key(t) for t in lex(out, FileInfo(rel))] == \
+                [key(t) for t in lex(text, FileInfo(rel))], rel
+            assert bundle.strip_c(out) == out, rel
+            for m in bundle._C_TOKEN.finditer(text):
+                c = m.group('block') or m.group('line')
+                if c and bundle._NOTICE.search(c):
+                    assert c in out, rel
+    # docstrings and comments are gone, strings that look like them are not
+    src = ('"""doc"""\n# comment\nX = """\n\n  kept\n"""  # trailing\n'
+           'def f():\n    """only a docstring"""\n\nclass C:\n    "doc"\n    y = 1\n')
+    out = bundle.strip_py(src)
+    assert 'doc' not in out and 'comment' not in out and 'trailing' not in out
+    assert 'X = """\n\n  kept\n"""' in out and 'def f():\n    pass' in out
+    c = '/* Copyright (C) 1993 Sun */\nint a; /* gone */ // gone\n#define S "/* not a comment */"\n'
+    out = bundle.strip_c(c)
+    assert 'Copyright' in out and 'gone' not in out and '"/* not a comment */"' in out

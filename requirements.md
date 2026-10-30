@@ -495,16 +495,22 @@ like the package in any CPython 3.9+ with only the standard library: put it on `
   `cimo.__main__` (the CLI). Module filenames are `<cimo.py>/cimo/driver.py`, registered
   with `linecache`, so tracebacks and `inspect` show source. Deterministic (no timestamps):
   rebuilding, also from inside the bundle, gives the same bytes.
-- **Cache keys are content hashes over package-relative names**, so a bundle has the same
-  `compiler_key()` and runtime key as the tree it was built from.
+- **Stripped:** comments, docstrings and blank lines are left out of the embedded `.py`
+  (checked: same AST minus docstrings) and `.c`/`.h` (comments become a space; checked: same
+  pp-tokens); C comments carrying a copyright or license notice stay (musl's math files
+  have Sun/FreeBSD/Arm notices that must be preserved). 1.26 MB -> 1.05 MB.
+  `--keep-comments` turns it off.
+- **Cache keys are content hashes over package-relative names**, computed from the original
+  sources at bundle time and embedded (`bundle-keys.json`), so a bundle has the same
+  `compiler_key()` and runtime key as the tree it was built from, stripped or not.
 - **`--prebuilt`** adds the compiled runtime as `prebuilt/runtime-<key>/` (per-file assembly +
   `index.json`, the same layout as the cache). `linker.runtime()` looks there first: a fresh
   process never builds the runtime and writes nothing. On another target or a modified
   compiler the key differs and it builds as usual.
 - **No writable cache** (`CIMO_CACHE_DIR` / `CIMO_RUNTIME_CACHE` / `~/.cache/cimo` cannot be
   created or written): the module cache and the runtime are kept in memory for the process.
-- **Measured** (Linux arm64, CPython 3.13): bundle 1.25 MB, 1.87 MB with `--prebuilt` (+0.61
-  MB of runtime assembly); building it 0.03 s (plus the runtime build if not cached);
+- **Measured** (Linux arm64, CPython 3.13): bundle 1.05 MB, 1.67 MB with `--prebuilt` (+0.62
+  MB of runtime assembly); building it 1 s with stripping, 0.05 s without (plus the runtime build if not cached);
   `import cimo` from it 0.05 s; first compile of a printf/sin/malloc kernel 0.2 s with
   `--prebuilt`, 5.6 s without (runtime build). `tests/test_bundle.py` runs it under
   `python -I -S` with no writable home.
