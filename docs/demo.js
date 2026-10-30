@@ -236,7 +236,7 @@ def build(src):
     ui.code.innerHTML = '';
     editor = CodeMirror(ui.code, {
       value: source(ui.preset.value), mode: 'text/x-csrc', theme: 'cimo', lineNumbers: true,
-      indentUnit: 4, viewportMargin: Infinity,
+      indentUnit: 4, viewportMargin: Infinity, scrollbarStyle: 'null',
     });
     let timer = null;
     editor.on('change', () => {
