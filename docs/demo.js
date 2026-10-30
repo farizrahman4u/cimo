@@ -245,15 +245,15 @@ def build(src):
 
   // ---- the ghost edit: on every visit, a few seconds after the demo starts, type a small
   // change into the field so it is obvious the code is live; stops as soon as the user acts
-  // [text before the number, the number, the new value]: changes that reshape the attractor
-  // and keep it bounded (checked for each preset)
+  // [where, what to type]: a term appended to one equation; reshapes the attractor and keeps
+  // it bounded (checked for each preset)
   const GHOST = {
-    'Aizawa': ['c = ', '0.6f', '1.1f'],
-    'Lorenz': ['r = ', '28', '60'],
-    'Thomas': ['b = ', '0.208186f', '0.15f'],
-    'Halvorsen': ['a = ', '1.89f', '1.4f'],
-    'Dadras': ['b = ', '2.7f', '1.7f'],
-    'Rössler': ['c = ', '5.7f', '13'],
+    'Aizawa': ['*dx = (z - b) * x - d * y', ' + 0.6f * y * z'],
+    'Lorenz': ['*dz = x * y - b * z', ' + 6 * sinf(x / 3)'],
+    'Thomas': ['*dz = sinf(x) - b * z', ' + 0.4f * cosf(2 * y)'],
+    'Halvorsen': ['*dz = -a * z - 4 * x - 4 * y - x * x', ' + 0.8f * y'],
+    'Dadras': ['*dz = d * x * y - e * z', ' + 3 * sinf(y)'],
+    'Rössler': ['*dy = x + a * y', ' + 0.15f * z'],
   };
   let ghosting = false;  // while the ghost types, edits do not recompile (no half-typed errors)
   let ghostTimer = null, ghostStop = null;
@@ -283,31 +283,22 @@ def build(src):
   function ghost() {
     const g = GHOST[ui.preset.value];
     if (!g || !editor) return;
-    const at = editor.getValue().indexOf(g[0] + g[1]);
+    const at = editor.getValue().indexOf(g[0]);
     if (at < 0) return;
     const start = editor.posFromIndex(at + g[0].length);
-    let pos = editor.posFromIndex(at + g[0].length + g[1].length);
+    let pos = start, i = 0;
     const caret = document.createElement('span');
     caret.className = 'ghost-caret';
     let mark = editor.setBookmark(pos, { widget: caret });
     const park = () => { mark.clear(); mark = editor.setBookmark(pos, { widget: caret }); };
     editor.scrollIntoView({ line: start.line, ch: 0 }, 60);
     ghosting = true;
-    let del = g[1].length, i = 0;
     const tick = () => {
-      if (del > 0) {  // backspace over the old number
-        const p = editor.posFromIndex(editor.indexFromPos(pos) - 1);
-        editor.replaceRange('', p, pos, '+ghost');
-        pos = p;
-        park();
-        ghostTimer = setTimeout(tick, --del ? 90 : 420);
-        return;
-      }
-      if (i < g[2].length) {  // type the new one
-        editor.replaceRange(g[2][i++], pos, pos, '+ghost');
+      if (i < g[1].length) {
+        editor.replaceRange(g[1][i++], pos, pos, '+ghost');
         pos = editor.posFromIndex(editor.indexFromPos(pos) + 1);
         park();
-        ghostTimer = setTimeout(tick, 110 + Math.random() * 70);
+        ghostTimer = setTimeout(tick, 70 + Math.random() * 60);
         return;
       }
       ghosting = false;  // done: compile, highlight, and leave the caret parked
@@ -318,7 +309,7 @@ def build(src):
       ghostStop = () => { mark.clear(); hl.clear(); };
     };
     ghostStop = () => { clearTimeout(ghostTimer); mark.clear(); ghosting = false; };
-    ghostTimer = setTimeout(tick, 600);
+    ghostTimer = setTimeout(tick, 500);
   }
 
   function setupEditor() {
