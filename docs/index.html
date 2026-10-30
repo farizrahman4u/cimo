@@ -338,6 +338,16 @@ section.s{padding:72px 0 8px}
 .tbl .m{font-family:var(--mono);font-size:12.5px}
 .tblw{overflow-x:auto;border-radius:12px}
 .code.report pre{font-size:11.5px;white-space:pre-wrap;padding:12px 14px}
+/* Performance: the right column reaches the chart's base; the terminal takes the rest */
+#speed .split{align-items:stretch}
+#speed .split>.stack{display:flex;flex-direction:column}
+#speed .code.report{flex:1;display:flex;flex-direction:column;min-height:150px}
+#speed .code.report pre{flex:1}
+.rep-out{display:block;opacity:0;transform:translateY(3px);transition:opacity .25s ease,transform .25s ease}
+.rep.shown .rep-out{opacity:1;transform:none}
+.rep.anim .rep-out{transition-delay:0s}
+.rep-out.on{opacity:1;transform:none}
+.rep .caret{display:inline-block;width:7px;height:1.15em;vertical-align:-3px;background:#8e94a3;animation:caret 1s steps(2) infinite}
 /* pipeline */
 .pipe{display:flex;align-items:stretch;margin-top:28px}
 .stage{flex:1 1 0;min-width:0;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:14px 14px 16px}
@@ -523,9 +533,7 @@ void ema(int n, const double x[n], double y[n], double a) {
       </ul>
       <div class="code report">
         <div class="bar"><span class="dots"><i></i><i></i><i></i></span>terminal</div>
-<pre data-lang="sh"><span class="t-pr">$</span> python -m cimo report kernels.c
-kernels.c:12  loop j: <span class="t-ok">optimized</span> (unrolled x4, alias check src/dst)
-kernels.c:31  loop i: <span class="t-err">not optimized</span>: base of `p` depends on a branch</pre>
+<pre class="rep"><span class="t-pr">$</span> <span class="rep-cmd">python -m cimo report kernels.c</span><span class="rep-out">kernels.c:12  loop j: <span class="t-ok">optimized</span> (unrolled x4, alias check src/dst)</span><span class="rep-out">kernels.c:31  loop i: <span class="t-err">not optimized</span>: base of `p` depends on a branch</span><span class="rep-out rep-end"><span class="t-pr">$</span> </span></pre>
       </div>
     </div>
   </div>
@@ -794,6 +802,37 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
   });
   th.addEventListener('pointerup', function () { drag = null; bar.classList.remove('drag'); show(); });
   layout();
+})();
+</script>
+<script>
+// Performance terminal: type the command, then the output lines appear one by one (once)
+(function () {
+  var pre = document.querySelector('pre.rep');
+  if (!pre) return;
+  var cmd = pre.querySelector('.rep-cmd'), outs = pre.querySelectorAll('.rep-out'), text = cmd.textContent;
+  var caret = document.createElement('span'); caret.className = 'caret';
+  if (matchMedia('(prefers-reduced-motion:reduce)').matches || !('IntersectionObserver' in window)) {
+    pre.classList.add('shown'); outs[outs.length - 1].appendChild(caret); return;
+  }
+  cmd.textContent = ''; cmd.after(caret);
+  new IntersectionObserver(function (es, ob) {
+    if (!es[0].isIntersecting) return;
+    ob.disconnect();
+    var i = 0;
+    (function type() {
+      cmd.textContent = text.slice(0, ++i);
+      if (i < text.length) return setTimeout(type, 45 + Math.random() * 45);
+      setTimeout(function () {
+        caret.remove();
+        outs.forEach(function (el, k) {
+          setTimeout(function () {
+            el.classList.add('on');
+            if (k === outs.length - 1) el.appendChild(caret);
+          }, 380 + k * 260);
+        });
+      }, 300);
+    })();
+  }, { threshold: 0.6 }).observe(pre);
 })();
 </script>
 <script src="demo.js?v=c4064433" defer></script>
