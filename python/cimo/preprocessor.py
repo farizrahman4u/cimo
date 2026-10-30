@@ -195,7 +195,7 @@ _COMMON_DEFINES = [
     ('__ORDER_LITTLE_ENDIAN__', '__STDC_ENDIAN_LITTLE__'),
     ('__ORDER_BIG_ENDIAN__', '__STDC_ENDIAN_BIG__'),
     ('__BYTE_ORDER__', '__STDC_ENDIAN_NATIVE__'),
-    ('__FLT_EVAL_METHOD__', '1'),
+    ('__FLT_EVAL_METHOD__', '0'),  # cproc's config.h says 1, but cproc + QBE compute float in float
     ('__BITINT_MAXWIDTH__', '64'),
     ('__aarch64__', None),
     ('__LP64__', None),
