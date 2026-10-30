@@ -40,3 +40,5 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 ## Small
 
 - Demos (see "Demos (planned)" in `requirements.md`).
+- Website demo (`docs/demo.js`): C vector field → particles, recompiled in Pyodide on every edit.
+  `docs/cimo.py` is a `cimo bundle` build: regenerate it when the compiler changes.
