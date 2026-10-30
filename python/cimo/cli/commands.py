@@ -82,6 +82,8 @@ def build_tree():
     b.opt('--prebuilt', flag=True,
           help='Also embed the compiled runtime library: no first-use build, no cache '
                'directory needed (larger file)')
+    b.opt('--keep-comments', flag=True,
+          help='Keep comments and docstrings (by default only license notices stay)')
     b.example('cimo bundle')
     b.example('cimo bundle --prebuilt -o vendor/cimo.py')
 
@@ -372,7 +374,8 @@ def cmd_bundle(ctx):
                 sp.update('Compiling the runtime library: %s' % info['name'])
         linker.progress = runtime_progress
         try:
-            stats = bundle.build(out, prebuilt=ctx.values.get('prebuilt'), progress=sp.update)
+            stats = bundle.build(out, prebuilt=ctx.values.get('prebuilt'), progress=sp.update,
+                                 strip=not ctx.values.get('keep_comments'))
         finally:
             linker.progress = old
     size = os.path.getsize(out)

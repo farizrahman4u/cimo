@@ -77,6 +77,15 @@ def _compiler_paths():
 
 
 _compiler_key = None
+_TARGETS = ('arm64', 'arm64_apple')
+
+
+def _bundle_keys():
+    """The keys a bundle was built with (bundle-keys.json, see cimo.bundle): its embedded
+    sources are stripped of comments, so they hash differently from the sources the keys
+    describe. None outside a bundle."""
+    p = _res.path('bundle-keys.json')
+    return json.loads(_res.read_text(p)) if _res.isfile(p) else None
 
 
 def compiler_key():
@@ -84,13 +93,28 @@ def compiler_key():
     a changed compiler never reuses assembly the old one generated."""
     global _compiler_key
     if _compiler_key is None:
-        h = hashlib.sha256(b'cimo-compiler-1\0')
-        _hash(h, _compiler_paths())
-        _compiler_key = h.hexdigest()[:20]
+        keys = _bundle_keys()
+        if keys:
+            _compiler_key = keys['compiler']
+        else:
+            h = hashlib.sha256(b'cimo-compiler-1\0')
+            _hash(h, _compiler_paths())
+            _compiler_key = h.hexdigest()[:20]
     return _compiler_key
 
 
+def cache_keys():
+    """{'compiler': key, 'runtime-<target>': key}: what a bundle records in bundle-keys.json."""
+    out = {'compiler': compiler_key()}
+    for t in _TARGETS:
+        out['runtime-' + t] = _key(t)
+    return out
+
+
 def _key(target):
+    keys = _bundle_keys()
+    if keys:
+        return keys['runtime-' + target]
     h = hashlib.sha256(b'cimo-runtime-1\0' + target.encode() + b'\0')
     _hash(h, _res.files(RUNTIME_DIR, ('.c', '.h')) + _compiler_paths())
     return h.hexdigest()[:20]

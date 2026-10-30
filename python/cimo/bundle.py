@@ -166,6 +166,102 @@ def _literal(text):
     return lit
 
 
+# ---------------------------------------------------------------------------------------------
+# stripping: the bundle leaves out comments and docstrings (license notices stay)
+
+_NOTICE = re.compile(r'copyright|permission|licen[sc]e|\(c\) ?\d|©', re.I)
+_DOCHOLDERS = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _docstring(node):
+    """The docstring statement of a module, class or function node, or None."""
+    body = getattr(node, 'body', None)
+    if (isinstance(node, _DOCHOLDERS) and body and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str)):
+        return body[0]
+    return None
+
+
+def _undoc(tree):
+    for node in ast.walk(tree):
+        if _docstring(node) is not None:
+            node.body = node.body[1:] or [ast.Pass()]
+    return tree
+
+
+def strip_py(text):
+    """Python source without comments, docstrings and blank lines. Checked: the result has the
+    same AST as the original once docstrings are removed."""
+    import io
+    import tokenize
+    tree = ast.parse(text)
+    drop = []  # (start, end, replacement): positions (line, col), lines 1-based
+    for node in ast.walk(tree):
+        d = _docstring(node)
+        if d is not None:
+            drop.append(((d.lineno, d.col_offset), (d.end_lineno, d.end_col_offset),
+                         'pass' if len(node.body) == 1 else ''))
+    starts = set(a for a, _, _ in drop)
+    keep = set()  # lines inside multi-line strings that stay: blank lines there are content
+    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+        if tok.type == tokenize.COMMENT:
+            drop.append((tok.start, tok.end, ''))
+        elif tok.type == tokenize.STRING and tok.end[0] > tok.start[0] and tok.start not in starts:
+            keep.update(range(tok.start[0] + 1, tok.end[0] + 1))
+    lines = text.split('\n')
+    for (l0, c0), (l1, c1), rep in sorted(drop, reverse=True):
+        lines[l0 - 1:l1] = [lines[l0 - 1][:c0] + rep + lines[l1 - 1][c1:]] + [''] * (l1 - l0)
+    out = []
+    for i, ln in enumerate(lines, 1):
+        if i in keep:
+            out.append(ln)
+        elif ln.strip():
+            out.append(ln.rstrip())
+    result = '\n'.join(out) + '\n'
+    if ast.dump(_undoc(ast.parse(result))) != ast.dump(_undoc(tree)):
+        raise AssertionError('stripping changed the code')
+    return result
+
+
+_C_TOKEN = re.compile(r"""
+    (?P<str> "(?:[^"\\\n]|\\.)*" | '(?:[^'\\\n]|\\.)*' )
+  | (?P<block> /\*.*?\*/ )
+  | (?P<line> //(?:[^\n\\]|\\.)* )
+""", re.S | re.X)
+
+
+def strip_c(text):
+    """C source without comments (each becomes a space, as in translation phase 3), except
+    those carrying a copyright or license notice, and without blank lines (except after a
+    line ending in a backslash, which would otherwise continue onto the next line)."""
+    kept = []  # notices, as one-line placeholders while blank lines go
+
+    def repl(m):
+        if m.group('str'):
+            return m.group('str')
+        if _NOTICE.search(m.group(0)):
+            kept.append(m.group(0))
+            return '\0%d\0' % (len(kept) - 1)
+        return ' '
+    out = []
+    for ln in _C_TOKEN.sub(repl, text).split('\n'):
+        ln = ln.rstrip()
+        if ln or (out and out[-1].endswith('\\')):
+            out.append(ln)
+    return re.sub('\0(\\d+)\0', lambda m: kept[int(m.group(1))], '\n'.join(out)) + '\n'
+
+
+def _strip(files):
+    out = {}
+    for rel, text in files.items():
+        if rel.endswith('.py'):
+            text = strip_py(text)
+        elif rel.endswith(('.c', '.h')):
+            text = strip_c(text)
+        out[rel] = text
+    return out
+
+
 def _package_files():
     """{path relative to the package: text} of the files the bundle embeds."""
     out = {}
@@ -194,15 +290,23 @@ def _version():
     return getattr(cimo, '__version__', 'unknown')
 
 
-def build(path='cimo.py', prebuilt=False, progress=None):
+def build(path='cimo.py', prebuilt=False, progress=None, strip=True):
     """Write the single-file bundle to `path`. prebuilt: also embed the compiled runtime
-    (built first if this process has not got it). progress(msg): status lines, optional.
+    (built first if this process has not got it). strip: leave out comments and docstrings
+    (license notices stay); cache keys are those of the original sources
+    (bundle-keys.json), so a prebuilt runtime still matches. progress(msg): status lines,
+    optional.
     Returns stats: {'path', 'modules', 'resources', 'runtime_files', 'bytes',
     'runtime_bytes', 'seconds'}."""
     say = progress or (lambda msg: None)
     t0 = time.time()
     say('collecting package files from %s' % _res.ROOT)
     files = _package_files()
+    if strip:
+        say('stripping comments and docstrings')
+        files = _strip(files)
+    from . import linker
+    files['bundle-keys.json'] = json.dumps(linker.cache_keys(), indent=0, sort_keys=True) + '\n'
     runtime = {}
     if prebuilt:
         say('compiling the runtime library (cached after the first time)')
