@@ -243,7 +243,7 @@ def build(src):
   }
   if (/[?&]poster\b/.test(location.search)) root.classList.add('poster');  // (for the poster image)
 
-  // ---- the ghost edit: once per visit, a few seconds after the demo starts, type a small
+  // ---- the ghost edit: on every visit, a few seconds after the demo starts, type a small
   // change into the field so it is obvious the code is live; stops as soon as the user acts
   const GHOST = {
     'Aizawa': ['*dx = (z - b) * x - d * y', ' + 0.6f * y * z'],
@@ -256,11 +256,7 @@ def build(src):
   let ghostTimer = null, ghostStop = null;
 
   function scheduleGhost() {
-    let seen = false;
-    try { seen = sessionStorage.getItem('cimo-ghost') === '1'; } catch (e) {}
-    const force = /[?&]ghost\b/.test(location.search);
-    if ((seen && !force) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    ghostTimer = setTimeout(ghost, force ? 300 : 3500);
+    ghostTimer = setTimeout(ghost, /[?&]ghost\b/.test(location.search) ? 300 : 3500);
   }
 
   function ghost() {
@@ -268,7 +264,6 @@ def build(src):
     if (!g || !editor) return;
     const text = editor.getValue(), at = text.indexOf(g[0]);
     if (at < 0) return;
-    try { sessionStorage.setItem('cimo-ghost', '1'); } catch (e) {}
     const start = editor.posFromIndex(at + g[0].length);
     const caret = document.createElement('span');
     caret.className = 'ghost-caret';
