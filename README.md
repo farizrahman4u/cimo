@@ -72,16 +72,27 @@ dynamic programming.
 
 ## Real C, not a subset
 
-cimo compiles **freestanding C11**: all of the language, none of the operating system.
+cimo compiles C11 and bundles its own C library, so a kernel behaves the same on every platform,
+the browser included.
 
 - structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs,
   VLAs, `goto`, `switch`, globals and `const` tables
-- the freestanding headers plus `math.h`, `string.h`, `ctype.h` and an OS-free `stdlib.h` with
-  `malloc`, `free`, `qsort`, `bsearch` and `strtod`, all bundled
+- `stdio.h`, `stdlib.h`, `string.h`, `math.h`, `ctype.h`, `inttypes.h` and the freestanding
+  headers, all bundled. `printf` writes to `sys.stdout`, so output lands in your notebook
 - GNU vector types (`__attribute__((vector_size(32)))`) for hand-written NEON / AVX2 / AVX-512
 - `#pragma omp simd` and `restrict`, honored as written
 
-Out of scope: stdio, files, threads and anything else that needs an operating system.
+Need the operating system? Link it:
+
+```python
+k = cimo.compile(src, link=["libc"], host_headers=True)   # files, clocks, threads, sockets
+```
+
+Any shared library works the same way (`link=["libz.so.1"]`, BLAS, the Python C API).
+Kernels run with the full privileges of your Python process, like ctypes. There is no sandbox.
+
+Not supported: inline assembly, `setjmp`/`longjmp` and 128-bit `long double`. Each is a
+compile error that says so.
 
 ## Pythonic bindings
 
@@ -127,7 +138,7 @@ with ThreadPoolExecutor() as pool:
 
 ### Errors are Python exceptions
 
-`assert`, `abort()` and traps unwind cleanly back to Python. A crashing kernel doesn't take
+`assert`, `abort()`, `exit()` and traps unwind cleanly back to Python. A crashing kernel doesn't take
 your interpreter down with it.
 
 ```python

@@ -76,7 +76,7 @@ def _tostr(s):
 
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
-            builtins=False, diagnostics=False):
+            builtins=False, diagnostics=False, prune=False):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -92,6 +92,9 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     unknown type names), GNU keyword spellings (asm, __restrict, __const, ...), and C99 inline
     definitions emitted as local functions when referenced; see diag.py.
 
+    prune=True (cimo extension, off by default): drop static functions and data that no
+    exported definition references (prune.py).
+
     Raises FrontendError with cproc's exact error message on errors."""
     if isinstance(text, str):
         text = text.encode('utf-8', 'surrogateescape')
@@ -101,6 +104,9 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.contract = bool(fma)
         _qbe.builtins = bool(builtins)
         U.diagnostics = bool(diagnostics)
+        if diagnostics:
+            from . import cc as _cc, diag as _diag
+            _cc.exprhook = _diag.checktype
         with _Recursion():
             _run([(filename, text)], target, pponly)
     except U.FrontendError as e:
@@ -113,8 +119,13 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.contract = False
         _qbe.builtins = False
         U.diagnostics = False
+        from . import cc as _cc
+        _cc.exprhook = None
     res = _tostr(''.join(U.out))
     del U.out[:]
+    if prune:
+        from .prune import prune as _prune
+        res = _prune(res)
     return res
 
 

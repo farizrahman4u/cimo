@@ -510,6 +510,11 @@ def bitsd(u):
     return _unpack_d(_pack_q(u))[0]
 
 
+# cimo: called with each new expression's type when set (diagnostics: unsupported types are
+# reported where the expression is parsed, not where its code is generated)
+exprhook = None
+
+
 class Expr(object):
     """struct expr. Union u is flattened:
       ident.decl / compound.decl -> decl, compound.init -> init,
@@ -533,6 +538,8 @@ class Expr(object):
         self.toeval = None
         self.op = 0
         self.u = 0
+        if exprhook is not None and type is not None:
+            exprhook(type)
 
     @property
     def i(self):

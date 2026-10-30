@@ -209,10 +209,61 @@ _TAIL_DEFINES = [
     ('__LONG_LONG_MAX__', '0x7fffffffffffffffL'),
 ]
 
-#: Predefined macros per target: cproc's config.h list (aarch64-linux-gnu) and a macOS variant.
+# gcc's type, size and limit macros (not in cproc's list; system headers such as glibc's
+# glob.h use them), with gcc's values for aarch64-linux-gnu; _APPLE_TYPES overrides.
+_GCC_TYPES = [
+    ('__CHAR_BIT__', '8'), ('__SIZEOF_SHORT__', '2'), ('__SIZEOF_INT__', '4'),
+    ('__SIZEOF_LONG_LONG__', '8'), ('__SIZEOF_FLOAT__', '4'), ('__SIZEOF_DOUBLE__', '8'),
+    ('__SIZEOF_WCHAR_T__', '4'), ('__SIZEOF_WINT_T__', '4'),
+    ('__SCHAR_MAX__', '0x7f'), ('__SHRT_MAX__', '0x7fff'),
+    ('__LONG_MAX__', '0x7fffffffffffffffL'),
+    ('__SCHAR_WIDTH__', '8'), ('__SHRT_WIDTH__', '16'), ('__INT_WIDTH__', '32'),
+    ('__LONG_WIDTH__', '64'), ('__LONG_LONG_WIDTH__', '64'),
+    ('__SIZE_TYPE__', 'long unsigned int'), ('__SIZE_MAX__', '0xffffffffffffffffUL'),
+    ('__SIZE_WIDTH__', '64'),
+    ('__PTRDIFF_TYPE__', 'long int'), ('__PTRDIFF_MAX__', '0x7fffffffffffffffL'),
+    ('__PTRDIFF_WIDTH__', '64'),
+    ('__INTMAX_TYPE__', 'long int'), ('__UINTMAX_TYPE__', 'long unsigned int'),
+    ('__INTMAX_MAX__', '0x7fffffffffffffffL'), ('__UINTMAX_MAX__', '0xffffffffffffffffUL'),
+    ('__INTMAX_C(c)', 'c ## L'), ('__UINTMAX_C(c)', 'c ## UL'), ('__INTMAX_WIDTH__', '64'),
+    ('__INTPTR_TYPE__', 'long int'), ('__UINTPTR_TYPE__', 'long unsigned int'),
+    ('__INTPTR_MAX__', '0x7fffffffffffffffL'), ('__UINTPTR_MAX__', '0xffffffffffffffffUL'),
+    ('__INTPTR_WIDTH__', '64'),
+    ('__CHAR16_TYPE__', 'short unsigned int'), ('__CHAR32_TYPE__', 'unsigned int'),
+    ('__INT8_TYPE__', 'signed char'), ('__INT16_TYPE__', 'short int'),
+    ('__INT32_TYPE__', 'int'), ('__INT64_TYPE__', 'long int'),
+    ('__UINT8_TYPE__', 'unsigned char'), ('__UINT16_TYPE__', 'short unsigned int'),
+    ('__UINT32_TYPE__', 'unsigned int'), ('__UINT64_TYPE__', 'long unsigned int'),
+    ('__INT8_MAX__', '0x7f'), ('__INT16_MAX__', '0x7fff'), ('__INT32_MAX__', '0x7fffffff'),
+    ('__INT64_MAX__', '0x7fffffffffffffffL'), ('__UINT8_MAX__', '0xff'),
+    ('__UINT16_MAX__', '0xffff'), ('__UINT32_MAX__', '0xffffffffU'),
+    ('__UINT64_MAX__', '0xffffffffffffffffUL'),
+    ('__INT8_C(c)', 'c'), ('__INT16_C(c)', 'c'), ('__INT32_C(c)', 'c'), ('__INT64_C(c)', 'c ## L'),
+    ('__UINT8_C(c)', 'c'), ('__UINT16_C(c)', 'c'), ('__UINT32_C(c)', 'c ## U'),
+    ('__UINT64_C(c)', 'c ## UL'),
+    ('__WCHAR_TYPE__', 'unsigned int'), ('__WCHAR_MAX__', '0xffffffffU'), ('__WCHAR_MIN__', '0U'),
+    ('__WCHAR_WIDTH__', '32'),
+    ('__WINT_TYPE__', 'unsigned int'), ('__WINT_MAX__', '0xffffffffU'), ('__WINT_MIN__', '0U'),
+    ('__WINT_WIDTH__', '32'),
+]
+_LINUX_TYPES = _GCC_TYPES + [('__CHAR_UNSIGNED__', None)]
+# Apple arm64: signed char and wchar_t, int64_t is long long (clang's values)
+_APPLE_OVERRIDE = {
+    '__INT64_TYPE__': 'long long int', '__UINT64_TYPE__': 'long long unsigned int',
+    '__INT64_C(c)': 'c ## LL', '__UINT64_C(c)': 'c ## ULL',
+    '__INT64_MAX__': '0x7fffffffffffffffLL', '__UINT64_MAX__': '0xffffffffffffffffULL',
+    '__WCHAR_TYPE__': 'int', '__WCHAR_MAX__': '2147483647', '__WCHAR_MIN__': '(-2147483647-1)',
+    '__WINT_TYPE__': 'int', '__WINT_MAX__': '2147483647', '__WINT_MIN__': '(-2147483647-1)',
+}
+_APPLE_TYPES = [(k, _APPLE_OVERRIDE.get(k, v)) for k, v in _GCC_TYPES]
+
+#: Predefined macros per target: cproc's config.h list (aarch64-linux-gnu) and a macOS variant,
+#: plus gcc's type macros.
 TARGETS = {
-    'arm64': _COMMON_DEFINES + [('__linux__', None), ('__unix__', None)] + _TAIL_DEFINES,
-    'arm64_apple': _COMMON_DEFINES + [('__APPLE__', None), ('__MACH__', None)] + _TAIL_DEFINES,
+    'arm64': (_COMMON_DEFINES + [('__linux__', None), ('__unix__', None)] + _TAIL_DEFINES
+              + _LINUX_TYPES),
+    'arm64_apple': (_COMMON_DEFINES + [('__APPLE__', None), ('__MACH__', None)] + _TAIL_DEFINES
+                    + _APPLE_TYPES),
 }
 # Whether plain char is signed, for character constants in #if.
 _CHAR_SIGNED = {'arm64': False, 'arm64_apple': True}

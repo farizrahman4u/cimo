@@ -120,6 +120,12 @@ def nullpointer(e):
     return e.u == 0
 
 
+def _nullptrval(e):
+    # cimo: any expression of type nullptr_t (C23 6.5.16.1, 6.5.9, 6.5.15), not only the
+    # constant nullptr
+    return U.diagnostics and e.type.kind == TYPENULLPTR
+
+
 def exprassign(e, t):
     et = e.type
     k = t.kind
@@ -127,7 +133,7 @@ def exprassign(e, t):
         if not (et.prop & PROPARITH) and et.kind != TYPEPOINTER and et.kind != TYPENULLPTR:
             error(tok.loc, "assignment to bool must be from arithmetic, pointer, or nullptr_t type")
     elif k == TYPEPOINTER:
-        if not nullpointer(e):
+        if not nullpointer(e) and not _nullptrval(e):
             if et.kind != TYPEPOINTER:
                 error(tok.loc, "assignment to pointer must be from pointer or null pointer constant")
             if t.base is not TY.typevoid and et.base is not TY.typevoid and not typecompatible(t.base, et.base):
@@ -135,7 +141,7 @@ def exprassign(e, t):
             if (et.qual & t.qual) != et.qual:
                 error(tok.loc, "assignment to pointer discards qualifiers")
     elif k == TYPENULLPTR:
-        if not nullpointer(e):
+        if not nullpointer(e) and not _nullptrval(e):
             error(tok.loc, "assignment to nullptr_t must be from null pointer constant or expression with type nullptr_t")
     elif k == TYPESTRUCT or k == TYPEUNION:
         if not typecompatible(t, et):
@@ -183,6 +189,15 @@ def mkbinaryexpr(loc, op, l, r):
         t = TY.typeint
         if lp & PROPARITH and rp & PROPARITH:
             _, l, r = commonreal(l, r)
+        elif (_nullptrval(l) or _nullptrval(r)) and (
+                (l.type.kind == r.type.kind) or nullpointer(EV.eval(l)) or nullpointer(EV.eval(r))):
+            # two nullptr_t, or nullptr_t and a null pointer constant
+            l = exprconvert(l, TY.typenullptr)
+            r = exprconvert(r, TY.typenullptr)
+        elif _nullptrval(l) and r.type.kind == TYPEPOINTER:
+            l = exprconvert(l, r.type)
+        elif _nullptrval(r) and l.type.kind == TYPEPOINTER:
+            r = exprconvert(r, l.type)
         else:
             if l.type.kind != TYPEPOINTER:
                 l, r = r, l
@@ -698,8 +713,7 @@ def primaryexpr(s):
         e.u = 1 if tok.kind == TTRUE else 0
         next()
     elif k == TNULLPTR:
-        # cimo: cproc's nullptr_t is incomplete (code generation asserts); use ((void *)0)
-        e = Expr(EXPRCONST, DG.typevoidptr if U.diagnostics else TY.typenullptr, None)
+        e = Expr(EXPRCONST, TY.typenullptr, None)
         e.u = 0
         next()
     elif k == TLPAREN:
@@ -1127,10 +1141,12 @@ def condexpr(s):
     else:
         l = EV.eval(l)
         r = EV.eval(r)
-        if nullpointer(l) and rt.kind == TYPEPOINTER:
+        if (nullpointer(l) or _nullptrval(l)) and rt.kind == TYPEPOINTER:
             t = rt
-        elif nullpointer(r) and lt.kind == TYPEPOINTER:
+        elif (nullpointer(r) or _nullptrval(r)) and lt.kind == TYPEPOINTER:
             t = lt
+        elif _nullptrval(l) and nullpointer(r) or _nullptrval(r) and nullpointer(l):
+            t = TY.typenullptr
         elif lt.kind == TYPEPOINTER and rt.kind == TYPEPOINTER:
             tq = lt.qual | rt.qual
             lt = lt.base

@@ -62,7 +62,6 @@ INLINEASM = "inline assembly is not supported"
 typeint128 = Type(kind=TYPESTRUCT, size=16, align=16, tag='__int128')
 typeuint128 = Type(kind=TYPESTRUCT, size=16, align=16, tag='unsigned __int128')
 
-typevoidptr = mkpointertype(typevoid, QUALNONE)  # nullptr is ((void *)0)
 
 aliases = {}  # extra keyword aliases, token kind -> token kind (see setup)
 inlinedefns = []  # [(decl, func)]: C99 inline definitions, held back (see emitinlinedefns)

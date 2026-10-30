@@ -132,7 +132,7 @@ def compile_runtime_source(path, target):
                     defines={'__FLT_EVAL_METHOD__': '0', '__FP_FAST_FMA': '1',
                              '__FP_FAST_FMAF': '1'}, target=target,
                     warn=lambda *a, **k: None)
-    ssa, params = driver._frontend(pp, path, fma=False, builtins=True)
+    ssa, params = driver._frontend(pp, path, fma=False, builtins=True, prune=True)
     return driver._qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
 
 

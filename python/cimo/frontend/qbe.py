@@ -2,7 +2,7 @@
 
 import math
 
-from .cc import (M64, BITS0, TYPEVOID, TYPEPOINTER, TYPEBOOL, TYPEBITINT, TYPEARRAY,
+from .cc import (M64, BITS0, TYPEVOID, TYPEPOINTER, TYPENULLPTR, TYPEBOOL, TYPEBITINT, TYPEARRAY,
                  TYPEFUNC, TYPESTRUCT, TYPEUNION, PROPSCALAR, PROPFLOAT, PROPINT, PROPREAL,
                  PROPVM, QUALNONE, QUALCONST, QUALVOLATILE, DECLOBJECT, DECLFUNC, DECLCONST,
                  LINKNONE, LINKEXTERN, SDSTATIC, SDTHREAD, EXPRIDENT, EXPRCONST, EXPRSTRING,
@@ -380,13 +380,19 @@ def funcbits(f, t, v, b):
     return v
 
 
+def _isnullptr(t):
+    # cimo: code for nullptr_t values (C23), which C cproc d1c53dd parses but can't generate:
+    # a pointer-sized zero
+    return U.diagnostics and t.kind == TYPENULLPTR
+
+
 def convert(f, dst, src, l):
     r = None
     if src is dst:
         return l
-    if src.kind == TYPEPOINTER:
+    if src.kind == TYPEPOINTER or _isnullptr(src):
         src = TY.typeulong
-    if dst.kind == TYPEPOINTER:
+    if dst.kind == TYPEPOINTER or _isnullptr(dst):
         dst = TY.typeulong
     if dst.kind == TYPEVOID:
         return None
@@ -542,7 +548,7 @@ def funcstore(f, t, tq, lval, v):
     if k == TYPESTRUCT or k == TYPEUNION or k == TYPEARRAY:
         funccopy(f, lval.addr, v, t.size, t.align)
     else:
-        if k == TYPEPOINTER:
+        if k == TYPEPOINTER or _isnullptr(t):
             t = TY.typeulong
         assert tp & PROPSCALAR
         qt = qbetype(t)
@@ -888,7 +894,7 @@ def funcexpr(f, e):
         U.fatal("unimplemented declaration kind %d", d.kind)
     elif k == EXPRCONST:
         t = e.type
-        if t.prop & PROPINT or t.kind == TYPEPOINTER:
+        if t.prop & PROPINT or t.kind == TYPEPOINTER or _isnullptr(t):
             return mkintconst(e.u)
         assert t.prop & PROPFLOAT
         return mkfltconst(VALUE_FLTCONST if t.size == 4 else VALUE_DBLCONST, e.f)
@@ -987,7 +993,7 @@ def funcexpr(f, e):
         l = funcexpr(f, e.l)
         r = funcexpr(f, e.r)
         t = e.l.type
-        if t.kind == TYPEPOINTER:
+        if t.kind == TYPEPOINTER or _isnullptr(t):
             t = TY.typeulong
         op = _binop(e.op, t)
         if op == INONE:
