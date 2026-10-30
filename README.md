@@ -38,14 +38,20 @@ hands you a Python callable. Your numpy data is never copied.
 
 ## Why
 
-Shipping native code with Python is still a mess. Cython, cffi and C extensions need a toolchain
-on the user's machine. Numba needs LLVM wheels. And some places allow only `.py` files:
+Compiling native code at runtime means a C compiler on the user's machine. Compute-graph engines, PDE
+solvers and symbolic code generators that emit C call `gcc` or MSVC on the target, and fail or fall
+back to slow paths when it isn't there. Numba avoids the compiler by bundling LLVM (llvmlite alone is
+176 MB unpacked).
 
-- **Pyodide, JupyterLite and marimo** in the browser have no compiler at all.
-- **The QGIS plugin repository** bans compiled binaries.
-- **Locked-down corporate machines** and hosted Python sandboxes don't let you install anything.
+cimo is a compiler written in Python, standard library only. Anything that runs Python can compile
+and run C:
 
-cimo is ordinary Python, standard library only. If Python runs, your kernels run.
+- **Libraries** ship C kernels as source: no wheel matrix across OSes, architectures and Python
+  versions, and no compiler needed to install from an sdist.
+- **Desktop apps** get native-speed kernels without bundling LLVM or putting a C compiler on every
+  build machine.
+- **Browsers and locked-down machines** work too: Pyodide, JupyterLite and marimo, plugin
+  repositories that ban binaries (QGIS), corporate machines and hosted sandboxes.
 
 ## Fast where it matters
 
