@@ -2,8 +2,6 @@
 
 # cimo
 
-### C in, machine code out.
-
 **A C compiler written in pure Python.** Write a C kernel as a string, call it on your numpy arrays
 a few hundred milliseconds later, and it runs at `-O3` speed.<br>
 No compiler, no SDK, no wheels, no build step. In the browser too.
