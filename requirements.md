@@ -366,6 +366,12 @@ inbound rules needed.
   calls `qsort` with comparators that have ties (rega, mem, load). Another libc may order ties
   differently; that's a C-side difference, not a port bug. Conventions: `python/cimo/qbe/PORTING.md`.
 
+**Interim `cimo.compile` (2026-10-30):** `python/cimo/compiler.py` already gives the Python API
+(`cimo.compile`, `cimo.load`, `k.name(...)`, `k()` calls `main`) via C cproc → the Python QBE port →
+system `cc -shared` → ctypes, with a content-hashed cache in `~/.cache/cimo`. It links the host libc
+(so `printf` works) and binds signatures from the QBE IR (`l` params accept buffers). M2 replaces
+`cc` + `dlopen`, M3 replaces C cproc; the API should not change. `examples/` uses it.
+
 **M2: encoder + loader.** arm64 machine-code encoder (no external assembler) and the JIT loader
 for Linux and macOS (strategies under "Platform loading findings").
 - All 15 kernels compile and run in-process from Python, with results matching gcc's.
