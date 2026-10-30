@@ -30,8 +30,9 @@ including cimo builds with chosen backend extensions (`--cimo NAME=FLAGS`).
 
 ## Results
 
-aarch64 WSL2, 8 cores, gcc 13.3, CPython 3.13, measured 2026-10-30. Times in ms, best of 5.
-Ratio = cimo time / gcc time; lower is better.
+aarch64 WSL2, 8 cores, gcc 13.3, CPython 3.13, measured 2026-10-30 **on battery power**: CPU
+clocks may vary, so treat these as provisional until a run on mains power. Times in ms, best of
+5. Ratio = cimo time / gcc time; lower is better.
 
 | Kernel | cimo | nofma | novec | O3 | /nofma | /novec | /O3 | check |
 |---|--:|--:|--:|--:|--:|--:|--:|:-:|
