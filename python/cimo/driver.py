@@ -91,6 +91,7 @@ def _cache_put(key, text, sigs):
 
 
 _APPLE = sys.platform == 'darwin'
+_PYODIDE = sys.platform == 'emscripten'  # cimo.wasm: an Emscripten side module, not arm64
 _VERSION = b'cimo-1'  # cache entry format; the compiler's own sources are hashed too (linker.compiler_key)
 
 
@@ -123,6 +124,27 @@ def _qbe(ssa, params=None, middle=None, stkchk=None):
     except D.BackendError as e:
         raise CompileError(str(e)) from None
     return out.getvalue()
+
+
+def _qbe_wasm(ssa, params=None, middle=None):
+    """QBE IR text to a wasm object (cimo.backend.wasm.obj.Object)."""
+    from .backend import defs as D
+    from .backend.main import _Driver
+    from .backend.parse import parse
+    from .backend.wasm.targ import T_wasm
+    from .backend.wasm.obj import Object
+    from . import middle as _middle
+    from .backend import ext as _ext
+    D.T = T_wasm
+    obj = Object()
+    try:
+        with _middle.options(enabled=MIDDLE if middle is None else middle,
+                             params=params or {}), _ext.options(math=True, fma=True):
+            drv = _Driver(obj, 0)
+            parse(ssa.encode('latin-1'), '<cimo>', drv.dbgfile, drv.data, drv.func)
+    except D.BackendError as e:
+        raise CompileError(str(e)) from None
+    return obj
 
 
 def _frontend(pp, filename, **kw):
@@ -379,5 +401,12 @@ def _module(src, filename, include_dirs, link, host_headers, defines):
         link = [link]
     if hasattr(defines, 'items'):
         defines = defines.items()
+    if _PYODIDE:
+        if link or host_headers:
+            raise CompileError('link= and host_headers= are not available in Pyodide (there is '
+                               'no host C library)')
+        from . import wasm as _wasm
+        from .wasm.pyodide import WasmModule
+        return WasmModule(*_wasm.build(src, filename, tuple(include_dirs), tuple(defines)))
     return Module(*_build(src, filename, tuple(include_dirs), host_headers, tuple(defines)),
                   link=tuple(link))

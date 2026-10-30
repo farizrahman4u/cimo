@@ -58,6 +58,11 @@ _fltre = re.compile(rb'[ \t\n\v\f\r]*([+-]?(?:0[xX](?:[0-9a-fA-F]+\.?[0-9a-fA-F]
                     rb'|[iI][nN][fF](?:[iI][nN][iI][tT][yY])?|[nN][aA][nN]))')
 
 
+
+# cimo: declared return class of each function parsed (K0 for none, Kc for aggregates),
+# for targets whose function types need it even when no ret is reached (wasm)
+retcls = {}
+
 def _tofloat(s):
     s = s.decode('latin-1')
     if 'x' in s or 'X' in s:
@@ -729,6 +734,7 @@ def parsefn(lnk):
     if next_() != Tglo:
         err("function name expected")
     curf.name = S.tokval_str
+    retcls[curf.name] = S.rcls  # cimo: the wasm backend types functions by it
     curf.vararg = parserefl(0)
     if nextnl() != Tlbrace:
         err("function body must start with {")

@@ -415,6 +415,41 @@ inbound rules needed.
   - Unverified: synchronous compilation of larger modules on a browser's main thread. Chrome
     limits sync `WebAssembly.Module` size on the main thread; Pyodide usually runs in a worker.
 
+## WASM backend (2026-10-30)
+
+`cimo.backend.wasm` (codegen), `cimo.wasm` (link, build, cache), `cimo.wasm.pyodide` (loading).
+`cimo.compile` takes this path automatically when `sys.platform == 'emscripten'`.
+
+- **Pipeline:** QBE's target-independent passes and the middle end, then wasm codegen instead of
+  isel/regalloc (the engine allocates registers). SSA temps are wasm locals; phis are copies on
+  edges through the operand stack (a free parallel copy). Control flow is structured with
+  Ramsey's "Beyond Relooper" algorithm over the dominator tree; irreducible flow (a goto into a
+  loop) is a compile error.
+- **Data model: LP64 on wasm32.** The frontend still targets aarch64, so `long` and pointers are
+  64-bit in the IR and wrapped to i32 at each memory access. `long` is 64-bit in Pyodide too,
+  unlike Emscripten: pass `int64`/numpy buffers, not `ctypes.c_long` (32-bit there).
+- **ABI (cimo's own):** wasm params in order; struct returns through a hidden first pointer;
+  struct args by pointer to a caller copy; varargs in 8-byte slots of a caller buffer passed as
+  a last i64 (`va_list` holds the next slot's address). C stack below Emscripten's
+  `__stack_pointer`; Python restores it after a kernel error.
+- **Module:** one Emscripten side module per `compile`: user code + the runtime members it needs
+  + `cimo/wasm/glue.c` (context, CAS, fail/trap, hook targets). Imports only Pyodide's memory,
+  table, stack pointer, bases and four `__cimo_js_*` functions (Python callbacks, 32-bit
+  arguments, passed through `loadWebAssemblyModule`'s `localScope`). Pointers inside data and
+  the runtime's hook pointers are filled in by the module's `__wasm_apply_data_relocs`. A call
+  that ignores a callee's result goes through a linker-generated thunk.
+- **i64 parameters need BigInt** and Pyodide converts BigInt results back to int, so each kernel
+  is called through a small JS wrapper that converts its `l` arguments.
+- **No scalar fma in wasm:** `fma`/`fmaf` are exact software versions (`cimo/wasm/runtime/fma.c`),
+  and the runtime is built without `__FP_FAST_FMA`, so musl's `pow` takes its non-FMA path: 3 of
+  600 `pow` results in `tests/runtime/t_math.c` differ from arm64 by one ulp. Everything else in
+  `tests/runtime` matches the native build byte for byte.
+- **Measured** (Pyodide 0.27.7 on Node 22, aarch64 WSL2): a small kernel compiles in 57 ms warm
+  (first `compile` 1.2 s: imports plus runtime members); a 1024x1024 5-point blur runs in
+  1.1 ms and matches numpy bit for bit; the single-file bundle is 1.1 MB.
+- **Tests:** `tests/test_wasm.py` runs modules under Node in a stand-in loader
+  (`tests/wasm/host.mjs`); with `PYODIDE_JS` set, also in real Pyodide.
+
 ## Preprocessor and bundled headers (2026-10-30)
 
 cproc doesn't preprocess: its driver runs `cpp -undef` with the flags in cproc's `config.h`, and

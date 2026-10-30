@@ -13,8 +13,9 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    optimization remarks from the middle end (README promises it). zsh/fish completion
    scripts are untested.
 3. **amd64 backend.** Linux x86-64 and Windows x64 (`VirtualAlloc` loader, Win64 ABI).
-4. **WASM backend + Pyodide loading.** Side module linked into Pyodide's memory; numpy arrays
-   in place.
+4. ~~**WASM backend + Pyodide loading.**~~ **Done:** `cimo.backend.wasm`, `cimo.wasm` (see "WASM
+   backend" in `requirements.md`). Open: host JS libraries via `link=`, async loading for large
+   modules on a browser main thread, wasm SIMD.
 5. **SIMD.** GNU vector types (`vector_size`, currently a clear error), then auto-vectorization
    of the loops the middle end already analyzes. Closes the 1.58x gap to gcc `-O3`.
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
