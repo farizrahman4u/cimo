@@ -14,6 +14,7 @@ from . import targ as TG
 from . import scope as SC
 from . import decl as D
 from . import qbe as Q
+from . import diag as DG
 
 DEFAULT_TARGET = 'aarch64'
 
@@ -37,6 +38,8 @@ def _run(inputs, target, pponly):
             S.scanfrom(name, text)
         S.scanopen()
     TK.tokeninit()
+    if U.diagnostics:
+        DG.setup()
     PP.ppinit()
     tok = TK.tok
     if pponly:
@@ -50,8 +53,12 @@ def _run(inputs, target, pponly):
             if not D.decl(SC.filescope, None):
                 if tok.kind == TSEMICOLON:
                     TK.error(tok.loc, "unexpected ';' at top-level")
+                if U.diagnostics:
+                    DG.unknowntype()
                 TK.error(tok.loc, "expected declaration or function definition")
         D.emittentativedefns()
+        if U.diagnostics:
+            DG.emitinlinedefns()
 
 
 class _Recursion(object):
@@ -69,7 +76,7 @@ def _tostr(s):
 
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
-            builtins=False):
+            builtins=False, diagnostics=False):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -80,6 +87,11 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     ceil, trunc, round (and the float versions) become single instructions, and fma/fmaf the
     fma instruction; the backend then needs cimo.backend.ext.math (and .fma).
 
+    diagnostics=True (cimo extension, off by default): clear errors for C that cimo does not
+    support (unknown attributes, long double, __int128, thread-local storage, GNU extensions,
+    unknown type names), GNU keyword spellings (asm, __restrict, __const, ...), and C99 inline
+    definitions emitted as local functions when referenced; see diag.py.
+
     Raises FrontendError with cproc's exact error message on errors."""
     if isinstance(text, str):
         text = text.encode('utf-8', 'surrogateescape')
@@ -88,6 +100,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     try:
         _qbe.contract = bool(fma)
         _qbe.builtins = bool(builtins)
+        U.diagnostics = bool(diagnostics)
         with _Recursion():
             _run([(filename, text)], target, pponly)
     except U.FrontendError as e:
@@ -99,6 +112,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     finally:
         _qbe.contract = False
         _qbe.builtins = False
+        U.diagnostics = False
     res = _tostr(''.join(U.out))
     del U.out[:]
     return res

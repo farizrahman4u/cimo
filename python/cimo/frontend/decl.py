@@ -26,6 +26,7 @@ from . import init as IN
 from . import qbe as Q
 from . import stmt as ST
 from . import util as U
+from . import diag as DG
 
 ULLONG_MAX = M64
 INT_MAX = 0x7fffffff
@@ -208,6 +209,8 @@ def tagspec(s):
     if not t.incomplete:
         error(tok.loc, "redefinition of tag '%s'", tag)
     next()
+    if U.diagnostics and tok.kind == TRBRACE and kind != TYPEENUM:
+        error(tok.loc, "empty structs and unions (a GNU extension) are not supported")
     if t.kind == TYPESTRUCT or t.kind == TYPEUNION:
         b = StructBuilder()
         b.type = t
@@ -441,6 +444,16 @@ def declspecs(s, sc, fs, align):
         elif op == T__ATTRIBUTE__:
             A.gnuattr(None, 0)
         else:
+            if U.diagnostics and op >= TIDENT and not t and not istypename(s, tokenstr(op)):
+                it = DG.typespec(tokenstr(op), bool(ts))
+                if it:  # __int128 (cimo: an opaque type, see diag.py)
+                    if ts & ~(SPECSIGNED | SPECUNSIGNED):
+                        error(tok.loc, "invalid combination of type specifiers")
+                    t = DG.typeuint128 if ts & SPECUNSIGNED else it
+                    ts = SPECNONE
+                    ntypes += 1
+                    next()
+                    continue
             if op < TIDENT or t or ts:
                 break
             d = scopegetdecl(s, tokenstr(tok.kind), 1)
@@ -611,11 +624,21 @@ def declaratortypes(s, result, name, align, funcscope, allowabstract):
         elif k == T__ATTRIBUTE__:
             if allowedattr == -1:
                 error(tok.loc, "attribute not allowed after parenthesized declarator")
+            ident = ptr.prev is result
+            if U.diagnostics and not allowedattr:
+                # cimo: as in gcc, `aligned` after a declarator applies to the declared
+                # identifier, e.g. `char m[16] __attribute__((aligned(16)))` in a struct
+                # (glibc's signal.h); for declarations, see DG.declalign
+                allowedattr = ATTRALIGNED
+                ident = True
             A.gnuattr(a, allowedattr)
             # attr:
             # attribute applies to identifier if ptr->prev == result, otherwise type ptr->prev
-            if ptr.prev is result:
-                if a.kind & ATTRALIGNED and a.align > align.v:
+            if ident:
+                if U.diagnostics and not align:
+                    if a.kind & ATTRALIGNED and a.align > DG.declalign:
+                        DG.declalign = a.align
+                elif a.kind & ATTRALIGNED and a.align > align.v:
                     align.v = a.align
         else:
             return
@@ -676,6 +699,8 @@ def parameter(s):
     sc = Ref()
     t = declspecs(s, sc, None, None)
     if not t.type:
+        if U.diagnostics:
+            DG.unknowntype()
         error(tok.loc, "no type in parameter declaration")
     if sc.v and sc.v != SCREGISTER:
         error(tok.loc, "parameter declaration has invalid storage-class specifier")
@@ -802,6 +827,8 @@ def structdecl(s, b):
     align = Ref(0)
     base = declspecs(s, None, None, align)
     if not base.type:
+        if U.diagnostics:
+            DG.unknowntype()
         error(tok.loc, "no type in struct member declaration")
     if tok.kind == TSEMICOLON:
         if (base.type.kind != TYPESTRUCT and base.type.kind != TYPEUNION) or base.type.tag:
@@ -900,6 +927,8 @@ def decl(s, f):
     allowfunc = not f
     if staticassert(s):
         return True
+    if U.diagnostics and tok.kind == T__ASM__:
+        error(tok.loc, DG.INLINEASM)
     a = Attr()
     a.kind = 0
     if A.attr(a, ATTRNORETURN) and consume(TSEMICOLON):
@@ -928,6 +957,8 @@ def decl(s, f):
     while True:
         namer = Ref()
         funcscoper = Ref()
+        if U.diagnostics:
+            DG.declalign = 0
         qt = declarator(s, base, namer, None, funcscoper, False)
         name = namer.v
         funcscope = funcscoper.v
@@ -953,6 +984,8 @@ def decl(s, f):
                 error(tok.loc, "typedef '%s' declared with alignment specifier", name)
             if asmname:
                 error(tok.loc, "typedef '%s' declared with assembler label", name)
+            if U.diagnostics and DG.declalign > t.align:
+                t = DG.alignedtype(t, DG.declalign)
             if not prior:
                 scopeputdecl(s, mkdecl(name, DECLTYPE, t, tq, LINKNONE))
             elif not typesame(prior.type, t) or prior.qual != tq:
@@ -963,6 +996,8 @@ def decl(s, f):
             d = declcommon(s, kind, name, asmname, t, tq, sc, prior)
             if d.align < align:
                 d.align = align
+            if U.diagnostics and d.align < DG.declalign:  # __attribute__((aligned(n)))
+                d.align = DG.declalign
             if d.linkage == LINKNONE and not (sc & SCSTATIC):
                 d.storage = SDAUTO
             else:
@@ -970,6 +1005,10 @@ def decl(s, f):
                 if t.prop & PROPVM:
                     error(tok.loc, "object '%s' with %s storage duration cannot have variably modified type", name, "static" if d.storage == SDSTATIC else "thread")
                 d.value = Q.mkglobal(d)
+            if U.diagnostics and (tok.kind == TASSIGN or not (sc & SCEXTERN)):  # a definition
+                if d.storage == SDTHREAD:
+                    error(tok.loc, "thread-local storage is not supported")
+                DG.checktype(t)
 
             if base.expr:
                 Q.funcexpr(f, base.expr)
@@ -1008,7 +1047,11 @@ def decl(s, f):
             d.isnoreturn = bool(fs & FUNCNORETURN or a.kind & ATTRNORETURN)
             if tok.kind == TLBRACE:
                 if not allowfunc:
+                    if U.diagnostics and f:
+                        error(tok.loc, "nested functions (a GNU extension) are not supported")
                     error(tok.loc, "function definition not allowed")
+                if U.diagnostics:
+                    DG.checkfunc(t)
                 if d.defined:
                     error(tok.loc, "function '%s' redefined", name)
                 # re-open scope from function declarator
@@ -1021,6 +1064,10 @@ def decl(s, f):
                 # XXX: need to keep track of function in case a later declaration specifies extern
                 if not d.inlinedefn:
                     Q.emitfunc(f, d.linkage == LINKEXTERN)
+                elif U.diagnostics:
+                    # cimo: emitted at the end of the unit, see diag.emitinlinedefns()
+                    d.value.kind &= ~Q.VALUE_EXTERN
+                    DG.inlinedefns.append((d, f))
                 s = delscope(s)
                 Q.delfunc(f)
                 d.defined = True

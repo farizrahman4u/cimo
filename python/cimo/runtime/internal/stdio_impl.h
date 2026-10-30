@@ -10,15 +10,16 @@ struct __cimo_sink {
 	char *buf;      /* string sinks: the destination */
 	size_t len;     /* bytes stored so far */
 	size_t cap;     /* bytes that fit, not counting the terminating NUL */
+	void *ctx;      /* stdout: the thread's buffer (0: unbuffered) */
 };
 
 /* musl's vfprintf core: formats into f, returns the number of bytes the output has (also
    when the sink drops some), or -1 on an invalid format or overflow of int */
 int __cimo_vformat(struct __cimo_sink *f, const char *restrict fmt, va_list ap);
 
-/* stdout: buffered in the module, written to Python's sys.stdout through the
+/* stdout: buffered per thread, written to Python's sys.stdout through the
    __cimo_hook_write callback at a newline, when the buffer is full, and when the kernel returns (the Python side
-   calls __cimo_flush when __cimo_stdout.len is nonzero) */
+   calls __cimo_flush when the thread's buffer is nonempty) */
 void __cimo_stdout_write(struct __cimo_sink *, const char *, size_t);
 void __cimo_flush(void);
 

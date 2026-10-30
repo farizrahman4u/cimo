@@ -255,18 +255,144 @@ int q(void) { return puts("done"); }
 
 
 def test_printf_from_threads():
-    """Concurrent printing must not crash or corrupt memory (lines may interleave)."""
+    """Each thread has its own buffer: lines printed concurrently come out whole, none lost,
+    and each thread's lines stay in order. Partial lines are flushed when the kernel returns."""
     import threading
-    m = cimo.compile('#include <stdio.h>\nvoid p(int t) { for (int i = 0; i < 200; i++) '
-                     'printf("t%d %d\\n", t, i); }')
+    m = cimo.compile(r'''#include <stdio.h>
+void p(int t, int n) {
+    for (int i = 0; i < n; i++) {
+        printf("t%d %d ", t, i);
+        for (int k = 0; k < 20; k++) putchar('a' + k);
+        puts("");
+    }
+}
+void partial(int t) { printf("[%d", t); printf("]"); }''')
     f = io.StringIO()
     with contextlib.redirect_stdout(f):
-        ts = [threading.Thread(target=m.p, args=(t,)) for t in range(4)]
+        ts = [threading.Thread(target=m.p, args=(t, 2000)) for t in range(8)]
         for t in ts:
             t.start()
         for t in ts:
             t.join()
-    assert f.getvalue().count('\n') >= 1
+    lines = f.getvalue().splitlines()
+    assert len(lines) == 8 * 2000
+    seen = [[] for _ in range(8)]
+    for line in lines:
+        mt = re.fullmatch(r't(\d) (\d+) abcdefghijklmnopqrst', line)
+        assert mt, line
+        seen[int(mt.group(1))].append(int(mt.group(2)))
+    assert all(s == list(range(2000)) for s in seen)
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+        ts = [threading.Thread(target=m.partial, args=(t,)) for t in range(8)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+    assert sorted(re.findall(r'\[\d\]', f.getvalue())) == ['[%d]' % t for t in range(8)]
+
+
+def test_gnu_bit_builtins():
+    m = cimo.compile(r'''
+int popc(unsigned long long x) { return __builtin_popcountll(x); }
+int popc32(unsigned x) { return __builtin_popcount(x); }
+int clz32(unsigned x) { return __builtin_clz(x); }
+int clz64(unsigned long long x) { return __builtin_clzll(x); }
+int ctz32(unsigned x) { return __builtin_ctz(x); }
+int ctz64(unsigned long x) { return __builtin_ctzl(x); }
+int ffs32(int x) { return __builtin_ffs(x); }
+int ffs64(long long x) { return __builtin_ffsll(x); }
+int par(unsigned long long x) { return __builtin_parityll(x); }
+int clrsb32(int x) { return __builtin_clrsb(x); }
+int clrsb64(long x) { return __builtin_clrsbl(x); }
+unsigned bs16(unsigned x) { return __builtin_bswap16(x); }
+unsigned bs32(unsigned x) { return __builtin_bswap32(x); }
+unsigned long bs64(unsigned long x) { return __builtin_bswap64(x); }
+int cls(double x) { return __builtin_isnan(x) | __builtin_isinf(x) << 1
+                           | __builtin_isfinite(x) << 2 | __builtin_signbit(x) << 3; }
+int clsf(float x) { return cls(x) == (__builtin_isnan(x) | __builtin_isinf(x) << 1
+                                      | __builtin_isfinite(x) << 2 | __builtin_signbit(x) << 3); }
+double consts(int i) { return i == 0 ? __builtin_huge_val() : i == 1 ? __builtin_inf()
+                              : i == 2 ? __builtin_huge_valf() : __builtin_nan(""); }
+''')
+    rnd = __import__('random').Random(5)
+    M64 = (1 << 64) - 1
+
+    def s32(v):
+        return v - (1 << 32) if v >> 31 else v
+
+    vals = [1, 2, 3, 0x80000000, 0xffffffff, 1 << 63, M64] + [
+        rnd.getrandbits(rnd.randrange(1, 65)) | 1 << rnd.randrange(64) for _ in range(300)]
+    for v in vals:
+        lo = v & 0xffffffff
+        sv = v - (1 << 64) if v >> 63 else v
+        assert m.popc(sv) == bin(v).count('1')
+        assert m.par(sv) == bin(v).count('1') & 1
+        assert m.clz64(sv) == 64 - v.bit_length()
+        assert m.ctz64(sv) == (v & -v).bit_length() - 1
+        assert m.ffs64(sv) == (v & -v).bit_length()
+        assert m.clrsb64(sv) == 63 - (sv if sv >= 0 else ~sv).bit_length()
+        assert m.bs64(sv) & M64 == int.from_bytes(v.to_bytes(8, 'little'), 'big')
+        if lo:
+            assert m.popc32(s32(lo)) == bin(lo).count('1')
+            assert m.clz32(s32(lo)) == 32 - lo.bit_length()
+            assert m.ctz32(s32(lo)) == (lo & -lo).bit_length() - 1
+        assert m.ffs32(s32(lo)) == (lo & -lo).bit_length()
+        assert m.clrsb32(s32(lo)) == 31 - (s32(lo) if s32(lo) >= 0 else ~s32(lo)).bit_length()
+        assert m.bs32(s32(lo)) & 0xffffffff == int.from_bytes(lo.to_bytes(4, 'little'), 'big')
+        assert m.bs16(lo & 0xffff) == int.from_bytes((lo & 0xffff).to_bytes(2, 'little'), 'big')
+    inf, nan = float('inf'), float('nan')
+    for x in (0.0, -0.0, 1.5, -2.0, 5e-324, -1e308, inf, -inf, nan, -nan):
+        want = (x != x) | (abs(x) == inf) << 1 | (abs(x) < inf) << 2 | (math.copysign(1, x) < 0) << 3
+        assert m.cls(x) == want, x
+        assert m.clsf(x) == 1
+    assert [m.consts(i) for i in range(3)] == [inf] * 3 and math.isnan(m.consts(3))
+
+
+def test_rand_exit_inttypes():
+    m = cimo.compile(r'''#include <stdlib.h>
+#include <inttypes.h>
+#include <stdio.h>
+int r(unsigned s, int n) { srand(s); int x = 0; while (n--) x = rand(); return x; }
+void quit(int s) { exit(s); }
+void quit2(void) { _Exit(EXIT_FAILURE); }
+long pri(void) {
+    int64_t a = INT64_MIN; uint64_t b = UINT64_MAX; intptr_t c = -1; uint_fast16_t d = 65535;
+    char buf[200];
+    snprintf(buf, sizeof buf, "%" PRId64 " %" PRIu64 " %" PRIxPTR " %" PRIuFAST16 " %" PRIdMAX,
+             a, b, (uintptr_t)c, d, (intmax_t)7);
+    puts(buf);
+    char *e;
+    return strtoimax(" -42x", &e, 10) * 10 + (*e == 'x') + imaxabs(-100) * 1000 + imaxdiv(7, 2).rem;
+}''')
+    # musl's LCG: same sequence as musl
+    seed = 41
+    for _ in range(3):
+        seed = (6364136223846793005 * seed + 1) & ((1 << 64) - 1)
+    assert m.r(42, 3) == seed >> 33
+    with pytest.raises(cimo.KernelError) as e:
+        m.quit(3)
+    assert e.value.kind == 'exit' and e.value.status == 3 and 'exit(3)' in str(e.value)
+    with pytest.raises(cimo.KernelError) as e:
+        m.quit2()
+    assert e.value.status == 1
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+        assert m.pri() == -420 + 1 + 100000 + 1
+    assert f.getvalue() == '%d %d ffffffffffffffff 65535 7\n' % (-2**63, 2**64 - 1)
+
+
+def test_unsupported_signatures_raise_on_call():
+    m = cimo.compile(r'''#include <stdarg.h>
+struct s { int a; };
+int va(int n, ...) { va_list ap; va_start(ap, n); int r = va_arg(ap, int); va_end(ap); return r; }
+struct s sv(struct s x) { return x; }
+int f(void) { return va(1, 41) + sv((struct s){1}).a; }''')
+    assert m.f() == 42
+    with pytest.raises(TypeError, match='variadic'):
+        m.va(1, 2)
+    with pytest.raises(TypeError, match='struct'):
+        m.sv(1)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -495,6 +621,25 @@ def test_system_headers():
 #include <string.h>
 long f(void) { return getpid() + strlen("abc"); }''', link=['libc'], system_headers=True)
     assert m.f() == os.getpid() + 3
+
+
+def test_host_data_symbols():
+    """External data of linked libraries is reached through GOT slots, so it doesn't matter
+    how far from the module the library is mapped."""
+    m = cimo.compile(r'''
+#include <errno.h>
+#include <stdio.h>
+#include <unistd.h>
+extern char **environ;
+int *p = &optind;
+long f(void) {
+    errno = 0;
+    errno = 7;
+    return errno * 1000 + (environ == __environ) * 10 + *p + (&optind)[0];
+}
+int g(void) { return fileno(stdout) * 10 + fileno(stderr); }''', link=['libc'], system_headers=True)
+    assert m.f() == 7012
+    assert m.g() == 12
 
 
 def test_user_definition_beats_runtime_and_clash_is_reported():

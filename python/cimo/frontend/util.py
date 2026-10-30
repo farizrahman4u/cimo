@@ -12,6 +12,10 @@ argv0 = 'cproc-qbe'
 # stdout of the C program, as a list of str pieces (latin-1: one char per byte)
 out = []
 
+# cimo extension, off by default (cproc's behavior), set by compile(diagnostics=True): clear
+# errors for unsupported C instead of silent acceptance or generic messages (see diag.py)
+diagnostics = False
+
 
 class FrontendError(Exception):
     """cproc exited with an error. `msg` is the exact text cproc writes to stderr

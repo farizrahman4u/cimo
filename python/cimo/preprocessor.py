@@ -296,7 +296,9 @@ def _c_string(s):
 
 
 class Preprocessor(object):
-    def __init__(self, include_dirs=(), defines=None, target='arm64', warn=None):
+    def __init__(self, include_dirs=(), defines=None, target='arm64', warn=None,
+                 keep_attributes=False):
+        self.keep_attributes = keep_attributes
         if target not in TARGETS:
             raise ValueError('unknown target %r (expected one of %s)' %
                              (target, ', '.join(sorted(TARGETS))))
@@ -576,6 +578,11 @@ class Preprocessor(object):
         name = nt.text
         if name == 'defined':
             raise self._error('"defined" cannot be used as a macro name', nt)
+        if name == '__attribute__' and self.keep_attributes:
+            # ignored: glibc's sys/cdefs.h defines it away for compilers without __GNUC__,
+            # which would silently drop attributes that cimo must see (vector_size, mode, ...)
+            # or reject; cimo's frontend parses all attributes
+            return
         params = None
         variadic = False
         i = 1
@@ -1608,19 +1615,21 @@ class _Writer(object):
 
 
 def preprocess(src, filename='<string>', include_dirs=(), defines=None, target='arm64',
-               warn=None):
+               warn=None, keep_attributes=False):
     """Preprocess C source text; return text with gcc-style line markers.
 
     include_dirs: searched (after the including file's directory for "...") before the bundled
     headers in cimo/include. defines: dict name -> value (None means 1); a name may carry a
     parameter list, e.g. {'SQ(x)': '((x)*(x))'}. target: 'arm64' (Linux) or 'arm64_apple'.
     warn: callable receiving warning strings (default: print to stderr).
+    keep_attributes: ignore `#define __attribute__` (glibc defines it away for compilers other
+    than gcc and clang), so that the frontend sees every attribute.
     Raises PreprocessError.
     """
     if warn is None:
         def warn(msg):
             sys.stderr.write(msg + '\n')
-    pp = Preprocessor(include_dirs, defines, target, warn)
+    pp = Preprocessor(include_dirs, defines, target, warn, keep_attributes)
     return pp.run(src, filename)
 
 

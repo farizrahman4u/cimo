@@ -212,8 +212,8 @@ def _apply(buf, off, P, typ, S, sym):
     elif typ in ('ADR_PREL_PG_HI21', 'ADR_GOT_PAGE'):
         d = (S & ~0xfff) - (P & ~0xfff)
         if not -(1 << 32) <= d < 1 << 32:
-            raise _RangeError('%s is out of adrp range (+-4 GB) of the code; kernels can only '
-                              'reach external functions, not external data' % sym)
+            raise _RangeError('%s is out of adrp range (+-4 GB) of the code (direct reference '
+                              'to an external symbol; extern data needs a GOT access)' % sym)
         imm = (d >> 12) & 0x1fffff
         _wr(buf, off, (_rd(buf, off) & 0x9f00001f) | (imm & 3) << 29 | (imm >> 2) << 5)
     elif typ == 'ADD_ABS_LO12_NC':

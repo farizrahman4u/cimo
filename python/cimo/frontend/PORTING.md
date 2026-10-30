@@ -87,6 +87,23 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
 - `delexpr`, `macrodel`, `delfunc` free nothing (garbage collection); nothing reads freed
   objects.
 
+## cimo extensions (off by default, so the CLI stays cproc's)
+
+Switched on by `compile()` keyword arguments (module globals reset after each call), all
+passed by `cimo.compile`:
+
+- `fma=True` (`qbe.contract`): `a*b+c` within one expression becomes the `fma` instruction.
+- `builtins=True` (`qbe.builtins`): `sqrt`, `fabs`, `fmin`, `fmax`, `floor`, `ceil`, `trunc`,
+  `round` (and `f` versions), `fma` become single instructions.
+- `qbe.paraminfo = {}`: `emitfunc` records parameter temporaries and `restrict` flags.
+- `diagnostics=True` (`util.diagnostics`, code in `diag.py`, hooked into the ported modules
+  with `if U.diagnostics:`): errors with a location for unsupported C (unknown attributes,
+  `vector_size`, `long double` and `__int128` at use or definition, thread-local storage,
+  GNU extensions, unknown type names); GNU keyword spellings (`asm`, `__restrict`, `__const`,
+  `__alignof`, `__PRETTY_FUNCTION__`); keywords as attribute names; `aligned` after any
+  declarator; `nullptr` as `(void *)0`; C99 inline definitions emitted as local functions
+  when referenced (or exported when a later declaration makes them external).
+
 ## Quirks kept (match C)
 
 Examples, all reproduced on purpose: `enum E : unsigned char { A }` errors ("no unsigned
