@@ -28,7 +28,8 @@ Homepage = "https://github.com/farizrahman4u/cimo"
 include = ["cimo*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.md", "include/*.h"]
+"*" = ["*.md", "include/*.h", "runtime/COPYRIGHT", "runtime/*.c", "runtime/*/*.c",
+       "runtime/*/*.h"]
 
 [tool.black]
 line-length = 100

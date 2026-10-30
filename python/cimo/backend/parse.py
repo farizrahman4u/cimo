@@ -32,6 +32,8 @@ for _i, _t in enumerate(_toks):
 Ntok = NPubOp + len(_toks)
 del _i, _t
 Tfma = Ntok  # cimo extension: only a keyword when ext.fma is on
+Tmath = Ntok + 1  # cimo extension: the math instructions, keywords when ext.math is on
+_MATHOPS = ('fsqrt', 'fabs', 'fmin', 'fmax', 'ffloor', 'fceil', 'ftrunc', 'fround')
 
 kwmap = {
     Tloadw: "loadw", Tloadl: "loadl", Tloads: "loads", Tloadd: "loadd",
@@ -215,6 +217,9 @@ def lex():
     if t is None:
         if S.tokval_str == 'fma' and _ext.fma:
             return Tfma
+        if _ext.math and S.tokval_str in _MATHOPS:
+            S.mathop = getattr(D, 'O' + S.tokval_str)
+            return Tmath
         err("unknown keyword %s", S.tokval_str)
     return t
 
@@ -577,6 +582,12 @@ def parseline(ps):
         _put(Ins(D.Ofma0, k, R, arg[2], R))
         _put(Ins(D.Ofma1, k, r, arg[0], arg[1]))
         return PIns
+    elif op == Tmath:
+        mop = S.mathop
+        if i != (2 if mop in (D.Ofmin, D.Ofmax) else 1) or KBASE(k) != 1:
+            err("%s needs %s and class s or d", optab[mop].name,
+                "two arguments" if mop in (D.Ofmin, D.Ofmax) else "one argument")
+        return _ins(mop, k, r, arg)
     elif op == Tblit:
         if D.curi >= NIns - 1:
             err("too many instructions")

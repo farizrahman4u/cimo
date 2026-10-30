@@ -136,12 +136,13 @@ def strip_header_functions(ir):
 
 
 def renumber_labels(ir):
-    """cproc numbers block labels across the whole file; renumber in order of appearance."""
+    """cproc numbers block labels and string literals across the whole file (header functions
+    take numbers too); renumber both in order of appearance."""
     seen = {}
 
     def sub(m):
-        return '@%s.%d' % (m.group(1), seen.setdefault(m.group(0), len(seen) + 1))
-    return re.sub(r'@(\w+)\.(\d+)', sub, ir)
+        return '%s%s.%d' % (m.group(1), m.group(2), seen.setdefault(m.group(0), len(seen) + 1))
+    return re.sub(r'(@|\$\.L)(\w+)\.(\d+)', sub, ir)
 
 
 def compare_ir(path, include_dirs=(CASES,), strip=True):

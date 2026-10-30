@@ -184,9 +184,9 @@ def test_cli(tmp_path):
 
 def test_bundled_headers_preprocess():
     names = sorted(os.listdir(preprocessor.BUNDLED_INCLUDE))
-    expected = ['ctype.h', 'float.h', 'iso646.h', 'limits.h', 'math.h', 'stdalign.h',
-                'stdarg.h', 'stdbool.h', 'stddef.h', 'stdint.h', 'stdlib.h', 'stdnoreturn.h',
-                'string.h']
+    expected = ['assert.h', 'ctype.h', 'float.h', 'iso646.h', 'limits.h', 'math.h', 'stdalign.h',
+                'stdarg.h', 'stdbool.h', 'stddef.h', 'stdint.h', 'stdio.h', 'stdlib.h',
+                'stdnoreturn.h', 'string.h']
     assert names == expected
     src = ''.join('#include <%s>\n' % n for n in names) * 2   # twice: include guards
     for target in preprocessor.TARGETS:

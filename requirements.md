@@ -100,8 +100,8 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
 
 - **Headers:** the C11 freestanding set (`stddef.h`, `stdint.h`, `stdbool.h`, `limits.h`,
   `float.h`, `stdarg.h`, `stdalign.h`, `stdnoreturn.h`, `iso646.h`) plus `math.h`,
-  `string.h`, `ctype.h`, an OS-free `stdlib.h` and a minimal `stdio.h` (formatted output only).
-  All bundled.
+  `string.h`, `ctype.h`, `assert.h`, an OS-free `stdlib.h` and a minimal `stdio.h` (formatted
+  output only). All bundled.
 - **Runtime library:** compiled from bundled C source (largely from musl, MIT) by our own compiler,
   then cached (or shipped precompiled):
   - `stdlib.h`: `malloc`, `calloc`, `realloc`, `free`, `aligned_alloc` (cimo's heap, see
@@ -161,14 +161,52 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
   - The heap belongs to the module and persists across calls. Kernels may return `malloc`'d
     pointers for Python to free later, and Python can reset the whole heap at once, for per-call
     arena use.
-  - Each calling Python thread has its own heap: the runtime keys heaps on
-    `threading.get_ident()` and passes the heap to the kernel on every call. So `malloc` takes no
-    lock. Freeing memory from another thread's heap goes through a deferred free list built on one
+  - Each calling thread has its own heap, inside its per-call context (see "Errors"), so `malloc`
+    takes no lock. Freeing memory from another thread's heap goes through a deferred free list built on one
     internal compare-and-swap; users never see atomics. A heap outlives its thread (its blocks may
-    still be referenced) and is released with the module.
+    still be referenced; a later thread with the same thread pointer reuses it) and is released
+    with the module.
+  - **As built (M5, `runtime/heap.c`, Python side in `cimo/execution.py`):** 16-byte block
+    header (owner heap, capacity | kind), so pointers stay 16-aligned and `free` needs no
+    lookup. 52 size classes up to 256 KB (16..128 by 16, then 4 per power of two), carved by
+    bump pointer from per-thread chunks (`grow` hook: 1 MB doubling to 64 MB), freed blocks on
+    per-class lists, reused only for their class (no coalescing). Above 256 KB a block is its
+    own mapping, unmapped on `free`. A cross-thread `free` pushes onto the owner's `deferred`
+    list with one CAS; the owner takes the whole list (CAS to 0) when a class list runs dry, so
+    push + take-all has no ABA problem. The CAS is an assembly helper (`__cimo_cas`, ldaxr/stlxr:
+    ARMv8.0, no LSE detection needed) rather than a compiler builtin: it is only on the
+    cross-thread path, and the ported frontend/backend stay untouched. malloc+free pair: 16 ns.
+  - Python API: `m.free(ptr)` frees a pointer a kernel returned (any thread);
+    `m.reset_heap()` frees every block of every thread's heap at once (chunks stay mapped for
+    reuse, large blocks are unmapped; refused while a kernel of the module runs);
+    `m.heap_bytes()` is the memory mapped for the heap. Kernels called through a raw `address`
+    (no context) get NULL from `malloc`.
   - For the optimizer, each `malloc` result is a new base that aliases nothing (C guarantees this).
 - **Errors:** `assert`, `abort()` and traps unwind to the entry function's saved stack pointer and
   return an error code; Python raises an exception. Recursion depth is guarded with a stack limit check.
+  - **As built (M5, `cimo/execution.py`):** Python calls every kernel through a generated entry
+    trampoline (`__cimo_entry_<f>`, assembled into the module with the other glue routines). It
+    looks up the thread's context, saves x19-x29, lr, sp and d8-d15 into the context's next
+    frame (up to 16 nested entries: kernel -> Python callback -> kernel), and calls the kernel
+    with the arguments and sp untouched. `abort`, a failed `assert` (`__assert_fail`),
+    `__builtin_trap`, unreachable code (QBE `hlt`, backend ext `trap`) and the stack guard
+    record the error in the context and restore the innermost frame, returning 0; Python checks
+    the context after each call and raises `cimo.KernelError` (`kind`, `function` from the
+    faulting pc, `expr`/`file`/`line` for assert). Adds ~0.1 us to a ~0.9 us call.
+  - **How kernel code finds its context:** a per-module hash table keyed by the thread-pointer
+    register (`mrs tpidr_el0` on Linux; `tpidrro_el0` & ~7 on macOS, where `tpidr_el0` holds the
+    CPU number), filled by Python on a thread's first call. ~20 instructions per lookup (once
+    per call, `malloc`, `free`). Rejected: x18 (reserved on macOS/Windows, clobbered by host
+    code; Windows would use x18 = TEB as the key instead), TLS (loader support, a TLS block per
+    module), a hidden argument (changes every function's ABI and the ported frontend). The table
+    only grows; Python inserts under a lock and publishes a rebuilt table after a `dmb ish`.
+  - **Stack guard:** functions that can recurse (in a call-graph cycle; an indirect call counts
+    as an edge to every address-taken function) call `__cimo_stkchk` in their prologue (backend
+    ext `stkchk`): sp below the thread's stack bottom + 128 KB (from `pthread_getattr_np` /
+    `pthread_get_stackaddr_np`) unwinds with "stack overflow". Non-recursive code pays nothing.
+    Not covered: VLAs/`alloca`, single frames over 128 KB.
+  - Hardware faults (SIGSEGV, SIGBUS) still kill the process: catching them needs signal
+    handlers, which fight the interpreter. Untested on macOS (key register, stack bounds).
 - **Debug mode:** Python knows every buffer's size, the allocator knows every heap allocation's
   size, and the compiler tracks each pointer's base. So debug builds bounds-check every access
   ("compute-sanitizer for CPU kernels"), and detect use-after-free, double free, and leaks
@@ -398,9 +436,13 @@ swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the inclu
   - digraphs are printed canonically, because cproc's scanner has no digraphs;
   - `#pragma` is dropped, except `#pragma omp`, which is kept and macro-expanded (OpenMP rule);
   - no trigraphs (also gcc's default) and no `__VA_OPT__`.
-- **Headers** (`python/cimo/include/`) are declarations only. For now the functions resolve from
-  the host libc at load time. `stdlib.h` has exactly the listed functions plus `abort`. `math.h`
-  has the double and float functions, not long double or `nexttoward`.
+- **Headers** (`python/cimo/include/`) are declarations only; the functions are in the runtime
+  library (M5). `stdlib.h` has the listed functions plus `abort` and the obvious siblings
+  (`llabs`, `ldiv`, `lldiv`, `atol`, `atoll`, `atof`, `strtoul`, `strtoll`, `strtoull`,
+  `strtof`); `string.h` adds `strnlen`, `strdup`, `strndup`; `stdio.h` has `printf`, `vprintf`,
+  `puts`, `putchar`, `snprintf`, `vsnprintf`, `sprintf`, `vsprintf` and no `FILE`. `math.h`
+  has the double and float functions, not long double or `nexttoward`. `ctype.h` inlines the
+  simple tests as musl's macros do.
   - `NAN`/`INFINITY` are `__builtin_nanf("")`/`__builtin_inff()`, cproc's only float builtins.
     `HUGE_VAL` is a cast of the latter.
   - `stdarg.h` uses `__builtin_va_*` and `offsetof` uses `__builtin_offsetof`.
@@ -456,8 +498,8 @@ swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the inclu
 **`cimo.compile` (2026-10-30): pure Python.** `python/cimo/driver.py`: `cimo.preprocessor` → `cimo.frontend` →
 `cimo.backend` → `cimo.assembler` → `cimo.loader`, no external tools. The assembly is cached in `~/.cache/cimo`,
 keyed by the preprocessed source. Signatures come from the QBE IR (`l` params accept buffers).
-External symbols (`printf`, libm) resolve against the running process for now; the bundled
-runtime library (M5) replaces that. `examples/` uses it.
+Modules link statically with the bundled runtime library (M5); nothing resolves from the
+process unless named in `link=`. `examples/` uses it.
 Defaults: middle end on (`CIMO_MIDDLE=0` off), FMA contraction on (`CIMO_FMA=0` for results
 identical to `-ffp-contract=off`), ldp/stp pairing and loop layout on. Geomean over the 15
 kernels with these defaults: 1.07x of gcc nofma, 1.13x of novec, 1.69x of `-O3` (vectorized).
@@ -619,8 +661,8 @@ explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing 
   (ratio vs gcc `-O3 -fno-tree-vectorize -ffp-contract=off` unless noted.)
 - **Left for M4's 1.2x, all backend items:** edit_distance needs `csel` (arm64 `sel` support,
   then QBE's ifopt instead of the 6-instruction arithmetic select on the critical path: gcc
-  37 ms, us 93 ms, 137 ms with branches). nbody_acc needs `sqrt` as an instruction (`fsqrt`;
-  today a call in the loop, so the loop isn't touched). rgb2gray: integer constants of `mul`
+  37 ms, us 93 ms, 137 ms with branches). nbody_acc needed `sqrt` as an instruction
+  (done in M5: 0.74x of gcc nofma). rgb2gray: integer constants of `mul`
   are rematerialized (`mov w6, #77`) at every use inside the loop, shifts take no immediate,
   no `madd`. jacobi2d/flood_fill are within 1.2x.
 - **Backend bug found (pre-existing, also in C QBE + isel patch):** gvn folds 32-bit constant
@@ -641,19 +683,107 @@ explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing 
 replacing host-libc resolution.
 - `printf` family through `__cimo_write` into `sys.stdout`: output appears in Jupyter and under
   `redirect_stdout`, in order with Python's own output.
+  **Done 2026-10-30.** `runtime/stdio/`: musl's `vfprintf` core writing to a sink instead of a
+  `FILE` (long double = double, `%lc`/`%ls` encode UTF-8); stdout is a 4 KB module-global
+  buffer written through `__cimo_hook_write` (a function pointer Python sets to a ctypes
+  callback, so modules import no symbol at all) at a newline, when full, and after every
+  kernel call (Python reads the buffer length and calls `__cimo_flush` only if nonzero). The
+  callback decodes UTF-8 incrementally and writes to the current `sys.stdout`. Concurrent
+  printing from several threads is memory-safe (indices clamped) but may interleave or drop
+  output; moving the buffer into the per-thread context (needs a bigger context) fixes that.
 - Heap: size-class allocator in freestanding C, per-thread heaps with a lock-free fast path,
   cross-thread `free` via a deferred list (one internal compare-and-swap), `grow` hook into Python,
   heap reset from Python; stress-tested from many Python threads.
+  **Done 2026-10-30** on Linux arm64 (design under "Execution model"; `tests/test_execution.py`:
+  8 threads churning malloc/realloc/free with fill patterns, rounds where every free is
+  cross-thread and races the owner's mallocs, grow, reset reuse, large map/unmap,
+  realloc/calloc/aligned_alloc semantics, buffers returned to Python and freed from another
+  thread; also passes on CPython 3.9).
 - `abort`, `assert` and traps raise a Python exception (`cimo.KernelError`) and leave the
-  interpreter and the module usable.
+  interpreter and the module usable. **Done 2026-10-30** on Linux arm64, plus the stack guard:
+  unwinding from depth 0-1000, float returns and stack-passed arguments, re-entry through
+  callbacks, the nesting limit, errors from 8 threads at once, stack overflow in main and
+  secondary threads, each followed by successful calls.
 - `string.h`, `ctype.h`, `math.h`, OS-free `stdlib.h` from musl, compiled by cimo; results match
   musl (and glibc where the standard pins them; within documented ulps for math). First-use build
   time recorded, then cached.
+  **Done 2026-10-30.** Sources: musl 1.2.5 (`runtime/COPYRIGHT` lists what was taken and how
+  it was changed): `math/` generic C unchanged (122 files), `string/` with musl's
+  word-at-a-time paths enabled (they hide behind `__GNUC__`; cimo has no type-based alias
+  analysis), `stdlib/` with `intscan`/`floatscan` over a string-only pseudo-`FILE` and
+  `long double` → `double` in floatscan (what musl does where they are the same type),
+  `ctype/ctype.c`; `internal/` holds cut-down musl headers (`libm.h` with macros instead of
+  static inlines and no-op `FORCE_EVAL`/`fp_barrier`: no errno, no FP exception flags).
+  Built with the driver's optimizations but **no FMA contraction** (musl builds with
+  `-std=c99`, i.e. `-ffp-contract=off`, and its algorithms assume it) and
+  `__FLT_EVAL_METHOD__` 0 (cimo evaluates float in float; with 1, `float_t` would be double
+  and the float functions would differ from musl's), and `__FP_FAST_FMA`/`__FP_FAST_FMAF` as
+  gcc defines them on arm64 (musl's `pow`, `log`, `log2` then use `fma()` for exact products;
+  without them `pow` differs from gcc-built musl by an ulp).
+  Fix over musl: floatscan's hex-float digit window is one digit wider (musl's is sized for its
+  real long double; with long double = double, `0x1.00000000000008000001p0` rounded down).
+  - **First-use build: 194 files in 8.8 s** (CPython 3.13, Snapdragon X/WSL2; vfprintf.c
+    0.6 s, `__rem_pio2_large.c` 0.4 s, the rest < 0.15 s each), then cached; a module that
+    uses printf and math links and loads in ~0.1 s the first time in a process (runtime
+    members are assembled lazily) and ~10 ms after.
+  - `tests/test_runtime.py`: five C programs (`tests/runtime/t_*.c`: string edges of lengths
+    and alignments, ctype on all of -1..255, strto* edge cases and 2000 random decimal
+    strings, qsort/bsearch, ~30k printf formats, every math function on special and random
+    arguments) are built by cimo, by gcc against the same runtime sources, and by gcc
+    against glibc. cimo's output is **identical to gcc-built musl** for all five; identical to
+    glibc for string/ctype/stdlib (NaN payloads, invalid bases and `FP_ILOGB0` left out) and
+    printf, except `%a` precision rounding, `%5%` and wide characters (C leaves them open)
+    and a musl 1.2.5 bug: `%#.3g` of 999.9995 prints `1.e+03` (C: `1.00e+03`); math within
+    1-2 ulps of glibc (lgamma/tgamma more), exact where Annex F pins it. The reference build
+    needs `-fno-math-errno`, else gcc's `__builtin_sqrt` calls `sqrt` for negative inputs,
+    which is the runtime's own `sqrt` (an endless tail call).
 - `sqrt`, `fabs`, `fmin`/`fmax`, `floor`/`ceil`/`trunc`/`round` compile to single instructions;
   `nbody_acc` within 1.2x of gcc nofma.
+  **Done 2026-10-30.** Frontend (`frontend.compile(builtins=True)`): a call to the external
+  function of that name with the standard prototype (the names are reserved, C11 7.1.3; a
+  `static` function or another prototype is left alone) becomes an IR instruction `fsqrt`,
+  `fabs`, `fmin`, `fmax`, `ffloor`, `fceil`, `ftrunc`, `fround` (and `fma`/`fmaf` the `fma`
+  instruction). Backend ext `math`: pure ops (gvn merges, gcm hoists, the middle end copies
+  them), arm64 `fsqrt`, `fabs`, `fminnm`, `fmaxnm`, `frintm`, `frintp`, `frintz`, `frinta`;
+  assembler encodings checked against GNU as. Semantics are C's exactly: `fminnm`/`fmaxnm`
+  return the number when one operand is a quiet NaN and order -0 < +0 (as glibc/gcc on
+  aarch64; musl's C version differs only for signaling NaNs), `frinta` rounds halfway away
+  from zero, `fsqrt` is correctly rounded. The runtime's own `sqrt` etc. are one-line
+  wrappers (for `&sqrt`). The driver always has backend `fma` on now: an explicit `fma()` is
+  fused even with `CIMO_FMA=0`, which only controls contraction.
+  **nbody_acc: 0.74x of gcc nofma** (7.3 ms vs 9.9 ms; 0.98x of gcc with FMA, whose result
+  it matches bit for bit), was 1.88x. Suite geomean with the driver defaults now 1.01x of gcc
+  nofma, 1.05x of novec, 1.58x of `-O3` (was 1.07x / 1.13x / 1.68x).
 - `link=[...]` resolves host libraries; unknown symbols are compile errors naming the function.
   The default build has no host-libc dependency (checked by a test that resolves nothing from
   the process).
+  **Done 2026-10-30** (`cimo/linker.py`). **Link model: static, per module.** The runtime is
+  an archive (one object per source file, cached as assembly in
+  `~/.cache/cimo/runtime-<key>/` with a symbol index; key = runtime sources and headers +
+  bundled headers + compiler sources (frontend, middle, backend, driver, linker, execution); `CIMO_RUNTIME_CACHE` overrides the location, a fresh
+  `CIMO_CACHE_DIR` does not force a rebuild). Linking pulls only the members that resolve the
+  module's undefined symbols, transitively, and merges them with the module into one object
+  (sections concatenated, locals renamed apart). Chosen over one shared runtime image per
+  process because the heap and stdout buffer belong to the module ("Execution model"),
+  calls stay direct (no stubs), modules stay self-contained (the same shape as a future
+  ELF/Mach-O/WASM module that imports nothing), and the middle end can later inline runtime
+  functions. Cost: each module carries its copy of what it uses (printf ~ 20 KB).
+  `cimo.compile(src, link=['libc'])` (or `'libm'`, `'python'` = the C API, a soname, a short
+  name like `'z'`, a path): what neither the module nor the runtime defines resolves by dlsym
+  in those libraries only, through the loader's stubs/GOT; runtime functions still win
+  (`malloc` stays the module heap's, `printf` still goes to `sys.stdout`).
+  `system_headers=True` adds the host's header directories after `include_dirs` (glibc's
+  `stdio.h`, `unistd.h`, `time.h`, `errno.h`, ... preprocess and compile; the bundled
+  `stdarg.h` defines gcc's `__gnuc_va_list` for them; cimo's freestanding headers still serve
+  `stddef.h`/`stdarg.h`). Anything unresolved is a CompileError:
+  `undefined symbol 'getpid': cimo's runtime does not provide it; to call a host library,
+  pass e.g. link=['libc']`; a user definition of a name that a pulled-in runtime object also
+  defines is an error naming both. `test_default_build_resolves_nothing_from_the_process`
+  links a module using printf, malloc, qsort, strtod, ctype and libm with the loader's dlsym
+  patched to fail: the merged object has no undefined symbols.
+  Limitation: kernels can call host functions but not reference host *data* (`stdout`,
+  `errno`) unless the library lands within ±4 GB of the code (adrp); the loader would need to
+  map modules near the library or route data through the GOT.
 
 **M6 and later:** Python interop API polish, amd64 backend, WASM backend +
 Pyodide loading, SIMD (vector types, then auto-vectorization), concurrent calls, debug mode,

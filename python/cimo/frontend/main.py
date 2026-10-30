@@ -68,12 +68,17 @@ def _tostr(s):
     return s.encode('latin-1').decode('utf-8', 'surrogateescape')
 
 
-def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False):
+def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
+            builtins=False):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
     the `fma` instruction, as clang's -ffp-contract=on does; the backend must then be run
     with cimo.backend.ext.fma on to parse it.
+
+    builtins=True (cimo extension, off by default): calls to sqrt, fabs, fmin, fmax, floor,
+    ceil, trunc, round (and the float versions) become single instructions, and fma/fmaf the
+    fma instruction; the backend then needs cimo.backend.ext.math (and .fma).
 
     Raises FrontendError with cproc's exact error message on errors."""
     if isinstance(text, str):
@@ -82,6 +87,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     from . import qbe as _qbe
     try:
         _qbe.contract = bool(fma)
+        _qbe.builtins = bool(builtins)
         with _Recursion():
             _run([(filename, text)], target, pponly)
     except U.FrontendError as e:
@@ -92,6 +98,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         raise
     finally:
         _qbe.contract = False
+        _qbe.builtins = False
     res = _tostr(''.join(U.out))
     del U.out[:]
     return res

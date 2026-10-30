@@ -1,4 +1,5 @@
-/* cimo: <string.h> (C11 7.24). */
+/* cimo: <string.h> (C11 7.24) plus strnlen, strdup, strndup (POSIX), provided by cimo's
+   runtime. strerror knows only EDOM, ERANGE and EILSEQ (there is no errno). */
 #ifndef __CIMO_STRING_H
 #define __CIMO_STRING_H
 
@@ -31,5 +32,8 @@ char *strtok(char *restrict s1, const char *restrict s2);
 void *memset(void *s, int c, size_t n);
 char *strerror(int errnum);
 size_t strlen(const char *s);
+size_t strnlen(const char *s, size_t maxlen);
+char *strdup(const char *s);
+char *strndup(const char *s, size_t n);
 
 #endif

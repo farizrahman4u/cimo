@@ -289,6 +289,16 @@ _OPS = [
     ('afmsub', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('afnmadd', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('afnmsub', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    # math builtins (ext.math): C's sqrt, fabs, fmin, fmax, floor, ceil, trunc, round, one
+    # instruction each on arm64; pure, so gvn merges and gcm hoists them
+    ('fsqrt', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('fabs', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('fmin', ((Ke, Ke, Ks, Kd), (Ke, Ke, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('fmax', ((Ke, Ke, Ks, Kd), (Ke, Ke, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('ffloor', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('fceil', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('ftrunc', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('fround', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
 ]
 
 

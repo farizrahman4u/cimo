@@ -3,6 +3,8 @@
 #define __CIMO_STDARG_H
 
 typedef __builtin_va_list va_list;
+/* gcc's name, which glibc's headers use (system_headers=True) */
+typedef __builtin_va_list __gnuc_va_list;
 
 #define va_start(ap, parmN) __builtin_va_start(ap, parmN)
 #define va_arg(ap, type) __builtin_va_arg(ap, type)

@@ -172,12 +172,30 @@ IVAARG = 88
 IARG = 89
 IVARARG = 90
 IFMA = 91  # cimo extension: "fma a, b, c" = a*b + c rounded once (arg2 is c)
+# cimo extension: the math instructions (cimo.backend.ext.math), see funcbuiltin
+_MATHINST = ('fsqrt', 'fabs', 'fmin', 'fmax', 'ffloor', 'fceil', 'ftrunc', 'fround')
+IFSQRT, IFABS, IFMIN, IFMAX, IFFLOOR, IFCEIL, IFTRUNC, IFROUND = range(92, 100)
 
 # cimo extension: contract a*b+c into fma within one expression, like clang's
 # -ffp-contract=on; off by default (stock cproc output), set by compile(fma=True)
 contract = False
 
 instname = [None] + [_s for _n, _s in _OPS]
+# IARG, IVARARG and IFMA are printed by emitinst itself
+instname += [None] * (IFSQRT - len(instname)) + list(_MATHINST)
+
+# cimo extension: calls to these C library functions become one IR instruction (and
+# fma/fmaf the fma instruction), when the callee is the external function of that name with
+# the standard prototype; off by default (stock cproc output), set by compile(builtins=True)
+builtins = False
+_BUILTINS = {}
+for _i, _n in ((IFSQRT, 'sqrt'), (IFABS, 'fabs'), (IFMIN, 'fmin'), (IFMAX, 'fmax'),
+               (IFFLOOR, 'floor'), (IFCEIL, 'ceil'), (IFTRUNC, 'trunc'), (IFROUND, 'round'),
+               (IFMA, 'fma')):
+    _nargs = 3 if _i == IFMA else 2 if _i in (IFMIN, IFMAX) else 1
+    _BUILTINS[_n] = (_i, _nargs, 8)
+    _BUILTINS[_n + 'f'] = (_i, _nargs, 4)
+del _i, _n, _nargs
 
 
 class QbeType(object):
@@ -814,6 +832,47 @@ def funcfma(f, e):
     return inst.res
 
 
+def funcbuiltin(f, e):
+    """cimo extension: a call of sqrt, fabs, fmin, fmax, floor, ceil, trunc, round, fma (or
+    the float versions) as one instruction, if the callee is the declared external function
+    with the standard prototype (the names are reserved, C11 7.1.3). The results are the
+    C functions' exactly: fminnm/fmaxnm return the number when one operand is a quiet NaN
+    (and treat -0 < +0), frinta rounds halfway cases away from zero."""
+    b = e.base
+    if not (b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT):
+        return None
+    d = b.base.decl
+    spec = _BUILTINS.get(d.name)
+    if spec is None or d.kind != DECLFUNC or d.linkage != LINKEXTERN or d.asmname:
+        return None
+    op, nargs, size = spec
+    t = TY.typedouble if size == 8 else TY.typefloat
+    ft = d.type
+    if ft.base is not t or ft.isvararg or e.type is not t:
+        return None
+    p = ft.params
+    args = []
+    arg = e.args
+    for _ in range(nargs):
+        if not p or p.type is not t or not arg or arg.type is not t:
+            return None
+        args.append(arg)
+        p = p.next
+        arg = arg.next
+    if p or arg:
+        return None
+    vals = [funcexpr(f, a) for a in args]
+    cls = qbetype(t).base
+    if op == IFMA:
+        if f.end.jump_kind:
+            funclabel(f, mkblock("dead"))
+        inst = mkinst(f, IFMA, cls, vals[0], vals[1])
+        inst.arg2 = vals[2]
+        f.end.insts.append(inst)
+        return inst.res
+    return funcinst(f, op, cls, vals[0], vals[1] if nargs == 2 else None)
+
+
 def funcexpr(f, e):
     calcvla(f, e.type)
     k = e.kind
@@ -852,6 +911,10 @@ def funcexpr(f, e):
         v = funcstore(f, e.type, e.qual, lval, v)
         return l if e.post else v
     elif k == EXPRCALL:
+        if builtins:
+            v = funcbuiltin(f, e)
+            if v is not None:
+                return v
         argvals = []
         arg = e.args
         while arg:
