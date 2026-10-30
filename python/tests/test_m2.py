@@ -4,7 +4,7 @@ scratch/qbe_eval/edge.c passes against the in-process kernels.
 
 The gcc reference is built with `cc -O2 -ffp-contract=off` (QBE never fuses multiply-add, so
 results are bit-exact) as a shared library and called through ctypes on the same inputs.
-Skips when cproc (still needed for C -> QBE IR until M3) or cc is missing.
+Skips when cc (for the gcc reference) is missing.
 """
 
 import ctypes
@@ -24,14 +24,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 EVAL = os.path.join(REPO, 'scratch', 'qbe_eval')
 KERNELS = os.path.join(EVAL, 'kernels.c')
-CPROC = os.path.expanduser(os.environ.get('CIMO_CPROC_DIR', '~/code/cproc'))
 CC = os.environ.get('CC', 'cc')
 
 pytestmark = [
     pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aarch64'),
                        reason='arm64 only'),
-    pytest.mark.skipif(not os.path.exists(os.path.join(CPROC, 'cproc-qbe')),
-                       reason='cproc not built'),
     pytest.mark.skipif(not shutil.which(CC), reason='no C compiler for the reference'),
     pytest.mark.skipif(not os.path.exists(KERNELS), reason='scratch/qbe_eval missing'),
 ]

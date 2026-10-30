@@ -1,13 +1,13 @@
 """cimo.compile(): C source in, Python callables out.
 
-Pipeline:
+Pipeline, all pure Python, in this process:
 
-    C --[C cproc]--> QBE IR --[cimo.qbe]--> arm64 asm --[cimo.asm]--> object --[cimo.jit]--> memory
+    C --[cimo.cpp]--> preprocessed C --[cimo.cproc]--> QBE IR --[cimo.qbe]--> arm64 asm
+      --[cimo.asm]--> object --[cimo.jit]--> executable memory
 
-Everything after cproc is Python and runs in this process; until M3 (cproc ported to Python)
-lands it still needs `cproc`/`cproc-qbe` (CIMO_CPROC_DIR, default ~/code/cproc). External symbols
-(interim: `printf`, libm) are resolved against the running process. The assembly is cached by
-content hash; assembling and loading it takes milliseconds.
+External symbols (interim: `printf`, libm) are resolved against the running process. The
+assembly is cached by a hash of the preprocessed source; assembling and loading it takes
+milliseconds.
 """
 
 import ctypes
@@ -16,9 +16,7 @@ import io
 import os
 import platform
 import re
-import subprocess
 import sys
-import tempfile
 
 from . import asm as _asm
 from . import jit as _jit
@@ -41,15 +39,8 @@ def _cache_dir():
     return d
 
 
-def _run(cmd, stdin=None):
-    p = subprocess.run(cmd, input=stdin, capture_output=True)
-    if p.returncode != 0:
-        raise CompileError(p.stderr.decode(errors='replace').strip() or 'failed: %s' % cmd[0])
-    return p.stdout
-
-
 _APPLE = sys.platform == 'darwin'
-_VERSION = b'cimo-m2-1'  # part of the cache key: bump when the generated assembly changes
+_VERSION = b'cimo-m3-1'  # part of the cache key: bump when the generated assembly changes
 
 
 def _qbe(ssa):
@@ -68,24 +59,28 @@ def _qbe(ssa):
     return out.getvalue()
 
 
-def _build(src):
-    """C source -> (assembly text, signatures), cached by content hash."""
+def _build(src, filename='<string>', include_dirs=()):
+    """C source -> (assembly text, signatures), cached by a hash of the preprocessed source."""
+    from .cpp import preprocess, PreprocessError
+    from .cproc import compile as cproc_compile, CprocError
     if platform.machine().lower() not in ('arm64', 'aarch64'):
         raise CompileError('cimo generates arm64 code only; this machine is %s'
                            % platform.machine())
-    cproc = os.path.expanduser(os.environ.get('CIMO_CPROC_DIR', '~/code/cproc'))
-    key = hashlib.sha256(_VERSION + (b'apple' if _APPLE else b'') + src.encode()).hexdigest()[:24]
+    try:
+        pp = preprocess(_PRELUDE + '#line 1\n' + src, filename, include_dirs=include_dirs,
+                        target='arm64_apple' if _APPLE else 'arm64')
+    except PreprocessError as e:
+        raise CompileError(str(e)) from None
+    key = hashlib.sha256(_VERSION + (b'apple' if _APPLE else b'') + pp.encode()).hexdigest()[:24]
     path = os.path.join(_cache_dir(), key + '.s')
     sig = path[:-2] + '.sig'
     if os.path.exists(path) and os.path.exists(sig):
         with open(path) as f, open(sig) as g:
             return f.read(), g.read()
-    with tempfile.TemporaryDirectory() as tmp:
-        c = os.path.join(tmp, 'k.c')
-        with open(c, 'w') as f:
-            f.write(_PRELUDE + src)
-        pp = _run([os.path.join(cproc, 'cproc'), '-E', c])
-        ssa = _run([os.path.join(cproc, 'cproc-qbe')], stdin=pp).decode('latin-1')
+    try:
+        ssa = cproc_compile(pp, filename, target='aarch64-apple' if _APPLE else 'aarch64')
+    except CprocError as e:
+        raise CompileError(str(e)) from None
     text = _qbe(ssa)
     sigs = '\n'.join('%s %s %s' % (m.group(2), m.group(1) or '-',
                                    ','.join(a.split()[0] for a in m.group(3).split(',')
@@ -171,12 +166,13 @@ class Module:
 _libc = ctypes.CDLL(None)
 
 
-def compile(src):
+def compile(src, include_dirs=()):
     """Compile C source and return a Module of callables."""
-    return Module(*_build(src))
+    return Module(*_build(src, '<string>', tuple(include_dirs)))
 
 
-def load(path):
-    """Compile a .c file."""
+def load(path, include_dirs=()):
+    """Compile a .c file; its directory is searched for "..." includes."""
     with open(path) as f:
-        return compile(f.read())
+        src = f.read()
+    return Module(*_build(src, path, tuple(include_dirs)))
