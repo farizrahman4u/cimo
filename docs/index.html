@@ -63,6 +63,40 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .hero-note{margin-top:14px;font-size:13px;color:var(--ink3)}
 @media(max-width:1000px){.hero-grid{grid-template-columns:minmax(0,1fr);gap:32px}.hero h1{max-width:20ch}}
 @media(max-width:600px){.hero{padding:36px 0 24px}}
+/* hero carousel */
+.carousel{min-width:0;outline:0}
+.car-clip{overflow:hidden;padding:18px;margin:-18px}
+.car{display:grid;touch-action:pan-y}
+.frame{grid-area:1/1;display:flex;flex-direction:column;min-width:0;transition:transform .72s cubic-bezier(.3,.7,.2,1),opacity .72s ease,visibility 0s linear .72s;transform:translateX(104%) scale(.86);opacity:0;visibility:hidden}
+.frame.on{transform:none;opacity:1;visibility:visible;transition-delay:0s}
+.frame.left{transform:translateX(-104%) scale(.86)}
+.frame>.win{flex:1}
+.car-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px;color:var(--ink3);margin-top:12px}
+.car-ctl{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.car-count{font-family:var(--mono);font-size:12px}
+.car-ctl button{width:26px;height:26px;border-radius:7px;border:1px solid var(--line);background:var(--white);color:var(--ink2);font:600 15px/1 var(--font);cursor:pointer}
+.car-ctl button:hover{border-color:var(--brand200);color:var(--ink)}
+@media (prefers-reduced-motion:reduce){.frame{transition:opacity .3s ease,visibility 0s linear .3s;transform:none!important}}
+/* notebook windows */
+.nb{background:var(--white);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 18px 40px -24px rgba(16,24,40,.35);min-width:0}
+.nb-bar{height:32px;display:flex;align-items:center;gap:10px;padding:0 12px;background:#f3f4f8;border-bottom:1px solid var(--line)}
+.nb-bar .dots{display:flex;gap:5px}.nb-bar .dots i{width:9px;height:9px;border-radius:50%;background:#d5d9e2}
+.nb-bar .url{flex:1;max-width:340px;background:var(--white);border:1px solid var(--line);border-radius:6px;font-family:var(--mono);font-size:11px;color:var(--ink3);padding:1px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nb-tool{display:flex;justify-content:space-between;align-items:center;gap:10px;height:32px;padding:0 12px;border-bottom:1px solid var(--line2);font-size:12px}
+.nb-tool .tab{font-weight:600;color:var(--ink);border-bottom:2px solid var(--brand);line-height:29px}
+.nb-tool .kern{display:flex;align-items:center;gap:7px;color:var(--ink3);white-space:nowrap}
+.nb-tool .kern i{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--ink4)}
+.cells{padding:10px 12px 12px 4px;display:flex;flex-direction:column;gap:6px}
+.cell{display:grid;grid-template-columns:40px minmax(0,1fr);column-gap:6px;row-gap:2px;border-left:2px solid transparent;padding-left:4px}
+.cell.on{border-left-color:var(--brand)}
+.cell .pr{font-family:var(--mono);font-size:11px;color:var(--ink4);text-align:right;padding-top:7px}
+.cell pre{margin:0;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre;overflow-x:auto;color:var(--ink);min-width:0}
+.cell pre[data-lang]{background:#f7f8fb;border:1px solid var(--line2);border-radius:6px;padding:6px 10px}
+.cell.on pre[data-lang]{border-color:var(--brand200)}
+.cell pre.out{padding:6px 10px 2px;color:var(--ink2);font-size:11.5px}
+.nb .t-kw{color:#cf222e}.nb .t-ty{color:#953800}.nb .t-fn{color:#8250df}.nb .t-str{color:#0a3069}.nb .t-num{color:#0550ae}.nb .t-cm{color:#6e7781}
+.code.win pre{font-size:12.5px}
+@media(max-width:600px){.cell pre{font-size:11px}.cell{grid-template-columns:30px minmax(0,1fr)}.nb-tool .kern{display:none}}
 /* code panels */
 .code{background:var(--code);border:1px solid var(--codeline);border-radius:12px;overflow:hidden;color:#c9d1d9;min-width:0}
 .code .bar{height:32px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #262b38;background:var(--code2);font-family:var(--mono);font-size:11.5px;color:#8e94a3}
@@ -170,7 +204,9 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
     </div>
     <p class="hero-note">Standard library only · CPython 3.9+ and Pyodide · MIT</p>
   </div>
-  <div class="code">
+  <div class="carousel" tabindex="0" role="group" aria-roledescription="carousel" aria-label="Examples; use the left and right arrow keys to move between them">
+    <div class="car-clip"><div class="car">
+      <div class="frame on" data-title="Script · compile a kernel, run it on numpy arrays in place"><div class="code win">
     <div class="bar"><span class="dots"><i></i><i></i><i></i></span>blur.py</div>
 <pre data-lang="py">import numpy as np
 import cimo
@@ -187,6 +223,38 @@ void blur(int h, int w, const float src[h][w], float dst[h][w]) {
 src = np.random.rand(4096, 4096).astype(np.float32)
 dst = np.zeros_like(src)
 k.blur(*src.shape, src, dst)   # native code, on your arrays in place</pre>
+  </div></div>
+      <div class="frame" data-title="Jupyter · the same loop, 73× faster than Python · measured on Linux arm64" aria-hidden="true"><div class="nb win"><div class="nb-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:8888/lab/tree/smoothing.ipynb</span></div><div class="nb-tool"><span class="tab">smoothing.ipynb</span><span class="kern">Python 3 (ipykernel)<i></i></span></div><div class="cells"><div class="cell"><span class="pr">[1]:</span><pre data-lang="py">import numpy as np
+import cimo
+
+x = np.random.rand(1_000_000)
+y = np.empty_like(x)</pre></div><div class="cell"><span class="pr">[2]:</span><pre data-lang="py">k = cimo.compile(r"""
+void ema(int n, const double x[n], double y[n], double a) {
+    y[0] = x[0];
+    for (int i = 1; i &lt; n; i++)
+        y[i] = a * x[i] + (1 - a) * y[i-1];
+}
+""")</pre></div><div class="cell"><span class="pr">[3]:</span><pre data-lang="py">%timeit k.ema(len(x), x, y, 0.1)</pre><span class="pr"></span><pre class="out">3.43 ms ± 22.7 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)</pre></div><div class="cell on"><span class="pr">[4]:</span><pre data-lang="py">def ema_py(x, y, a):
+    y[0] = x[0]
+    for i in range(1, len(x)):
+        y[i] = a * x[i] + (1 - a) * y[i-1]
+
+%timeit ema_py(x, y, 0.1)</pre><span class="pr"></span><pre class="out">252 ms ± 2.36 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)</pre></div></div></div></div>
+      <div class="frame" data-title="JupyterLite · compiled to WebAssembly in the browser, no server" aria-hidden="true"><div class="nb win"><div class="nb-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">jupyter.org/try-jupyter/lab/</span></div><div class="nb-tool"><span class="tab">kernels.ipynb</span><span class="kern">Python (Pyodide)<i></i></span></div><div class="cells"><div class="cell"><span class="pr">[1]:</span><pre data-lang="py">import micropip
+await micropip.install("cimo")
+import numpy as np, cimo</pre></div><div class="cell"><span class="pr">[2]:</span><pre data-lang="py">k = cimo.compile(r"""
+void ema(int n, const double x[n], double y[n], double a) {
+    y[0] = x[0];
+    for (int i = 1; i &lt; n; i++)
+        y[i] = a * x[i] + (1 - a) * y[i-1];
+}
+""")   # WebAssembly, built in the page</pre></div><div class="cell"><span class="pr">[3]:</span><pre data-lang="py">x = np.arange(8.0)
+y = np.empty_like(x)
+k.ema(len(x), x, y, 0.5)
+y</pre><span class="pr">[3]:</span><pre class="out">array([0.       , 0.5      , 1.25     , 2.125    , 3.0625   , 4.03125  ,
+       5.015625 , 6.0078125])</pre></div><div class="cell on"><span class="pr">[ ]:</span><pre data-lang="py"> </pre></div></div></div></div>
+    </div></div>
+    <div class="car-bar"><span class="car-title">Script · compile a kernel, run it on numpy arrays in place</span><span class="car-ctl"><button type="button" class="car-prev" aria-label="Previous example">‹</button><span class="car-count">01 / 03</span><button type="button" class="car-next" aria-label="Next example">›</button></span></div>
   </div>
 </div></section>
 
@@ -363,14 +431,43 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
     if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.copy).then(done, function () {});
   });
 });
+// Hero carousel: auto-advances while in view, pauses on hover or focus; arrows, buttons and swipe move it.
+(function () {
+  var wrap = document.querySelector(".carousel"); if (!wrap) return;
+  var frames = [].slice.call(wrap.querySelectorAll(".frame")), N = frames.length, i = 0, tmr = null, paused = false;
+  var title = wrap.querySelector(".car-title"), count = wrap.querySelector(".car-count");
+  var RM = matchMedia("(prefers-reduced-motion:reduce)").matches;
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function go(dir) {
+    var from = frames[i], j = (i + dir + N) % N, to = frames[j];
+    to.style.transition = "none"; to.classList.toggle("left", dir < 0); to.offsetWidth; to.style.transition = "";
+    to.classList.remove("left"); to.classList.add("on"); to.removeAttribute("aria-hidden");
+    from.classList.remove("on"); from.classList.toggle("left", dir > 0); from.setAttribute("aria-hidden", "true");
+    i = j; title.textContent = to.dataset.title; count.textContent = pad(i + 1) + " / " + pad(N); arm();
+  }
+  function inView() { var r = wrap.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && !document.hidden; }
+  function arm() { clearTimeout(tmr); if (RM) return; tmr = setTimeout(function () { if (!paused && inView()) go(1); else arm(); }, 9000); }
+  wrap.querySelector(".car-prev").addEventListener("click", function () { go(-1); });
+  wrap.querySelector(".car-next").addEventListener("click", function () { go(1); });
+  wrap.addEventListener("keydown", function (e) { if (e.key === "ArrowRight") { go(1); e.preventDefault(); } else if (e.key === "ArrowLeft") { go(-1); e.preventDefault(); } });
+  wrap.addEventListener("pointerenter", function (e) { if (e.pointerType === "mouse") paused = true; });
+  wrap.addEventListener("pointerleave", function () { paused = false; });
+  wrap.addEventListener("focusin", function () { paused = true; });
+  wrap.addEventListener("focusout", function (e) { if (!wrap.contains(e.relatedTarget)) paused = false; });
+  var x0 = null;
+  wrap.addEventListener("touchstart", function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+  wrap.addEventListener("touchend", function (e) { if (x0 === null) return; var dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1); });
+  arm();
+})();
 // Minimal highlighter for Python with embedded C. Skips blocks that already carry spans.
 (function () {
   var KW = "import|from|with|as|for|in|lambda|await|return|if|else|while|void|const|static|struct|int|float|double|char|unsigned|long|size_t|uint8_t";
   var TY = /^(void|const|static|struct|int|float|double|char|unsigned|long|size_t|uint8_t)$/;
-  var re = new RegExp('(#[^\\n]*|/\\*[\\s\\S]*?\\*/)|(r?"""|"[^"\\n]*")|\\b(' + KW + ')\\b|\\b(\\d+(?:\\.\\d+)?f?)\\b|\\b([A-Za-z_]\\w*)(?=\\()', "g");
+  var re = new RegExp('(#[^\\n]*|/\\*[\\s\\S]*?\\*/)|(r?"""|"[^"\\n]*")|(%\\w+)|\\b(' + KW + ')\\b|\\b(\\d+(?:\\.\\d+)?f?)\\b|\\b([A-Za-z_]\\w*)(?=\\()', "g");
   document.querySelectorAll('pre[data-lang="py"]').forEach(function (pre) {
     if (pre.querySelector("span")) return;
-    pre.innerHTML = pre.innerHTML.replace(re, function (m, cm, str, kw, num, fn) {
+    pre.innerHTML = pre.innerHTML.replace(re, function (m, cm, str, mg, kw, num, fn) {
+      if (mg) return '<span class="t-kw">' + m + "</span>";
       if (cm) return '<span class="t-cm">' + m + "</span>";
       if (str) return '<span class="t-str">' + m + "</span>";
       if (kw) return '<span class="' + (TY.test(kw) ? "t-ty" : "t-kw") + '">' + m + "</span>";
