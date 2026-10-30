@@ -222,6 +222,7 @@ def build(src):
       root.classList.remove('loading');
       root.classList.add('running');
       requestAnimationFrame(frame);
+      scheduleGhost();
     } catch (e) {
       status('Could not start the demo: ' + (e && e.message || e));
       console.error(e);
@@ -239,6 +240,49 @@ def build(src):
   }
   if (/[?&]poster\b/.test(location.search)) root.classList.add('poster');  // (for the poster image)
 
+  // ---- the ghost edit: once per visit, a few seconds after the demo starts, type a small
+  // change into the field so it is obvious the code is live; stops as soon as the user acts
+  const GHOST = { 'Aizawa': ['*dx = (z - b) * x - d * y', ' + 0.6f * y * z'] };
+  let ghostTimer = null, ghostStop = null;
+
+  function scheduleGhost() {
+    let seen = false;
+    try { seen = sessionStorage.getItem('cimo-ghost') === '1'; } catch (e) {}
+    const force = /[?&]ghost\b/.test(location.search);
+    if ((seen && !force) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    ghostTimer = setTimeout(ghost, force ? 300 : 3500);
+  }
+
+  function ghost() {
+    const g = GHOST[ui.preset.value];
+    if (!g || !editor) return;
+    const text = editor.getValue(), at = text.indexOf(g[0]);
+    if (at < 0) return;
+    try { sessionStorage.setItem('cimo-ghost', '1'); } catch (e) {}
+    const start = editor.posFromIndex(at + g[0].length);
+    const caret = document.createElement('span');
+    caret.className = 'ghost-caret';
+    let pos = start, i = 0, mark = editor.setBookmark(pos, { widget: caret });
+    editor.scrollIntoView({ line: start.line, ch: 0 }, 60);
+    const tick = () => {
+      if (i >= g[1].length) {
+        mark.clear();
+        editor.markText(start, pos, { className: 'cm-ghost' });
+        root.classList.add('ghosted');
+        ghostTimer = setTimeout(() => root.classList.remove('ghosted'), 9000);
+        ghostStop = null;
+        return;
+      }
+      editor.replaceRange(g[1][i++], pos, pos, '+ghost');
+      pos = editor.posFromIndex(editor.indexFromPos(pos) + 1);
+      mark.clear();
+      mark = editor.setBookmark(pos, { widget: caret });
+      ghostTimer = setTimeout(tick, 70 + Math.random() * 60);
+    };
+    ghostStop = () => { clearTimeout(ghostTimer); mark.clear(); ghostStop = null; };
+    ghostTimer = setTimeout(tick, 500);
+  }
+
   function setupEditor() {
     ui.code.innerHTML = '';
     editor = CodeMirror(ui.code, {
@@ -246,11 +290,20 @@ def build(src):
       indentUnit: 4, viewportMargin: Infinity, scrollbarStyle: 'null', lineWrapping: true,
     });
     let timer = null;
+    const userActs = () => {
+      clearTimeout(ghostTimer);
+      if (ghostStop) ghostStop();
+      root.classList.remove('ghosted');
+    };
+    editor.on('mousedown', userActs);
+    editor.on('keydown', userActs);
+    editor.on('touchstart', userActs);
     editor.on('change', () => {
       clearTimeout(timer);
       timer = setTimeout(() => compile(false), 250);
     });
     ui.preset.addEventListener('change', () => {
+      userActs();
       editor.setValue(source(ui.preset.value));
       clearTimeout(timer);
       if (compile(true)) seed();
