@@ -58,7 +58,9 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .hero-cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}
 .pip{display:inline-flex;align-items:center;gap:10px;background:var(--code);color:#e6edf3;border-radius:8px;padding:0 6px 0 14px;height:44px;font-family:var(--mono);font-size:14px;border:1px solid var(--codeline)}
 .pip span::before{content:"$ ";color:#6e7681}
-.pip button{background:#1e2640;border:0;color:#c9d1d9;font:600 12px var(--font);padding:6px 10px;border-radius:6px;cursor:pointer}
+.pip button{display:grid;place-items:center;width:32px;height:32px;background:#1e2640;border:0;color:#c9d1d9;padding:0;border-radius:6px;cursor:pointer}
+.pip button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pip button .i-done,.pip button.done .i-copy{display:none}.pip button.done .i-done{display:block}.pip button.done{color:#7ee2b8}
 .pip button:hover{background:#2a3456;color:#fff}
 .hero-note{margin-top:14px;font-size:13px;color:var(--ink3)}
 @media(max-width:1000px){.hero-grid{grid-template-columns:minmax(0,1fr);gap:32px}.hero h1{max-width:20ch}}
@@ -200,7 +202,7 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
     <h1>A C compiler written in <em>pure Python</em>.</h1>
     <p class="lede">cimo compiles C to native code at runtime and calls it on numpy arrays, on machines with no compiler, SDK or LLVM. It runs wherever CPython or Pyodide does.</p>
     <div class="hero-cta">
-      <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo">Copy</button></div>
+      <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo" aria-label="Copy" title="Copy"><svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
       <a class="btn btn-s" href="https://github.com/farizrahman4u/cimo">Source on GitHub</a>
     </div>
     <p class="hero-note">Standard library only · CPython 3.9+ and Pyodide</p>
@@ -404,7 +406,7 @@ k = cimo.compile(src)   # compiled in the page</pre>
   <h2>Contributing</h2>
   <p class="lede" style="margin:12px auto 0">cimo is developed in the open. Bug reports, benchmarks and pull requests are welcome.</p>
   <div class="hero-cta">
-    <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo">Copy</button></div>
+    <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo" aria-label="Copy" title="Copy"><svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
     <a class="btn btn-p" href="https://github.com/farizrahman4u/cimo">GitHub</a>
     <a class="btn btn-s" href="https://github.com/farizrahman4u/cimo/issues">Issues</a>
   </div>
@@ -420,7 +422,7 @@ k = cimo.compile(src)   # compiled in the page</pre>
 // Copy buttons
 document.querySelectorAll("[data-copy]").forEach(function (b) {
   b.addEventListener("click", function () {
-    var done = function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1400); };
+    var done = function () { b.classList.add("done"); b.setAttribute("aria-label", "Copied"); setTimeout(function () { b.classList.remove("done"); b.setAttribute("aria-label", "Copy"); }, 1400); };
     if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.copy).then(done, function () {});
   });
 });
