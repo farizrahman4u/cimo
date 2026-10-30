@@ -180,21 +180,37 @@ section.s{padding:72px 0 8px}
 @keyframes vw-src{0%,52%{transform:translate(-50%,-30%) scale(.85);opacity:0}62%,92%{transform:translate(-50%,-50%);opacity:1}100%{transform:translate(-50%,-50%) scale(.95);opacity:0}}
 @keyframes vw-a{0%,48%{opacity:1}54%,96%{opacity:0}100%{opacity:1}}
 @keyframes vw-b{0%,52%{opacity:0;transform:translateY(4px)}60%,92%{opacity:1;transform:none}98%,100%{opacity:0}}
-/* desktop app */
-.va-win{position:absolute;left:12px;right:12px;top:12px;background:var(--code);border-radius:7px;overflow:hidden;box-shadow:0 8px 18px -10px rgba(15,23,42,.5)}
-.va-bar{display:flex;align-items:center;gap:8px;height:20px;padding:0 8px;background:var(--code2);font-size:9.5px;color:#8b95a7}
-.va-bar .dots{display:flex;gap:4px}.va-bar .dots i{width:6px;height:6px;border-radius:50%;background:#3a4256}
-.va-bar b{margin-left:auto;font-weight:500;font-size:9px;color:#7ee2b8;display:flex;align-items:center;gap:5px}
-.va-bar b::before{content:"";width:6px;height:6px;border-radius:50%;background:#34d399;animation:va-blink 1.4s infinite}
-.va-grid{display:grid;grid-template-columns:repeat(14,1fr);gap:2px;padding:7px}
-.va-grid i{height:11px;border-radius:2px;background:#1c2442;animation:va-heat 2.8s ease-in-out infinite;animation-delay:calc(var(--d)*90ms)}
-.va-bundle{position:absolute;left:12px;right:12px;bottom:11px;display:flex;gap:5px;flex-wrap:nowrap}
-.va-bundle span{font-size:10px;padding:3px 7px;border-radius:5px;background:var(--white);border:1px solid var(--brand100);color:var(--ink2);white-space:nowrap}
-.va-bundle .x{position:relative;margin-left:auto;color:var(--ink4);border-color:var(--line);border-style:dashed}
-.va-bundle .x::after{content:"";position:absolute;left:4px;right:4px;top:50%;height:1.5px;background:var(--bad);transform-origin:left;animation:va-strike 5s infinite}
-@keyframes va-heat{0%,100%{background:#1c2442}45%{background:var(--brand)}60%{background:var(--brand2)}}
-@keyframes va-blink{50%{opacity:.25}}
-@keyframes va-strike{0%,15%{transform:scaleX(0)}30%,100%{transform:scaleX(1)}}
+/* desktop app: sources pack into the app, toolchains stay out; then the app races Python */
+.va-cap{position:absolute;left:12px;top:10px;font-size:11px;color:var(--brand);font-weight:500}
+.va-cap span{position:absolute;white-space:nowrap;animation:9s infinite}
+.va-cap .ca{animation-name:va-ca}.va-cap .cb{animation-name:va-cb}
+.va-f{position:absolute;left:12px;top:calc(32px + var(--i)*22px);font-size:10px;line-height:1;padding:3px 7px;border-radius:5px;background:var(--white);border:1px solid var(--brand200);color:var(--ink2);white-space:nowrap;animation:va-in 9s infinite;animation-delay:calc(var(--i)*.3s)}
+.va-f.no{border-style:dashed;border-color:var(--ink4);color:var(--ink3);animation-name:va-no}
+.va-f.no::after{content:"";position:absolute;left:4px;right:4px;top:50%;height:1.5px;background:var(--bad);transform:scaleX(0);transform-origin:left;animation:va-strike 9s infinite;animation-delay:inherit}
+.va-box{position:absolute;right:22px;top:50%;display:flex;flex-direction:column;align-items:center;gap:3px;animation:va-box 9s infinite}
+.va-box svg{width:56px;height:56px;fill:var(--white);stroke:var(--brand);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 6px 10px rgba(39,55,189,.25))}
+.va-box circle{fill:var(--brand);stroke:none}
+.va-box b{font-size:10.5px;font-weight:500;color:var(--ink)}
+.va-win{position:absolute;inset:30px 12px 12px;background:var(--white);border:1px solid var(--line);border-radius:7px;overflow:hidden;box-shadow:0 8px 18px -12px rgba(15,23,42,.35);animation:va-win 9s infinite}
+.va-bar{display:flex;align-items:center;gap:8px;height:20px;padding:0 8px;background:var(--bg);border-bottom:1px solid var(--line2);font-size:9.5px;color:var(--ink3)}
+.va-bar .dots{display:flex;gap:4px}.va-bar .dots i{width:6px;height:6px;border-radius:50%;background:#d5d9e2}
+.va-race{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:9px 10px;padding:12px 12px 6px;font-size:10px;color:var(--ink2)}
+.va-tr{height:9px;border-radius:5px;background:var(--line2);overflow:hidden}
+.va-tr i{display:block;height:100%;border-radius:5px;width:0}
+.va-tr .py{background:var(--ink4);animation:va-py 9s infinite linear}
+.va-tr .c{background:var(--brand);animation:va-c 9s infinite}
+.va-done{display:flex;align-items:center;justify-content:flex-end;gap:4px;padding:0 12px;font-size:10px;font-weight:500;color:var(--ok);animation:va-done 9s infinite}
+.va-done svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+@keyframes va-ca{0%,46%{opacity:1}50%,96%{opacity:0}100%{opacity:1}}
+@keyframes va-cb{0%,50%{opacity:0}54%,94%{opacity:1}98%,100%{opacity:0}}
+@keyframes va-in{0%{left:12px;opacity:0}4%,8%{left:12px;opacity:1;transform:none}26%{left:calc(100% - 96px);opacity:1;transform:none}31%,100%{left:calc(100% - 70px);opacity:0;transform:scale(.4)}}
+@keyframes va-no{0%{left:12px;opacity:0}4%,8%{left:12px;opacity:1;transform:none}22%{left:calc(100% - 150px);transform:none}24%{transform:translateX(5px)}26%{transform:translateX(-4px)}28%,30%{left:calc(100% - 150px);opacity:1;transform:none}40%,100%{left:calc(100% - 150px);opacity:0;transform:translateY(26px) rotate(-12deg)}}
+@keyframes va-strike{0%,23%{transform:scaleX(0)}27%,100%{transform:scaleX(1)}}
+@keyframes va-box{0%{opacity:0;transform:translateY(-50%) scale(.9)}5%,27%{opacity:1;transform:translateY(-50%)}30%{transform:translateY(-50%) scale(1.07)}33%{transform:translateY(-50%)}36%{transform:translateY(-50%) scale(1.07)}39%,44%{opacity:1;transform:translateY(-50%)}49%,100%{opacity:0;transform:translateY(-50%) scale(1.25)}}
+@keyframes va-win{0%,46%{opacity:0;transform:scale(.94)}52%,94%{opacity:1;transform:none}100%{opacity:0}}
+@keyframes va-py{0%,54%{width:0}94%,100%{width:4%}}
+@keyframes va-c{0%,54%{width:0;animation-timing-function:cubic-bezier(.3,0,.2,1)}62%,100%{width:100%}}
+@keyframes va-done{0%,62%{opacity:0;transform:translateY(3px)}67%,94%{opacity:1;transform:none}100%{opacity:0}}
 /* browser */
 .vb-win{position:absolute;inset:12px 12px 12px 12px;background:var(--white);border:1px solid var(--line);border-radius:7px;overflow:hidden}
 .vb-bar{display:flex;align-items:center;gap:5px;height:20px;margin:5px 6px 0;padding:0 8px;background:var(--bg);border-radius:10px;font-size:9.5px;color:var(--ink3)}
@@ -218,7 +234,7 @@ section.s{padding:72px 0 8px}
   .viz *,.viz *::before,.viz *::after{animation:none!important}
   .vw-grid,.vw-cap .ca{display:none}.vw-cap .cb{opacity:1}.vw-src{opacity:1;transform:translate(-50%,-50%);top:50%}
   .vb-ln span{width:calc(var(--n)*1ch)}.vb-img i{filter:blur(3.5px)}
-  .va-bundle .x::after{transform:none}
+  .va-f,.va-box,.va-cap .ca{display:none}.va-cap .cb{opacity:1}.va-win{opacity:1}.va-tr .py{width:4%}.va-tr .c{width:100%}.va-done{opacity:1}
 }
 .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;margin-top:28px;align-items:start}
 .split.wide-l{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
@@ -361,7 +377,7 @@ void ema(int n, const double x[n], double y[n], double a) {
   <p class="lede">Compute-graph engines, PDE solvers and symbolic code generators emit C at runtime and call the system compiler on the user's machine. Where there is none, they fail or fall back to slow paths. Numba avoids the compiler by bundling LLVM. cimo is a compiler written in Python: any machine that runs Python can compile and run C.</p>
   <div class="cards motiv">
     <div class="card"><div class="viz v-wheels" aria-hidden="true"><div class="vw-cap"><span class="ca">24 wheels</span><span class="cb">1 source file</span></div><div class="vw-grid"><div class="vw-row"><span>linux</span><i style="--d:0"></i><i style="--d:1"></i><i style="--d:2"></i><i style="--d:3"></i><i style="--d:4" class=a></i><i style="--d:5" class=a></i><i style="--d:6" class=a></i><i style="--d:7" class=a></i></div><div class="vw-row"><span>macos</span><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12" class=a></i><i style="--d:13" class=a></i><i style="--d:14" class=a></i><i style="--d:15" class=a></i></div><div class="vw-row"><span>win</span><i style="--d:16"></i><i style="--d:17"></i><i style="--d:18"></i><i style="--d:19"></i><i style="--d:20" class=a></i><i style="--d:21" class=a></i><i style="--d:22" class=a></i><i style="--d:23" class=a></i></div><div class="vw-cols"><div class="vw-ver"><span>3.10</span><span>3.11</span><span>3.12</span><span>3.13</span><span>3.10</span><span>3.11</span><span>3.12</span><span>3.13</span></div><div class="vw-arch"><span>x86_64</span><span>arm64</span></div></div></div><div class="vw-src"><svg viewBox="0 0 24 24"><path d="M6 2.5h8l5 5V21a.5.5 0 0 1-.5.5h-12A.5.5 0 0 1 6 21z"/><path d="M14 2.5V8h5"/></svg><b>kernels.c</b><em>any OS · any arch</em></div></div><span class="tag">libraries</span><h3>Pure-Python packages</h3><p>Ship C kernels as source. No wheel matrix across OSes, architectures and Python versions, and no compiler needed for a source install.</p></div>
-    <div class="card"><div class="viz v-app" aria-hidden="true"><div class="va-win"><div class="va-bar"><span class="dots"><i></i><i></i><i></i></span>Heat.app<b>native</b></div><div class="va-grid"><i style="--d:0"></i><i style="--d:1"></i><i style="--d:2"></i><i style="--d:3"></i><i style="--d:4" class=a></i><i style="--d:5" class=a></i><i style="--d:6" class=a></i><i style="--d:7" class=a></i><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12" class=a></i><i style="--d:13" class=a></i><i style="--d:1"></i><i style="--d:2"></i><i style="--d:3"></i><i style="--d:4" class=a></i><i style="--d:5" class=a></i><i style="--d:6" class=a></i><i style="--d:7" class=a></i><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12" class=a></i><i style="--d:13" class=a></i><i style="--d:14" class=a></i><i style="--d:2"></i><i style="--d:3"></i><i style="--d:4" class=a></i><i style="--d:5" class=a></i><i style="--d:6" class=a></i><i style="--d:7" class=a></i><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12" class=a></i><i style="--d:13" class=a></i><i style="--d:14" class=a></i><i style="--d:15" class=a></i><i style="--d:3"></i><i style="--d:4" class=a></i><i style="--d:5" class=a></i><i style="--d:6" class=a></i><i style="--d:7" class=a></i><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12" class=a></i><i style="--d:13" class=a></i><i style="--d:14" class=a></i><i style="--d:15" class=a></i><i style="--d:16"></i><i style="--d:4" class=a></i><i style="--d:5" class=a></i><i style="--d:6" class=a></i><i style="--d:7" class=a></i><i style="--d:8"></i><i style="--d:9"></i><i style="--d:10"></i><i style="--d:11"></i><i style="--d:12" class=a></i><i style="--d:13" class=a></i><i style="--d:14" class=a></i><i style="--d:15" class=a></i><i style="--d:16"></i><i style="--d:17"></i></div></div><div class="va-bundle"><span>app.py</span><span>kernels.c</span><span>cimo</span><span class="x">LLVM</span></div></div><span class="tag">apps</span><h3>Desktop applications</h3><p>Native-speed kernels in a frozen app, without bundling LLVM or installing a C compiler on every build machine.</p></div>
+    <div class="card"><div class="viz v-app" aria-hidden="true"><div class="va-cap"><span class="ca">packing MyApp</span><span class="cb">running MyApp</span></div><span class="va-f in" style="--i:0">app.py</span><span class="va-f in" style="--i:1">kernels.c</span><span class="va-f in" style="--i:2">cimo</span><span class="va-f no" style="--i:3">LLVM</span><span class="va-f no" style="--i:4">gcc</span><div class="va-box"><svg viewBox="0 0 40 40"><rect x="3" y="7" width="34" height="27" rx="5"/><path d="M3 14h34"/><circle cx="8" cy="10.5" r="1"/><circle cx="12" cy="10.5" r="1"/><path d="M15 21l-3.5 3.5L15 28M25 21l3.5 3.5L25 28M21.5 19.5l-3 10"/></svg><b>MyApp</b></div><div class="va-win"><div class="va-bar"><span class="dots"><i></i><i></i><i></i></span>MyApp</div><div class="va-race"><span>pure Python</span><div class="va-tr"><i class="py"></i></div><span>C via cimo</span><div class="va-tr"><i class="c"></i></div></div><div class="va-done"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>~100× faster</div></div></div><span class="tag">apps</span><h3>Desktop applications</h3><p>Native-speed kernels in a frozen app, without bundling LLVM or installing a C compiler on every build machine.</p></div>
     <div class="card"><div class="viz v-web" aria-hidden="true"><div class="vb-win"><div class="vb-bar"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>jupyterlite</div><div class="vb-body"><div class="vb-code"><div class="vb-ln"><em>[1]</em><span class="t1" style="--n:21">k = cimo.compile(src)</span></div><div class="vb-ok"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>compiled in the page</div><div class="vb-ln"><em>[2]</em><span class="t2" style="--n:16">k.blur(img, out)</span></div></div><div class="vb-img"><i></i></div></div></div></div><span class="tag">sandboxed</span><h3>Browsers and restricted machines</h3><p>Pyodide, JupyterLite and marimo; plugin repositories that accept no binaries; machines where nothing can be installed.</p></div>
   </div>
 </div></section>
