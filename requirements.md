@@ -89,28 +89,54 @@ Why that isn't available today:
 **Flagship:** one static page with tabs for (1), (2) and (3), plus (5) shown side by side.
 (1) and (3) must stand alone without an API key.
 
-## Language: freestanding C11 + the parts of libc that never touch the OS
+## Language: C11 with a bundled runtime; the host OS on request
 
-Accept (almost) all of C syntax. The execution environment is a kernel, like CUDA device code:
-no I/O and no OS. The only libc is the part that needs no OS.
+Accept (almost) all of C syntax. Kernels link against cimo's **bundled runtime library** by
+default; the host OS and other native libraries are available only when linked explicitly.
+cimo is **explicitly unsafe**: native kernels run with the full privileges of the Python process
+(like ctypes or a C extension), and there is no sandbox mode. A symbol allowlist would not be a
+security boundary (C can write through any pointer), so offering one would be a false sense of
+security. Isolation comes from the platform (WebAssembly in the browser) or from the user.
 
 - **Headers:** the C11 freestanding set (`stddef.h`, `stdint.h`, `stdbool.h`, `limits.h`,
   `float.h`, `stdarg.h`, `stdalign.h`, `stdnoreturn.h`, `iso646.h`) plus `math.h`,
-  `string.h`, `ctype.h` and an OS-free `stdlib.h`. All bundled.
-- **Library:** compiled from bundled C source (largely from musl, MIT) by our own compiler, then cached:
-  - `stdlib.h`: `malloc`, `calloc`, `realloc`, `free`, `aligned_alloc`, `qsort`, `bsearch`,
-    `abs`/`labs`/`div`, `strtol`/`strtod`, `atoi`
-  - all of `string.h`, `ctype.h`, `math.h`
-  - still out: `stdio`, `time`, `signal`, `locale`, files, `exit`. `abort()` is the error-unwind path.
+  `string.h`, `ctype.h`, an OS-free `stdlib.h` and a minimal `stdio.h` (formatted output only).
+  All bundled.
+- **Runtime library:** compiled from bundled C source (largely from musl, MIT) by our own compiler,
+  then cached (or shipped precompiled):
+  - `stdlib.h`: `malloc`, `calloc`, `realloc`, `free`, `aligned_alloc` (cimo's heap, see
+    "Execution model"), `qsort`, `bsearch`, `abs`/`labs`/`div`, `strtol`/`strtod`, `atoi`, `abort`
+  - all of `string.h`, `ctype.h`, `math.h` (no `errno`: math functions are pure, so the optimizer
+    may hoist and CSE them)
+  - `stdio.h`: `printf`, `vprintf`, `puts`, `putchar`, `snprintf`, `vsnprintf`. Formatting is done
+    in C; output goes through one callback, `__cimo_write(buf, len)`, into Python's `sys.stdout`
+    (buffered, flushed at newline or when the kernel returns), so it shows up in Jupyter cells,
+    honors `contextlib.redirect_stdout`, and works in Pyodide.
+- **Why a bundled runtime, not the host libc** (decided 2026-10-30): identical results on every
+  platform and in Pyodide (no host libc there); `abort`/`assert` raise Python exceptions instead of
+  killing the interpreter; `printf` reaches notebooks; heap features need an allocator we own
+  (per-thread heaps, reset, debug checks, leak reports); and speed: the compiler knows the library's
+  semantics (`malloc` results alias nothing, math is pure, small `memcpy`s inline) and maps
+  `sqrt`, `fabs`, `fmin`/`fmax`, `floor`/`ceil`/`trunc`/`round` to single instructions. Large
+  `memcpy`/`memset` may call the host's SIMD routines internally where available, until cimo
+  vectorizes.
+- **Host libraries on request:** `cimo.compile(src, link=["libc"])` (or `"libz.so.1"`, any path or
+  soname) makes those libraries' symbols resolvable, which gives kernels the whole OS API (files,
+  time, threads, sockets) and existing native code (BLAS, zlib, the Python C API). Only named
+  libraries resolve; a symbol that is neither in the runtime nor in a linked library is a compile
+  error naming the missing function. Native platforms only (Pyodide: maybe Emscripten's exported
+  libc, unverified). Declarations come from the user, or from the system headers via an option.
+  Notes: blocking calls are fine (kernels run without the GIL); `fork`, `exit`, signal handlers and
+  closing Python's file descriptors fight the interpreter, as with ctypes. Memory from a host
+  allocator must be freed by that allocator, not by cimo's `free`.
 - **Builtins:** `memcpy`, `memset`, `memmove` (needed for struct copies anyway) and common GNU
   builtins (`__builtin_expect`, etc.).
 - **Allowed:** structs, unions, bitfields, pointers of any depth, pointer arithmetic, recursion,
   function pointers, varargs, VLAs, `goto`, `switch`, mutable globals, `const` tables.
   Everything compiles correctly; not everything gets the fast path (see "Optimization model").
 - **Not supported:**
-  - stdio, files, OS calls. Memory comes from caller buffers or the module heap.
-  - inline asm
-  - `_Atomic` / threads (v2, if parallel reductions need them)
+  - inline asm (raw system calls go through a linked libc instead)
+  - `_Atomic` / threads in kernels without a linked libc (v2, if parallel reductions need them)
   - `setjmp`/`longjmp`
   - `long double` where it is 128-bit quad (arm64 Linux); rejected with a clear error
   - most GNU extensions, except the common ones (vector types, statement expressions, simple attributes)
@@ -122,9 +148,11 @@ no I/O and no OS. The only libc is the part that needs no OS.
 - **Entry points:** non-`static` functions. Python binds them by parsing their signatures:
   pointers take buffers (numpy arrays, `bytearray`, `memoryview`), scalars take numbers,
   structs take ctypes structures or dicts.
-- **Self-contained code:** the only external symbol is the heap's `grow` hook, so loading is just
-  copying code into executable memory (JIT), or writing a minimal ELF / Mach-O (ad-hoc signed) / PE.
-  WASM modules import nothing beyond their memory.
+- **Self-contained code:** by default the only external symbols are the runtime's hooks into
+  Python (`grow` for the heap, `__cimo_write` for output), so loading is just copying code into
+  executable memory (JIT), or writing a minimal ELF / Mach-O (ad-hoc signed) / PE, with no stubs or
+  GOT. WASM modules import nothing beyond their memory and those hooks. Explicitly linked host
+  libraries (`link=`) are reached through loader-generated stubs and GOT slots.
 - **Heap:** `malloc` and friends come from our own size-class allocator (a few hundred lines of
   freestanding C), never from the host libc. That avoids external symbols and mixed C runtimes on Windows.
   - The Python runtime gives the module large regions (anonymous `mmap`). When they run out, the
@@ -147,7 +175,8 @@ no I/O and no OS. The only libc is the part that needs no OS.
   (reported when the module unloads).
   In every build, arguments are checked at call time against VLA parameter shapes
   (`float a[n][m]` must hold `n*m` floats).
-  Optional `printf`-style debug output through a callback into Python.
+  Debug mode also checks the arguments of runtime functions (`memcpy` ranges, `free` of a
+  non-heap pointer).
 - **Multicore (v1): bring your own threads.** Kernel calls release the GIL (ctypes does this for
   foreign calls) and are safe to make concurrently from several Python threads. cimo has no launch
   API, no hidden block index and no `cimo.h`. The user splits the work with ordinary parameters
@@ -608,7 +637,25 @@ explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing 
   seed, 6 seeds by default, `CIMO_RANDOM_SEEDS=a:b` for more; 120 seeds pass).
 - Compile time of kernels.c: 0.17 s with the middle stage (0.09 s without).
 
-**M5 and later:** Python interop API, heap and runtime library, amd64 backend, WASM backend +
+**M5: runtime library.** The bundled runtime described under "Language" and "Execution model",
+replacing host-libc resolution.
+- `printf` family through `__cimo_write` into `sys.stdout`: output appears in Jupyter and under
+  `redirect_stdout`, in order with Python's own output.
+- Heap: size-class allocator in freestanding C, per-thread heaps with a lock-free fast path,
+  cross-thread `free` via a deferred list (one internal compare-and-swap), `grow` hook into Python,
+  heap reset from Python; stress-tested from many Python threads.
+- `abort`, `assert` and traps raise a Python exception (`cimo.KernelError`) and leave the
+  interpreter and the module usable.
+- `string.h`, `ctype.h`, `math.h`, OS-free `stdlib.h` from musl, compiled by cimo; results match
+  musl (and glibc where the standard pins them; within documented ulps for math). First-use build
+  time recorded, then cached.
+- `sqrt`, `fabs`, `fmin`/`fmax`, `floor`/`ceil`/`trunc`/`round` compile to single instructions;
+  `nbody_acc` within 1.2x of gcc nofma.
+- `link=[...]` resolves host libraries; unknown symbols are compile errors naming the function.
+  The default build has no host-libc dependency (checked by a test that resolves nothing from
+  the process).
+
+**M6 and later:** Python interop API polish, amd64 backend, WASM backend +
 Pyodide loading, SIMD (vector types, then auto-vectorization), concurrent calls, debug mode,
 then the demos.
 
