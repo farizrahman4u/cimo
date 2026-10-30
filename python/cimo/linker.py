@@ -4,7 +4,8 @@ Link model (requirements.md, "Language" and "Execution model"):
 
 - The runtime (`cimo/runtime/**/*.c`: libc subset from musl, cimo's heap, stdout) is compiled
   by cimo itself on first use, one object per source file, and cached as assembly text in
-  `<cache>/runtime-<key>/` with an index of the symbols each file defines and uses. The key
+  `<cache>/runtime-<key>/` with an index of the symbols each file defines and uses (in memory
+  if there is no writable cache; `cimo bundle --prebuilt` embeds it in the bundle). The key
   hashes the runtime sources and headers, the bundled headers, and the compiler's own
   sources, so any change rebuilds it.
 - Each module is linked **statically**: like `ld` with an archive, only the runtime objects
@@ -29,12 +30,12 @@ import threading
 import time
 
 from . import assembler as _asm
+from . import resources as _res
 from .execution import CTX_OUT
 
 __all__ = ['LinkError', 'runtime', 'link', 'open_library', 'Stdout', 'RUNTIME_DIR']
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-RUNTIME_DIR = os.path.join(_HERE, 'runtime')
+RUNTIME_DIR = _res.path('runtime')
 RUNTIME_INCLUDE = os.path.join(RUNTIME_DIR, 'internal')
 _APPLE = sys.platform == 'darwin'
 
@@ -46,39 +47,32 @@ _COMPILER = ('preprocessor.py', 'frontend', 'middle', 'backend', 'include', 'dri
 # Last first-use build: {'seconds': ..., 'files': ...}, for tests and reports.
 last_build = None
 
+# progress(event, **info) during the runtime's first-use build, instead of messages on stderr:
+# 'start' (files=n), 'file' (name=member), 'done' (seconds=s). The command line sets it.
+progress = None
+
 
 class LinkError(Exception):
     pass
 
 
-def _files(top, exts):
-    out = []
-    for d, dirs, files in os.walk(top):
-        dirs[:] = sorted(x for x in dirs if x != '__pycache__')
-        for f in sorted(files):
-            if f.endswith(exts):
-                out.append(os.path.join(d, f))
-    return out
-
-
 def runtime_sources():
     """Every .c file under cimo/runtime, as paths relative to it."""
-    return [os.path.relpath(p, RUNTIME_DIR) for p in _files(RUNTIME_DIR, ('.c',))]
+    return [os.path.relpath(p, RUNTIME_DIR) for p in _res.files(RUNTIME_DIR, ('.c',))]
 
 
 def _hash(h, paths):
     for p in paths:
-        h.update(os.path.relpath(p, _HERE).encode() + b'\0')
-        with open(p, 'rb') as f:
-            h.update(f.read())
+        h.update(os.path.relpath(p, _res.ROOT).replace(os.sep, '/').encode() + b'\0')
+        h.update(_res.read(p))
         h.update(b'\0')
 
 
 def _compiler_paths():
     paths = []
     for c in _COMPILER:
-        p = os.path.join(_HERE, c)
-        paths += _files(p, ('.py', '.h')) if os.path.isdir(p) else [p]
+        p = _res.path(c)
+        paths += [p] if c.endswith('.py') else _res.files(p, ('.py', '.h'))
     return paths
 
 
@@ -98,7 +92,7 @@ def compiler_key():
 
 def _key(target):
     h = hashlib.sha256(b'cimo-runtime-1\0' + target.encode() + b'\0')
-    _hash(h, _files(RUNTIME_DIR, ('.c', '.h')) + _compiler_paths())
+    _hash(h, _res.files(RUNTIME_DIR, ('.c', '.h')) + _compiler_paths())
     return h.hexdigest()[:20]
 
 
@@ -124,8 +118,7 @@ def compile_runtime_source(path, target):
     from . import driver
     from . import execution as _exe
     from .preprocessor import preprocess
-    with open(path) as f:
-        src = f.read()
+    src = _res.read_text(path)
     pp = preprocess(src, path, include_dirs=(RUNTIME_INCLUDE,),
                     defines={'__FP_FAST_FMA': '1', '__FP_FAST_FMAF': '1'}, target=target,
                     warn=lambda *a, **k: None)
@@ -135,12 +128,13 @@ def compile_runtime_source(path, target):
 
 class Runtime:
     """The runtime library as an archive: members (one per source file) are assembled on
-    first use and kept for the life of the process."""
+    first use and kept for the life of the process. text(member) is a member's assembly."""
 
-    def __init__(self, directory, index, syntax):
-        self.dir = directory
+    def __init__(self, key, index, syntax, text):
+        self.key = key  # the cache key (_key)
         self.index = index  # member -> {'defs': [...], 'undefs': [...]}
         self.syntax = syntax
+        self.text = text
         self.provider = {}
         for m, e in index.items():
             for s in e['defs']:
@@ -150,65 +144,113 @@ class Runtime:
     def object(self, member):
         o = self._objs.get(member)
         if o is None:
-            with open(os.path.join(self.dir, member.replace('/', '__') + '.s')) as f:
-                o = self._objs[member] = _asm.assemble(f.read(), self.syntax)
+            o = self._objs[member] = _asm.assemble(self.text(member), self.syntax)
         return o
 
 
 _runtime = None
 
 
+def member_file(member):
+    """The file name of a member's assembly in a runtime directory."""
+    return member.replace('/', '__') + '.s'
+
+
+def user_cache(var):
+    """A cache directory: $var if set, else $XDG_CACHE_HOME/cimo or ~/.cache/cimo, created if
+    needed. None if it cannot be created or written (a read-only home, an embedded
+    interpreter): callers then cache in memory."""
+    d = os.environ.get(var) or os.path.join(
+        os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'cimo')
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError:
+        return None
+    return d if os.access(d, os.W_OK | os.X_OK) else None
+
+
 def _cache_root():
     """Where built runtimes live: CIMO_RUNTIME_CACHE, else the user cache (not
     CIMO_CACHE_DIR: entries are keyed by content, so a fresh module cache, as tests and
     benchmarks use, need not rebuild the runtime)."""
-    d = os.environ.get('CIMO_RUNTIME_CACHE') or os.path.join(
-        os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'cimo')
-    os.makedirs(d, exist_ok=True)
-    return d
+    return user_cache('CIMO_RUNTIME_CACHE')
+
+
+def _build_runtime(target, syntax):
+    """Compile every runtime source: (index, {member: assembly text})."""
+    from .driver import CompileError
+    t0 = time.time()
+    srcs = runtime_sources()
+    if progress:
+        progress('start', files=len(srcs))
+    else:
+        sys.stderr.write('cimo: building the runtime library (%d files, first use only)...\n'
+                         % len(srcs))
+    index, texts = {}, {}
+    for rel in srcs:
+        member = rel.replace(os.sep, '/')
+        if progress:
+            progress('file', name=member)
+        try:
+            text = compile_runtime_source(os.path.join(RUNTIME_DIR, rel), target)
+            obj = _asm.assemble(text, syntax)
+        except Exception as e:
+            raise CompileError('building the runtime: %s: %s' % (rel, e)) from None
+        defs, undefs = _globals(obj)
+        index[member] = {'defs': sorted(defs), 'undefs': sorted(undefs - defs)}
+        texts[member] = text
+    global last_build
+    last_build = {'seconds': time.time() - t0, 'files': len(srcs)}
+    if progress:
+        progress('done', seconds=last_build['seconds'])
+    else:
+        sys.stderr.write('cimo: runtime built in %.1f s\n' % last_build['seconds'])
+    return index, texts
+
+
+def _save_runtime(d, index, texts):
+    """Write a built runtime to cache directory d (atomically: index.json marks it complete)."""
+    tmp = d + '.tmp%d' % os.getpid()
+    os.makedirs(tmp, exist_ok=True)
+    for member, text in texts.items():
+        with open(os.path.join(tmp, member_file(member)), 'w') as f:
+            f.write(text)
+    with open(os.path.join(tmp, 'index.json'), 'w') as f:
+        json.dump(index, f, indent=0, sort_keys=True)
+    try:
+        os.rename(tmp, d)
+    except OSError:  # another process finished first
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def runtime():
-    """The runtime archive for this machine, built and cached on first use."""
-    global _runtime, last_build
+    """The runtime archive for this machine: prebuilt in the bundle (`cimo bundle
+    --prebuilt`), else built on first use and cached on disk, or in memory if there is no
+    writable cache directory."""
+    global _runtime
     if _runtime is not None:
         return _runtime
     target = 'arm64_apple' if _APPLE else 'arm64'
     syntax = 'macho' if _APPLE else 'elf'
-    d = os.path.join(_cache_root(), 'runtime-' + _key(target))
-    idx = os.path.join(d, 'index.json')
-    if not os.path.exists(idx):
-        from .driver import CompileError
-        t0 = time.time()
-        srcs = runtime_sources()
-        sys.stderr.write('cimo: building the runtime library (%d files, first use only)...\n'
-                         % len(srcs))
-        tmp = d + '.tmp%d' % os.getpid()
-        os.makedirs(tmp, exist_ok=True)
-        index = {}
-        for rel in srcs:
-            member = rel.replace(os.sep, '/')
-            try:
-                text = compile_runtime_source(os.path.join(RUNTIME_DIR, rel), target)
-                obj = _asm.assemble(text, syntax)
-            except Exception as e:
-                raise CompileError('building the runtime: %s: %s' % (rel, e)) from None
-            defs, undefs = _globals(obj)
-            index[member] = {'defs': sorted(defs), 'undefs': sorted(undefs - defs)}
-            with open(os.path.join(tmp, member.replace('/', '__') + '.s'), 'w') as f:
-                f.write(text)
-        with open(os.path.join(tmp, 'index.json'), 'w') as f:
-            json.dump(index, f, indent=0, sort_keys=True)
-        last_build = {'seconds': time.time() - t0, 'files': len(srcs)}
-        try:
-            os.rename(tmp, d)
-        except OSError:  # another process finished first
-            import shutil
-            shutil.rmtree(tmp, ignore_errors=True)
-        sys.stderr.write('cimo: runtime built in %.1f s\n' % last_build['seconds'])
-    with open(idx) as f:
-        index = json.load(f)
-    _runtime = Runtime(d, index, syntax)
+    key = _key(target)
+    d = _res.path('prebuilt/runtime-' + key)
+    if not _res.isfile(os.path.join(d, 'index.json')):
+        root = _cache_root()
+        d = root and os.path.join(root, 'runtime-' + key)
+        if d is None or not os.path.exists(os.path.join(d, 'index.json')):
+            index, texts = _build_runtime(target, syntax)
+            if d is not None:
+                try:
+                    _save_runtime(d, index, texts)
+                except OSError:
+                    d = None
+            if d is None:  # no writable cache: keep it in memory
+                _runtime = Runtime(key, index, syntax, texts.__getitem__)
+                return _runtime
+    index = json.loads(_res.read_text(os.path.join(d, 'index.json')))
+    _runtime = Runtime(key, index, syntax,
+                       lambda m: _res.read_text(os.path.join(d, member_file(m))))
     return _runtime
 
 
