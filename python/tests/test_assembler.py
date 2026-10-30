@@ -1,6 +1,6 @@
-"""cimo.asm against GNU as, byte for byte (sections, relocations, symbols).
+"""cimo.assembler against GNU as, byte for byte (sections, relocations, symbols).
 
-Skips when GNU as for aarch64 isn't installed. Inputs: the assembly cimo.qbe produces for QBE's
+Skips when GNU as for aarch64 isn't installed. Inputs: the assembly cimo.backend produces for QBE's
 tests and scratch/qbe_eval kernels (both targets; arm64_apple is translated to ELF syntax for
 GNU as), a hand-written file with every emitter form (data/arm64_forms.s), and generated sweeps
 of immediates and offsets.
@@ -11,8 +11,8 @@ import random
 
 import pytest
 
-import asm_check as A
-from cimo import asm
+import assembler_check as A
+from cimo import assembler
 
 pytestmark = pytest.mark.skipif(not A.have_gas(), reason='GNU as (aarch64) not available')
 
@@ -29,8 +29,8 @@ def _id(p):
 def test_corpus(path, target):
     text = A.qbe_asm(path, target)
     if os.path.basename(path) in TLS:
-        with pytest.raises(asm.AsmError, match='thread-local'):
-            asm.assemble(text, 'elf' if target == 'arm64' else 'macho')
+        with pytest.raises(assembler.AssemblerError, match='thread-local'):
+            assembler.assemble(text, 'elf' if target == 'arm64' else 'macho')
         return
     d = A.compare(text) if target == 'arm64' else A.compare_macho(text)
     assert not d, '\n'.join(d)
@@ -100,7 +100,7 @@ def test_immediate_sweep():
             for op in ('lsl', 'lsr', 'asr'):
                 lines.append('%s %s1, %s2, #%d' % (op, r, r, s))
     # loads and stores: every (mnemonic, class) with scaled and unscaled offsets
-    for (mn, cls), (_, sz) in sorted(asm._LDST.items()):
+    for (mn, cls), (_, sz) in sorted(assembler._LDST.items()):
         for _ in range(40):
             if rnd.random() < 0.5:
                 off = rnd.randrange(4096) << sz
@@ -141,19 +141,19 @@ def test_immediate_sweep():
     'stp x0, x1, [sp, 4]',
 ])
 def test_rejects(src):
-    with pytest.raises(asm.AsmError):
-        asm.assemble(src + '\n')
+    with pytest.raises(assembler.AssemblerError):
+        assembler.assemble(src + '\n')
 
 
 def test_macho_rejects_tlv():
-    with pytest.raises(asm.AsmError, match='thread-local'):
-        asm.assemble('.section __DATA,__thread_vars,thread_local_variables\n', 'macho')
-    with pytest.raises(asm.AsmError, match='thread-local'):
-        asm.assemble('adrp x0, _x@tlvppage\n', 'macho')
+    with pytest.raises(assembler.AssemblerError, match='thread-local'):
+        assembler.assemble('.section __DATA,__thread_vars,thread_local_variables\n', 'macho')
+    with pytest.raises(assembler.AssemblerError, match='thread-local'):
+        assembler.assemble('adrp x0, _x@tlvppage\n', 'macho')
 
 
 def test_branch_resolution():
-    o = asm.assemble('.globl g\ng:\n\tb l\n\tbl g\nl:\n\tret\n')
+    o = assembler.assemble('.globl g\ng:\n\tb l\n\tbl g\nl:\n\tret\n')
     t = o.section('.text')
     assert t.data[:4] == bytes.fromhex('02000014')  # b l, resolved
     assert [(r.offset, r.type, r.sym) for r in t.relocs] == [(4, 'CALL26', 'g')]

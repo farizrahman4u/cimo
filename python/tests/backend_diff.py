@@ -3,7 +3,7 @@
 For each input and each debug flag (and the final assembly), runs both and
 compares stdout, stderr and exit status.
 
-    python tests/qbe_diff.py [-f FLAGS] [-t target] [-j N] [-v] [files...]
+    python tests/backend_diff.py [-f FLAGS] [-t target] [-j N] [-v] [files...]
 
 FLAGS is a string of QBE -d flags to check one at a time, plus 'S' style
 letters; '.' means the plain assembly output. Default: "PMNCGAILSR.".
@@ -36,7 +36,7 @@ def run(cmd, timeout=300):
 def check(path, flag, target):
     args = ['-t', target] + (['-d', flag] if flag != '.' else []) + [path]
     c = run([CQBE] + args)
-    p = run([sys.executable, '-m', 'cimo.qbe'] + args)
+    p = run([sys.executable, '-m', 'cimo.backend'] + args)
     if c == p:
         return None
     # describe the first difference

@@ -2,11 +2,11 @@
 
     compile(text, filename='<stdin>', target='aarch64') -> str
 
-takes preprocessed C and returns QBE IR; errors raise CprocError whose `msg` is
+takes preprocessed C and returns QBE IR; errors raise FrontendError whose `msg` is
 cproc's exact error message.
 """
 
-from .util import CprocError
+from .util import FrontendError
 from .main import compile, main, DEFAULT_TARGET
 
-__all__ = ['compile', 'main', 'CprocError', 'DEFAULT_TARGET']
+__all__ = ['compile', 'main', 'FrontendError', 'DEFAULT_TARGET']

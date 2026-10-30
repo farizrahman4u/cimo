@@ -319,7 +319,7 @@ inbound rules needed.
 - **arm64 needs an instruction-cache flush** after writing code.
   - macOS: `sys_icache_invalidate`; Windows: `FlushInstructionCache`.
   - Linux: `__clear_cache` is exported by `libgcc_s.so.1`, but that library isn't guaranteed
-    (musl, minimal images). `cimo.jit` uses its own 25-instruction `dc cvau` / `ic ivau` routine
+    (musl, minimal images). `cimo.loader` uses its own 25-instruction `dc cvau` / `ic ivau` routine
     (line sizes from `CTR_EL0`, loops skipped when its IDC/DIC bits say so).
   - Bootstrapping that routine: it gets its own page, written RW and then made executable once
     with `mprotect`. Linux arm64 makes a user page I-cache coherent when it first becomes
@@ -346,17 +346,17 @@ inbound rules needed.
 
 cproc doesn't preprocess: its driver runs `cpp -undef` with the flags in cproc's `config.h`, and
 cproc-qbe only understands `#define`/`#undef`, gcc line markers and (ignored) `#pragma`.
-`python/cimo/cpp.py` replaces that step: `preprocess(src, filename, include_dirs, defines,
+`python/cimo/preprocessor.py` replaces that step: `preprocess(src, filename, include_dirs, defines,
 target)` returns text with gcc line markers for cproc-qbe. The predefined macros are cproc's
 `config.h` list plus `__STDC_VERSION__` 201112L and `__STDC_HOSTED__` 0. `target='arm64_apple'`
 swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the includer's directory
 (quotes only), then `include_dirs`, then `cimo/include/`.
 
 - **Verified against GNU cpp 13.3:** the token streams match on cproc's tests, `scratch/qbe_eval`,
-  `python/tests/cpp_cases/` (including the C11 6.10.3.5 examples), glibc headers and `Python.h`
+  `python/tests/preprocessor_cases/` (including the C11 6.10.3.5 examples), glibc headers and `Python.h`
   (with gcc's full predefined set), and 400 random mutually recursive macro programs. cproc-qbe's
   IR, and its diagnostics including line:col, are byte-identical to the `cproc -E` pipeline on all
-  of them. Run `python3 python/tests/cpp_compare.py` or `pytest python/tests/test_cpp.py`.
+  of them. Run `python3 python/tests/preprocessor_compare.py` or `pytest python/tests/test_preprocessor.py`.
 - **gcc behaviours copied on purpose** (the standard leaves them open, and cproc's output was
   produced by gcc):
   - a directive between a function-like macro's name and `(` means no invocation;
@@ -377,8 +377,8 @@ swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the inclu
   - `stdarg.h` uses `__builtin_va_*` and `offsetof` uses `__builtin_offsetof`.
   - Apple differences are under `#ifdef __APPLE__`: signed char, `wchar_t` is `int`, `int64_t` is
     `long long`, 64-bit `long double` limits.
-  - `python/tests/cpp_headers/all_headers.c` gives the same output when built by gcc with system
-    headers and by cimo.cpp + cproc + QBE, except `float_t`.
+  - `python/tests/preprocessor_headers/all_headers.c` gives the same output when built by gcc with system
+    headers and by cimo.preprocessor + cproc + QBE, except `float_t`.
 - **For the cproc port (M3):**
   - cproc emits unused `static` functions. math.h's 16 tiny classification and comparison
     helpers (e.g. `isnan`, no double evaluation) land in every unit that includes it. Drop
@@ -413,16 +413,16 @@ swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the inclu
 - Every pass's IR dump matches C QBE (with the patch) on QBE's own tests and on `scratch/qbe_eval/kernels.c`.
 - QBE's 58 tests pass using the Python port plus an external assembler.
 - Record compile time for `kernels.c` (C QBE takes about 9 ms; the budget is under 1 s in Python).
-- **Done 2026-10-30** (`python/cimo/qbe/`, 9.5k lines). Every `-d` dump and the final assembly are
+- **Done 2026-10-30** (`python/cimo/backend/`, 9.5k lines). Every `-d` dump and the final assembly are
   byte-identical to C QBE on all 77 inputs (QBE's tests + `kernels.ssa`), for `arm64` and
-  `arm64_apple` (`python/tests/qbe_diff.py`). QBE's `tools/test.sh all` passes all 59 tests with
+  `arm64_apple` (`python/tests/backend_diff.py`). QBE's `tools/test.sh all` passes all 59 tests with
   the port (`bin=python/tests/pyqbe`). `kernels.ssa` compiles in 0.10 s (C QBE: 6 ms).
 - Matching depends on glibc 2.39's stable `qsort`: the port uses Python's stable sort where QBE
   calls `qsort` with comparators that have ties (rega, mem, load). Another libc may order ties
-  differently; that's a C-side difference, not a port bug. Conventions: `python/cimo/qbe/PORTING.md`.
+  differently; that's a C-side difference, not a port bug. Conventions: `python/cimo/backend/PORTING.md`.
 
-**`cimo.compile` (2026-10-30): pure Python.** `python/cimo/compiler.py`: `cimo.cpp` → `cimo.cproc` →
-`cimo.qbe` → `cimo.asm` → `cimo.jit`, no external tools. The assembly is cached in `~/.cache/cimo`,
+**`cimo.compile` (2026-10-30): pure Python.** `python/cimo/driver.py`: `cimo.preprocessor` → `cimo.frontend` →
+`cimo.backend` → `cimo.assembler` → `cimo.loader`, no external tools. The assembly is cached in `~/.cache/cimo`,
 keyed by the preprocessed source. Signatures come from the QBE IR (`l` params accept buffers).
 External symbols (`printf`, libm) resolve against the running process for now; the bundled
 runtime library (M5) replaces that. `examples/` uses it.
@@ -431,13 +431,13 @@ runtime library (M5) replaces that. `examples/` uses it.
 for Linux and macOS (strategies under "Platform loading findings").
 - All 15 kernels compile and run in-process from Python, with results matching gcc's.
 - `scratch/qbe_eval/edge.c` cases are bit-exact.
-- **Done 2026-10-30 on Linux arm64; macOS path written but untested.** `python/cimo/asm.py`
+- **Done 2026-10-30 on Linux arm64; macOS path written but untested.** `python/cimo/assembler.py`
   assembles QBE's GNU-syntax output (both `arm64` and `arm64_apple` syntax) into an in-memory
-  object; `python/cimo/jit.py` links it into the process. No `cc`, no `dlopen` of generated code.
+  object; `python/cimo/loader.py` links it into the process. No `cc`, no `dlopen` of generated code.
   - Byte-identical to GNU as (sections, relocations, symbols) on all 77 corpus inputs for both
     targets (Apple syntax via a textual translation to ELF syntax), a hand-written file with every
     emitter form, and sweeps of all logical immediates and random immediates/offsets
-    (`python/tests/test_asm.py`). `kernels.s` assembles in 4 ms; load + link takes a few ms.
+    (`python/tests/test_assembler.py`). `kernels.s` assembles in 4 ms; load + link takes a few ms.
   - All 15 kernels are bit-identical to `gcc -O2 -ffp-contract=off` on the same inputs, and
     `edge.c` (unchanged, its kernels pointed at the in-process code) is bit-exact
     (`python/tests/test_m2.py`). CPython 3.9 and 3.12 both pass.
@@ -463,14 +463,14 @@ for Linux and macOS (strategies under "Platform loading findings").
 **M3: cproc in Python.** Port cproc `d1c53dd`, restricted to freestanding C.
 - QBE IR text identical to C cproc on cproc's tests and on `kernels.c`.
 - Clear errors for unsupported features (see "Language").
-- **Port done 2026-10-30** (`python/cimo/cproc/`, 7k lines; conventions in its `PORTING.md`):
-  `cimo.cproc.compile(text, filename, target='aarch64')` and `python -m cimo.cproc` (= `cproc-qbe`:
+- **Port done 2026-10-30** (`python/cimo/frontend/`, 7k lines; conventions in its `PORTING.md`):
+  `cimo.frontend.compile(text, filename, target='aarch64')` and `python -m cimo.frontend` (= `cproc-qbe`:
   `-E`, `-t`, `-o`). All of cproc-qbe is ported literally, including its own pp (`#define`,
-  `#undef`, line markers); `#include`/`#if` come from `cimo.cpp`. Targets `aarch64` (default),
+  `#undef`, line markers); `#include`/`#if` come from `cimo.preprocessor`. Targets `aarch64` (default),
   `x86_64-sysv`, `riscv64`, plus `aarch64-apple`.
-- `python/tests/test_cproc.py`: stdout, stderr and exit status byte-identical to C `cproc-qbe`
+- `python/tests/test_frontend.py`: stdout, stderr and exit status byte-identical to C `cproc-qbe`
   on all 1704 cases: cproc's 196 tests (as `runtests` runs them, including expected errors and
-  `-E`), `scratch/qbe_eval/*.c` and `python/tests/cproc/*.c` through `cproc -E` on all 3 targets,
+  `-E`), `scratch/qbe_eval/*.c` and `python/tests/frontend/*.c` through `cproc -E` on all 3 targets,
   and 300+ raw snippets (errors, pp corners, folding) on all targets and `-E`. Also identical on
   cproc's and QBE's own sources (52 files x 3 targets). Line coverage of the port: 94%.
 - `kernels.c` (1262 preprocessed lines) compiles in 27 ms on CPython 3.13 and 51 ms on 3.9

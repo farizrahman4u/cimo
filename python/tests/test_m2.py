@@ -1,5 +1,5 @@
 """M2 acceptance: the 15 kernels of scratch/qbe_eval/kernels.c compile through cimo.compile, run
-in-process (cimo.asm + cimo.jit, no cc, no dlopen of generated code) and match gcc bit for bit;
+in-process (cimo.assembler + cimo.loader, no cc, no dlopen of generated code) and match gcc bit for bit;
 scratch/qbe_eval/edge.c passes against the in-process kernels.
 
 The gcc reference is built with `cc -O2 -ffp-contract=off` (QBE never fuses multiply-add, so
@@ -160,7 +160,7 @@ def test_edge_bit_exact(build):
 
 
 def test_no_external_toolchain_for_loading(build):
-    """The generated code is loaded by cimo.jit, not dlopen: kernel addresses are inside the
+    """The generated code is loaded by cimo.loader, not dlopen: kernel addresses are inside the
     image's anonymous mapping."""
     mod, _, _ = build
     img = mod._image

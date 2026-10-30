@@ -1626,7 +1626,7 @@ def preprocess(src, filename='<string>', include_dirs=(), defines=None, target='
 
 def main(argv=None):
     import argparse
-    ap = argparse.ArgumentParser(prog='python3 -m cimo.cpp', description='cimo C preprocessor')
+    ap = argparse.ArgumentParser(prog='python3 -m cimo.preprocessor', description='cimo C preprocessor')
     ap.add_argument('-I', dest='include', action='append', default=[], metavar='DIR')
     ap.add_argument('-D', dest='define', action='append', default=[], metavar='NAME[=VAL]')
     ap.add_argument('-o', dest='output', default=None)

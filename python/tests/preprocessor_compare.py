@@ -1,6 +1,6 @@
-"""Differential checks of cimo.cpp against GNU cpp and C cproc (used by test_cpp.py).
+"""Differential checks of cimo.preprocessor against GNU cpp and C cproc (used by test_preprocessor.py).
 
-Run directly for a report over the whole corpus:  python3 python/tests/cpp_compare.py
+Run directly for a report over the whole corpus:  python3 python/tests/preprocessor_compare.py
 """
 
 import glob
@@ -13,17 +13,17 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from cimo import cpp  # noqa: E402
+from cimo import preprocessor  # noqa: E402
 
 CPROC_DIR = os.environ.get('CIMO_CPROC_DIR', os.path.expanduser('~/code/cproc'))
 REPO = os.path.dirname(os.path.dirname(HERE))
-CASES = os.path.join(HERE, 'cpp_cases')
+CASES = os.path.join(HERE, 'preprocessor_cases')
 
 
 def gcc_flags(target='arm64'):
-    """`cpp` flags equivalent to cimo.cpp's predefines (cproc's config.h list)."""
+    """`cpp` flags equivalent to cimo.preprocessor's predefines (cproc's config.h list)."""
     flags = ['-undef', '-ffreestanding', '-U__STDC_VERSION__', '-D__STDC_VERSION__=201112L']
-    for name, val in cpp.TARGETS[target]:
+    for name, val in preprocessor.TARGETS[target]:
         flags.append('-D%s' % name if val is None else '-D%s=%s' % (name, val))
     return flags
 
@@ -51,7 +51,7 @@ def tokens(text):
         if m and not m.group(1).split()[:1] == ['omp']:
             continue
         lines.append(line)
-    return [t.value for t in cpp.lex('\n'.join(lines), cpp.FileInfo('<out>'))]
+    return [t.value for t in preprocessor.lex('\n'.join(lines), preprocessor.FileInfo('<out>'))]
 
 
 def run_gcc(path, include_dirs=(), target='arm64'):
@@ -64,8 +64,8 @@ def run_ours(path, include_dirs=(), target='arm64'):
     with open(path, 'rb') as f:
         src = f.read().decode('utf-8', 'surrogateescape')
     try:
-        return 0, cpp.preprocess(src, path, include_dirs, target=target, warn=lambda m: None), ''
-    except cpp.PreprocessError as e:
+        return 0, preprocessor.preprocess(src, path, include_dirs, target=target, warn=lambda m: None), ''
+    except preprocessor.PreprocessError as e:
         return 1, '', str(e)
 
 
@@ -82,7 +82,7 @@ def missing_headers(path):
     with open(path, 'rb') as f:
         text = f.read().decode('utf-8', 'replace')
     names = re.findall(r'^\s*#\s*include\s*<([^>]+)>', text, re.M)
-    return [n for n in names if not os.path.exists(os.path.join(cpp.BUNDLED_INCLUDE, n))]
+    return [n for n in names if not os.path.exists(os.path.join(preprocessor.BUNDLED_INCLUDE, n))]
 
 
 def compare_tokens(path, include_dirs=(CASES,)):
@@ -145,7 +145,7 @@ def renumber_labels(ir):
 
 
 def compare_ir(path, include_dirs=(CASES,), strip=True):
-    """cproc-qbe output on `cproc -E` vs on cimo.cpp output. None if identical.
+    """cproc-qbe output on `cproc -E` vs on cimo.preprocessor output. None if identical.
 
     Files that include system headers get glibc's headers on the cproc side and the bundled ones
     on ours; the IR must still match once the bundled math.h helpers are removed."""
@@ -222,9 +222,9 @@ def fuzz(seed, count, workdir):
         g = subprocess.run(['cpp', '-undef', '-P', path], capture_output=True, text=True)
         gerr = g.returncode != 0 or 'error' in g.stderr
         try:
-            out = cpp.preprocess(src, path, warn=lambda m: None)
+            out = preprocessor.preprocess(src, path, warn=lambda m: None)
             oerr = False
-        except cpp.PreprocessError:
+        except preprocessor.PreprocessError:
             out = ''
             oerr = True
         valid += not gerr

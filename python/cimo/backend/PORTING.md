@@ -46,13 +46,13 @@ port literally; don't "improve" anything.
   `clsmerge(k1, k) -> (newk1, result)`, `isconbits(fn, r) -> bits | None`,
   `igroup(b, i) -> (i0, i1)` (indices), `cfg.ifgraph(b) -> (then, else, join) | None`.
   Document any new ones in the docstring.
-- `err(fmt, *args)` and `die(fmt, *args)` (in `util`) raise `defs.QbeError`.
+- `err(fmt, *args)` and `die(fmt, *args)` (in `util`) raise `defs.BackendError`.
 - Debug dumps go to `sys.stderr` with the same text as C (`printfn` is in `parse`).
 - Recursion that can go deep on large inputs (CFG walks) can be made iterative, but must
   visit in the same order.
 
 ## Checking
 
-`python tests/qbe_diff.py -f <flags>` (from `python/`) runs C QBE and the port on QBE's tests
+`python tests/backend_diff.py -f <flags>` (from `python/`) runs C QBE and the port on QBE's tests
 and `kernels.ssa`, one `-d` flag at a time, plus `.` for the final assembly, and reports the
 first differing line. A dump can only match once every earlier pass is ported.

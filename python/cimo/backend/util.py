@@ -5,7 +5,7 @@ from .defs import (R, RTmp, RCon, Tmp0, NBit, U32, NIns, Ins, Tmp, Con, CBits, C
                    CUndef, Kx, Kw, Kl, Ks, Kd, Ocmpw, Ocmpw1, Ocmpl, Ocmpl1, Ocmps,
                    Ocmps1, Ocmpd, Ocmpd1, NCmpI, NCmp, Oblit0, Oblit1, Ocall, Osel0,
                    Osel1, Onop, Osalloc, Oand, Oadd, ispar, isarg, optab, TMP, CON,
-                   rtype, rval, s64, QbeError)
+                   rtype, rval, s64, BackendError)
 
 IBits = 12
 IMask = (1 << IBits) - 1
@@ -19,11 +19,11 @@ def hash(s):
 
 
 def die(fmt, *args):
-    raise QbeError('dying: ' + (fmt % args if args else fmt))
+    raise BackendError('dying: ' + (fmt % args if args else fmt))
 
 
 def err(fmt, *args):
-    raise QbeError('qbe:%s:%d: %s' % (D.inpath, D.lnum, fmt % args if args else fmt))
+    raise BackendError('qbe:%s:%d: %s' % (D.inpath, D.lnum, fmt % args if args else fmt))
 
 
 def vgrow(lst, n, factory=None):

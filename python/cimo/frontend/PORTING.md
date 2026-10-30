@@ -7,7 +7,7 @@ names, same order, same control flow. `driver.c` is not ported. The goal is outp
 to C `cproc-qbe` (IR, `-E` output, error text and exit status), so port literally and don't
 "improve" anything; cproc's bugs are kept (see "Quirks kept" below).
 
-Same spirit as `python/cimo/qbe/PORTING.md`.
+Same spirit as `python/cimo/backend/PORTING.md`.
 
 ## Data structures (`cc.py`, from `cc.h`, `tokens.h`, `util.h`)
 
@@ -65,7 +65,7 @@ Same spirit as `python/cimo/qbe/PORTING.md`.
   only, as in the C locale) and UTF-8 is handled byte-wise as in C. EOF is `''`. When C reads
   the NUL terminator past the end of a token, the port does too (`'\0'`). Output and
   messages are re-encoded latin-1; `compile()` returns str (UTF-8 decode, surrogateescape).
-- stdout is the list `util.out`; `error()`/`fatal()` raise `CprocError` (message = cproc's
+- stdout is the list `util.out`; `error()`/`fatal()` raise `FrontendError` (message = cproc's
   stderr line without the newline, `status` = 1). `#warning` writes to stderr directly.
 
 ## Recursion
@@ -98,8 +98,8 @@ handling of cproc's pp; `nextinto()` tests the global `tok` for "start of line".
 
 ## Checking
 
-`python tests/test_cproc.py [-v] [files...]` (from `python/`; also runs under pytest, skipped
+`python tests/test_frontend.py [-v] [files...]` (from `python/`; also runs under pytest, skipped
 without C cproc) runs C `cproc-qbe` and the port on cproc's test suite (as `runtests` does),
-on `scratch/qbe_eval/*.c` and `tests/cproc/*.c` preprocessed with `cproc -E` for every target,
-and on the raw snippets in `tests/cproc/snippets.txt` (also with `-E`), comparing stdout,
+on `scratch/qbe_eval/*.c` and `tests/frontend/*.c` preprocessed with `cproc -E` for every target,
+and on the raw snippets in `tests/frontend/snippets.txt` (also with `-E`), comparing stdout,
 stderr and exit status byte for byte.

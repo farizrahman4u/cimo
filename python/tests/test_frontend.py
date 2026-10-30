@@ -1,4 +1,4 @@
-"""Differential test: the Python cproc port (cimo.cproc) against C cproc-qbe.
+"""Differential test: the Python cproc port (cimo.frontend) against C cproc-qbe.
 
 Inputs:
   * cproc's own tests (~/code/cproc/test/*.c and test/constraint/*.c), run the way
@@ -6,11 +6,11 @@ Inputs:
     (default x86_64-sysv), `-E` for tests with a .pp file; tests with a .err file
     are expected to fail.
   * C files preprocessed with `cproc -E` (system cpp with cproc's flags):
-    scratch/qbe_eval/*.c and python/tests/cproc/*.c, for every target.
+    scratch/qbe_eval/*.c and python/tests/frontend/*.c, for every target.
 Each case compares stdout, stderr and exit status byte for byte.
 
-    python tests/test_cproc.py [-j N] [-v] [files...]     # from python/
-    pytest tests/test_cproc.py
+    python tests/test_frontend.py [-j N] [-v] [files...]     # from python/
+    pytest tests/test_frontend.py
 
 Skipped when C cproc (~/code/cproc, or $CPROC_DIR) is not built.
 """
@@ -60,7 +60,7 @@ def cproc_tests():
 
 def extra_files():
     return (sorted(glob.glob(os.path.join(REPO, 'scratch', 'qbe_eval', '*.c')))
-            + sorted(glob.glob(os.path.join(HERE, 'cproc', '*.c'))))
+            + sorted(glob.glob(os.path.join(HERE, 'frontend', '*.c'))))
 
 
 def preprocess(path, tmpdir):
@@ -75,7 +75,7 @@ def preprocess(path, tmpdir):
 
 def check(args):
     c = run([CPROCQBE] + args)
-    p = run([sys.executable, '-m', 'cimo.cproc'] + args)
+    p = run([sys.executable, '-m', 'cimo.frontend'] + args)
     if c == p:
         return None
     if (c[0], p[0]) in ((-6, -6), (-11, 70)):
@@ -97,9 +97,9 @@ def check(args):
 
 
 def snippets(tmpdir):
-    """Cases from tests/cproc/snippets.txt: raw C (cproc's own pp only), compiled for
+    """Cases from tests/frontend/snippets.txt: raw C (cproc's own pp only), compiled for
     every target and also run with -E."""
-    with open(os.path.join(HERE, 'cproc', 'snippets.txt'), 'rb') as f:
+    with open(os.path.join(HERE, 'frontend', 'snippets.txt'), 'rb') as f:
         text = f.read()
     chunks = []
     cur = None
@@ -154,12 +154,12 @@ def test_cproc_differential():
 
 def test_compile_api():
     sys.path.insert(0, PYROOT)
-    from cimo.cproc import compile, CprocError
+    from cimo.frontend import compile, FrontendError
     ir = compile('int f(int x) { return x + 1; }\n', 'f.c')
     assert 'function w $f(w %.1)' in ir
     try:
         compile('int f(void) { return y; }\n', 'g.c')
-    except CprocError as e:
+    except FrontendError as e:
         assert e.msg == 'g.c:1:22: error: undeclared identifier: y', e.msg
     else:
         raise AssertionError('no error')

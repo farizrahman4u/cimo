@@ -1,6 +1,6 @@
 """Port of main.c: the cproc-qbe command line, plus the compile() entry point.
 
-python -m cimo.cproc [-E] [-t target] [-o output] [input...]
+python -m cimo.frontend [-E] [-t target] [-o output] [input...]
 """
 
 import sys
@@ -71,14 +71,14 @@ def _tostr(s):
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
-    Raises CprocError with cproc's exact error message on errors."""
+    Raises FrontendError with cproc's exact error message on errors."""
     if isinstance(text, str):
         text = text.encode('utf-8', 'surrogateescape')
     text = text.decode('latin-1')
     try:
         with _Recursion():
             _run([(filename, text)], target, pponly)
-    except U.CprocError as e:
+    except U.FrontendError as e:
         e.msg = _tostr(e.msg)
         e.args = (e.msg,)
         e.partial = _tostr(''.join(U.out))
@@ -149,7 +149,7 @@ def main(argv=None):
     try:
         with _Recursion():
             _run(inputs, target, pponly)
-    except U.CprocError as e:
+    except U.FrontendError as e:
         errmsg = e.msg
         status = e.status
     except AssertionError:

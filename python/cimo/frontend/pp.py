@@ -364,7 +364,7 @@ def directive():
             TK.tokenprint(tok, msg)
             S.scan(tok)
         if kind == TERROR:
-            raise U.CprocError(''.join(msg))
+            raise U.FrontendError(''.join(msg))
         sys.stderr.write(''.join(msg) + '\n')
     elif kind == TPRAGMA:
         while tok.kind != TNEWLINE and tok.kind != TEOF:
