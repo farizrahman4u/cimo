@@ -1,23 +1,27 @@
 """cimo.compile(): C source in, Python callables out.
 
-Interim toolchain, until milestones M2 (machine-code encoder + in-process loader) and M3 (cproc
-ported to Python) land:
+Pipeline:
 
-    C --[C cproc]--> QBE IR --[cimo.qbe, Python]--> arm64 asm --[system cc]--> shared library
+    C --[C cproc]--> QBE IR --[cimo.qbe]--> arm64 asm --[cimo.asm]--> object --[cimo.jit]--> memory
 
-so for now it needs `cproc`/`cproc-qbe` (CIMO_CPROC_DIR, default ~/code/cproc) and a C compiler
-(CC, default cc) on the machine, and links against the host libc, which makes `printf` available.
-The Python API is meant to stay the same when those pieces are replaced.
+Everything after cproc is Python and runs in this process; until M3 (cproc ported to Python)
+lands it still needs `cproc`/`cproc-qbe` (CIMO_CPROC_DIR, default ~/code/cproc). External symbols
+(interim: `printf`, libm) are resolved against the running process. The assembly is cached by
+content hash; assembling and loading it takes milliseconds.
 """
 
 import ctypes
 import hashlib
 import io
 import os
+import platform
 import re
 import subprocess
 import sys
 import tempfile
+
+from . import asm as _asm
+from . import jit as _jit
 
 __all__ = ['compile', 'load', 'Module', 'CompileError']
 
@@ -44,12 +48,16 @@ def _run(cmd, stdin=None):
     return p.stdout
 
 
+_APPLE = sys.platform == 'darwin'
+_VERSION = b'cimo-m2-1'  # part of the cache key: bump when the generated assembly changes
+
+
 def _qbe(ssa):
     """QBE IR text to assembly text, with the Python QBE port, in this process."""
     from .qbe import defs as D
     from .qbe.main import _Driver, _targets
     from .qbe.parse import parse
-    D.T = _targets()[0]
+    D.T = _targets()[1 if _APPLE else 0]  # arm64_apple: Apple's ABI variant
     out = io.StringIO()
     try:
         parse(ssa.encode('latin-1'), '<cimo>', _Driver(out, 0).dbgfile, _Driver(out, 0).data,
@@ -61,31 +69,33 @@ def _qbe(ssa):
 
 
 def _build(src):
+    """C source -> (assembly text, signatures), cached by content hash."""
+    if platform.machine().lower() not in ('arm64', 'aarch64'):
+        raise CompileError('cimo generates arm64 code only; this machine is %s'
+                           % platform.machine())
     cproc = os.path.expanduser(os.environ.get('CIMO_CPROC_DIR', '~/code/cproc'))
-    cc = os.environ.get('CC', 'cc')
-    key = hashlib.sha256(src.encode()).hexdigest()[:24]
-    so = os.path.join(_cache_dir(), key + '.so')
-    sig = so[:-3] + '.sig'
-    if os.path.exists(so) and os.path.exists(sig):
-        with open(sig) as f:
-            return so, f.read()
+    key = hashlib.sha256(_VERSION + (b'apple' if _APPLE else b'') + src.encode()).hexdigest()[:24]
+    path = os.path.join(_cache_dir(), key + '.s')
+    sig = path[:-2] + '.sig'
+    if os.path.exists(path) and os.path.exists(sig):
+        with open(path) as f, open(sig) as g:
+            return f.read(), g.read()
     with tempfile.TemporaryDirectory() as tmp:
         c = os.path.join(tmp, 'k.c')
         with open(c, 'w') as f:
             f.write(_PRELUDE + src)
         pp = _run([os.path.join(cproc, 'cproc'), '-E', c])
         ssa = _run([os.path.join(cproc, 'cproc-qbe')], stdin=pp).decode('latin-1')
-        asm = os.path.join(tmp, 'k.s')
-        with open(asm, 'w') as f:
-            f.write(_qbe(ssa))
-        _run([cc, '-shared', '-o', so + '.tmp', asm])
+    text = _qbe(ssa)
     sigs = '\n'.join('%s %s %s' % (m.group(2), m.group(1) or '-',
-                                  ','.join(a.split()[0] for a in m.group(3).split(',') if a.strip()))
+                                   ','.join(a.split()[0] for a in m.group(3).split(',')
+                                            if a.strip()))
                      for m in _SIG.finditer(ssa))
-    with open(sig, 'w') as f:
-        f.write(sigs)
-    os.replace(so + '.tmp', so)
-    return so, sigs
+    for p, data in ((sig, sigs), (path, text)):  # .s last: it marks the entry complete
+        with open(p + '.tmp', 'w') as f:
+            f.write(data)
+        os.replace(p + '.tmp', p)
+    return text, sigs
 
 
 def _address(x):
@@ -102,12 +112,12 @@ def _address(x):
 
 
 class Kernel:
-    def __init__(self, cfn, name, ret, params):
-        self._f = cfn
+    def __init__(self, image, name, ret, params):
+        self._image = image  # keeps the code mapped while the kernel is reachable
+        self.address = image.address(name)
+        self._f = ctypes.CFUNCTYPE(_CTYPE.get(ret), *[_CTYPE[k] for k in params])(self.address)
         self.__name__ = name
         self._params = params
-        cfn.restype = _CTYPE.get(ret)
-        cfn.argtypes = [_CTYPE[k] for k in params]
 
     def __call__(self, *args):
         if len(args) != len(self._params):
@@ -129,13 +139,16 @@ class Module:
     """Compiled C. Each non-static function is an attribute. Calling the module calls `main`,
     or the only function if there is just one."""
 
-    def __init__(self, path, sigs):
-        self._lib = ctypes.CDLL(path)
+    def __init__(self, text, sigs):
+        try:
+            obj = _asm.assemble(text, 'macho' if _APPLE else 'elf')
+            self._image = _jit.Image(obj)
+        except (_asm.AsmError, _jit.LoadError) as e:
+            raise CompileError(str(e)) from None
         self._kernels = {}
         for line in sigs.splitlines():
             name, ret, params = line.split(' ')
-            self._kernels[name] = Kernel(getattr(self._lib, name), name,
-                                         None if ret == '-' else ret,
+            self._kernels[name] = Kernel(self._image, name, None if ret == '-' else ret,
                                          params.split(',') if params else [])
 
     def __getattr__(self, name):
