@@ -537,7 +537,7 @@ class Tmp:
     def __init__(self):
         self.name = None
         self.def_ = None
-        self.use = []
+        self.use = None  # NULL until filluse() (adduse is a no-op then)
         self.ndef = 0
         self.nuse = 0
         self.bid = 0
@@ -567,8 +567,11 @@ _up_I = struct.Struct('<I').unpack
 
 
 def f32(x):
-    """Round a Python float to float32 precision."""
-    return _up_f(_pk_f(x))[0]
+    """Round a Python float to float32 precision (overflow gives inf, as in C)."""
+    try:
+        return _up_f(_pk_f(x))[0]
+    except OverflowError:
+        return float('inf') if x > 0 else float('-inf')
 
 
 def dbits(d):

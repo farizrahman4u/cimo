@@ -14,6 +14,17 @@ def _targets():
     return [targ.T_arm64, targ.T_arm64_apple]
 
 
+class _Lazy:
+    """A pass module, imported at its first use."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def __getattr__(self, a):
+        import importlib
+        return getattr(importlib.import_module('.' + self.name, __package__), a)
+
+
 class _Driver:
     def __init__(self, outf, dbg):
         self.outf = outf
@@ -35,7 +46,9 @@ class _Driver:
         if D.debug['P']:
             err.write("\n> After parsing:\n")
             printfn(fn, err)
-        from . import cfg, ssa, mem, alias, load, copy, gvn, gcm, ifopt, simpl, live, spill, rega
+        (cfg, ssa, mem, alias, load, copy, gvn, gcm, ifopt, simpl, live, spill,
+         rega) = (_Lazy(m) for m in ('cfg', 'ssa', 'mem', 'alias', 'load', 'copy', 'gvn',
+                                     'gcm', 'ifopt', 'simpl', 'live', 'spill', 'rega'))
         T.abi0(fn)
         cfg.fillcfg(fn)
         ssa.filluse(fn)

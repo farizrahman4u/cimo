@@ -345,7 +345,7 @@ inbound rules needed.
 2. ~~Check loading in each environment~~ **Done** for Linux arm64/x86-64, Windows x64, macOS
    arm64 and Pyodide. Still open: locked-down Windows (AppLocker/WDAC/EDR), notarized macOS apps
    that embed Python without `allow-jit`.
-3. **Port QBE (arm64 first) with `qbe-arm64-isel.patch` applied, then cproc**, verified by IR
+3. **Port QBE (arm64 first) with `qbe-arm64-isel.patch` applied** (done, see M1), **then cproc**, verified by IR
    diffs against the C originals, plus differential testing against gcc using generated random programs.
 4. **Middle stage loop passes:** implement the transforms that `gen_opt.py` applies by hand, plus
    explicit `fma` emission and FMA selection in the backend. Target: about 1.2x of gcc's scalar
@@ -358,6 +358,13 @@ inbound rules needed.
 - Every pass's IR dump matches C QBE (with the patch) on QBE's own tests and on `scratch/qbe_eval/kernels.c`.
 - QBE's 58 tests pass using the Python port plus an external assembler.
 - Record compile time for `kernels.c` (C QBE takes about 9 ms; the budget is under 1 s in Python).
+- **Done 2026-10-30** (`python/cimo/qbe/`, 9.5k lines). Every `-d` dump and the final assembly are
+  byte-identical to C QBE on all 77 inputs (QBE's tests + `kernels.ssa`), for `arm64` and
+  `arm64_apple` (`python/tests/qbe_diff.py`). QBE's `tools/test.sh all` passes all 59 tests with
+  the port (`bin=python/tests/pyqbe`). `kernels.ssa` compiles in 0.10 s (C QBE: 6 ms).
+- Matching depends on glibc 2.39's stable `qsort`: the port uses Python's stable sort where QBE
+  calls `qsort` with comparators that have ties (rega, mem, load). Another libc may order ties
+  differently; that's a C-side difference, not a port bug. Conventions: `python/cimo/qbe/PORTING.md`.
 
 **M2: encoder + loader.** arm64 machine-code encoder (no external assembler) and the JIT loader
 for Linux and macOS (strategies under "Platform loading findings").
