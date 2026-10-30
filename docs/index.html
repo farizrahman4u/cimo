@@ -223,11 +223,15 @@ void blur(int h, int w, const float src[h][w], float dst[h][w]) {
 
 src = np.random.rand(4096, 4096).astype(np.float32)
 dst = np.zeros_like(src)
-k.blur(*src.shape, src, dst)   # native code, on your arrays in place</pre>
-  </div></div>
-      <div class="frame" data-title="Jupyter · the same loop, 73× faster than Python · measured on Linux arm64" aria-hidden="true"><div class="nb win"><div class="nb-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:8888/lab/tree/smoothing.ipynb</span></div><div class="nb-tool"><span class="tab">smoothing.ipynb</span><span class="kern">Python 3 (ipykernel)<i></i></span></div><div class="cells"><div class="cell"><span class="pr">[1]:</span><pre data-lang="py">import numpy as np
-import cimo
+k.blur(*src.shape, src, dst)   # native code, on your arrays in place
 
+# numpy: the same result, bit for bit, 1.6x slower (Linux arm64)
+ref = np.zeros_like(src)
+ref[1:-1, 1:-1] = 0.2 * (src[1:-1, 1:-1] + src[:-2, 1:-1] + src[2:, 1:-1]
+                              + src[1:-1, :-2] + src[1:-1, 2:])
+assert np.array_equal(dst, ref)</pre>
+  </div></div>
+      <div class="frame" data-title="Jupyter · the same loop, 73× faster than Python · measured on Linux arm64" aria-hidden="true"><div class="nb win"><div class="nb-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:8888/lab/tree/smoothing.ipynb</span></div><div class="nb-tool"><span class="tab">smoothing.ipynb</span><span class="kern">Python 3 (ipykernel)<i></i></span></div><div class="cells"><div class="cell"><span class="pr">[1]:</span><pre data-lang="py">import numpy as np, cimo
 x = np.random.rand(1_000_000)
 y = np.empty_like(x)</pre></div><div class="cell"><span class="pr">[2]:</span><pre data-lang="py">k = cimo.compile(r"""
 void ema(int n, const double x[n], double y[n], double a) {
@@ -239,23 +243,9 @@ void ema(int n, const double x[n], double y[n], double a) {
     y[0] = x[0]
     for i in range(1, len(x)):
         y[i] = a * x[i] + (1 - a) * y[i-1]
-
 %timeit ema_py(x, y, 0.1)</pre><span class="pr"></span><pre class="out">252 ms ± 2.36 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)</pre></div></div></div></div>
-      <div class="frame" data-title="JupyterLite · compiled to WebAssembly in the browser, no server" aria-hidden="true"><div class="nb win"><div class="nb-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">jupyter.org/try-jupyter/lab/</span></div><div class="nb-tool"><span class="tab">kernels.ipynb</span><span class="kern">Python (Pyodide)<i></i></span></div><div class="cells"><div class="cell"><span class="pr">[1]:</span><pre data-lang="py">import micropip
-await micropip.install("cimo")
-import numpy as np, cimo</pre></div><div class="cell"><span class="pr">[2]:</span><pre data-lang="py">k = cimo.compile(r"""
-void ema(int n, const double x[n], double y[n], double a) {
-    y[0] = x[0];
-    for (int i = 1; i &lt; n; i++)
-        y[i] = a * x[i] + (1 - a) * y[i-1];
-}
-""")   # WebAssembly, built in the page</pre></div><div class="cell"><span class="pr">[3]:</span><pre data-lang="py">x = np.arange(8.0)
-y = np.empty_like(x)
-k.ema(len(x), x, y, 0.5)
-y</pre><span class="pr">[3]:</span><pre class="out">array([0.       , 0.5      , 1.25     , 2.125    , 3.0625   , 4.03125  ,
-       5.015625 , 6.0078125])</pre></div><div class="cell on"><span class="pr">[ ]:</span><pre data-lang="py"> </pre></div></div></div></div>
     </div></div>
-    <div class="car-bar"><span class="car-title">Script · compile a kernel, run it on numpy arrays in place</span><span class="car-ctl"><button type="button" class="car-prev" aria-label="Previous example">‹</button><span class="car-count">01 / 03</span><button type="button" class="car-next" aria-label="Next example">›</button></span></div>
+    <div class="car-bar"><span class="car-title">Script · compile a kernel, run it on numpy arrays in place</span><span class="car-ctl"><button type="button" class="car-prev" aria-label="Previous example">‹</button><span class="car-count">01 / 02</span><button type="button" class="car-next" aria-label="Next example">›</button></span></div>
   </div>
 </div></section>
 
