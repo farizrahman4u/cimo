@@ -69,8 +69,8 @@ Results are bit-identical to the reference compiler.</sub>
 Compiling a whole kernel file takes well under a second, and results are cached by content
 hash, so the second run starts instantly.
 
-Compared with pure Python, the same loops run **about 100x faster**. That's where numpy can't
-help either: stencils, flood fills, dynamic programming, anything sequential.
+About **100x faster than pure Python** on the loops numpy can't express: stencils, flood fills,
+dynamic programming.
 
 ## Real C, not a subset
 
@@ -103,9 +103,7 @@ k = cimo.load("kernels.c")
 
 ### Multicore with plain Python threads
 
-A running kernel releases the GIL, and kernels are safe to call from several threads at once. So
-there's no special launch API: give the kernel a block number as an ordinary parameter and use
-the thread pool you already know.
+Kernels release the GIL and are safe to call concurrently. No launch API; bring your own threads:
 
 ```c
 void blur(int block, int nblocks, int h, int w, const float src[h][w], float dst[h][w]) {
@@ -127,15 +125,7 @@ with ThreadPoolExecutor() as pool:
     list(pool.map(lambda b: k.blur(b, n, h, w, src, dst), range(n)))
 ```
 
-These are real OS threads in one process, sharing the same arrays, so nothing is pickled or
-copied. Split the work however you like: even chunks, a work queue, kernels alongside I/O, or
-free-threaded Python. The kernel stays ordinary C that gcc compiles too.
-
-`malloc` is thread-safe and takes no lock: every calling thread gets its own heap, and freeing
-memory that another thread allocated is handled for you.
-
-This is separate from SIMD, which works within one core: use GNU vector types for that, and
-use both together for peak throughput.
+`malloc` is lock-free: each thread gets its own heap.
 
 ### Errors are Python exceptions
 
@@ -170,9 +160,8 @@ import cimo
 k = cimo.compile(src)   # compiled in the page, linked into Pyodide's own memory
 ```
 
-Kernels share linear memory with Pyodide, so they read and write numpy arrays **in place**.
-No server, no 50 MB clang-in-WASM download, no copies. Edit the C, recompile in under a second,
-and keep going on the same arrays.
+Kernels share Pyodide's memory and work on numpy arrays **in place**. No server, no 50 MB
+clang-in-WASM download.
 
 ## Platforms
 
