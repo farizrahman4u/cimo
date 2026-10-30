@@ -66,7 +66,8 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 /* hero carousel */
 .carousel{min-width:0;outline:0}
 .car-clip{overflow:hidden;padding:18px;margin:-18px}
-.car{display:grid;touch-action:pan-y}
+.car{display:grid;touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none}
+.car.dragging,.car.dragging *{cursor:grabbing}
 .frame{grid-area:1/1;display:flex;flex-direction:column;min-width:0;transition:transform .72s cubic-bezier(.3,.7,.2,1),opacity .72s ease,visibility 0s linear .72s;transform:translateX(104%) scale(.86);opacity:0;visibility:hidden}
 .frame.on{transform:none;opacity:1;visibility:visible;transition-delay:0s}
 .frame.left{transform:translateX(-104%) scale(.86)}
@@ -438,9 +439,11 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
   var title = wrap.querySelector(".car-title"), count = wrap.querySelector(".car-count");
   var RM = matchMedia("(prefers-reduced-motion:reduce)").matches;
   function pad(n) { return (n < 10 ? "0" : "") + n; }
-  function go(dir) {
+  function clear(el) { el.style.transition = el.style.transform = el.style.opacity = el.style.visibility = ""; }
+  function go(dir, fromDrag) {
     var from = frames[i], j = (i + dir + N) % N, to = frames[j];
-    to.style.transition = "none"; to.classList.toggle("left", dir < 0); to.offsetWidth; to.style.transition = "";
+    if (!fromDrag) { to.style.transition = "none"; to.classList.toggle("left", dir < 0); to.offsetWidth; to.style.transition = ""; }
+    clear(from); clear(to);
     to.classList.remove("left"); to.classList.add("on"); to.removeAttribute("aria-hidden");
     from.classList.remove("on"); from.classList.toggle("left", dir > 0); from.setAttribute("aria-hidden", "true");
     i = j; title.textContent = to.dataset.title; count.textContent = pad(i + 1) + " / " + pad(N); arm();
@@ -454,9 +457,32 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
   wrap.addEventListener("pointerleave", function () { paused = false; });
   wrap.addEventListener("focusin", function () { paused = true; });
   wrap.addEventListener("focusout", function (e) { if (!wrap.contains(e.relatedTarget)) paused = false; });
-  var x0 = null;
-  wrap.addEventListener("touchstart", function (e) { x0 = e.touches[0].clientX; }, { passive: true });
-  wrap.addEventListener("touchend", function (e) { if (x0 === null) return; var dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1); });
+  // Drag or swipe: the window follows the pointer and its neighbour slides in from the side.
+  var car = wrap.querySelector(".car"), x0 = null, t0 = 0, dragging = false, side = 1, nb = null, W = 1;
+  function pose(el, x, sc, op) { el.style.transition = "none"; el.style.visibility = "visible"; el.style.transform = "translateX(" + x.toFixed(1) + "px) scale(" + sc.toFixed(3) + ")"; el.style.opacity = op.toFixed(3); }
+  car.addEventListener("pointerdown", function (e) { if (e.button) return; x0 = e.clientX; t0 = e.timeStamp; dragging = false; W = car.clientWidth; clearTimeout(tmr); });
+  car.addEventListener("pointermove", function (e) {
+    if (x0 === null) return;
+    var dx = e.clientX - x0;
+    if (!dragging) { if (Math.abs(dx) <= 6) return; dragging = true; car.classList.add("dragging"); try { car.setPointerCapture(e.pointerId); } catch (x) {} }
+    var s = dx < 0 ? 1 : -1;
+    if (s !== side || !nb) { if (nb) clear(nb); side = s; nb = frames[(i + side + N) % N]; nb.classList.toggle("left", side < 0); }
+    var p = Math.min(1, Math.abs(dx) / W);
+    pose(frames[i], dx, 1 - .14 * p, 1 - .55 * p);
+    if (nb !== frames[i]) pose(nb, side * W * 1.04 + dx, .86 + .14 * p, .3 + .7 * p);
+  });
+  function endDrag(e) {
+    if (x0 === null) return;
+    var dx = e.clientX - x0, v = Math.abs(dx) / Math.max(1, e.timeStamp - t0); x0 = null;
+    if (dragging) {
+      dragging = false; car.classList.remove("dragging");
+      if (N > 1 && (Math.abs(dx) / W > .18 || v > .6)) go(side, true);
+      else { clear(frames[i]); if (nb && nb !== frames[i]) clear(nb); }
+      nb = null;
+    }
+    arm();
+  }
+  car.addEventListener("pointerup", endDrag); car.addEventListener("pointercancel", endDrag);
   arm();
 })();
 // Minimal highlighter for Python with embedded C. Skips blocks that already carry spans.
