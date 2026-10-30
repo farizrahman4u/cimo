@@ -34,6 +34,12 @@ class _Driver:
         from .emit import emitdat
         if self.dbg:
             return
+        if D.T.name == 'wasm':  # cimo: the wasm target collects an object, not assembly
+            if not hasattr(self.outf, 'databuilder'):
+                from .wasm.emit import DataBuilder
+                self.outf.databuilder = DataBuilder(self.outf)
+            self.outf.databuilder(d)
+            return
         emitdat(d, self.outf)
         if d.type == D.DEnd:
             self.outf.write("/* end data */\n\n")
@@ -88,6 +94,9 @@ class _Driver:
                 gcm.gcm(fn)
                 ssa.filluse(fn)
                 ssa.ssacheck(fn)
+        if T.name == 'wasm':  # cimo: no machine lowering; the engine allocates registers
+            T.emitfn(fn, self.outf)
+            return
         if T.cansel:
             ifopt.ifconvert(fn)
             cfg.fillcfg(fn)
@@ -125,6 +134,8 @@ class _Driver:
 
     def dbgfile(self, fn):
         from .emit import emitdbgfile
+        if D.T.name == 'wasm':
+            return
         emitdbgfile(fn, self.outf)
 
 

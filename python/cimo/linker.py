@@ -42,7 +42,7 @@ _APPLE = sys.platform == 'darwin'
 
 # Compiler sources whose changes can change the runtime's code (part of the cache key):
 # conservative, so editing the driver rebuilds the runtime too (~9 s).
-_COMPILER = ('preprocessor.py', 'frontend', 'middle', 'backend', 'include', 'driver.py',
+_COMPILER = ('preprocessor.py', 'frontend', 'middle', 'backend', 'include', 'wasm', 'driver.py',
              'linker.py', 'execution.py')
 
 SYMBOLS = os.path.join(RUNTIME_DIR, 'symbols.txt')
