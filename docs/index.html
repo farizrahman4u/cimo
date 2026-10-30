@@ -100,29 +100,57 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .nb .t-kw{color:#cf222e}.nb .t-ty{color:#953800}.nb .t-fn{color:#8250df}.nb .t-str{color:#0a3069}.nb .t-num{color:#0550ae}.nb .t-cm{color:#6e7781}
 .code.win pre{font-size:12.5px}
 @media(max-width:600px){.cell pre{font-size:11px}.cell{grid-template-columns:30px minmax(0,1fr)}.nb-tool .kern{display:none}}
-/* live demo */
-.demo{margin-top:28px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:560px auto;background:var(--code);border:1px solid var(--codeline);border-radius:14px;overflow:hidden;color:#c9d1d9}
-.demo-view{position:relative;min-width:0;border-right:1px solid #1d2438;background:#080b16}
+/* banner: the live demo */
+.banner{position:relative;background:#080b16;color:#c9d1d9;overflow:hidden;height:clamp(600px,calc(100vh - 62px),780px)}
+.demo{height:100%}
+.demo-view{position:absolute;inset:0}
 .demo-view canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
-.demo-cover{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:radial-gradient(ellipse at center,rgba(63,92,246,.18),rgba(8,11,22,.96) 70%)}
-.demo-status{max-width:40ch;font-size:13px;color:#9aa3b8}
-.demo.loading .demo-start{opacity:.5}
-.demo.running .demo-cover{display:none}
-.demo-hint{position:absolute;left:12px;bottom:10px;font-family:var(--mono);font-size:11px;color:#59627a;pointer-events:none;display:none}
-.demo.running .demo-hint{display:block}
-.demo-side{display:flex;flex-direction:column;min-width:0;min-height:0}
-.demo-bar{height:40px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px 0 14px;border-bottom:1px solid #262b38;background:var(--code2);font-family:var(--mono);font-size:12px;color:#8e94a3}
+.demo-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:40% 50%;pointer-events:none;transition:opacity .9s ease}
+.demo.running .demo-poster{opacity:0}
+.demo.poster .banner-in,.demo.poster .demo-shade,.demo.poster .demo-hint,.demo.poster .demo-poster{display:none}
+.demo-shade{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 50% 52% at 6% 2%,rgba(8,11,22,.95) 0,rgba(8,11,22,.75) 45%,rgba(8,11,22,0) 100%),linear-gradient(0deg,rgba(8,11,22,.6),rgba(8,11,22,0) 18%)}
+.demo-hint{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font-family:var(--mono);font-size:11px;color:#59627a;pointer-events:none;opacity:0;transition:opacity .5s}
+.demo.running .demo-hint{opacity:1}
+.banner-in{position:relative;height:100%;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,480px);gap:40px;align-items:center;pointer-events:none}
+.banner-copy{pointer-events:auto;max-width:560px;align-self:start;padding-top:52px}
+.banner-copy .k{color:#93a8ff;margin-bottom:14px}
+.banner h1{max-width:10em;color:#fff;font-size:clamp(30px,3vw,44px);letter-spacing:-.03em;line-height:1.08}
+.banner h1 em{font-style:normal;color:#93a8ff}
+.banner .lede{color:#b3bdd2;margin-top:16px;font-size:16.5px;max-width:52ch}
+.banner .hero-note{color:#7d879e;max-width:42ch}
+.btn-d{background:rgba(255,255,255,.06);color:#e6edf3;border-color:#2c3552}.btn-d:hover{border-color:#4a5a8c;background:rgba(255,255,255,.1)}
+.demo-side{pointer-events:auto;height:min(600px,calc(100% - 72px));display:flex;flex-direction:column;min-width:0;min-height:0;background:rgba(10,14,28,.8);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid #1f2740;border-radius:14px;overflow:hidden;box-shadow:0 30px 60px -30px rgba(0,0,0,.8)}
+.demo-bar{height:42px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px 0 14px;border-bottom:1px solid #222a3e;font-family:var(--mono);font-size:12px;color:#8e94a3}
 .demo-bar span{flex:1}
 .demo-bar select,.demo-bar button{background:#1e2640;color:#dbe1ee;border:1px solid #2c3552;border-radius:6px;font:500 12px var(--font);padding:5px 8px;cursor:pointer}
 .demo-bar button:hover,.demo-bar select:hover{border-color:#4a5a8c}
 .demo-code{flex:1;min-height:0;overflow:auto;scrollbar-width:none}
 .demo-code::-webkit-scrollbar,.demo-code .CodeMirror-scroll::-webkit-scrollbar{display:none}
 .demo-code .CodeMirror-scroll{scrollbar-width:none}
-.demo-code pre{margin:0;padding:12px 14px;font-family:var(--mono);font-size:12px;line-height:1.6;white-space:pre;color:#c9d1d9}
+.demo-code pre{margin:0;padding:12px 14px;font-family:var(--mono);font-size:11.5px;line-height:1.6;white-space:pre-wrap;color:#c9d1d9}
 .demo-err{flex:none;padding:9px 14px;font-family:var(--mono);font-size:12px;color:#fecdd3;background:#3a1220;border-top:1px solid #5b1a2e;white-space:pre-wrap}
-.demo-foot{grid-column:1/-1;display:flex;justify-content:space-between;gap:16px;padding:9px 14px;border-top:1px solid #262b38;background:var(--code2);font-family:var(--mono);font-size:11.5px;color:#8e94a3;min-width:0}
-.demo-out{color:#a5d6ff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cm-s-cimo.CodeMirror{height:100%;background:transparent;color:#c9d1d9;font-family:var(--mono);font-size:12px;line-height:1.6}
+.demo-foot{flex:none;display:flex;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid #222a3e;font-family:var(--mono);font-size:11.5px;color:#8e94a3;min-width:0}
+.demo-start{flex:none;background:var(--brand);color:#fff;border:0;border-radius:7px;padding:7px 12px;font:600 12.5px var(--font);cursor:pointer}
+.demo-start:hover{background:var(--brand2)}
+.demo.loading .demo-start,.demo.running .demo-start{display:none}
+.demo-status{line-height:1.45}
+.demo.running .demo-status{display:none}
+.demo-stats{display:none;flex:1;min-width:0}
+.demo.running .demo-stats{display:block}
+.demo-out{color:#a5d6ff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%}
+@media(max-width:900px){
+.banner{height:auto}
+.demo{display:flex;flex-direction:column}
+.banner-in{display:contents}
+.banner-copy{order:1;max-width:none;padding:36px 16px 20px}
+.demo-view{order:2;position:relative;height:380px;flex:none}
+.demo-view canvas{touch-action:pan-y}
+.demo-poster{object-position:16% 50%;transform-origin:50% 62%;transform:translateY(-12%) scale(1.6)}
+.demo-shade{background:linear-gradient(180deg,rgba(8,11,22,1),rgba(8,11,22,0) 18%,rgba(8,11,22,0) 82%,rgba(8,11,22,1))}
+.demo-side{order:3;height:440px;margin:0 16px 24px}
+.demo-foot{flex-wrap:wrap}
+}
+.cm-s-cimo.CodeMirror{height:100%;background:transparent;color:#c9d1d9;font-family:var(--mono);font-size:11.5px;line-height:1.6}
 .cm-s-cimo .CodeMirror-gutters{background:transparent;border-right:1px solid #1d2438}
 .cm-s-cimo .CodeMirror-linenumber{color:#4b5468}
 .cm-s-cimo .CodeMirror-cursor{border-left:2px solid #93a8ff}
@@ -131,7 +159,6 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .cm-s-cimo .cm-number{color:#79c0ff}.cm-s-cimo .cm-string{color:#a5d6ff}.cm-s-cimo .cm-comment{color:#6e7681}
 .cm-s-cimo .cm-meta{color:#d2a8ff}.cm-s-cimo .cm-def{color:#d2a8ff}.cm-s-cimo .cm-operator{color:#c9d1d9}
 .cm-err-line{background:rgba(190,18,60,.22)}
-@media(max-width:900px){.demo{grid-template-columns:minmax(0,1fr);grid-template-rows:380px 440px auto}.demo-view{border-right:0;border-bottom:1px solid #1d2438}.demo-foot{flex-direction:column;gap:4px}}
 /* code panels */
 .code{background:var(--code);border:1px solid var(--codeline);border-radius:12px;overflow:hidden;color:#c9d1d9;min-width:0}
 .code .bar{height:32px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #262b38;background:var(--code2);font-family:var(--mono);font-size:11.5px;color:#8e94a3}
@@ -240,7 +267,8 @@ section.s{padding:72px 0 8px}
 }
 .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;margin-top:28px;align-items:start}
 .split.wide-l{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
-@media(max-width:960px){.split,.split.wide-l{grid-template-columns:minmax(0,1fr)}}
+.split.usage{grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);align-items:center}
+@media(max-width:960px){.split,.split.wide-l,.split.usage{grid-template-columns:minmax(0,1fr)}}
 .stack{display:flex;flex-direction:column;gap:14px;min-width:0}
 .note{font-size:13px;color:var(--ink3);margin-top:12px}
 /* perf */
@@ -309,17 +337,57 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
 </div></header>
 
 <main id="main" tabindex="-1">
-<section class="hero" id="top"><div class="wrap hero-grid">
-  <div>
-    <span class="k">Open source · MIT</span>
-    <h1>A C compiler written in <em>pure Python</em>.</h1>
-    <p class="lede">cimo compiles C to native code at runtime and calls it on numpy arrays, on machines with no compiler, SDK or LLVM. It runs wherever CPython or Pyodide does.</p>
+<section class="banner" id="top"><div class="demo" id="demo">
+  <div class="demo-view">
+    <canvas aria-label="Particles following a vector field written in C"></canvas>
+    <img class="demo-poster" src="poster.jpg" alt="" aria-hidden="true">
+    <div class="demo-shade"></div>
+    <p class="demo-hint">drag to rotate · pinch or ctrl+scroll to zoom</p>
+  </div>
+  <div class="wrap banner-in">
+    <div class="banner-copy">
+      <span class="k">Open source · MIT</span>
+      <h1>A C compiler written in <em>pure Python</em>.</h1>
+      <p class="lede">cimo compiles C to native code at runtime and calls it on numpy arrays. No compiler, SDK or LLVM needed: it runs wherever CPython or Pyodide does, including this page.</p>
     <div class="hero-cta">
       <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo" aria-label="Copy" title="Copy"><svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
-      <a class="btn btn-s" href="https://github.com/farizrahman4u/cimo">Source on GitHub</a>
+      <a class="btn btn-d" href="https://github.com/farizrahman4u/cimo">Source on GitHub</a>
     </div>
-    <p class="hero-note">Standard library only · CPython 3.9+ and Pyodide</p>
+    </div>
+    <div class="demo-side">
+      <div class="demo-bar"><span>attractor.c</span><select class="demo-preset" aria-label="Preset"></select><button type="button" class="demo-reseed">Reseed</button></div>
+      <div class="demo-code"><pre></pre></div>
+      <div class="demo-err" role="status" hidden></div>
+      <div class="demo-foot">
+        <button type="button" class="demo-start">Run it live</button>
+        <span class="demo-status">16,000 particles follow this vector field, compiled by cimo in your browser. Edit the C and it recompiles as you type. Loads Pyodide (7 MB) and cimo (1.1 MB).</span>
+        <span class="demo-stats"></span><span class="demo-out"></span>
+      </div>
+    </div>
   </div>
+</div></section>
+
+<div class="wrap">
+  <div class="facts-row">
+    <div class="fact"><b>0</b><span>dependencies outside the standard library</span></div>
+    <div class="fact"><b>&lt; 1 s</b><span>to compile a kernel file; results are cached</span></div>
+    <div class="fact"><b>~1.0×</b><span>gcc and clang <code>-O3</code> on analyzable loops</span></div>
+    <div class="fact"><b>~100×</b><span>pure Python on stencils, flood fills and DP</span></div>
+  </div>
+</div>
+
+<section class="s" id="usage"><div class="wrap">
+  <span class="k">Usage</span>
+  <h2>C kernels from Python</h2>
+  <div class="split usage">
+    <div>
+      <p class="lede" style="margin-top:0">Compile a string or a <code>.c</code> file. Every non-static function becomes a Python callable, typed from its C signature. Arrays are passed by pointer and never copied.</p>
+      <ul class="pts" style="margin-top:20px">
+        <li><b>Scripts and notebooks.</b> The same call in a script, Jupyter, JupyterLite or marimo.</li>
+        <li><b>Cached.</b> The second run of the same source starts instantly.</li>
+        <li><b>Buffers in place.</b> numpy arrays, <code>bytearray</code>, <code>memoryview</code> and ctypes arrays.</li>
+      </ul>
+    </div>
   <div class="carousel" tabindex="0" role="group" aria-roledescription="carousel" aria-label="Examples; use the left and right arrow keys to move between them">
     <div class="car-clip"><div class="car">
       <div class="frame on" data-title="Script · compile a kernel and call it on numpy arrays"><div class="code win">
@@ -362,16 +430,8 @@ void ema(int n, const double x[n], double y[n], double a) {
     </div></div>
     <div class="car-bar"><span class="car-title">Script · compile a kernel and call it on numpy arrays</span><span class="car-ctl"><button type="button" class="car-prev" aria-label="Previous example">‹</button><span class="car-count">01 / 02</span><button type="button" class="car-next" aria-label="Next example">›</button></span></div>
   </div>
-</div></section>
-
-<div class="wrap">
-  <div class="facts-row">
-    <div class="fact"><b>0</b><span>dependencies outside the standard library</span></div>
-    <div class="fact"><b>&lt; 1 s</b><span>to compile a kernel file; results are cached</span></div>
-    <div class="fact"><b>~1.0×</b><span>gcc and clang <code>-O3</code> on analyzable loops</span></div>
-    <div class="fact"><b>~100×</b><span>pure Python on stencils, flood fills and DP</span></div>
   </div>
-</div>
+</div></section>
 
 <section class="s" id="why"><div class="wrap">
   <span class="k">Motivation</span>
@@ -474,24 +534,8 @@ with ThreadPoolExecutor() as pool:
 <section class="s" id="browser"><div class="wrap">
   <span class="k">WebAssembly</span>
   <h2>Running in the browser</h2>
-  <p class="lede">In Pyodide, JupyterLite and marimo, cimo compiles C to WebAssembly in the page and links it into Pyodide's memory, so kernels work on numpy arrays in place. Below, cimo runs in your browser: 16,000 particles follow a vector field written in C. Edit the field and it recompiles as you type.</p>
-  <div class="demo" id="demo">
-    <div class="demo-view">
-      <canvas aria-label="Particles following the vector field"></canvas>
-      <div class="demo-cover">
-        <button type="button" class="btn btn-p demo-start">Run the demo</button>
-        <p class="demo-status">Loads Pyodide (about 7 MB) and cimo (a 1.1 MB Python file). Nothing runs on a server.</p>
-      </div>
-      <p class="demo-hint">drag to rotate · scroll to zoom</p>
-    </div>
-    <div class="demo-side">
-      <div class="demo-bar"><span>attractor.c</span><select class="demo-preset" aria-label="Preset"></select><button type="button" class="demo-reseed">Reseed</button></div>
-      <div class="demo-code"><pre></pre></div>
-      <div class="demo-err" role="status" hidden></div>
-    </div>
-    <div class="demo-foot"><span class="demo-stats">C → cimo (Python, in Pyodide) → WebAssembly → this canvas</span><span class="demo-out"></span></div>
-  </div>
-  <p class="note">In a notebook: <code>await micropip.install("cimo")</code>, then <code>cimo.compile(src)</code> as anywhere else. Try a preset, then change a coefficient or add a term such as <code>+ 0.3f * sinf(4 * z)</code>.</p>
+  <p class="lede">In Pyodide, JupyterLite and marimo, cimo compiles C to WebAssembly in the page and links it into Pyodide's memory, so kernels work on numpy arrays in place. The demo at the top of this page is cimo doing exactly that.</p>
+  <p class="note">In a notebook: <code>await micropip.install("cimo")</code>, then <code>cimo.compile(src)</code> as anywhere else.</p>
 </div></section>
 
 <section class="s" id="platforms"><div class="wrap">
