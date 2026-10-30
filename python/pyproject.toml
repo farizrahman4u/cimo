@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cimo"
+version = "0.1.0.dev0"
+description = "A C compiler written in pure Python: C kernels in, machine code out."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Fariz Rahman" }]
+requires-python = ">=3.9"
+dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C",
+    "Topic :: Software Development :: Compilers",
+    "License :: OSI Approved :: MIT License",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "isort", "numpy"]
+
+[project.urls]
+Homepage = "https://github.com/farizrahman4u/cimo"
+
+[tool.setuptools.packages.find]
+include = ["cimo*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.md", "include/*.h"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
