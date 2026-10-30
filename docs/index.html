@@ -337,6 +337,7 @@ section.s{padding:72px 0 8px}
 .tbl td:first-child{color:var(--ink);font-weight:500}
 .tbl .m{font-family:var(--mono);font-size:12.5px}
 .tblw{overflow-x:auto;border-radius:12px}
+.code.report pre{font-size:11.5px;white-space:pre-wrap;padding:12px 14px}
 /* pipeline */
 .pipe{display:flex;align-items:stretch;margin-top:28px}
 .stage{flex:1 1 0;min-width:0;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:14px 14px 16px}
@@ -513,18 +514,20 @@ void ema(int n, const double x[n], double y[n], double a) {
       <p class="note">Lower is better; dashed line is parity. Scalar code, FMA contraction off on both sides. Results are bit-identical to the reference compiler.</p>
       <a class="btn btn-s perf-btn" href="https://github.com/farizrahman4u/cimo/tree/main/python/bench" target="_blank" rel="noopener">View benchmarks <span aria-hidden="true">→</span></a>
     </div>
-    <ul class="pts">
-      <li><b>Loop optimizer.</b> Unrolling, unroll-and-jam, scalar replacement, strength reduction, runtime alias checks.</li>
-      <li><b>Backend.</b> Instruction selection and register allocation, encoded to machine code in Python. No assembler, no linker.</li>
-      <li><b>Caching.</b> Compiled modules are cached by content hash.</li>
-      <li><b>Optimization reports.</b> <code>python -m cimo report</code> lists which loops were optimized and why the others were not.</li>
-    </ul>
-  </div>
-  <div class="code" style="margin-top:18px">
-    <div class="bar"><span class="dots"><i></i><i></i><i></i></span>terminal</div>
+    <div class="stack">
+      <ul class="pts">
+        <li><b>Loop optimizer.</b> Unrolling, unroll-and-jam, scalar replacement, strength reduction, runtime alias checks.</li>
+        <li><b>Backend.</b> Instruction selection and register allocation, encoded to machine code in Python. No assembler, no linker.</li>
+        <li><b>Caching.</b> Compiled modules are cached by content hash.</li>
+        <li><b>Optimization reports.</b> <code>python -m cimo report</code> lists which loops were optimized and why the others were not.</li>
+      </ul>
+      <div class="code report">
+        <div class="bar"><span class="dots"><i></i><i></i><i></i></span>terminal</div>
 <pre data-lang="sh"><span class="t-pr">$</span> python -m cimo report kernels.c
-kernels.c:12  loop over j: <span class="t-ok">optimized</span> (unrolled x4, alias check on src/dst)
-kernels.c:31  loop over i: <span class="t-err">not optimized</span>: base of `p` depends on a runtime branch</pre>
+kernels.c:12  loop j: <span class="t-ok">optimized</span> (unrolled x4, alias check src/dst)
+kernels.c:31  loop i: <span class="t-err">not optimized</span>: base of `p` depends on a branch</pre>
+      </div>
+    </div>
   </div>
 </div></section>
 
