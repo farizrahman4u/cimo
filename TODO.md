@@ -4,19 +4,14 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Big
 
-1. **Single-file distribution.** `python -m cimo bundle [-o cimo.py]` writes one `cimo.py` with
-   every module's source and the bundled `.h`/`.c` text embedded as strings, plus an import
-   hook so `import cimo` (and `cimo.frontend` etc.) loads from it. Standard library only, no
-   resource files. All header/runtime reads go through one resource function (files in the
-   repo, the embedded table in the bundle). Open question: keep `.c`/`.h` as real files in the
-   repo (preferred: editor tooling, musl diffs, the gcc reference builds in
-   `tests/test_runtime.py`) or store them as `.py`.
-   - `--prebuilt`: also embed the compiled runtime (assembly text, a few MB) so a fresh process
-     skips the ~5 s first build and needs no writable `~/.cache`. Without a writable cache dir,
-     fall back to an in-memory cache.
+1. ~~**Single-file distribution.**~~ **Done:** `cimo bundle [-o cimo.py] [--prebuilt]`
+   (`cimo/bundle.py`, `cimo/resources.py`; `.c`/`.h` stay real files). See "Single-file
+   distribution" in `requirements.md`.
 2. **Python interop API (M6).** Struct/union arguments and returns (ctypes structures, dicts),
-   VLA shape checks at call time (README promises them), a CLI (`python -m cimo prog.c`,
-   `python -m cimo report kernels.c`).
+   VLA shape checks at call time (README promises them). The CLI is done (`cimo run`,
+   `compile`, `bundle`, `cache`, `completion`) except `cimo report kernels.c`: per-loop
+   optimization remarks from the middle end (README promises it). zsh/fish completion
+   scripts are untested.
 3. **amd64 backend.** Linux x86-64 and Windows x64 (`VirtualAlloc` loader, Win64 ABI).
 4. **WASM backend + Pyodide loading.** Side module linked into Pyodide's memory; numpy arrays
    in place.

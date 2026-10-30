@@ -56,10 +56,38 @@ class CompileError(Exception):
 
 
 def _cache_dir():
-    d = os.environ.get('CIMO_CACHE_DIR') or os.path.join(
-        os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'cimo')
-    os.makedirs(d, exist_ok=True)
-    return d
+    """The module cache directory, or None if it is not writable (see _cache_get)."""
+    return _link.user_cache('CIMO_CACHE_DIR')
+
+
+_memory_cache = {}  # key -> (assembly, signatures), when there is no writable cache directory
+
+
+def _cache_get(key):
+    d = _cache_dir()
+    if d is None or key in _memory_cache:
+        return _memory_cache.get(key)
+    path = os.path.join(d, key + '.s')
+    sig = path[:-2] + '.sig'
+    if os.path.exists(path) and os.path.exists(sig):
+        with open(path) as f, open(sig) as g:
+            return f.read(), g.read()
+    return None
+
+
+def _cache_put(key, text, sigs):
+    d = _cache_dir()
+    if d is not None:
+        path = os.path.join(d, key + '.s')
+        try:
+            for p, data in ((path[:-2] + '.sig', sigs), (path, text)):  # .s last: it marks
+                with open(p + '.tmp', 'w') as f:                       # the entry complete
+                    f.write(data)
+                os.replace(p + '.tmp', p)
+            return
+        except OSError:
+            pass
+    _memory_cache[key] = (text, sigs)
 
 
 _APPLE = sys.platform == 'darwin'
@@ -157,42 +185,56 @@ def _host_include_dirs():
     return dirs
 
 
-def _build(src, filename='<string>', include_dirs=(), host_headers=False):
-    """C source -> (assembly text, signatures), cached by a hash of the preprocessed source."""
-    from .preprocessor import preprocess, PreprocessError
-    from .frontend import compile as cproc_compile, FrontendError
+def _check_machine():
     if platform.machine().lower() not in ('arm64', 'aarch64'):
         raise CompileError('cimo generates arm64 code only; this machine is %s'
                            % platform.machine())
+
+
+def _preprocess(src, filename='<string>', include_dirs=(), host_headers=False, defines=()):
+    """C source -> preprocessed text, with the prelude. defines: (name, value or None) pairs."""
+    from .preprocessor import preprocess, PreprocessError
     if host_headers:
         include_dirs = tuple(include_dirs) + tuple(_host_include_dirs())
     try:
-        pp = preprocess(_PRELUDE + '#line 1\n' + src, filename, include_dirs=include_dirs,
-                        target='arm64_apple' if _APPLE else 'arm64', keep_attributes=True)
+        return preprocess(_PRELUDE + '#line 1\n' + src, filename, include_dirs=include_dirs,
+                          defines=list(defines) or None,
+                          target='arm64_apple' if _APPLE else 'arm64', keep_attributes=True)
     except PreprocessError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
-    key = hashlib.sha256(_VERSION + _link.compiler_key().encode() + (b'apple' if _APPLE else b'') + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
-                         + pp.encode()).hexdigest()[:24]
-    path = os.path.join(_cache_dir(), key + '.s')
-    sig = path[:-2] + '.sig'
-    if os.path.exists(path) and os.path.exists(sig):
-        with open(path) as f, open(sig) as g:
-            return f.read(), g.read()
+
+
+def _ir(pp, filename='<string>', host_headers=False):
+    """Preprocessed text -> (QBE IR text, parameter info for the middle end)."""
+    from .frontend import FrontendError
     try:
-        ssa, params = _frontend(pp, filename, fma=FMA, builtins=True, diagnostics=True,
-                                   prune=True)
+        return _frontend(pp, filename, fma=FMA, builtins=True, diagnostics=True, prune=True)
     except FrontendError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
+
+
+def _build(src, filename='<string>', include_dirs=(), host_headers=False, defines=()):
+    """C source -> (assembly text, signatures), cached by a hash of the preprocessed source."""
+    _check_machine()
+    pp = _preprocess(src, filename, include_dirs, host_headers, defines)
+    key = hashlib.sha256(_VERSION + _link.compiler_key().encode() + (b'apple' if _APPLE else b'') + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
+                         + pp.encode()).hexdigest()[:24]
+    hit = _cache_get(key)
+    if hit is not None:
+        return hit
+    ssa, params = _ir(pp, filename, host_headers)
     text = _qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
-    sigs = '\n'.join('%s %s %s' % (m.group(2), m.group(1) or '-',
+    sigs = _sigs(ssa)
+    _cache_put(key, text, sigs)
+    return text, sigs
+
+
+def _sigs(ssa):
+    """'name ret params' lines for the exported functions of IR text."""
+    return '\n'.join('%s %s %s' % (m.group(2), m.group(1) or '-',
                                    ','.join(a.split()[0] for a in m.group(3).split(',')
                                             if a.strip()))
                      for m in _SIG.finditer(ssa))
-    for p, data in ((sig, sigs), (path, text)):  # .s last: it marks the entry complete
-        with open(p + '.tmp', 'w') as f:
-            f.write(data)
-        os.replace(p + '.tmp', p)
-    return text, sigs
 
 
 def _address(x):
@@ -219,6 +261,7 @@ class Kernel:
         self.address = image.address(name)
         self.__name__ = name
         self._params = params
+        self._ret = ret
         self._f = None
         if '...' in params:
             self._unsupported = 'it is variadic'
@@ -303,24 +346,29 @@ class Module:
         raise TypeError('module has no main(); call one of: %s' % ', '.join(self._kernels))
 
 
-def compile(src, include_dirs=(), link=(), host_headers=False):
+def compile(src, include_dirs=(), link=(), host_headers=False, defines=()):
     """Compile C source and return a Module of callables.
 
     The module is linked with cimo's runtime library (string.h, math.h, printf, malloc, ...)
     and nothing else. link: host libraries whose symbols may resolve what the runtime does not
     provide: 'libc', 'libm', 'python' (the Python C API), a soname ('libz.so.1'), a short name
     ('z') or a path. host_headers: also search the host's C headers (after include_dirs and
-    before cimo's bundled ones), to use declarations of linked libraries."""
-    if isinstance(link, str):
-        link = [link]
-    return Module(*_build(src, '<string>', tuple(include_dirs), host_headers),
-                  link=tuple(link))
+    before cimo's bundled ones), to use declarations of linked libraries. defines: macros, as
+    a dict or (name, value) pairs (value None means 1)."""
+    return _module(src, '<string>', include_dirs, link, host_headers, defines)
 
 
-def load(path, include_dirs=(), link=(), host_headers=False):
+def load(path, include_dirs=(), link=(), host_headers=False, defines=()):
     """Compile a .c file; its directory is searched for "..." includes. Options as compile()."""
     with open(path) as f:
         src = f.read()
+    return _module(src, path, include_dirs, link, host_headers, defines)
+
+
+def _module(src, filename, include_dirs, link, host_headers, defines):
     if isinstance(link, str):
         link = [link]
-    return Module(*_build(src, path, tuple(include_dirs), host_headers), link=tuple(link))
+    if hasattr(defines, 'items'):
+        defines = defines.items()
+    return Module(*_build(src, filename, tuple(include_dirs), host_headers, tuple(defines)),
+                  link=tuple(link))

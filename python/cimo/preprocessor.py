@@ -23,6 +23,8 @@ import re
 import sys
 import time
 
+from . import resources as _res
+
 __all__ = ['preprocess', 'Preprocessor', 'PreprocessError', 'TARGETS']
 
 # Token kinds.
@@ -269,7 +271,7 @@ TARGETS = {
 _CHAR_SIGNED = {'arm64': False, 'arm64_apple': True}
 _WCHAR_SIGNED = {'arm64': False, 'arm64_apple': True}
 
-BUNDLED_INCLUDE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'include')
+BUNDLED_INCLUDE = _res.path('include')
 
 # Built-in functions cproc implements, for __has_builtin.
 _CPROC_BUILTINS = frozenset('''__builtin_alloca __builtin_constant_p __builtin_expect
@@ -354,7 +356,7 @@ class Preprocessor(object):
             raise ValueError('unknown target %r (expected one of %s)' %
                              (target, ', '.join(sorted(TARGETS))))
         self.target = target
-        self.include_dirs = [os.path.abspath(d) for d in include_dirs]
+        self.include_dirs = [_res.abspath(d) for d in include_dirs]
         self.search = self.include_dirs + [BUNDLED_INCLUDE]
         self.warn_fn = warn
         self.macros = {}
@@ -433,9 +435,7 @@ class Preprocessor(object):
     def _lex_file(self, path):
         hit = self.cache.get(path)
         if hit is None:
-            with open(path, 'rb') as f:
-                data = f.read()
-            text = data.decode('utf-8', 'surrogateescape')
+            text = _res.read_text(path)
             finfo = FileInfo(path)
             hit = self.cache[path] = (lex(text, finfo), finfo)
         return hit
@@ -773,18 +773,18 @@ class Preprocessor(object):
 
     def _find_include(self, src, name, angled, include_next=False):
         if os.path.isabs(name):
-            return (name, -1) if os.path.isfile(name) else None
+            return (name, -1) if _res.isfile(name) else None
         start = 0
         if include_next and src.dirindex >= 0:
             start = src.dirindex + 1
         elif not angled and not include_next:
             base = src.dir
             p = os.path.join(base, name) if base else name
-            if os.path.isfile(p):
+            if _res.isfile(p):
                 return p, -1
         for k in range(start, len(self.search)):
             p = os.path.join(self.search[k], name)
-            if os.path.isfile(p):
+            if _res.isfile(p):
                 return p, k
         return None
 

@@ -18,6 +18,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 
+[project.scripts]
+cimo = "cimo.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest", "black", "isort", "numpy"]
 
@@ -28,7 +31,7 @@ Homepage = "https://github.com/farizrahman4u/cimo"
 include = ["cimo*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.md", "include/*.h", "runtime/COPYRIGHT", "runtime/*.c", "runtime/*/*.c",
+"*" = ["*.md", "include/*.h", "runtime/COPYRIGHT", "frontend/LICENSE", "backend/LICENSE", "runtime/*.c", "runtime/*/*.c",
        "runtime/*/*.h"]
 
 [tool.black]

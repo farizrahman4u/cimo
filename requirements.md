@@ -475,6 +475,67 @@ uses Apple's type macros (signed char and `wchar_t`, `int64_t` = `long long`). S
     `aarch64-apple` (signed `char`, `wchar_t` = `int`, 8-byte `long double`, and `va_list` =
     `char *` as Apple's ABI and QBE's `arm64_apple` vastart expect); not diffable against C.
 
+## Single-file distribution (2026-10-30)
+
+`cimo bundle [-o cimo.py] [--prebuilt]` (`cimo.bundle.build`) writes one `cimo.py` that works
+like the package in any CPython 3.9+ with only the standard library: put it on `sys.path`,
+`import cimo`.
+
+- **Resource layer:** every read of a package file goes through `cimo.resources` (`path`,
+  `isfile`, `read`, `files`): bundled headers (preprocessor search path), runtime sources,
+  and the compiler sources hashed into cache keys. In the repo or a pip install they are files
+  next to the package. In the bundle `resources.ROOT` is `<cimo.py>/cimo`, a name that exists
+  only in the embedded table; any other path (user and host headers, the cache) is read from
+  the filesystem. The `.c`/`.h` files stay real files in the repo.
+- **Format:** a license header (cimo MIT; cproc's and QBE's upstream `LICENSE` files, shipped
+  as `frontend/LICENSE` and `backend/LICENSE`, and musl's `runtime/COPYRIGHT` reproduced), then `_FILES = {path relative to the package: text}` (every `.py`, `.h`, `.c`
+  and `runtime/COPYRIGHT`, as readable triple-quoted literals, sorted), then a bootstrap: a
+  meta-path finder/loader serving `cimo.*` from the table. Imported as `cimo`, the file
+  becomes the package (`__path__ = []`) and runs `__init__.py`; run as a script it runs
+  `cimo.__main__` (the CLI). Module filenames are `<cimo.py>/cimo/driver.py`, registered
+  with `linecache`, so tracebacks and `inspect` show source. Deterministic (no timestamps):
+  rebuilding, also from inside the bundle, gives the same bytes.
+- **Cache keys are content hashes over package-relative names**, so a bundle has the same
+  `compiler_key()` and runtime key as the tree it was built from.
+- **`--prebuilt`** adds the compiled runtime as `prebuilt/runtime-<key>/` (per-file assembly +
+  `index.json`, the same layout as the cache). `linker.runtime()` looks there first: a fresh
+  process never builds the runtime and writes nothing. On another target or a modified
+  compiler the key differs and it builds as usual.
+- **No writable cache** (`CIMO_CACHE_DIR` / `CIMO_RUNTIME_CACHE` / `~/.cache/cimo` cannot be
+  created or written): the module cache and the runtime are kept in memory for the process.
+- **Measured** (Linux arm64, CPython 3.13): bundle 1.25 MB, 1.87 MB with `--prebuilt` (+0.61
+  MB of runtime assembly); building it 0.03 s (plus the runtime build if not cached);
+  `import cimo` from it 0.05 s; first compile of a printf/sin/malloc kernel 0.2 s with
+  `--prebuilt`, 5.6 s without (runtime build). `tests/test_bundle.py` runs it under
+  `python -I -S` with no writable home.
+
+## Command line (2026-10-30)
+
+`cimo` (console script) = `python -m cimo` = `python cimo.py` for a bundle. Standard library
+only: `cimo/cli/parse.py` is a small declarative framework (nested commands, options with
+short/long/`=`/attached forms, choices, repeatable options, a `rest` argument that passes
+everything after it through), `cimo/cli/term.py` does color (`--color`, `NO_COLOR`,
+`FORCE_COLOR`, `TERM=dumb`, tty), unicode symbols with ASCII fallback, wrapping to the
+terminal width and a spinner.
+
+- Commands: `run FILE [ARGS...]` (calls `main(argc, argv[, envp])` or `--entry NAME`; exit
+  status = return value or `exit()` status, 134 for abort/assert/trap; `-` reads stdin),
+  `compile FILE` (lists the exported functions with their Python-side types) with `-E`,
+  `--ir`, `-S` / `--emit pp|ir|asm` and `-o`, `bundle`, `cache [info|clear|path]`,
+  `completion bash|zsh|fish`, `help [COMMAND...]`. Compile options shared by `run` and
+  `compile`: `-I`, `-D`, `-l/--link`, `--host-headers`, `-O0/--no-opt`, `--no-fma`.
+- Help at every level (`-h`, `--help`, `cimo help ...`, a group without a subcommand), with
+  examples; "did you mean" (difflib) for commands, options, choice values, missing files and
+  entry points; a usage line and hint on every usage error (exit status 2).
+- Compile errors are shown with the source line and a caret; driver hints are rewritten from
+  API spelling (`host_headers=True`) to flags (`--host-headers`). Failed asserts show the
+  assert's source line.
+- Completion: the scripts call the hidden `cimo __complete WORDS...`, so they follow the
+  command tree; `__file__`/`__dir__` hand path completion back to the shell. bash is tested
+  (`tests/test_cli.py`); zsh and fish scripts are untested (not installed here).
+- The runtime's first build reports through `linker.progress` (the CLI shows a spinner);
+  without it the library prints its two stderr lines as before.
+
 ## Plan
 
 1. ~~Validate the architecture~~ **Done: GO.** Good IR + patched QBE is within 1.04x of gcc's
