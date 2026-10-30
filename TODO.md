@@ -12,7 +12,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    repo (preferred: editor tooling, musl diffs, the gcc reference builds in
    `tests/test_runtime.py`) or store them as `.py`.
    - `--prebuilt`: also embed the compiled runtime (assembly text, a few MB) so a fresh process
-     skips the 8 s first build and needs no writable `~/.cache`. Without a writable cache dir,
+     skips the ~5 s first build and needs no writable `~/.cache`. Without a writable cache dir,
      fall back to an in-memory cache.
 2. **Python interop API (M6).** Struct/union arguments and returns (ctypes structures, dicts),
    VLA shape checks at call time (README promises them), a CLI (`python -m cimo prog.c`,
