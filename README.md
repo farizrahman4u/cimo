@@ -74,8 +74,7 @@ help either: stencils, flood fills, dynamic programming, anything sequential.
 
 ## Real C, not a subset
 
-cimo compiles **freestanding C11**, the same model as CUDA device code: all of the language, no
-OS.
+cimo compiles **freestanding C11**: all of the language, none of the operating system.
 
 - structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs,
   VLAs, `goto`, `switch`, globals and `const` tables
@@ -104,7 +103,7 @@ k = cimo.load("kernels.c")
 
 ### Multicore, no threading runtime
 
-Kernels release the GIL, so cimo can split a launch across cores, CUDA-style:
+Kernels release the GIL, so cimo can split a launch across cores:
 
 ```python
 k.blur.launch(blocks=16, args=(h, w, src, dst))   # block index arrives as a hidden argument
@@ -125,7 +124,7 @@ k.blur(h, w, src, dst[:10])
 ```
 
 Debug builds bounds-check every access, against both Python buffers and heap allocations, and catch
-use-after-free, double free and leaks. Think compute-sanitizer for CPU kernels.
+use-after-free, double free and leaks.
 
 ### Know why a loop is slow
 
