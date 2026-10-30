@@ -80,40 +80,38 @@ def _bare_env(home, cache):
 @pytest.fixture(scope='module')
 def built(tmp_path_factory):
     d = tmp_path_factory.mktemp('bundle')
-    plain, pre = d / 'plain', d / 'prebuilt'
+    plain = d / 'plain'
     plain.mkdir()
-    pre.mkdir()
     stats = bundle.build(str(plain / 'cimo.py'))
-    stats_pre = bundle.build(str(pre / 'cimo.py'), prebuilt=True)
-    return d, stats, stats_pre
+    return d, stats
 
 
 def test_one_file_deterministic(built, tmp_path):
-    d, stats, stats_pre = built
+    d, stats = built
     assert set(os.listdir(str(d / 'plain'))) - {'__pycache__'} == {'cimo.py'}
-    assert stats['modules'] > 50 and stats['resources'] > 200 and stats['runtime_files'] == 0
-    assert stats_pre['runtime_files'] == len(linker.runtime().index) + 1  # + index.json
+    assert stats['modules'] > 50 and stats['resources'] > 200
     again = tmp_path / 'cimo.py'
     bundle.build(str(again))
     assert again.read_bytes() == (d / 'plain' / 'cimo.py').read_bytes()
-    tree = ast.parse((d / 'prebuilt' / 'cimo.py').read_text(encoding='utf-8'))
+    tree = ast.parse((d / 'plain' / 'cimo.py').read_text(encoding='utf-8'))
     files = next(ast.literal_eval(n.value) for n in tree.body
                  if isinstance(n, ast.Assign) and n.targets[0].id == '_FILES')
     assert 'include/stdio.h' in files and 'runtime/math/sin.c' in files
     assert 'driver.py' in files and 'backend/arm64/isel.py' in files
     assert not any('__pycache__' in k or k.startswith('tests/') for k in files)
-    key = linker.runtime().key
-    assert json.loads(files['prebuilt/runtime-%s/index.json' % key]) == linker.runtime().index
+    assert 'runtime/symbols.txt' in files
+    assert not any(k.endswith('.s') for k in files)  # sources only, nothing compiled
 
 
 def test_bundle_without_cache_dir(built, tmp_path):
-    """No writable cache: the runtime is built and the module cached in memory."""
+    """No writable cache: the runtime members the kernel needs are compiled and kept in
+    memory, as is the module."""
     d = built[0] / 'plain'
     blocker = tmp_path / 'file'  # directories under a file cannot be created
     blocker.write_text('')
     out, err = _run(d, _bare_env(blocker / 'home', blocker / 'cache'),
                     rebuild=tmp_path / 'rebuilt.py')
-    assert 'building the runtime library' in err
+    assert 'runtime library files' in err and 'kept for this process' in err
     assert out['file'] == str(d / 'cimo.py')
     assert out['root'] == '<cimo.py>/cimo' and out['driver'] == '<cimo.py>/cimo/driver.py'
     assert 'File "<cimo.py>/cimo/driver.py", line' in out['traceback']
@@ -123,19 +121,15 @@ def test_bundle_without_cache_dir(built, tmp_path):
     assert (tmp_path / 'rebuilt.py').read_bytes() == (d / 'cimo.py').read_bytes()
 
 
-def test_bundle_prebuilt_read_only(built, tmp_path):
-    """--prebuilt: the runtime is never built, and nothing needs to be written."""
-    home = tmp_path / 'home'
-    home.mkdir()
-    blocker = tmp_path / 'file'
-    blocker.write_text('')
-    os.chmod(str(home), 0o555)
-    try:
-        out, err = _run(built[0] / 'prebuilt', _bare_env(home, blocker / 'cache'))
-    finally:
-        os.chmod(str(home), 0o755)
-    assert 'building the runtime' not in err, err
-    assert os.listdir(str(home)) == []
+def test_bundle_shares_the_cache(built, tmp_path):
+    """With a cache, the bundle reuses runtime members compiled by the package (same keys)."""
+    cache = tmp_path / 'cache'
+    env = _bare_env(tmp_path, cache)
+    env['CIMO_RUNTIME_CACHE'] = str(tmp_path / 'rt')
+    out, err = _run(built[0] / 'plain', env)
+    assert 'cached for next time' in err
+    out, err = _run(built[0] / 'plain', env)
+    assert 'runtime library' not in err, err  # second process: everything cached
     assert out['runtime_key'] == linker.runtime().key
 
 

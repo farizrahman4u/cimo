@@ -654,13 +654,42 @@ def test_user_definition_beats_runtime_and_clash_is_reported():
     assert "'puts'" in str(e.value) and 'stdout.c' in str(e.value)
 
 
-def test_runtime_build_is_cached():
+def test_runtime_symbol_table_is_current():
+    """runtime/symbols.txt lists exactly what each runtime source defines (regenerate with
+    `cimo __update-runtime-symbols`), and every member compiles and links on its own."""
     rt = linker.runtime()
-    assert len(rt.index) == len(linker.runtime_sources())
     assert linker.runtime() is rt
+    assert sorted(rt.members) == sorted(m.replace(os.sep, '/')
+                                        for m in linker.runtime_sources())
+    for m in rt.members:
+        rt.object(m)  # raises LinkError if symbols.txt is out of date for m
+
+
+def test_runtime_is_compiled_on_demand(tmp_path, monkeypatch):
+    """A link compiles only the members it needs, once; later links reuse them."""
+    monkeypatch.setenv('CIMO_RUNTIME_CACHE', str(tmp_path / 'rt'))
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path / 'mods'))
+    monkeypatch.setattr(linker, '_runtime', None)
+    events = []
+    monkeypatch.setattr(linker, 'progress', lambda e, **i: events.append((e, i)))
+    m = cimo.compile('#include <string.h>\nlong f(const char *s) { return strlen(s); }')
+    assert m.f(bytearray(b'abcd\0')) == 4
+    assert [i['name'] for e, i in events if e == 'file'] == ['string/strlen.c']
+    assert events[-1][0] == 'done' and events[-1][1]['files'] == 1
+    del events[:]
+    m = cimo.compile('#include <string.h>\nlong g(const char *s) { return strlen(s) + 1; }')
+    assert m.g(bytearray(b'ab\0')) == 3 and events == []
+    monkeypatch.setattr(linker, '_runtime', None)  # a new process: from the disk cache
+    m = cimo.compile('#include <string.h>\nlong h(const char *s) { return strlen(s) + 2; }')
+    assert m.h(bytearray(b'a\0')) == 3 and events == []
+    assert os.listdir(str(tmp_path / 'rt'))[0].startswith('runtime-')
+
+
+def test_headers_are_provided():
+    rt = linker.runtime()
     # every exported C library function of the headers is provided
-    names = set(s for e in rt.index.values() for s in e['defs'])
-    pre = '_' if sys.platform == 'darwin' else ''
+    names = set(s for names in rt.members.values() for s in names)
+    pre = ''
     for hdr in ('string.h', 'stdlib.h', 'ctype.h', 'stdio.h', 'math.h'):
         with open(os.path.join(CIMO_PKG, 'include', hdr)) as f:
             text = f.read()
@@ -668,3 +697,17 @@ def test_runtime_build_is_cached():
             if fn.startswith('__cimo'):
                 continue
             assert pre + fn in names, (hdr, fn)
+
+
+def test_bytes_arguments_stay_alive():
+    """bytes and other read-only buffers passed to pointer parameters: valid, NUL-terminated
+    memory for the whole call (it used to be a freed temporary)."""
+    import gc
+    m = cimo.compile('#include <string.h>\nlong f(const char *s) { return strlen(s); }\n'
+                     'long g(const char *s, const char *t) { return strcmp(s, t) == 0; }')
+    for _ in range(200):
+        gc.collect()
+        assert m.f(b'abcd') == 4
+        assert m.f(memoryview(b'hello')) == 5
+        assert m.g(b'x' * 100, memoryview(b'x' * 100)) == 1
+    assert m.f(b'') == 0

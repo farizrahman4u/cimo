@@ -4,7 +4,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Big
 
-1. ~~**Single-file distribution.**~~ **Done:** `cimo bundle [-o cimo.py] [--prebuilt]`
+1. ~~**Single-file distribution.**~~ **Done:** `cimo bundle [-o cimo.py]`
    (`cimo/bundle.py`, `cimo/resources.py`; `.c`/`.h` stay real files). See "Single-file
    distribution" in `requirements.md`.
 2. **Python interop API (M6).** Struct/union arguments and returns (ctypes structures, dicts),

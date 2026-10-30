@@ -79,13 +79,10 @@ def build_tree():
                     '`import cimo` works as with the installed package.')
     b.opt('-o', '--output', metavar='file', default='cimo.py', complete='file',
           help='Output file (default: `cimo.py`)')
-    b.opt('--prebuilt', flag=True,
-          help='Also embed the compiled runtime library: no first-use build, no cache '
-               'directory needed (larger file)')
     b.opt('--keep-comments', flag=True,
           help='Keep comments and docstrings (by default only license notices stay)')
     b.example('cimo bundle')
-    b.example('cimo bundle --prebuilt -o vendor/cimo.py')
+    b.example('cimo bundle -o vendor/cimo.py')
 
     # cache
     cache = root.command(
@@ -114,6 +111,8 @@ def build_tree():
 
     root.command('__complete', 'Shell completion backend', func=cmd_complete, hidden=True) \
         .arg('words', nargs='rest', complete=None)
+    root.command('__update-runtime-symbols', 'Regenerate runtime/symbols.txt (development)',
+                 func=cmd_update_symbols, hidden=True)
     return root
 
 
@@ -227,18 +226,20 @@ class _runtime_spinner:
 
     def _progress(self, event, **info):
         from .term import Spinner
-        if event == 'start':
-            self.spinner = Spinner(self.ctx.err, 'Building the runtime library (%d files, '
-                                                 'first use only)' % info.get('files', 0))
-            self.spinner.__enter__()
-        elif event == 'file' and self.spinner:
-            self.spinner.update('Building the runtime library: %s' % info.get('name', ''))
-        elif event == 'done' and self.spinner:
-            self.spinner.__exit__(None, None, None)
-            self.ctx.err.write('%s Built the runtime library in %.1f s'
-                               % (self.ctx.err.style(self.ctx.err.symbol('ok'), 'ok'),
-                                  info.get('seconds', 0)))
-            self.spinner = None
+        e = self.ctx.err
+        if event == 'file':
+            text = 'Compiling the runtime library: %s' % info.get('name', '')
+            if self.spinner is None:
+                self.spinner = Spinner(e, 'Compiling the runtime library (first use only)')
+                self.spinner.__enter__()
+            self.spinner.update(text)
+        elif event == 'done':
+            if self.spinner:
+                self.spinner.__exit__(None, None, None)
+                self.spinner = None
+            n = info.get('files', 0)
+            e.write(e.style('%s Compiled %d runtime library file%s in %.1f s' % (
+                e.symbol('ok'), n, '' if n == 1 else 's', info.get('seconds', 0)), 'muted'))
 
     def __exit__(self, *exc):
         if self.spinner:
@@ -366,18 +367,8 @@ def cmd_bundle(ctx):
     from .term import Spinner
     out = ctx.values['output']
     e = ctx.err
-    from .. import linker
-    old = linker.progress
     with Spinner(e, 'Bundling cimo into %s' % out) as sp:
-        def runtime_progress(event, **info):
-            if event == 'file':
-                sp.update('Compiling the runtime library: %s' % info['name'])
-        linker.progress = runtime_progress
-        try:
-            stats = bundle.build(out, prebuilt=ctx.values.get('prebuilt'), progress=sp.update,
-                                 strip=not ctx.values.get('keep_comments'))
-        finally:
-            linker.progress = old
+        stats = bundle.build(out, progress=sp.update, strip=not ctx.values.get('keep_comments'))
     size = os.path.getsize(out)
     e.write('%s Wrote %s (%s) in %.1f s' % (e.style(e.symbol('ok'), 'ok'), e.style(out, 'path'),
                                             _size(size), sp.elapsed))
@@ -385,8 +376,6 @@ def cmd_bundle(ctx):
     for key, label in (('modules', 'modules'), ('resources', 'resource files')):
         if isinstance(stats, dict) and stats.get(key):
             details.append('%d %s' % (stats[key], label))
-    if ctx.values.get('prebuilt'):
-        details.append('prebuilt runtime')
     if details:
         e.write('  ' + e.style(', '.join(details), 'muted'))
     e.write('  %s %s' % (e.style('use:', 'hint'),
@@ -501,6 +490,18 @@ def cmd_help(ctx):
                                  w, [c.name for c in cmd.visible_commands()], n=3, cutoff=0.6))
         cmd = sub
     ctx.out.write(render_help(cmd, ctx.out))
+    return 0
+
+
+def cmd_update_symbols(ctx):
+    from .. import linker
+    from .term import Spinner
+    with Spinner(ctx.err, 'Compiling every runtime source') as sp:
+        text = linker.symbol_table()
+    with open(linker.SYMBOLS, 'w') as f:
+        f.write(text)
+    ctx.err.write('%s Wrote %s in %.1f s' % (ctx.err.style(ctx.err.symbol('ok'), 'ok'),
+                                             linker.SYMBOLS, sp.elapsed))
     return 0
 
 

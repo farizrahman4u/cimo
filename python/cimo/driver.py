@@ -237,16 +237,24 @@ def _sigs(ssa):
                      for m in _SIG.finditer(ssa))
 
 
-def _address(x):
-    """Pointer argument: a buffer (numpy array, bytearray, memoryview, ctypes array) or int."""
+def _address(x, keep):
+    """Pointer argument: a buffer (numpy array, bytearray, memoryview, ctypes array, bytes) or
+    int. Objects that must outlive the call are appended to `keep`. bytes are passed in place
+    (NUL-terminated, as ctypes does); other read-only buffers as a copy."""
     if isinstance(x, int):
         return x
     ai = getattr(x, '__array_interface__', None)
     if ai is not None:
         return ai['data'][0]
+    if isinstance(x, bytes):
+        p = ctypes.c_char_p(x)  # points into the bytes object, which keeps its trailing NUL
+        keep.append((x, p))
+        return ctypes.cast(p, ctypes.c_void_p).value or 0
     mv = memoryview(x)
     if mv.readonly:
-        return ctypes.cast(ctypes.c_char_p(mv.tobytes()), ctypes.c_void_p).value
+        buf = ctypes.create_string_buffer(mv.tobytes())  # NUL-terminated copy
+        keep.append(buf)
+        return ctypes.addressof(buf)
     return ctypes.addressof(ctypes.c_char.from_buffer(mv))
 
 
@@ -278,7 +286,8 @@ class Kernel:
         if len(args) != len(self._params):
             raise TypeError('%s() takes %d arguments (%d given)'
                             % (self.__name__, len(self._params), len(args)))
-        args = [_address(a) if k == 'l' and not isinstance(a, int) else a
+        keep = []  # read-only buffers passed by pointer: alive until the call returns
+        args = [_address(a, keep) if k == 'l' and not isinstance(a, int) else a
                 for a, k in zip(args, self._params)]
         ctx = self._state.ctx()
         try:

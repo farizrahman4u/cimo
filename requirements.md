@@ -477,7 +477,7 @@ uses Apple's type macros (signed char and `wchar_t`, `int64_t` = `long long`). S
 
 ## Single-file distribution (2026-10-30)
 
-`cimo bundle [-o cimo.py] [--prebuilt]` (`cimo.bundle.build`) writes one `cimo.py` that works
+`cimo bundle [-o cimo.py]` (`cimo.bundle.build`) writes one `cimo.py` that works
 like the package in any CPython 3.9+ with only the standard library: put it on `sys.path`,
 `import cimo`.
 
@@ -503,17 +503,16 @@ like the package in any CPython 3.9+ with only the standard library: put it on `
 - **Cache keys are content hashes over package-relative names**, computed from the original
   sources at bundle time and embedded (`bundle-keys.json`), so a bundle has the same
   `compiler_key()` and runtime key as the tree it was built from, stripped or not.
-- **`--prebuilt`** adds the compiled runtime as `prebuilt/runtime-<key>/` (per-file assembly +
-  `index.json`, the same layout as the cache). `linker.runtime()` looks there first: a fresh
-  process never builds the runtime and writes nothing. On another target or a modified
-  compiler the key differs and it builds as usual.
+- **Sources only.** A `--prebuilt` option (embedding the compiled runtime) was tried and
+  removed: it only matched the target it was built on and put generated, target-specific
+  code in a file meant to be source. The first-use cost is handled by compiling runtime
+  members on demand instead (M5, link model).
 - **No writable cache** (`CIMO_CACHE_DIR` / `CIMO_RUNTIME_CACHE` / `~/.cache/cimo` cannot be
   created or written): the module cache and the runtime are kept in memory for the process.
-- **Measured** (Linux arm64, CPython 3.13): bundle 1.05 MB, 1.67 MB with `--prebuilt` (+0.62
-  MB of runtime assembly); building it 1 s with stripping, 0.05 s without (plus the runtime build if not cached);
-  `import cimo` from it 0.05 s; first compile of a printf/sin/malloc kernel 0.2 s with
-  `--prebuilt`, 5.6 s without (runtime build). `tests/test_bundle.py` runs it under
-  `python -I -S` with no writable home.
+- **Measured** (Linux arm64, CPython 3.13): bundle 1.05 MB; building it 1 s with stripping,
+  0.05 s without; `import cimo` from it 0.05 s; first compile of a printf/sin/malloc kernel
+  1.5 s with nothing cached (15 runtime members), then 0.1 s. `tests/test_bundle.py` runs it
+  under `python -I -S` with no writable home.
 
 ## Command line (2026-10-30)
 
@@ -539,8 +538,8 @@ terminal width and a spinner.
 - Completion: the scripts call the hidden `cimo __complete WORDS...`, so they follow the
   command tree; `__file__`/`__dir__` hand path completion back to the shell. bash is tested
   (`tests/test_cli.py`); zsh and fish scripts are untested (not installed here).
-- The runtime's first build reports through `linker.progress` (the CLI shows a spinner);
-  without it the library prints its two stderr lines as before.
+- Compiling runtime members reports through `linker.progress` (the CLI shows a spinner);
+  without it the library prints one line on stderr per link that compiled any.
 
 ## Plan
 
@@ -831,11 +830,11 @@ replacing host-libc resolution.
   without them `pow` differs from gcc-built musl by an ulp).
   Fix over musl: floatscan's hex-float digit window is one digit wider (musl's is sized for its
   real long double; with long double = double, `0x1.00000000000008000001p0` rounded down).
-  - **First-use build: 194 files in 8.8 s** (5.5 s for 197 files since unreferenced statics
-    are pruned; CPython 3.13, Snapdragon X/WSL2; vfprintf.c
-    0.6 s, `__rem_pio2_large.c` 0.4 s, the rest < 0.15 s each), then cached; a module that
-    uses printf and math links and loads in ~0.1 s the first time in a process (runtime
-    members are assembled lazily) and ~10 ms after.
+  - **Compiled on demand:** all 197 files take 5.5 s (8.8 s before unreferenced statics were
+    pruned; CPython 3.13, Snapdragon X/WSL2; vfprintf.c 0.6 s, `__rem_pio2_large.c` 0.4 s, the
+    rest < 0.15 s each), but a link compiles only the members it pulls in: printf + sin +
+    malloc is 15 members, 1.4 s. Each member is cached; a module whose members are cached
+    links and loads in ~0.1 s the first time in a process and ~10 ms after.
   - `tests/test_runtime.py`: five C programs (`tests/runtime/t_*.c`: string edges of lengths
     and alignments, ctype on all of -1..255, strto* edge cases and 2000 random decimal
     strings, qsort/bsearch, ~30k printf formats, every math function on special and random
@@ -868,8 +867,10 @@ replacing host-libc resolution.
   The default build has no host-libc dependency (checked by a test that resolves nothing from
   the process).
   **Done 2026-10-30** (`cimo/linker.py`). **Link model: static, per module.** The runtime is
-  an archive (one object per source file, cached as assembly in
-  `~/.cache/cimo/runtime-<key>/` with a symbol index; key = runtime sources and headers +
+  an archive (one member per source file, compiled when a link first needs it and cached as
+  assembly in `~/.cache/cimo/runtime-<key>/`; `runtime/symbols.txt`, generated by `cimo
+  __update-runtime-symbols` and checked by a test, maps symbols to members so nothing else
+  is compiled; what a member uses comes from its object; key = runtime sources and headers +
   bundled headers + compiler sources (frontend, middle, backend, driver, linker, execution); `CIMO_RUNTIME_CACHE` overrides the location, a fresh
   `CIMO_CACHE_DIR` does not force a rebuild). Linking pulls only the members that resolve the
   module's undefined symbols, transitively, and merges them with the module into one object
