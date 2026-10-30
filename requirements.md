@@ -421,11 +421,11 @@ swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the inclu
   calls `qsort` with comparators that have ties (rega, mem, load). Another libc may order ties
   differently; that's a C-side difference, not a port bug. Conventions: `python/cimo/qbe/PORTING.md`.
 
-**`cimo.compile` (2026-10-30):** `python/cimo/compiler.py` gives the Python API
-(`cimo.compile`, `cimo.load`, `k.name(...)`, `k()` calls `main`) via C cproc → the Python QBE port →
-`cimo.asm` → `cimo.jit`, with the assembly cached by content hash in `~/.cache/cimo`. It binds
-signatures from the QBE IR (`l` params accept buffers). External symbols (`printf`, libm) resolve
-against the running process for now. M3 replaces C cproc; the API should not change. `examples/` uses it.
+**`cimo.compile` (2026-10-30): pure Python.** `python/cimo/compiler.py`: `cimo.cpp` → `cimo.cproc` →
+`cimo.qbe` → `cimo.asm` → `cimo.jit`, no external tools. The assembly is cached in `~/.cache/cimo`,
+keyed by the preprocessed source. Signatures come from the QBE IR (`l` params accept buffers).
+External symbols (`printf`, libm) resolve against the running process for now; the bundled
+runtime library (M5) replaces that. `examples/` uses it.
 
 **M2: encoder + loader.** arm64 machine-code encoder (no external assembler) and the JIT loader
 for Linux and macOS (strategies under "Platform loading findings").
