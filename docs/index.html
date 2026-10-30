@@ -299,7 +299,9 @@ section.s{padding:72px 0 8px}
 }
 .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;margin-top:28px;align-items:start}
 .split.wide-l{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
-.split.usage{grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);align-items:center}
+.split.usage{grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);align-items:center;margin-top:0}
+#usage{padding-top:48px}
+@media(max-width:600px){#usage{padding-top:36px}}
 @media(max-width:960px){.split,.split.wide-l,.split.usage{grid-template-columns:minmax(0,1fr)}}
 .stack{display:flex;flex-direction:column;gap:14px;min-width:0}
 .note{font-size:13px;color:var(--ink3);margin-top:12px}
@@ -424,11 +426,11 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
 </div></section>
 
 <section class="s" id="usage"><div class="wrap">
-  <span class="k">Usage</span>
-  <h2>C kernels from Python</h2>
   <div class="split usage">
     <div>
-      <p class="lede" style="margin-top:0">Compile a string or a <code>.c</code> file. Every non-static function becomes a Python callable, typed from its C signature. Arrays are passed by pointer and never copied.</p>
+      <span class="k">Usage</span>
+      <h2>C kernels from Python</h2>
+      <p class="lede">Compile a string or a <code>.c</code> file. Every non-static function becomes a Python callable, typed from its C signature. Arrays are passed by pointer and never copied.</p>
       <ul class="pts" style="margin-top:20px">
         <li><b>Scripts and notebooks.</b> The same call in a script, Jupyter, JupyterLite or marimo.</li>
         <li><b>Cached.</b> The second run of the same source starts instantly.</li>
