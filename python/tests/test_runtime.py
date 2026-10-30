@@ -615,11 +615,11 @@ int f(void) { return printf("pid %d\n", getpid()); }''', link=['libc'])
 
 @pytest.mark.skipif(not LINUX_ARM64 or not os.path.exists('/usr/include/unistd.h'),
                     reason='needs glibc headers')
-def test_system_headers():
+def test_host_headers():
     m = cimo.compile(r'''
 #include <unistd.h>
 #include <string.h>
-long f(void) { return getpid() + strlen("abc"); }''', link=['libc'], system_headers=True)
+long f(void) { return getpid() + strlen("abc"); }''', link=['libc'], host_headers=True)
     assert m.f() == os.getpid() + 3
 
 
@@ -637,7 +637,7 @@ long f(void) {
     errno = 7;
     return errno * 1000 + (environ == __environ) * 10 + *p + (&optind)[0];
 }
-int g(void) { return fileno(stdout) * 10 + fileno(stderr); }''', link=['libc'], system_headers=True)
+int g(void) { return fileno(stdout) * 10 + fileno(stderr); }''', link=['libc'], host_headers=True)
     assert m.f() == 7012
     assert m.g() == 12
 

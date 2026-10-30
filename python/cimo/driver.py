@@ -122,23 +122,23 @@ _HOSTED = frozenset('''FILE stdin stdout stderr errno fopen freopen fclose fflus
     connect bind listen accept send recv dlopen dlsym'''.split())
 
 
-def _hint(msg, system_headers):
+def _hint(msg, host_headers):
     """A hint for errors about the hosted C library, which cimo does not bundle."""
-    host = ("pass system_headers=True to use the host's C headers (and link=['libc'] to "
+    host = ("pass host_headers=True to use the host's C headers (and link=['libc'] to "
             "call their functions)")
     m = re.search(r'([\w/.+-]+\.h): No such file or directory', msg)
-    if m and not system_headers:
+    if m and not host_headers:
         if m.group(1) == 'setjmp.h':
             return msg + '; setjmp/longjmp are not supported by cimo'
         return msg + '; %s is not bundled with cimo: %s' % (m.group(1), host)
     m = re.search(r"(?:undeclared identifier: |unknown type name ')(\w+)", msg)
-    if m and not system_headers and (m.group(1) in _HOSTED or m.group(1).startswith('pthread_')):
+    if m and not host_headers and (m.group(1) in _HOSTED or m.group(1).startswith('pthread_')):
         return msg + "; %s is not in cimo's runtime: %s" % (m.group(1), host)
     return msg
 
 
-def _system_include_dirs():
-    """The host's C header directories (for system_headers=True)."""
+def _host_include_dirs():
+    """The host's C header directories (for host_headers=True)."""
     if _APPLE:
         import subprocess
         try:
@@ -153,24 +153,24 @@ def _system_include_dirs():
         dirs = ['/usr/local/include', '/usr/include/' + multiarch, '/usr/include']
     dirs = [d for d in dirs if os.path.isdir(d)]
     if not dirs:
-        raise CompileError('system_headers=True: no system header directory found')
+        raise CompileError('host_headers=True: no system header directory found')
     return dirs
 
 
-def _build(src, filename='<string>', include_dirs=(), system_headers=False):
+def _build(src, filename='<string>', include_dirs=(), host_headers=False):
     """C source -> (assembly text, signatures), cached by a hash of the preprocessed source."""
     from .preprocessor import preprocess, PreprocessError
     from .frontend import compile as cproc_compile, FrontendError
     if platform.machine().lower() not in ('arm64', 'aarch64'):
         raise CompileError('cimo generates arm64 code only; this machine is %s'
                            % platform.machine())
-    if system_headers:
-        include_dirs = tuple(include_dirs) + tuple(_system_include_dirs())
+    if host_headers:
+        include_dirs = tuple(include_dirs) + tuple(_host_include_dirs())
     try:
         pp = preprocess(_PRELUDE + '#line 1\n' + src, filename, include_dirs=include_dirs,
                         target='arm64_apple' if _APPLE else 'arm64', keep_attributes=True)
     except PreprocessError as e:
-        raise CompileError(_hint(str(e), system_headers)) from None
+        raise CompileError(_hint(str(e), host_headers)) from None
     key = hashlib.sha256(_VERSION + _link.compiler_key().encode() + (b'apple' if _APPLE else b'') + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
                          + pp.encode()).hexdigest()[:24]
     path = os.path.join(_cache_dir(), key + '.s')
@@ -179,9 +179,10 @@ def _build(src, filename='<string>', include_dirs=(), system_headers=False):
         with open(path) as f, open(sig) as g:
             return f.read(), g.read()
     try:
-        ssa, params = _frontend(pp, filename, fma=FMA, builtins=True, diagnostics=True)
+        ssa, params = _frontend(pp, filename, fma=FMA, builtins=True, diagnostics=True,
+                                   prune=True)
     except FrontendError as e:
-        raise CompileError(_hint(str(e), system_headers)) from None
+        raise CompileError(_hint(str(e), host_headers)) from None
     text = _qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
     sigs = '\n'.join('%s %s %s' % (m.group(2), m.group(1) or '-',
                                    ','.join(a.split()[0] for a in m.group(3).split(',')
@@ -302,24 +303,24 @@ class Module:
         raise TypeError('module has no main(); call one of: %s' % ', '.join(self._kernels))
 
 
-def compile(src, include_dirs=(), link=(), system_headers=False):
+def compile(src, include_dirs=(), link=(), host_headers=False):
     """Compile C source and return a Module of callables.
 
     The module is linked with cimo's runtime library (string.h, math.h, printf, malloc, ...)
     and nothing else. link: host libraries whose symbols may resolve what the runtime does not
     provide: 'libc', 'libm', 'python' (the Python C API), a soname ('libz.so.1'), a short name
-    ('z') or a path. system_headers: also search the host's C headers (after include_dirs and
+    ('z') or a path. host_headers: also search the host's C headers (after include_dirs and
     before cimo's bundled ones), to use declarations of linked libraries."""
     if isinstance(link, str):
         link = [link]
-    return Module(*_build(src, '<string>', tuple(include_dirs), system_headers),
+    return Module(*_build(src, '<string>', tuple(include_dirs), host_headers),
                   link=tuple(link))
 
 
-def load(path, include_dirs=(), link=(), system_headers=False):
+def load(path, include_dirs=(), link=(), host_headers=False):
     """Compile a .c file; its directory is searched for "..." includes. Options as compile()."""
     with open(path) as f:
         src = f.read()
     if isinstance(link, str):
         link = [link]
-    return Module(*_build(src, path, tuple(include_dirs), system_headers), link=tuple(link))
+    return Module(*_build(src, path, tuple(include_dirs), host_headers), link=tuple(link))

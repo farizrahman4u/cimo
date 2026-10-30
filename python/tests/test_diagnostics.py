@@ -69,7 +69,7 @@ REJECTED = [
     ('struct s {};', 'empty structs and unions'),
     # hosted libc without the host's headers: a hint
     ('int f(void){ return fopen("x", "r") != 0; }',
-     "undeclared identifier: fopen; fopen is not in cimo's runtime: pass system_headers=True"),
+     "undeclared identifier: fopen; fopen is not in cimo's runtime: pass host_headers=True"),
     ('int f(void){ return (int)time(0); }', "time is not in cimo's runtime"),
     ('int f(void){ return pthread_self() != 0; }', "pthread_self is not in cimo's runtime"),
     ('int f(void){ FILE *fp = 0; return fp != 0; }', "FILE is not in cimo's runtime"),
@@ -87,7 +87,7 @@ def test_rejected(src, msg):
 
 HEADERS = [
     ('#include <setjmp.h>\n', 'setjmp.h: No such file or directory; setjmp/longjmp are not supported'),
-    ('#include <time.h>\n', 'time.h is not bundled with cimo: pass system_headers=True'),
+    ('#include <time.h>\n', 'time.h is not bundled with cimo: pass host_headers=True'),
     ('#include <complex.h>\n', 'complex.h is not bundled with cimo'),
 ]
 
@@ -110,8 +110,14 @@ ACCEPTED = [
     ('inline int g(void){ return 1; } int f(void){ return g(); }', 1),
     ('__inline int g(void){ return 2; } int f(void){ int (*p)(void) = g; return p(); }', 2),
     ('inline int fact(int n){ return n < 2 ? 1 : n * fact(n - 1); } int f(void){ return fact(5); }', 120),
-    # C23 nullptr (a null pointer constant)
+    # C23 nullptr and nullptr_t
     ('int f(void){ int *p = nullptr; return p == nullptr && !nullptr; }', 1),
+    ('int f(void){ return _Generic(nullptr, typeof(nullptr): 1, void *: 2, default: 3); }', 1),
+    ('typeof(nullptr) n; int g(int *p){ return p == 0; } '
+     'int f(void){ int *p = n; void *q = n; _Bool b = n; typeof(nullptr) m = n; '
+     'return (p == n) + (n == q) * 10 + (n == m) * 100 + (n == 0) * 1000 + !b * 10000 '
+     '+ g(nullptr) * 100000 + sizeof n * 1000000; }', 8111111),
+    ('int f(void){ int x = 1, *p = x ? nullptr : &x; return (p == nullptr) + !(void *)nullptr; }', 2),
     # attributes that don't change the meaning, or that cimo implements
     ('__attribute__((noinline, unused)) static int g(int x){ return x; } '
      '[[nodiscard, gnu::pure]] int f(void){ return g(4); }', 4),
@@ -138,7 +144,7 @@ def test_accepted(src, result):
 
 @pytest.mark.skipif(not os.path.exists('/usr/include/stdio.h') or platform.system() != 'Linux',
                     reason='needs glibc headers')
-def test_system_headers():
+def test_host_headers():
     """glibc's headers compile (they reach the frontend with their attributes: cimo keeps
     sys/cdefs.h from defining __attribute__ away), and attributes after them are still checked."""
     hs = ('stdio.h stdlib.h string.h unistd.h time.h errno.h fcntl.h sys/stat.h sys/types.h '
@@ -156,10 +162,49 @@ int f(void) {
     return (int)strlen(buf) + (int)sqrt(16.0) + abs(-1) + (errno != 0);
 }
 '''
-    assert cimo.compile(src, system_headers=True, link=['libc']).f() == 7
+    assert cimo.compile(src, host_headers=True, link=['libc']).f() == 7
     with pytest.raises(cimo.CompileError, match=r'<string>:2:\d+: error: vector types'):
         cimo.compile('#include <stdio.h>\ntypedef int v4 __attribute__((vector_size(16)));\n',
-                     system_headers=True)
+                     host_headers=True)
+
+
+def test_long_double_error_points_at_the_expression():
+    src = 'double f(double x) {\n    double y = x + 1;\n    y = y * (long double)x + 2;\n    return y;\n}'
+    with pytest.raises(cimo.CompileError, match=r'<string>:3:(\d+): error: long double') as e:
+        cimo.compile(src)
+    col = int(re.search(r':3:(\d+):', str(e.value)).group(1))
+    assert 13 <= col <= 27, e.value  # at `(long double)x`, not at the end of the statement
+
+
+@pytest.mark.skipif(not os.path.exists('/usr/include/glob.h') or platform.system() != 'Linux',
+                    reason='needs glibc headers')
+def test_gcc_type_macros():
+    """gcc's predefined type macros (glibc's glob.h uses __SIZE_TYPE__), char unsignedness."""
+    m = cimo.compile('#include <glob.h>\n#include <limits.h>\n'
+                     'int f(void){ glob_t g; __SIZE_TYPE__ s = 0; __INT64_TYPE__ i = 0; '
+                     'return sizeof g.gl_pathc + sizeof s * 10 + sizeof i * 100 + '
+                     '(CHAR_MIN == 0) * 1000 + __CHAR_UNSIGNED__ * 10000; }',
+                     host_headers=True, link=['libc'])
+    assert m.f() == 11888
+
+
+def test_unreferenced_statics_are_dropped():
+    m = cimo.compile(r'''
+#include <math.h>
+static int table[1000] = {1};
+static double unused(double x) { return sin(x) + table[3]; }
+static int also_unused(int x) { return (int)unused(x); }
+static inline int sq(int x) { return x * x; }
+static int helper(int x) { return sq(x) + 1; }
+static int (*fp)(int) = helper;
+int f(int x) { return fp(x); }''')
+    assert m.f(3) == 10
+    syms = m._image.symbols
+    pre = m._image.prefix
+    for name in ('unused', 'also_unused', 'table', 'sin'):
+        assert pre + name not in syms, name
+    for name in ('sq', 'helper', 'fp', 'f'):
+        assert pre + name in syms, name
 
 
 def test_cli_behavior_unchanged():

@@ -421,8 +421,11 @@ cproc doesn't preprocess: its driver runs `cpp -undef` with the flags in cproc's
 cproc-qbe only understands `#define`/`#undef`, gcc line markers and (ignored) `#pragma`.
 `python/cimo/preprocessor.py` replaces that step: `preprocess(src, filename, include_dirs, defines,
 target)` returns text with gcc line markers for cproc-qbe. The predefined macros are cproc's
-`config.h` list plus `__STDC_VERSION__` 201112L and `__STDC_HOSTED__` 0. `target='arm64_apple'`
-swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the includer's directory
+`config.h` list plus `__STDC_VERSION__` 201112L and `__STDC_HOSTED__` 0, plus gcc's type,
+size and limit macros (`__SIZE_TYPE__`, `__INT64_TYPE__`, `__INT64_C`, `__WCHAR_MAX__`, ...,
+and `__CHAR_UNSIGNED__` on Linux; system headers such as glibc's `glob.h` need them; values from
+`cpp -dM`). `target='arm64_apple'` swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__` and
+uses Apple's type macros (signed char and `wchar_t`, `int64_t` = `long long`). Search order: the includer's directory
 (quotes only), then `include_dirs`, then `cimo/include/`.
 
 - **Verified against GNU cpp 13.3:** the token streams match on cproc's tests, `scratch/qbe_eval`,
@@ -458,9 +461,11 @@ swaps `__linux__`/`__unix__` for `__APPLE__`/`__MACH__`. Search order: the inclu
     headers and by cimo.preprocessor + cproc + QBE, except `float_t`.
 - **For the cproc port (M3):**
   - cproc emits unused `static` functions. math.h's 16 tiny classification and comparison
-    helpers (e.g. `isnan`, no double evaluation) land in every unit that includes it. Drop
-    unreferenced statics. QBE has no inliner, so `isnan(x)` is a call until the middle stage
-    inlines.
+    helpers (e.g. `isnan`, no double evaluation) landed in every unit that includes it.
+    **Done:** `frontend.compile(prune=True)` (driver and runtime build) drops static functions
+    and data no exported definition reaches (`frontend/prune.py`, on the IR text); the
+    runtime's first build went from 8.8 s to 5.5 s. QBE has no inliner, so `isnan(x)` is a call
+    until the middle stage inlines.
   - cproc defines `__FLT_EVAL_METHOD__` as 1 but computes floats in single precision at run
     time. So `float_t` is `double`, as with glibc under C cproc, while gcc says `float`. Decide
     whether to switch to 0.
@@ -584,12 +589,16 @@ for Linux and macOS (strategies under "Platform loading findings").
     inline assembly (`asm` is a keyword, as in gcc's default mode). `a ?: b` works (cproc
     evaluates `a` once).
   - Accepted: `__restrict(__)`, `__const(__)`, `__volatile`, `__alignof`, `asm` labels,
-    `__PRETTY_FUNCTION__`/`__FUNCTION__`, C23 `nullptr` (as `(void *)0`: cproc's `nullptr_t`
-    asserts in code generation). A C99 inline definition with no external definition in the
+    `__PRETTY_FUNCTION__`/`__FUNCTION__`, C23 `nullptr` and `nullptr_t` (cproc d1c53dd parses
+    them but asserts in code generation and rejects non-constant `nullptr_t` operands; cimo
+    generates a pointer-sized zero and allows `nullptr_t` expressions in assignment, `==`/`!=`
+    and `?:` as C23 does).
+  - Unsupported types are reported where the expression is parsed (a hook on expression
+    construction), so the column points at the `long double` sub-expression. A C99 inline definition with no external definition in the
     unit becomes a local function when referenced (cproc emits nothing, so the call failed to link).
-  - Driver hints: a missing header suggests `system_headers=True` (`setjmp.h`: unsupported);
+  - Driver hints: a missing header suggests `host_headers=True` (`setjmp.h`: unsupported);
     undeclared hosted-libc names (`fopen`, `FILE`, `time`, `pthread_*`, ...) suggest
-    `system_headers=True, link=['libc']`.
+    `host_headers=True, link=['libc']`.
   - glibc 2.39 headers (stdio, stdlib, unistd, pthread, signal, math, sys/*, ...; 70+ tried) compile
     except `complex.h` (`_Complex`) and `glob.h` (`__SIZE_TYPE__` is not predefined).
 
@@ -754,7 +763,8 @@ replacing host-libc resolution.
   without them `pow` differs from gcc-built musl by an ulp).
   Fix over musl: floatscan's hex-float digit window is one digit wider (musl's is sized for its
   real long double; with long double = double, `0x1.00000000000008000001p0` rounded down).
-  - **First-use build: 194 files in 8.8 s** (CPython 3.13, Snapdragon X/WSL2; vfprintf.c
+  - **First-use build: 194 files in 8.8 s** (5.5 s for 197 files since unreferenced statics
+    are pruned; CPython 3.13, Snapdragon X/WSL2; vfprintf.c
     0.6 s, `__rem_pio2_large.c` 0.4 s, the rest < 0.15 s each), then cached; a module that
     uses printf and math links and loads in ~0.1 s the first time in a process (runtime
     members are assembled lazily) and ~10 ms after.
@@ -804,7 +814,7 @@ replacing host-libc resolution.
   name like `'z'`, a path): what neither the module nor the runtime defines resolves by dlsym
   in those libraries only, through the loader's stubs/GOT; runtime functions still win
   (`malloc` stays the module heap's, `printf` still goes to `sys.stdout`).
-  `system_headers=True` adds the host's header directories after `include_dirs` (glibc's
+  `host_headers=True` adds the host's header directories after `include_dirs` (glibc's
   `stdio.h`, `unistd.h`, `time.h`, `errno.h`, ... preprocess and compile; the bundled
   `stdarg.h` defines gcc's `__gnuc_va_list` for them; cimo's freestanding headers still serve
   `stddef.h`/`stdarg.h`). Anything unresolved is a CompileError:

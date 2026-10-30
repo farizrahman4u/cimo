@@ -41,21 +41,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 - `rgb2gray` 1.3x of gcc: constant materialization / `madd`.
 - Runtime: per-module copy of what it uses (printf ~20 KB); fine for now.
 
-## Bugs
-
-- `glob.h` (with `system_headers=True`) needs `__SIZE_TYPE__`, which `cimo.preprocessor` does
-  not predefine; check the other gcc predefined type macros too.
-- `nullptr` is `(void *)0` in the driver (cproc's `nullptr_t` is unfinished); `_Generic` and
-  `typeof` can't tell it apart.
-- "long double is not supported" points at the end of the statement, not the
-  sub-expression.
-
 ## Small
 
-- Rename `system_headers=` to `host_headers=` (docs and errors already say "host").
-- README: "Out of scope: stdio, files, threads" is stale since `link=`; update the freestanding
-  section.
-- Frontend: drop unreferenced `static` functions and data.
 - `float_t`/`FLT_EVAL_METHOD` consistency (cimo evaluates float in float; the runtime is built
   with `__FLT_EVAL_METHOD__` 0).
 - Demos (see "Demos (planned)" in `requirements.md`).
