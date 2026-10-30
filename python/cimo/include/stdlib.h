@@ -1,5 +1,5 @@
-/* cimo: <stdlib.h>, the OS-free subset (no stdio, exit, getenv, rand, locale). Memory comes
-   from the module heap. abort() is the error-unwind path back to Python. */
+/* cimo: <stdlib.h>, the OS-free subset (no exit, getenv, system, rand, locale), provided by
+   cimo's runtime. Memory comes from the module heap. abort() unwinds back to Python. */
 #ifndef __CIMO_STDLIB_H
 #define __CIMO_STDLIB_H
 
@@ -18,10 +18,9 @@ typedef unsigned int wchar_t;
 #undef NULL
 #define NULL ((void *)0)
 
-typedef struct {
-	int quot;
-	int rem;
-} div_t;
+typedef struct { int quot, rem; } div_t;
+typedef struct { long quot, rem; } ldiv_t;
+typedef struct { long long quot, rem; } lldiv_t;
 
 void *malloc(size_t size);
 void *calloc(size_t nmemb, size_t size);
@@ -35,11 +34,21 @@ void *bsearch(const void *key, const void *base, size_t nmemb, size_t size,
 
 int abs(int j);
 long labs(long j);
+long long llabs(long long j);
 div_t div(int numer, int denom);
+ldiv_t ldiv(long numer, long denom);
+lldiv_t lldiv(long long numer, long long denom);
 
-long strtol(const char *restrict nptr, char **restrict endptr, int base);
-double strtod(const char *restrict nptr, char **restrict endptr);
 int atoi(const char *nptr);
+long atol(const char *nptr);
+long long atoll(const char *nptr);
+double atof(const char *nptr);
+long strtol(const char *restrict nptr, char **restrict endptr, int base);
+unsigned long strtoul(const char *restrict nptr, char **restrict endptr, int base);
+long long strtoll(const char *restrict nptr, char **restrict endptr, int base);
+unsigned long long strtoull(const char *restrict nptr, char **restrict endptr, int base);
+double strtod(const char *restrict nptr, char **restrict endptr);
+float strtof(const char *restrict nptr, char **restrict endptr);
 
 _Noreturn void abort(void);
 

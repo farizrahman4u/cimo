@@ -115,7 +115,7 @@ int main(void)
 	strcpy(buf, "abc"); strcat(buf, "def"); PI(strlen(buf)); PI(strchr(buf, 'd') - buf);
 	memset(buf, 'x', 3); PI(buf[2]); memmove(buf + 1, buf, 4); PI(buf[4]);
 	PI(strstr("haystack", "st") != NULL); PI(strspn("aab", "a")); PI(strcspn("abc", "c"));
-	PI(isalpha('a')); PI(isdigit('5')); PI(isspace(' ')); PI(toupper('q')); PI(tolower('Q'));
+	PI(!!isalpha('a')); PI(!!isdigit('5')); PI(!!isspace(' ')); PI(toupper('q')); PI(tolower('Q'));
 	PI(isxdigit('f')); PI(ispunct('!')); PI(isupper('a')); PI(isblank('\t'));
 
 	qsort(arr, 5, sizeof(int), cmp);

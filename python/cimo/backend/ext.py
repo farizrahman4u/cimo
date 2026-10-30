@@ -9,9 +9,17 @@ Flags:
           rounded once) and select fmadd/fmsub/fnmadd/fnmsub for it on arm64
   ldp     arm64: pair adjacent loads/stores off the same base into ldp/stp
   layout  arm64: lay loops out so the back edge is one conditional branch
+  math    accept the math instructions in the IR text (`%r =d fsqrt %x`; also fabs, fmin,
+          fmax, ffloor, fceil, ftrunc, fround), which cimo.frontend emits for calls to the C
+          functions of those names; arm64 selects fsqrt, fabs, fminnm, fmaxnm, frintm,
+          frintp, frintz, frinta
+  trap    arm64: unreachable code (QBE's `hlt`) calls __cimo_trap instead of `brk #1000`,
+          so it unwinds to Python (cimo.execution) instead of killing the process
+  stkchk  None, or a set of function names whose prologue calls __cimo_stkchk (the stack
+          guard, cimo.execution); not a bool, and not part of ALL
 
     from cimo.backend import ext
-    with ext.options(fma=True, ldp=True, layout=True):
+    with ext.options(fma=True, ldp=True, layout=True, math=True):
         ...  # parse + emit
     ext.configure(**ext.ALL)   # or set them globally
 
@@ -32,14 +40,17 @@ import contextlib
 fma = False
 ldp = False
 layout = False
+math = False
+trap = False
+stkchk = None
 
 # alias hook for ldp scheduling: disjoint(fn, base1, base2) -> True if accesses off the two
 # base temps (SSA, after isel) can never overlap, e.g. distinct restrict pointers. None: they
 # may, so accesses never move past accesses off another base.
 disjoint = None
 
-ALL = {'fma': True, 'ldp': True, 'layout': True}
-_NAMES = tuple(ALL)
+ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True}
+_NAMES = tuple(ALL) + ('stkchk',)
 
 
 def configure(**kw):
@@ -49,7 +60,7 @@ def configure(**kw):
     for k, v in kw.items():
         if k not in _NAMES:
             raise TypeError('unknown backend extension %r' % k)
-        g[k] = bool(v)
+        g[k] = (frozenset(v) if v is not None else None) if k == 'stkchk' else bool(v)
     return old
 
 

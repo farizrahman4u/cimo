@@ -588,7 +588,8 @@ def _ftype(r):
     return {'s': 0, 'd': 1}[r[0]]
 
 
-_FP3 = {'fadd': 0x1e202800, 'fsub': 0x1e203800, 'fmul': 0x1e200800, 'fdiv': 0x1e201800}
+_FP3 = {'fadd': 0x1e202800, 'fsub': 0x1e203800, 'fmul': 0x1e200800, 'fdiv': 0x1e201800,
+        'fmaxnm': 0x1e206800, 'fminnm': 0x1e207800}
 
 
 def _i_fp3(a, mn, ops):
@@ -610,12 +611,17 @@ def _i_fp4(a, mn, ops):  # fmadd Fd, Fn, Fm, Fa
     return _FP4[mn] | _ftype(rd) << 22 | rm[1] << 16 | ra[1] << 10 | rn[1] << 5 | rd[1]
 
 
+# floating-point data-processing (1 source); fneg is QBE's, the rest are cimo's math builtins
+_FP1 = {'fneg': 0x1e214000, 'fabs': 0x1e20c000, 'fsqrt': 0x1e21c000, 'frintp': 0x1e24c000,
+        'frintm': 0x1e254000, 'frintz': 0x1e25c000, 'frinta': 0x1e264000}
+
+
 def _i_fneg(a, mn, ops):
     if len(ops) != 2:
-        raise AssemblerError('fneg needs 2 operands')
+        raise AssemblerError('%s needs 2 operands' % mn)
     rd, rn = _reg(ops[0], 'sd'), _reg(ops[1], 'sd')
     _same(rd, rn)
-    return 0x1e214000 | _ftype(rd) << 22 | rn[1] << 5 | rd[1]
+    return _FP1[mn] | _ftype(rd) << 22 | rn[1] << 5 | rd[1]
 
 
 def _i_fmov(a, mn, ops):
@@ -869,6 +875,8 @@ _INSNS = {
     'sxtb': _i_ext, 'sxth': _i_ext, 'sxtw': _i_ext, 'uxtb': _i_ext, 'uxth': _i_ext,
     'mov': _i_mov, 'movk': _i_movk, 'movz': _i_movk, 'movn': _i_movk, 'cset': _i_cset,
     'fadd': _i_fp3, 'fsub': _i_fp3, 'fmul': _i_fp3, 'fdiv': _i_fp3, 'fneg': _i_fneg,
+    'fminnm': _i_fp3, 'fmaxnm': _i_fp3, 'fabs': _i_fneg, 'fsqrt': _i_fneg, 'frintp': _i_fneg,
+    'frintm': _i_fneg, 'frintz': _i_fneg, 'frinta': _i_fneg,
     'fmadd': _i_fp4, 'fmsub': _i_fp4, 'fnmadd': _i_fp4, 'fnmsub': _i_fp4,
     'fmov': _i_fmov, 'fcvt': _i_fcvt, 'fcvtzs': _i_fcvtz, 'fcvtzu': _i_fcvtz,
     'scvtf': _i_cvtf, 'ucvtf': _i_cvtf, 'fcmp': _i_fcmp, 'fcmpe': _i_fcmp,

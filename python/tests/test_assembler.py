@@ -139,7 +139,22 @@ def test_fma_and_pairs():
     assert not d, '\n'.join(d)
 
 
+def test_math_builtins():
+    """Instructions cimo's math builtins select (fsqrt, fabs, fminnm/fmaxnm, frint*)."""
+    rnd = random.Random(3)
+    lines = []
+    for mn in ('fsqrt', 'fabs', 'frintm', 'frintp', 'frintz', 'frinta', 'fminnm', 'fmaxnm'):
+        n = 3 if mn in ('fminnm', 'fmaxnm') else 2
+        for k in 'sd':
+            for _ in range(20):
+                lines.append('%s %s' % (mn, ', '.join('%s%d' % (k, rnd.randrange(32))
+                                                       for _ in range(n))))
+    d = A.compare('\n'.join(lines) + '\n')
+    assert not d, '\n'.join(d)
+
+
 @pytest.mark.parametrize('src', [
+    'fsqrt d0, s1',
     'mrs x0, tpidr_el0',
     'add x0, x0, #:tprel_lo12_nc:x',
     '.section .tdata,"awT"',

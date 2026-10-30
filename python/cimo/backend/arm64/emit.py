@@ -132,6 +132,15 @@ omap = [
     (Oacmp, Ki, "cmp %0, %1"),
     (Oacmn, Ki, "cmn %0, %1"),
     (Oafcmp, Ka, "fcmpe %0, %1"),
+    # cimo math builtins (ext.math)
+    (D.Ofsqrt, Ka, "fsqrt %=, %0"),
+    (D.Ofabs, Ka, "fabs %=, %0"),
+    (D.Ofmin, Ka, "fminnm %=, %0, %1"),
+    (D.Ofmax, Ka, "fmaxnm %=, %0, %1"),
+    (D.Offloor, Ka, "frintm %=, %0"),
+    (D.Ofceil, Ka, "frintp %=, %0"),
+    (D.Oftrunc, Ka, "frintz %=, %0"),
+    (D.Ofround, Ka, "frinta %=, %0"),
 ] + [(Oflag + _c, Ki, "cset %=, " + _s) for _c, _s, _ in _CMP] + [
     (NOp, 0, None),
 ]
@@ -641,6 +650,8 @@ def arm64_emitfn(fn, out):
                   "\tsub\tsp, sp, x16\n"
                   "\tstp\tx29, x30, [sp, -16]!\n" % (e.frame & 0xFFFF, e.frame >> 16))
     e.f.write("\tmov\tx29, sp\n")
+    if _ext.stkchk and e.fn.name in _ext.stkchk:  # cimo extension: stack guard
+        e.f.write("\tbl\t%s__cimo_stkchk\n" % T.assym)
     s = s32((e.frame - e.padding) // 4)
     save = []
     for r in arm64_rclob:
@@ -667,7 +678,10 @@ def arm64_emitfn(fn, out):
             if emitcondjmp(b, hjt, hs1, hs2, e):
                 lbl = 0
         elif jt == Jhlt:
-            e.f.write("\tbrk\t#1000\n")
+            if _ext.trap:  # cimo extension: unwind to Python
+                e.f.write("\tbl\t%s__cimo_trap\n" % T.assym)
+            else:
+                e.f.write("\tbrk\t#1000\n")
         elif jt == Jret0:
             s = s32((e.frame - e.padding) // 4)
             rest = []
