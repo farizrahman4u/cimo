@@ -51,6 +51,15 @@ port literally; don't "improve" anything.
 - Recursion that can go deep on large inputs (CFG walks) can be made iterative, but must
   visit in the same order.
 
+## Fixes over C QBE
+
+Bugs of the reference are fixed in the port, marked `fix over C QBE` in the code (C QBE's
+output for these is broken, so no comparison test depends on it):
+
+- `gvn.assoccon`: reassociating a `w` add/sub chain folded the constants in 64 bits, so
+  `x + -1 + -30` became `sub w0, w0, #18446744065119617055` (rejected by the assembler).
+  The folded constant is now masked to 32 bits, as `fold.opfold` does.
+
 ## Checking
 
 `python tests/backend_diff.py -f <flags>` (from `python/`) runs C QBE and the port on QBE's tests

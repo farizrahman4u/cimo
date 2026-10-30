@@ -182,12 +182,16 @@ def assoccon(fn, b, i1):
     c = Con()
     if foldint(c, op, i1.cls, c1, c2):
         return
+    if i1.cls == Kw and c.type == CBits:
+        c.i &= 0xffffffff  # fix over C QBE: keep w constants 32-bit, as opfold does
 
     if op == Oadd and c.type == CBits:
         if ((i1.cls == Kl and c.i < 0)
                 or (i1.cls == Kw and s32(c.i) < 0)):
             fail = negcon(i1.cls, c)
             assert fail == 0
+            if i1.cls == Kw:
+                c.i &= 0xffffffff
             op = Osub
 
     i1.op = op

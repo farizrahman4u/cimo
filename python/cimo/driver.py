@@ -63,7 +63,7 @@ def _cache_dir():
 
 
 _APPLE = sys.platform == 'darwin'
-_VERSION = b'cimo-m5-exec3-rt2-diag1'  # part of the cache key: bump when the generated assembly changes
+_VERSION = b'cimo-1'  # cache entry format; the compiler's own sources are hashed too (linker.compiler_key)
 
 
 # the middle end's loop optimizations (cimo.middle); CIMO_MIDDLE=0 turns them off
@@ -171,7 +171,7 @@ def _build(src, filename='<string>', include_dirs=(), system_headers=False):
                         target='arm64_apple' if _APPLE else 'arm64', keep_attributes=True)
     except PreprocessError as e:
         raise CompileError(_hint(str(e), system_headers)) from None
-    key = hashlib.sha256(_VERSION + (b'apple' if _APPLE else b'') + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
+    key = hashlib.sha256(_VERSION + _link.compiler_key().encode() + (b'apple' if _APPLE else b'') + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
                          + pp.encode()).hexdigest()[:24]
     path = os.path.join(_cache_dir(), key + '.s')
     sig = path[:-2] + '.sig'
