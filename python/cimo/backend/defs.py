@@ -279,6 +279,16 @@ _OPS = [
     ('xselfne', ((Ke, Ke, Ks, Kd), (Ke, Ke, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('xselfo', ((Ke, Ke, Ks, Kd), (Ke, Ke, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('xselfuo', ((Ke, Ke, Ks, Kd), (Ke, Ke, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    # cimo extensions (see ext.py); after all QBE ops so QBE's op numbers are unchanged.
+    # fused multiply-add: "fma0 c" then "r = fma1 a, b" computes r = a*b + c, rounded once
+    ('fma0', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+    ('fma1', ((Ke, Ke, Ks, Kd), (Ke, Ke, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+    # arm64 after isel: r = afmadd a, MEM{base=b, index=c} (the Mem only carries the third
+    # register through liveness, spilling and allocation, which all handle Mem base/index)
+    ('afmadd', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('afmsub', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('afnmadd', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('afnmsub', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
 ]
 
 

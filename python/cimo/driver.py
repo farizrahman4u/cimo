@@ -40,23 +40,48 @@ def _cache_dir():
 
 
 _APPLE = sys.platform == 'darwin'
-_VERSION = b'cimo-m3-1'  # part of the cache key: bump when the generated assembly changes
+_VERSION = b'cimo-m4-2'  # part of the cache key: bump when the generated assembly changes
 
 
-def _qbe(ssa):
-    """QBE IR text to assembly text, with the Python QBE port, in this process."""
+# the middle end's loop optimizations (cimo.middle); CIMO_MIDDLE=0 turns them off
+MIDDLE = os.environ.get('CIMO_MIDDLE', '1') != '0'
+# fused multiply-add where C allows contraction (within one expression, like clang's
+# -ffp-contract=on); CIMO_FMA=0 turns it off, for results identical to -ffp-contract=off
+FMA = os.environ.get('CIMO_FMA', '1') != '0'
+
+
+def _qbe(ssa, params=None, middle=None):
+    """QBE IR text to assembly text, with the Python QBE port, in this process.
+    params: the frontend's parameter info (restrict flags) for the middle end."""
     from .backend import defs as D
     from .backend.main import _Driver, _targets
     from .backend.parse import parse
+    from . import middle as _middle
+    from .backend import ext as _ext
     D.T = _targets()[1 if _APPLE else 0]  # arm64_apple: Apple's ABI variant
     out = io.StringIO()
     try:
-        parse(ssa.encode('latin-1'), '<cimo>', _Driver(out, 0).dbgfile, _Driver(out, 0).data,
-              _Driver(out, 0).func)
+        with _middle.options(enabled=MIDDLE if middle is None else middle,
+                             params=params or {}), \
+                _ext.options(fma=FMA, ldp=True, layout=True):
+            parse(ssa.encode('latin-1'), '<cimo>', _Driver(out, 0).dbgfile,
+                  _Driver(out, 0).data, _Driver(out, 0).func)
         D.T.emitfin(out)
     except D.BackendError as e:
         raise CompileError(str(e)) from None
     return out.getvalue()
+
+
+def _frontend(pp, filename, **kw):
+    """Preprocessed C to (QBE IR text, parameter info for the middle end)."""
+    from .frontend import compile as cproc_compile
+    from .frontend import qbe as _fq
+    _fq.paraminfo = {}
+    try:
+        ssa = cproc_compile(pp, filename, target='aarch64-apple' if _APPLE else 'aarch64', **kw)
+        return ssa, _fq.paraminfo
+    finally:
+        _fq.paraminfo = None
 
 
 def _build(src, filename='<string>', include_dirs=()):
@@ -71,17 +96,18 @@ def _build(src, filename='<string>', include_dirs=()):
                         target='arm64_apple' if _APPLE else 'arm64')
     except PreprocessError as e:
         raise CompileError(str(e)) from None
-    key = hashlib.sha256(_VERSION + (b'apple' if _APPLE else b'') + pp.encode()).hexdigest()[:24]
+    key = hashlib.sha256(_VERSION + (b'apple' if _APPLE else b'') + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
+                         + pp.encode()).hexdigest()[:24]
     path = os.path.join(_cache_dir(), key + '.s')
     sig = path[:-2] + '.sig'
     if os.path.exists(path) and os.path.exists(sig):
         with open(path) as f, open(sig) as g:
             return f.read(), g.read()
     try:
-        ssa = cproc_compile(pp, filename, target='aarch64-apple' if _APPLE else 'aarch64')
+        ssa, params = _frontend(pp, filename, fma=FMA)
     except FrontendError as e:
         raise CompileError(str(e)) from None
-    text = _qbe(ssa)
+    text = _qbe(ssa, params)
     sigs = '\n'.join('%s %s %s' % (m.group(2), m.group(1) or '-',
                                    ','.join(a.split()[0] for a in m.group(3).split(',')
                                             if a.strip()))

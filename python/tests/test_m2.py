@@ -20,6 +20,16 @@ np = pytest.importorskip('numpy')
 
 import cimo  # noqa: E402
 
+
+@pytest.fixture(scope='module', autouse=True)
+def _no_fma():
+    """These tests compare bit for bit against gcc -ffp-contract=off."""
+    import cimo.driver
+    old = cimo.driver.FMA
+    cimo.driver.FMA = False
+    yield
+    cimo.driver.FMA = old
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 EVAL = os.path.join(REPO, 'scratch', 'qbe_eval')

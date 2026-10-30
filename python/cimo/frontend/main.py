@@ -68,14 +68,20 @@ def _tostr(s):
     return s.encode('latin-1').decode('utf-8', 'surrogateescape')
 
 
-def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False):
+def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False):
     """Compile preprocessed C (str or bytes) to QBE IR text.
+
+    fma=True (cimo extension, off by default): contract a*b+c within one expression into
+    the `fma` instruction, as clang's -ffp-contract=on does; the backend must then be run
+    with cimo.backend.ext.fma on to parse it.
 
     Raises FrontendError with cproc's exact error message on errors."""
     if isinstance(text, str):
         text = text.encode('utf-8', 'surrogateescape')
     text = text.decode('latin-1')
+    from . import qbe as _qbe
     try:
+        _qbe.contract = bool(fma)
         with _Recursion():
             _run([(filename, text)], target, pponly)
     except U.FrontendError as e:
@@ -84,6 +90,8 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False):
         e.partial = _tostr(''.join(U.out))
         del U.out[:]
         raise
+    finally:
+        _qbe.contract = False
     res = _tostr(''.join(U.out))
     del U.out[:]
     return res

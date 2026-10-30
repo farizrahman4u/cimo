@@ -599,6 +599,17 @@ def _i_fp3(a, mn, ops):
     return _FP3[mn] | _ftype(rd) << 22 | rm[1] << 16 | rn[1] << 5 | rd[1]
 
 
+_FP4 = {'fmadd': 0x1f000000, 'fmsub': 0x1f008000, 'fnmadd': 0x1f200000, 'fnmsub': 0x1f208000}
+
+
+def _i_fp4(a, mn, ops):  # fmadd Fd, Fn, Fm, Fa
+    if len(ops) != 4:
+        raise AssemblerError('%s needs 4 operands' % mn)
+    rd, rn, rm, ra = [_reg(o, 'sd') for o in ops]
+    _same(rd, rn, rm, ra)
+    return _FP4[mn] | _ftype(rd) << 22 | rm[1] << 16 | ra[1] << 10 | rn[1] << 5 | rd[1]
+
+
 def _i_fneg(a, mn, ops):
     if len(ops) != 2:
         raise AssemblerError('fneg needs 2 operands')
@@ -858,6 +869,7 @@ _INSNS = {
     'sxtb': _i_ext, 'sxth': _i_ext, 'sxtw': _i_ext, 'uxtb': _i_ext, 'uxth': _i_ext,
     'mov': _i_mov, 'movk': _i_movk, 'movz': _i_movk, 'movn': _i_movk, 'cset': _i_cset,
     'fadd': _i_fp3, 'fsub': _i_fp3, 'fmul': _i_fp3, 'fdiv': _i_fp3, 'fneg': _i_fneg,
+    'fmadd': _i_fp4, 'fmsub': _i_fp4, 'fnmadd': _i_fp4, 'fnmsub': _i_fp4,
     'fmov': _i_fmov, 'fcvt': _i_fcvt, 'fcvtzs': _i_fcvtz, 'fcvtzu': _i_fcvtz,
     'scvtf': _i_cvtf, 'ucvtf': _i_cvtf, 'fcmp': _i_fcmp, 'fcmpe': _i_fcmp,
     'ldp': _i_pair, 'stp': _i_pair,

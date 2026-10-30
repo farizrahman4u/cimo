@@ -11,11 +11,13 @@ from ..defs import (R, RTmp, RCon, RSlot, RMem, CBits, CAddr, SGlo, SThr, SExt, 
                     Ostores, Ostored, Oloadsb, Oloadub, Oloadsh, Oloaduh, Oloadsw, Oloaduw,
                     Oload, Oextsb, Oextub, Oextsh, Oextuh, Oextsw, Oextuw, Oexts, Otruncd,
                     Ocast, Ostosi, Ostoui, Odtosi, Odtoui, Oswtof, Ouwtof, Osltof, Oultof,
-                    Ocall, Oacmp, Oacmn, Oafcmp, Onop, Oaddr, Osalloc, Odbgloc)
+                    Ocall, Oacmp, Oacmn, Oafcmp, Onop, Oaddr, Osalloc, Odbgloc, Oafmadd,
+                    Oafmsub, Oafnmadd, Oafnmsub)
 from ..util import die, isreg, str_
 from ..emit import emitfnlnk, emitdbgloc, elf_emitfnfin
-from .regs import R0, R18, IP1, LR, SP, V0, V30
+from .regs import R0, R18, IP1, FP, LR, SP, V0, V30
 from .targ import arm64_rclob
+from .. import ext as _ext
 
 
 def _logimm(x, k):
@@ -135,6 +137,8 @@ omap = [
 ]
 
 V31 = 0x1fffffff  # local name for V31
+
+_FMA = {Oafmadd: "fmadd", Oafmsub: "fmsub", Oafnmadd: "fnmadd", Oafnmsub: "fnmsub"}
 
 
 def rname(r, k):
@@ -432,6 +436,13 @@ def emitins(i, e):
             emitf("mov %=, sp", i, e)
     elif op == Odbgloc:
         emitdbgloc(rval(i.arg[0]), rval(i.arg[1]), e.f)
+    elif op in _FMA:
+        # cimo extension: r = a*b +- c, with b and c in a Mem (see isel.selfma)
+        m = e.fn.mem[rval(i.arg[1])]
+        k = i.cls
+        e.f.write("\t%s\t%s, %s, %s, %s\n" % (_FMA[op], rname(rval(i.to), k),
+                                               rname(rval(i.arg[0]), k),
+                                               rname(rval(m.base), k), rname(rval(m.index), k)))
     else:
         if isload(i.op):
             fixarg(i.arg, 0, _loadsz(i), IP1, e)
@@ -445,6 +456,116 @@ def emitins(i, e):
                     i.op = Ostores + (i.cls - Kw)
                 fixarg(i.arg, 1, _storesz(i), IP1, e)
         _table(i, e)
+
+
+# cimo extension (ext.ldp): pair adjacent accesses into ldp/stp, see pair.py
+
+_PK = {'w': Kw, 'x': Kl, 's': Ks, 'd': Kd}
+
+
+def _paddr(r, e):
+    """(base register, offset) of an address operand after allocation, or None."""
+    t = rtype(r)
+    if t == RTmp:
+        return rval(r), 0
+    if t == RSlot:
+        return FP, slot(r, e)
+    if t == RMem:
+        m = e.fn.mem[rval(r)]
+        if req(m.index, R) and m.offset.type in (CBits, D.CUndef):
+            return rval(m.base), (m.offset.i if m.offset.type == CBits else 0)
+    return None
+
+
+def emitpair(i1, i2, e):
+    """Emit i1; i2 as one ldp/stp if they fit one; returns 1 if done."""
+    from .pair import kind, inrange, SIZE
+    k1 = kind(i1)
+    if not k1 or k1 != kind(i2):
+        return 0
+    ld = k1[0] == 'l'
+    n = 0 if ld else 1
+    a1 = _paddr(i1.arg[n], e)
+    a2 = _paddr(i2.arg[n], e)
+    if not a1 or not a2 or a1[0] != a2[0]:
+        return 0
+    sz = SIZE[k1[1]]
+    if abs(a1[1] - a2[1]) != sz or not inrange(min(a1[1], a2[1]), sz):
+        return 0
+    r1 = i1.to if ld else i1.arg[0]
+    r2 = i2.to if ld else i2.arg[0]
+    if not isreg(r1) or not isreg(r2):
+        return 0
+    if ld and (rval(r1) == rval(r2) or rval(r1) == a1[0]):
+        return 0  # ldp needs distinct registers; i2 must see the base i1 saw
+    if a2[1] < a1[1]:
+        r1, r2, a1 = r2, r1, a2
+    k = _PK[k1[1]]
+    base = "x29" if a1[0] == FP else rname(a1[0], Kl)
+    off = (", %d" % a1[1]) if a1[1] else ""
+    e.f.write("\t%s\t%s, %s, [%s%s]\n" % ("ldp" if ld else "stp", rname(rval(r1), k),
+                                           rname(rval(r2), k), base, off))
+    return 1
+
+
+def emitinsl(ins, e):
+    """emitins() for each instruction in a list, pairing accesses when ext.ldp is on."""
+    k = 0
+    n = len(ins)
+    while k < n:
+        if _ext.ldp and k + 1 < n and emitpair(ins[k], ins[k + 1], e):
+            k += 2
+            continue
+        emitins(ins[k], e)
+        k += 1
+
+
+# cimo extension (ext.layout): a block that ends in "jmp H", where H is a small block
+# earlier in the layout that ends in a conditional jump (a loop header with the loop test),
+# gets a copy of H's code and conditional jump instead, so the loop runs one conditional
+# branch per iteration instead of an unconditional and a conditional one.
+
+MAXDUP = 4
+
+
+def layoutplan(fn):
+    """{latch block: (copied ins of H, jmp type, s1, s2)} and the set of blocks that need
+    a label because a copied jump targets them. Snapshots are taken before emission, which
+    mutates instructions and swaps successors."""
+    dup = {}
+    lbl = set()
+    b = fn.start
+    while b:
+        h = b.s1
+        if (b.jmp.type == Jjmp and h is not None and h is not b.link and h is not b
+                and h.id < b.id and Jjf <= h.jmp.type <= Jjf + NCmp - 1 and h.nins <= MAXDUP
+                and h.s1 is not None and h.s2 is not None):
+            dup[b] = ([i.copy() for i in h.ins[:h.nins]], h.jmp.type, h.s1, h.s2)
+            lbl.add(h.s1)
+            lbl.add(h.s2)
+        b = b.link
+    return dup, lbl
+
+
+def emitcondjmp(b, jt, s1, s2, e):
+    """Conditional jump to s1 (condition true) or s2 from the end of b (b.link follows).
+    Returns 1 if control falls through to b.link."""
+    T = D.T
+    c = jt - Jjf
+    if b.link is s2:
+        e.f.write("\tb%s\t%s%d\n" % (ctoa[c][0], T.asloc, _id0 + s1.id))
+        return 1
+    if b.link is s1:
+        e.f.write("\tb%s\t%s%d\n" % (ctoa[c][1], T.asloc, _id0 + s2.id))
+        return 1
+    # neither follows: branch conditionally backwards (a loop), unconditionally forwards
+    if s2.id <= b.id < s1.id:
+        e.f.write("\tb%s\t%s%d\n" % (ctoa[c][1], T.asloc, _id0 + s2.id))
+        e.f.write("\tb\t%s%d\n" % (T.asloc, _id0 + s1.id))
+    else:
+        e.f.write("\tb%s\t%s%d\n" % (ctoa[c][0], T.asloc, _id0 + s1.id))
+        e.f.write("\tb\t%s%d\n" % (T.asloc, _id0 + s2.id))
+    return 0
 
 
 def framelayout(e):
@@ -521,27 +642,35 @@ def arm64_emitfn(fn, out):
                   "\tstp\tx29, x30, [sp, -16]!\n" % (e.frame & 0xFFFF, e.frame >> 16))
     e.f.write("\tmov\tx29, sp\n")
     s = s32((e.frame - e.padding) // 4)
+    save = []
     for r in arm64_rclob:
         if r < 0:
             break
         if e.fn.reg & BIT(r):
             s -= 2
             i = Ins(Ostored if r >= V0 else Ostorel, 0, R, TMP(r), SLOT(s))
-            emitins(i, e)
+            save.append(i)
+    emitinsl(save, e)
 
+    dup, dlbl = layoutplan(e.fn) if _ext.layout else ({}, ())
     lbl = 0
     b = e.fn.start
     while b:
-        if lbl or b.npred > 1:
+        if lbl or b.npred > 1 or b in dlbl:
             e.f.write("%s%d:\n" % (T.asloc, _id0 + b.id))
-        for k in range(b.nins):
-            emitins(b.ins[k], e)
+        emitinsl(b.ins[:b.nins], e)
         lbl = 1
         jt = b.jmp.type
-        if jt == Jhlt:
+        if b in dup:
+            hins, hjt, hs1, hs2 = dup[b]
+            emitinsl([i.copy() for i in hins], e)
+            if emitcondjmp(b, hjt, hs1, hs2, e):
+                lbl = 0
+        elif jt == Jhlt:
             e.f.write("\tbrk\t#1000\n")
         elif jt == Jret0:
             s = s32((e.frame - e.padding) // 4)
+            rest = []
             for r in arm64_rclob:
                 if r < 0:
                     break
@@ -549,7 +678,8 @@ def arm64_emitfn(fn, out):
                     s -= 2
                     i = Ins(Oload, 0, TMP(r), SLOT(s))
                     i.cls = Kd if r >= V0 else Kl
-                    emitins(i, e)
+                    rest.append(i)
+            emitinsl(rest, e)
             if e.fn.dynalloc:
                 e.f.write("\tmov sp, x29\n")
             o = e.frame + 16
@@ -571,6 +701,14 @@ def arm64_emitfn(fn, out):
                           "\tadd\tsp, sp, x16\n" % ((o - 16) & 0xFFFF, (o - 16) >> 16))
             e.f.write("\tret\n")
         else:
+            if jt != Jjmp and _ext.layout:
+                c = jt - Jjf
+                if c < 0 or c > NCmp:
+                    die("unhandled jump %d", jt)
+                if emitcondjmp(b, jt, b.s1, b.s2, e):
+                    lbl = 0
+                b = b.link
+                continue
             if jt != Jjmp:
                 c = jt - Jjf
                 if c < 0 or c > NCmp:

@@ -9,11 +9,13 @@ from ..defs import (R, RTmp, RCon, NIns, M64, Ins, Con, Mem, CBits, CAddr, SExt,
                     Ocall, Onop, Oadd, Osub, Oand, Oor, Oxor, Omul, Oshl, Ocopy, Oload,
                     Oaddr, Oloadsb, Oloadub, Oloadsh, Oloaduh, Oloadsw, Oloaduw, Ostoreb,
                     Ostoreh, Ostorew, Ostores, Ostorel, Ostored, Jret0, Jjmp, Jhlt, Jjnz,
-                    Jjf, Jjfine, isload, isstore)
+                    Jjf, Jjfine, isload, isstore, Oneg, Ofma0, Ofma1, Oafmadd, Oafmsub,
+                    Oafnmadd, Oafnmsub)
 from ..util import (err, newtmp, newcon, getcon, chuse, emit, emiti, idup, intern, iscmp,
                     cmpop, salloc, argcls, vgrow)
 from ..parse import printfn
 from .regs import R0
+from .. import ext as _ext
 
 (Iother, Iplo12, Iphi12, Iplo24, Inlo12, Inhi12, Inlo24) = range(7)
 
@@ -280,6 +282,70 @@ def log2p(n):
     return l
 
 
+def negof(r, k, fn):
+    """cimo extension: if r is "neg" of class k defined earlier in the block being
+    selected (before its fma0), return the negated operand and drop the use of r (the neg
+    is deleted once unused, as foldaddr does); else None."""
+    if rtype(r) != RTmp:
+        return None
+    ins = selblk.ins
+    d = selpos - 1
+    while d > 0:
+        d -= 1
+        if ins[d].to == r:
+            break
+    else:
+        return None
+    di = ins[d]
+    if di.op != Oneg or di.cls != k:
+        return None
+    x = di.arg[0]
+    chuse(x, +1, fn)
+    chuse(r, -1, fn)
+    if fn.tmp[rval(r)].nuse == 0:
+        chuse(x, -1, fn)
+        di.set(Ins(Onop))
+    return x
+
+
+# (negated product, negated addend) -> op
+_FMAOP = {(0, 0): Oafmadd, (1, 0): Oafmsub, (0, 1): Oafnmsub, (1, 1): Oafnmadd}
+
+
+def selfma(i, fn):
+    """cimo extension: "fma0 c; r = fma1 a, b" (r = a*b + c) becomes one machine op,
+    r = afmadd a, MEM{base=b, index=c}, with negations of a, b or c folded in
+    (afmsub: c - a*b, afnmsub: a*b - c, afnmadd: -(a*b) - c). The fma0 is at selpos-1."""
+    k = i.cls
+    i0 = selblk.ins[selpos - 1]
+    assert i0.op == Ofma0 and i0.cls == k
+    a, b, c = i.arg[0], i.arg[1], i0.arg[0]
+    neg = [0, 0]
+    x = negof(a, k, fn)
+    if x is not None:
+        a = x
+        neg[0] ^= 1
+    x = negof(b, k, fn)
+    if x is not None:
+        b = x
+        neg[0] ^= 1
+    x = negof(c, k, fn)
+    if x is not None:
+        c = x
+        neg[1] = 1
+    m = Mem()
+    fn.nmem += 1
+    vgrow(fn.mem, fn.nmem)
+    fn.mem[fn.nmem - 1] = m
+    emit(_FMAOP[tuple(neg)], k, i.to, a, MEM(fn.nmem - 1))
+    iarg = D.insb[D.curi].arg
+    fixarg(iarg, 0, k, 0, fn)
+    bc = [b, c]
+    fixarg(bc, 0, k, 0, fn)
+    fixarg(bc, 1, k, 0, fn)
+    m.base, m.index = bc
+
+
 def callable(r, fn):
     if rtype(r) == RTmp:
         return 1
@@ -314,6 +380,11 @@ def sel(i, fn):
             return
     if i.op == Onop:
         return
+    if i.op == Ofma1:
+        selfma(i, fn)
+        return
+    if i.op == Ofma0:
+        return  # selected with its fma1
     immarg = False
     if KBASE(i.cls) == 0 and rtype(i.arg[1]) == RCon \
             and fn.con[rval(i.arg[1])].type == CBits:
@@ -434,6 +505,10 @@ def arm64_isel(fn):
         if b is fn.start:
             break
         b = b.link
+
+    if _ext.ldp:
+        from .pair import schedule
+        schedule(fn)
 
     if D.debug['I']:
         sys.stderr.write("\n> After instruction selection:\n")
