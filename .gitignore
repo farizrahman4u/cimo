@@ -11,6 +11,11 @@ Thumbs.db
 # JS
 node_modules/
 
-# Local scratch
-/scratch/
+# Python (outside python/)
+__pycache__/
+*.py[cod]
+
+# Generated research artifacts
+scratch/**/build/
+*.o
 *.log

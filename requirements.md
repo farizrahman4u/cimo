@@ -3,9 +3,10 @@
 **C in, machine code out.** A pure-Python C compiler for CPU kernels. PyPI name `cimo` is reserved
 (placeholder 0.0.1, published 2026-10-30).
 
-This is the living spec: what to build, why, what has been measured, and in what order. Paths like
-`qbe_eval/...` and `spikes/...` refer to the research workspace at `~/code/ideas/` on the
-author's machine, which is not in this repo. Copy anything you need from there into the repo.
+This is the living spec: what to build, why, what has been measured, and in what order. Research
+code behind the measurements is in `scratch/` (`scratch/qbe_eval/`, `scratch/spikes/`).
+Third-party clones live outside the repo: QBE at `~/code/qbe` (branch `cimo-arm64-isel`, patch
+applied) and cproc at `~/code/cproc`.
 
 ## Repository layout
 
@@ -13,6 +14,8 @@ author's machine, which is not in this repo. Copy anything you need from there i
 - `js/`: reserved for a later JS port of the compiler and browser glue. Empty for now.
 - `docs/`: user-facing documentation.
 - `examples/`: example kernels and the demos (see "Demos").
+- `scratch/`: research code and spikes (benchmarks, hand-optimized IR, loading tests). Not part of
+  the package.
 - `requirements.md`: this spec. `AGENTS.md`: rules for coding agents.
 
 ## Engineering rules
@@ -211,7 +214,7 @@ agent-driven porting.
 
 ## Baseline: cproc + QBE vs gcc (measured 2026-10-30)
 
-Setup: `qbe_eval/` (15 kernels, best of 5, aarch64 WSL2, gcc 13.3, QBE e786f06). All checksums match gcc.
+Setup: `scratch/qbe_eval/` (15 kernels, best of 5, aarch64 WSL2, gcc 13.3, QBE e786f06). All checksums match gcc.
 
 | Kernel group | QBE vs `gcc -O3 -fno-tree-vectorize` | QBE vs `gcc -O3` |
 |---|---|---|
@@ -229,9 +232,9 @@ Setup: `qbe_eval/` (15 kernels, best of 5, aarch64 WSL2, gcc 13.3, QBE e786f06).
 
 ## Architecture check: good IR + patched QBE reaches gcc -O3 (scalar)
 
-Done 2026-10-30, arm64. Setup: `qbe_eval/gen_opt.py` emits the IR our loop passes should produce
-for 4 kernels; `qbe_eval/qbe-arm64-isel.patch` (+200 lines on QBE `e786f06`) fixes the arm64
-backend. Interleaved best-of-3; checked bit-exact against plain C for sizes 0-21 (`qbe_eval/edge.c`).
+Done 2026-10-30, arm64. Setup: `scratch/qbe_eval/gen_opt.py` emits the IR our loop passes should produce
+for 4 kernels; `scratch/qbe_eval/qbe-arm64-isel.patch` (+200 lines on QBE `e786f06`) fixes the arm64
+backend. Interleaved best-of-3; checked bit-exact against plain C for sizes 0-21 (`scratch/qbe_eval/edge.c`).
 
 | Kernel | gcc -O3 scalar, no FMA | gcc -O3 scalar | IR transforms used |
 |---|---|---|---|
@@ -266,7 +269,7 @@ backend. Interleaved best-of-3; checked bit-exact against plain C for sizes 0-21
   fix in emit is still open.
 
 **macOS (Apple M4, macOS 26.7) vs Apple clang 21:** the patch works on QBE's `arm64_apple`
-target, and all 4 kernels are bit-exact. Same IR as above; `qbe_eval/mac_bench.sh` reproduces it.
+target, and all 4 kernels are bit-exact. Same IR as above; `scratch/qbe_eval/mac_bench.sh` reproduces it.
 
 | Kernel | clang -O3 scalar, no FMA | clang -O3 scalar |
 |---|---|---|
@@ -288,7 +291,7 @@ target, and all 4 kernels are bit-exact. Same IR as above; `qbe_eval/mac_bench.s
 
 ## Platform loading findings
 
-Spikes: `spikes/load_test/loadtest.py` (native) and `spikes/pyodide/` (WASM). Each puts a
+Spikes: `scratch/spikes/load_test/loadtest.py` (native) and `scratch/spikes/pyodide/` (WASM). Each puts a
 hand-encoded `sum(const long *p, long n)` into executable memory from pure Python and calls it on
 a Python-owned buffer.
 
@@ -344,21 +347,21 @@ inbound rules needed.
 
 ## Milestones and acceptance criteria
 
-**M1: QBE in Python (arm64).** Port QBE `e786f06` with `qbe_eval/qbe-arm64-isel.patch` applied.
-- Every pass's IR dump matches C QBE (with the patch) on QBE's own tests and on `qbe_eval/kernels.c`.
+**M1: QBE in Python (arm64).** Port QBE `e786f06` with `scratch/qbe_eval/qbe-arm64-isel.patch` applied.
+- Every pass's IR dump matches C QBE (with the patch) on QBE's own tests and on `scratch/qbe_eval/kernels.c`.
 - QBE's 58 tests pass using the Python port plus an external assembler.
 - Record compile time for `kernels.c` (C QBE takes about 9 ms; the budget is under 1 s in Python).
 
 **M2: encoder + loader.** arm64 machine-code encoder (no external assembler) and the JIT loader
 for Linux and macOS (strategies under "Platform loading findings").
 - All 15 kernels compile and run in-process from Python, with results matching gcc's.
-- `qbe_eval/edge.c` cases are bit-exact.
+- `scratch/qbe_eval/edge.c` cases are bit-exact.
 
 **M3: cproc in Python.** Port cproc `d1c53dd`, restricted to freestanding C.
 - QBE IR text identical to C cproc on cproc's tests and on `kernels.c`.
 - Clear errors for unsupported features (see "Language").
 
-**M4: middle stage.** Automate the transforms `qbe_eval/gen_opt.py` applies by hand, plus
+**M4: middle stage.** Automate the transforms `scratch/qbe_eval/gen_opt.py` applies by hand, plus
 explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing and the loop-layout fix.
 - On the 15-kernel suite: within 1.2x of scalar `-O3` (gcc on Linux arm64, clang on Apple M4), with matching FMA settings.
 
