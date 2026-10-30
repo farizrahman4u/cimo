@@ -1,15 +1,188 @@
+<div align="center">
+
 # cimo
 
-**C in, machine code out.** A C compiler written in pure Python that compiles freestanding C
-kernels to optimized machine code and loads them into the running Python process: no compiler,
-SDK, wheel or native dependency on the target machine. The same compiler targets WebAssembly for
-Python in the browser (Pyodide).
+### C in, machine code out.
 
-Status: early development. See [requirements.md](requirements.md) for the spec, measurements and plan.
+**A C compiler written in pure Python.** Write a C kernel as a string, call it on your numpy arrays
+a few hundred milliseconds later, and it runs at `-O3` speed.<br>
+No compiler, no SDK, no wheels, no build step. In the browser too.
 
-## Layout
+```
+pip install cimo
+```
 
-- `python/cimo/`: the compiler and Python runtime
-- `js/`: browser/JS side (later)
-- `docs/`: documentation
-- `examples/`: example kernels and demos
+</div>
+
+---
+
+```python
+import numpy as np
+import cimo
+
+k = cimo.compile(r"""
+void blur(int h, int w, const float src[h][w], float dst[h][w]) {
+    for (int i = 1; i < h - 1; i++)
+        for (int j = 1; j < w - 1; j++)
+            dst[i][j] = 0.2f * (src[i][j] + src[i-1][j] + src[i+1][j]
+                                          + src[i][j-1] + src[i][j+1]);
+}
+""")
+
+src = np.random.rand(4096, 4096).astype(np.float32)
+dst = np.zeros_like(src)
+k.blur(*src.shape, src, dst)   # native code, running on your arrays in place
+```
+
+That's it. No `setup.py`, no `gcc`, no Xcode, no MSVC, no LLVM wheel. cimo parses the C, optimizes
+it, encodes arm64 / x86-64 / WebAssembly instructions itself, maps them into executable memory, and
+hands you a Python callable. Your numpy data is never copied.
+
+## Why
+
+Shipping native code with Python is still a mess. Cython, cffi and C extensions need a toolchain
+on the user's machine. Numba needs LLVM wheels. And some places allow only `.py` files:
+
+- **Pyodide, JupyterLite and marimo** in the browser have no compiler at all.
+- **The QGIS plugin repository** bans compiled binaries.
+- **Locked-down corporate machines** and hosted Python sandboxes don't let you install anything.
+
+cimo is ordinary Python, standard library only. If Python runs, your kernels run.
+
+## Fast where it matters
+
+cimo isn't a toy interpreter or a TCC-style one-pass compiler. Its loop optimizer handles
+unrolling, unroll-and-jam, scalar replacement, strength reduction and runtime alias checks, and
+its backend does real instruction selection. On analyzable loops it matches gcc and clang at
+`-O3`:
+
+| Kernel   | vs `gcc -O3` (Linux arm64) | vs `clang -O3` (Apple M4) |
+|----------|:--------------------------:|:-------------------------:|
+| saxpy    | **0.79x**                  | 1.43x                     |
+| gemm     | **0.89x**                  | 1.11x                     |
+| jacobi2d | **1.04x**                  | **0.96x**                 |
+| conv3x3  | **1.04x**                  | **1.07x**                 |
+
+<sub>cimo time ÷ reference time; lower is better. Scalar code with FMA contraction off on both sides.
+Results are bit-identical to the reference compiler.</sub>
+
+Compiling a whole kernel file takes well under a second, and results are cached by content
+hash, so the second run starts instantly.
+
+Compared with pure Python, the same loops run **about 100x faster**. That's where numpy can't
+help either: stencils, flood fills, dynamic programming, anything sequential.
+
+## Real C, not a subset
+
+cimo compiles **freestanding C11**, the same model as CUDA device code: all of the language, no
+OS.
+
+- structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs,
+  VLAs, `goto`, `switch`, globals and `const` tables
+- the freestanding headers plus `math.h`, `string.h`, `ctype.h` and an OS-free `stdlib.h` with
+  `malloc`, `free`, `qsort`, `bsearch` and `strtod`, all bundled
+- GNU vector types (`__attribute__((vector_size(32)))`) for hand-written NEON / AVX2 / AVX-512
+- `#pragma omp simd` and `restrict`, honored as written
+
+Out of scope: stdio, files, threads and anything else that needs an operating system.
+
+## Pythonic bindings
+
+Every non-`static` function becomes a Python callable, typed from its C signature:
+
+| C parameter                         | Pass from Python                                 |
+|-------------------------------------|--------------------------------------------------|
+| `float *`, `const uint8_t *`, VLAs  | numpy arrays, `bytearray`, `memoryview`          |
+| `int`, `double`, `size_t`           | Python numbers                                   |
+| `struct point`                      | a ctypes structure or a `dict`                   |
+
+Keep kernels in a `.c` file next to your module if you prefer:
+
+```python
+k = cimo.load("kernels.c")
+```
+
+### Multicore, no threading runtime
+
+Kernels release the GIL, so cimo can split a launch across cores, CUDA-style:
+
+```python
+k.blur.launch(blocks=16, args=(h, w, src, dst))   # block index arrives as a hidden argument
+```
+
+Each worker gets its own heap, so `malloc` inside parallel kernels doesn't contend.
+
+### Errors are Python exceptions
+
+`assert`, `abort()` and traps unwind cleanly back to Python. A crashing kernel doesn't take
+your interpreter down with it.
+
+```python
+k = cimo.compile(src, debug=True)
+k.blur(h, w, src, dst[:10])
+# cimo.BoundsError: blur: write to dst[10][1] is out of bounds (buffer is 10 x 4096)
+#   at kernels.c:5
+```
+
+Debug builds bounds-check every access, against both Python buffers and heap allocations, and catch
+use-after-free, double free and leaks. Think compute-sanitizer for CPU kernels.
+
+### Know why a loop is slow
+
+```console
+$ python -m cimo report kernels.c
+kernels.c:12  loop over j: optimized (unrolled x4, alias check on src/dst)
+kernels.c:31  loop over i: not optimized: base of `p` depends on a runtime branch
+```
+
+## Runs in the browser
+
+The same compiler emits WebAssembly. In Pyodide, JupyterLite or marimo:
+
+```python
+import micropip; await micropip.install("cimo")
+import cimo
+k = cimo.compile(src)   # compiled in the page, linked into Pyodide's own memory
+```
+
+Kernels share linear memory with Pyodide, so they read and write numpy arrays **in place**.
+No server, no 50 MB clang-in-WASM download, no copies. Edit the C, recompile in under a second,
+and keep going on the same arrays.
+
+## Platforms
+
+| Platform                    | Backend        | Loader                          |
+|-----------------------------|----------------|---------------------------------|
+| Linux arm64 / x86-64        | arm64, amd64   | `mmap` + `mprotect` (W^X)       |
+| macOS (Apple silicon)       | arm64          | `MAP_JIT`, W^X fallback         |
+| Windows x64                 | amd64          | `VirtualAlloc` + `VirtualProtect` |
+| Pyodide / browser           | WebAssembly    | shared-memory side module       |
+
+CPython 3.9+ and Pyodide. Zero runtime dependencies.
+
+## How it works
+
+```
+ C source ──▶ front end ──▶ loop optimizer ──▶ backend ──▶ encoder ──▶ executable memory
+             (from cproc)     (cimo's own)     (from QBE)  (arm64, amd64,   (JIT, or ELF /
+                                                            WASM)           Mach-O / PE)
+```
+
+cimo stands on two excellent small compilers: [cproc](https://sr.ht/~mcf/cproc/) for the C front
+end and [QBE](https://c9x.me/compile/) for the backend, ported to Python and checked against the
+originals by diffing their IR output pass by pass. On top of that sits cimo's own loop optimizer,
+which is what closes the gap to gcc, plus a machine-code encoder, so no external assembler or
+linker is ever needed. Every release is differential-tested against gcc and clang on generated
+random programs.
+
+## Repository
+
+- [`python/cimo/`](python/cimo/): the compiler and Python runtime
+- [`js/`](js/): browser glue
+- [`docs/`](docs/): documentation
+- [`examples/`](examples/): kernels and demos
+- [`requirements.md`](requirements.md): the design spec, measurements and roadmap
+
+## License
+
+[MIT](LICENSE). Bundled code from QBE (MIT), cproc (ISC) and musl (MIT) keeps its original license.
