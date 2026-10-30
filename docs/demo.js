@@ -15,7 +15,7 @@
   const CM_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css';
 
   const INTEGRATOR = `
-/* ---- integrator: RK4 over every particle (edit this too) ---- */
+/* ---- integrator: RK4 for every particle ---- */
 static unsigned long long rng = 88172645463325252ULL;
 static float frand(void)  /* uniform in [-1, 1) */
 {
@@ -230,13 +230,20 @@ def build(src):
     }
   });
 
+  // desktop: start by itself once the page has loaded; phones and data saver: on request
+  const saveData = navigator.connection && navigator.connection.saveData;
   if (/[?&]autostart\b/.test(location.search)) ui.start.click();
+  else if (innerWidth >= 900 && !saveData && !/[?&]nostart\b/.test(location.search)) {
+    const go = () => setTimeout(() => { if (!ui.start.disabled) ui.start.click(); }, 400);
+    if (document.readyState === 'complete') go(); else addEventListener('load', go);
+  }
+  if (/[?&]poster\b/.test(location.search)) root.classList.add('poster');  // (for the poster image)
 
   function setupEditor() {
     ui.code.innerHTML = '';
     editor = CodeMirror(ui.code, {
       value: source(ui.preset.value), mode: 'text/x-csrc', theme: 'cimo', lineNumbers: true,
-      indentUnit: 4, viewportMargin: Infinity, scrollbarStyle: 'null',
+      indentUnit: 4, viewportMargin: Infinity, scrollbarStyle: 'null', lineWrapping: true,
     });
     let timer = null;
     editor.on('change', () => {
@@ -273,7 +280,7 @@ def build(src):
   // ---- three.js view
 
   let renderer, scene, camera, group, lines, points, posAttr, idxAttr, mat;
-  let yaw = 0.6, pitch = 0.35, dist = 3.6, auto = true;
+  let yaw = 0.6, pitch = 0.35, dist = innerWidth >= 900 ? 4.3 : 3.6, auto = true;
   let center = new Float32Array(3), scale = 1, fitTimer = 0, fitReady = false;
 
   function heapView() {
@@ -354,7 +361,12 @@ def build(src):
       drag = [e.clientX, e.clientY];
     });
     canvas.addEventListener('pointerup', () => { drag = null; });
-    canvas.addEventListener('wheel', e => { e.preventDefault(); dist = Math.max(1.2, Math.min(9, dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+    canvas.addEventListener('pointercancel', () => { drag = null; });
+    canvas.addEventListener('wheel', e => {  // pinch (ctrl+wheel) zooms; a plain wheel scrolls the page
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      dist = Math.max(1.2, Math.min(9, dist * Math.exp(e.deltaY * 0.004)));
+    }, { passive: false });
     new ResizeObserver(resize).observe(ui.view);
     resize();
   }
@@ -363,6 +375,8 @@ def build(src):
     const w = ui.view.clientWidth, h = ui.view.clientHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
+    // wide banner: put the attractor between the headline and the editor
+    if (w >= 900) camera.setViewOffset(w, h, 0.15 * w, -0.16 * h, w, h); else camera.clearViewOffset();
     camera.updateProjectionMatrix();
   }
 
