@@ -487,7 +487,7 @@ def funcalloc(f, d):
     assert not d.type.incomplete
     calcvla(f, d.type)
     end = f.end
-    if d.type.size:
+    if d.type.size or not (d.type.prop & PROPVM):  # size 0: a GNU zero-length array
         f.end = f.start
         v = mkintconst(d.type.size)
     else:
@@ -609,6 +609,11 @@ def mkfunc(decl, name, t, s):
     f.namedecl = d
 
     funclabel(f, mkblock("body"))
+    d = f.type.params
+    while d:
+        if d.lengthexpr is not None:
+            funcexpr(f, d.lengthexpr)
+        d = d.next
 
     return f
 
@@ -849,8 +854,9 @@ def funcbuiltin(f, e):
     if not (b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT):
         return None
     d = b.base.decl
-    spec = _BUILTINS.get(d.name)
-    if spec is None or d.kind != DECLFUNC or d.linkage != LINKEXTERN or d.asmname:
+    # by its symbol name: __builtin_sqrt is declared as sqrt's alias (the driver's prelude)
+    spec = _BUILTINS.get(d.asmname.lstrip('_') if d.asmname else d.name)
+    if spec is None or d.kind != DECLFUNC or d.linkage != LINKEXTERN:
         return None
     op, nargs, size = spec
     t = TY.typedouble if size == 8 else TY.typefloat

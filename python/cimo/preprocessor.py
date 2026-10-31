@@ -248,6 +248,32 @@ _GCC_TYPES = [
     ('__WINT_TYPE__', 'unsigned int'), ('__WINT_MAX__', '0xffffffffU'), ('__WINT_MIN__', '0U'),
     ('__WINT_WIDTH__', '32'),
 ]
+# gcc's float and double macros (programs use them without <float.h>); gcc writes the double
+# values as long double constants cast to double, which cimo rejects on Linux: same digits as
+# double constants, same values
+_GCC_TYPES += [
+    ('__FLT_RADIX__', '2'), ('__FLT_EVAL_METHOD_TS_18661_3__', '0'),
+    ('__FLT_MANT_DIG__', '24'), ('__FLT_DIG__', '6'), ('__FLT_DECIMAL_DIG__', '9'),
+    ('__FLT_MIN_EXP__', '(-125)'), ('__FLT_MIN_10_EXP__', '(-37)'),
+    ('__FLT_MAX_EXP__', '128'), ('__FLT_MAX_10_EXP__', '38'),
+    ('__FLT_MAX__', '3.40282346638528859811704183484516925e+38F'),
+    ('__FLT_NORM_MAX__', '3.40282346638528859811704183484516925e+38F'),
+    ('__FLT_MIN__', '1.17549435082228750796873653722224568e-38F'),
+    ('__FLT_EPSILON__', '1.19209289550781250000000000000000000e-7F'),
+    ('__FLT_DENORM_MIN__', '1.40129846432481707092372958328991613e-45F'),
+    ('__FLT_HAS_DENORM__', '1'), ('__FLT_HAS_INFINITY__', '1'), ('__FLT_HAS_QUIET_NAN__', '1'),
+    ('__FLT_IS_IEC_60559__', '1'),
+    ('__DBL_MANT_DIG__', '53'), ('__DBL_DIG__', '15'), ('__DBL_DECIMAL_DIG__', '17'),
+    ('__DBL_MIN_EXP__', '(-1021)'), ('__DBL_MIN_10_EXP__', '(-307)'),
+    ('__DBL_MAX_EXP__', '1024'), ('__DBL_MAX_10_EXP__', '308'),
+    ('__DBL_MAX__', '((double)1.79769313486231570814527423731704357e+308)'),
+    ('__DBL_NORM_MAX__', '((double)1.79769313486231570814527423731704357e+308)'),
+    ('__DBL_MIN__', '((double)2.22507385850720138309023271733240406e-308)'),
+    ('__DBL_EPSILON__', '((double)2.22044604925031308084726333618164062e-16)'),
+    ('__DBL_DENORM_MIN__', '((double)4.94065645841246544176568792868221372e-324)'),
+    ('__DBL_HAS_DENORM__', '1'), ('__DBL_HAS_INFINITY__', '1'), ('__DBL_HAS_QUIET_NAN__', '1'),
+    ('__DBL_IS_IEC_60559__', '1'),
+]
 _LINUX_TYPES = _GCC_TYPES + [('__CHAR_UNSIGNED__', None)]
 # Apple arm64: signed char and wchar_t, int64_t is long long (clang's values)
 _APPLE_OVERRIDE = {
@@ -272,11 +298,14 @@ _WIN_TYPES = [(k, _WIN_OVERRIDE.get(k, v)) for k, v in _GCC_TYPES]
 #: Predefined macros per target: cproc's config.h list (aarch64-linux-gnu), macOS and Windows
 #: variants, plus gcc's type macros.
 TARGETS = {
-    'arm64': (_COMMON_DEFINES + [('__linux__', None), ('__unix__', None)] + _TAIL_DEFINES
+    'arm64': (_COMMON_DEFINES + [('__linux__', None), ('__unix__', None),
+                                 ('__USER_LABEL_PREFIX__', '')] + _TAIL_DEFINES
               + _LINUX_TYPES),
-    'arm64_apple': (_COMMON_DEFINES + [('__APPLE__', None), ('__MACH__', None)] + _TAIL_DEFINES
+    'arm64_apple': (_COMMON_DEFINES + [('__APPLE__', None), ('__MACH__', None),
+                                       ('__USER_LABEL_PREFIX__', '_')] + _TAIL_DEFINES
                     + _APPLE_TYPES),
-    'arm64_win': (_COMMON_DEFINES + [('_WIN32', '1'), ('_WIN64', '1'), ('_M_ARM64', '1')]
+    'arm64_win': (_COMMON_DEFINES + [('_WIN32', '1'), ('_WIN64', '1'), ('_M_ARM64', '1'),
+                                     ('__USER_LABEL_PREFIX__', '')]
                   + _TAIL_DEFINES + _WIN_TYPES),
 }
 # Whether plain char is signed, for character constants in #if.

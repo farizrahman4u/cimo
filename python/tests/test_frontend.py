@@ -78,9 +78,9 @@ def check(args):
     p = run([sys.executable, '-m', 'cimo.frontend'] + args)
     if c == p:
         return None
-    if (c[0], p[0]) in ((-6, -6), (-11, 70)):
-        # both hit an assertion (the text names C vs Python source), or C crashes
-        # (SIGSEGV) where the port raises an internal error; stdout is lost either way
+    if (c[0], p[0]) == (-6, -6) or c[0] == -11:
+        # both hit an assertion (the text names C vs Python source), or C crashes (SIGSEGV):
+        # nothing to compare (the port raises an internal error, or has the bug fixed)
         return None
     if c[0] != p[0]:
         return 'exit status c=%s py=%s\n%s' % (c[0], p[0], p[2].decode('latin-1')[-2000:])

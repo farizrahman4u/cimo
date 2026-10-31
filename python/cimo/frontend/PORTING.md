@@ -85,6 +85,15 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   `arm64_win`.
 - Line markers: the file name's `\\` and `\"` escapes are decoded (cproc has an "XXX" and
   takes the text up to the next quote), so Windows paths in diagnostics are right.
+- Bugs fixed (marked `cimo:` in the code; found by gcc's torture tests): a block-scope `extern`
+  that hides a local took the local's absent linkage and crashed (C11 6.2.2p4); the size of a
+  variably modified typedef was computed at its first use, which need not dominate the others
+  (now at the typedef, C11 6.7.8p3); a parameter's array length with side effects
+  (`int a[i++]`) was dropped (now evaluated on entry, C11 6.9.1p10); a local of size 0 (GNU
+  zero-length array) was taken for a VLA (an assertion).
+- GNU attributes are accepted among a pointer declarator's qualifiers (`int *__attribute__((x))
+  f(void)`). The math builtins are recognized by symbol name, so the prelude's
+  `__builtin_sqrt` (declared as an alias of `sqrt`) is inlined too.
 - Where C cproc trips an `assert`, the CLI prints a similar message (naming the Python
   source) and `abort()`s, losing stdout as C does. Where C would crash (NULL dereference,
   e.g. `extern int x;` redeclared in a nested block), the port raises a Python exception;

@@ -5,7 +5,8 @@ from .cc import (Decl, Member, ListNode, Attr, Ref, Bitfield, listinsert, M64, A
                  TYPEVOID, PROPSCALAR, PROPARITH, PROPREAL, PROPINT, PROPVM, PROPFLEX, QUALNONE,
                  QUALCONST, QUALVOLATILE, QUALRESTRICT, DECLTYPE, DECLOBJECT, DECLFUNC,
                  DECLCONST, LINKNONE, LINKINTERN, LINKEXTERN, SDSTATIC, SDTHREAD, SDAUTO,
-                 EXPRCONST, EXPRSTRING, ATTRPACKED, ATTRALIGNED, ATTRNORETURN, BITS0,
+                 EXPRCONST, EXPRSTRING, EXPRIDENT, EXPRUNARY, EXPRCAST, EXPRBINARY, EXPRCOND,
+                 ATTRPACKED, ATTRALIGNED, ATTRNORETURN, BITS0,
                  TTYPEDEF, TEXTERN, TSTATIC, TTHREAD_LOCAL, TAUTO, TREGISTER, TCONST, TVOLATILE,
                  TRESTRICT, T_ATOMIC, TINLINE, T_NORETURN, TSTRUCT, TUNION, TENUM, TIDENT,
                  TCOLON, TLBRACE, TRBRACE, TSEMICOLON, TASSIGN, TCOMMA, TVOID, TCHAR, TSHORT,
@@ -513,7 +514,8 @@ def declaratortypes(s, result, name, align, funcscope, allowabstract):
     while consume(TMUL):
         A.attr(None, 0)
         tq = Ref(QUALNONE)
-        while typequal(tq):
+        # cimo: GNU attributes among the pointer's qualifiers (`char *__attribute__((x)) f()`)
+        while typequal(tq) or A.gnuattr(None, 0):
             pass
         t = mkpointertype(None, tq.v)
         listinsert(result, _link(t))
@@ -706,12 +708,33 @@ def parameter(s):
         error(tok.loc, "parameter declaration has invalid storage-class specifier")
     name = Ref()
     t = declarator(s, t, name, None, None, True)
+    length = t.type.length if t.type.kind == TYPEARRAY else None
     q = Ref(t.qual)
     t.type = typeadjust(t.type, q)
     t.qual = q.v
     d = mkdecl(name.v, DECLOBJECT, t.type, t.qual, LINKNONE)
     d.storage = SDAUTO
+    # cimo: evaluated on entry to the function (C11 6.9.1p10), e.g. `int a[i++]`; cproc
+    # dropped it with the array type
+    if length is not None and not _pure(length):
+        d.lengthexpr = length
     return d
+
+
+def _pure(e):
+    """Whether evaluating expression e certainly has no side effects (conservative)."""
+    k = e.kind
+    if e.qual & QUALVOLATILE:
+        return False
+    if k in (EXPRCONST, EXPRIDENT):
+        return True
+    if k in (EXPRUNARY, EXPRCAST):
+        return _pure(e.base)
+    if k == EXPRBINARY:
+        return _pure(e.l) and _pure(e.r)
+    if k == EXPRCOND:
+        return _pure(e.base) and _pure(e.ct) and _pure(e.cf)
+    return False
 
 
 def addmember(b, mt, name, align, width):
@@ -867,7 +890,9 @@ def getlinkage(kind, sc, prior, filescope):
     if sc & SCSTATIC:
         return LINKINTERN if filescope else LINKNONE
     if sc & SCEXTERN or kind == DECLFUNC:
-        return prior.linkage if prior else LINKEXTERN
+        # C11 6.2.2p4: a visible prior declaration with no linkage (a local that the extern
+        # declaration hides) does not count (cproc took its LINKNONE)
+        return prior.linkage if prior and prior.linkage != LINKNONE else LINKEXTERN
     return LINKEXTERN if filescope else LINKNONE
 
 
@@ -986,6 +1011,10 @@ def decl(s, f):
                 error(tok.loc, "typedef '%s' declared with assembler label", name)
             if U.diagnostics and DG.declalign > t.align:
                 t = DG.alignedtype(t, DG.declalign)
+            if f and t.prop & PROPVM:
+                # cimo: the size of a variably modified typedef is computed here (C11 6.7.8p3);
+                # cproc computed it at the first use, which need not dominate the others
+                Q.calcvla(f, t)
             if not prior:
                 scopeputdecl(s, mkdecl(name, DECLTYPE, t, tq, LINKNONE))
             elif not typesame(prior.type, t) or prior.qual != tq:

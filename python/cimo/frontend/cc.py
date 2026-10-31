@@ -456,7 +456,7 @@ class Decl(object):
     enumconst, builtin."""
     __slots__ = ('name', 'kind', 'linkage', 'type', 'qual', 'value', 'asmname', 'defined',
                  'tentative', 'next', 'align', 'storage', 'inlinedefn', 'isnoreturn',
-                 'enumconst', 'builtin')
+                 'enumconst', 'builtin', 'lengthexpr')
 
     def __init__(self, name=None, kind=0, linkage=0, type=None, qual=0, builtin=0):
         self.name = name
@@ -475,6 +475,7 @@ class Decl(object):
         self.isnoreturn = False
         self.enumconst = 0
         self.builtin = builtin
+        self.lengthexpr = None  # cimo: a parameter's array length, lost to typeadjust
 
 
 class Scope(object):

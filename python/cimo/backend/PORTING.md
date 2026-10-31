@@ -59,6 +59,16 @@ output for these is broken, so no comparison test depends on it):
 - `gvn.assoccon`: reassociating a `w` add/sub chain folded the constants in 64 bits, so
   `x + -1 + -30` became `sub w0, w0, #18446744065119617055` (rejected by the assembler).
   The folded constant is now masked to 32 bits, as `fold.opfold` does.
+- `arm64.isel.fixarg`: an extern symbol's address plus an offset added the offset as an
+  immediate whatever its value (`a[i - 2000000000]`: an assertion in emit). Offsets without an
+  `add` encoding go through a register.
+- `mem.promote`: a load from a slot that is never stored was an error ("slot is read but never
+  stored to"), so C reading an uninitialized local did not compile. It reads 0.
+- `mem.coalesce`: a never-stored slot passed by value (`argc`, an uninitialized struct
+  argument) was killed and address 0 passed (a segfault). Such slots are kept.
+- `load.def`: `vaarg`/`vastart` (lowered only by `abi1`, after load elimination) were not seen
+  as writing their `va_list`, so a store was forwarded across them: with Apple's and Windows'
+  `char *` `va_list`, a parameter passed on after `va_arg` was passed unchanged.
 
 ## Checking
 

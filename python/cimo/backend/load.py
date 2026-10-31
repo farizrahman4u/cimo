@@ -9,6 +9,7 @@ from .defs import (R, RTmp, RCon, RInt, M64, CAddr, Con, Ins, Phi, Kw, Kl, Ks, K
                    Oloadsb, Oloadub, Oloadsh, Oloaduh, Oloadsw, Oloaduw, Oload,
                    Ostoreb, Ostoreh, Ostorew, Ostorel, Ostores, Ostored, Ocast, Oextuw,
                    Oand, Oadd, Oor, Oshl, Oshr, Ocall, Oblit0, Oblit1, Ocopy, Oextsb,
+                   Ovaarg, Ovastart,
                    BIT, KWIDE, TMP, isload, isstore, rtype, rval, rsval)
 from .util import die, newtmp, getcon, newcon, idup
 from .alias import alias, escapes
@@ -247,6 +248,12 @@ def def_(sl, msk, b, i, il):
         i -= 1
         ins = b.ins[i]
         if killsl(ins.to, sl) or (ins.op == Ocall and escapes(sl.ref, curf)):
+            return Load()
+        if ins.op in (Ovaarg, Ovastart) and \
+                alias(sl.ref, sl.off, sl.sz, ins.arg[0], 32, curf)[0] != NoAlias:
+            # fix over C QBE: they write the va_list (lowered only later, by abi1); a store
+            # was forwarded across them, so a char * va_list parameter (Apple, Windows) lost
+            # its va_arg updates
             return Load()
         ld = isload(ins.op)
         if ld:

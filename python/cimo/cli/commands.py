@@ -147,8 +147,8 @@ def _read_source(ctx, path):
     if path == '-':
         return sys.stdin.read(), '<stdin>'
     try:
-        with open(path) as f:
-            return f.read(), path
+        from ..resources import read_text  # UTF-8 whatever the locale; other bytes kept as-is
+        return read_text(path), path
     except FileNotFoundError:
         near = _near_files(path)
         raise UsageError("no such file: '%s'" % path, ctx.command, near) from None

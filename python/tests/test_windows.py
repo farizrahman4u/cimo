@@ -134,6 +134,19 @@ double vla(int n) { double a[n]; for (int i = 0; i < n; i++) a[i] = i;
 
 
 @needs_win
+def test_va_list_parameter_passed_on_after_va_arg():
+    # load elimination forwarded the parameter's stored value across va_arg (gcc stdarg-4.c)
+    m = cimo.compile(r'''
+#include <stdarg.h>
+static long rest(va_list ap) { long s = va_arg(ap, int); return s * 100 + (long)va_arg(ap, double); }
+static long first(va_list ap) { long a = va_arg(ap, long); return a * 10000 + rest(ap); }
+static long f(int n, ...) { va_list ap; va_start(ap, n); long r = first(ap); va_end(ap); return r; }
+long t(void) { return f(3, 7L, 5, 18.0); }
+''')
+    assert m.t() == 70518
+
+
+@needs_win
 def test_calls_into_msvcrt_variadics():
     m = cimo.compile(r'''
 int _snprintf(char *, unsigned long long, const char *, ...);

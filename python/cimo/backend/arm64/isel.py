@@ -136,7 +136,12 @@ def fixarg(pa, pi, k, phi, fn):
                 r2 = newtmp("isel", Kl, fn)
                 cc = Con(CBits, c.i)
                 r3 = newcon(cc, fn)
-                emit(Oadd, Kl, r1, r2, r3)
+                if imm(cc, Kl)[0] in (Iplo12, Iphi12):
+                    emit(Oadd, Kl, r1, r2, r3)
+                else:  # fix over C QBE: any offset was an immediate (no encoding)
+                    r4 = newtmp("isel", Kl, fn)
+                    emit(Oadd, Kl, r1, r2, r4)
+                    emit(Ocopy, Kl, r4, r3, R)
                 r1 = r2
             if D.T.apple and (c.sym.type & SThr):
                 emit(Ocopy, Kl, r1, TMP(R0), R)

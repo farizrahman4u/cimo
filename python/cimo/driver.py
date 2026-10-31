@@ -47,6 +47,52 @@ int __builtin_signbit(double);
 #define __builtin_huge_valf() __builtin_inff()
 #define __builtin_inf() ((double)__builtin_inff())
 #define __builtin_nan(s) ((double)__builtin_nanf(s))
+#define __cimo_s(x) __cimo_s2(x)
+#define __cimo_s2(x) #x
+#define __cimo_lib(n) __asm__(__cimo_s(__USER_LABEL_PREFIX__) #n)
+_Noreturn void __builtin_abort(void) __cimo_lib(abort);
+_Noreturn void __builtin_exit(int) __cimo_lib(exit);
+void *__builtin_memcpy(void *, const void *, unsigned long) __cimo_lib(memcpy);
+void *__builtin_memmove(void *, const void *, unsigned long) __cimo_lib(memmove);
+void *__builtin_memset(void *, int, unsigned long) __cimo_lib(memset);
+int __builtin_memcmp(const void *, const void *, unsigned long) __cimo_lib(memcmp);
+void *__builtin_memchr(const void *, int, unsigned long) __cimo_lib(memchr);
+unsigned long __builtin_strlen(const char *) __cimo_lib(strlen);
+int __builtin_strcmp(const char *, const char *) __cimo_lib(strcmp);
+int __builtin_strncmp(const char *, const char *, unsigned long) __cimo_lib(strncmp);
+char *__builtin_strcpy(char *, const char *) __cimo_lib(strcpy);
+char *__builtin_strncpy(char *, const char *, unsigned long) __cimo_lib(strncpy);
+char *__builtin_strcat(char *, const char *) __cimo_lib(strcat);
+char *__builtin_strncat(char *, const char *, unsigned long) __cimo_lib(strncat);
+char *__builtin_strchr(const char *, int) __cimo_lib(strchr);
+char *__builtin_strrchr(const char *, int) __cimo_lib(strrchr);
+char *__builtin_strstr(const char *, const char *) __cimo_lib(strstr);
+int __builtin_printf(const char *, ...) __cimo_lib(printf);
+int __builtin_sprintf(char *, const char *, ...) __cimo_lib(sprintf);
+int __builtin_snprintf(char *, unsigned long, const char *, ...) __cimo_lib(snprintf);
+int __builtin_puts(const char *) __cimo_lib(puts);
+int __builtin_putchar(int) __cimo_lib(putchar);
+void *__builtin_malloc(unsigned long) __cimo_lib(malloc);
+void *__builtin_calloc(unsigned long, unsigned long) __cimo_lib(calloc);
+void *__builtin_realloc(void *, unsigned long) __cimo_lib(realloc);
+void __builtin_free(void *) __cimo_lib(free);
+int __builtin_abs(int) __cimo_lib(abs);
+long __builtin_labs(long) __cimo_lib(labs);
+long long __builtin_llabs(long long) __cimo_lib(llabs);
+double __builtin_fabs(double) __cimo_lib(fabs);
+float __builtin_fabsf(float) __cimo_lib(fabsf);
+double __builtin_copysign(double, double) __cimo_lib(copysign);
+float __builtin_copysignf(float, float) __cimo_lib(copysignf);
+double __builtin_sqrt(double) __cimo_lib(sqrt);
+float __builtin_sqrtf(float) __cimo_lib(sqrtf);
+double __builtin_floor(double) __cimo_lib(floor);
+double __builtin_ceil(double) __cimo_lib(ceil);
+double __builtin_fmin(double, double) __cimo_lib(fmin);
+double __builtin_fmax(double, double) __cimo_lib(fmax);
+#undef __cimo_lib
+#undef __cimo_s
+#undef __cimo_s2
+#define __builtin_prefetch(...) ((void)(__VA_ARGS__))
 '''
 _CTYPE = {'w': ctypes.c_int32, 'l': ctypes.c_int64, 's': ctypes.c_float, 'd': ctypes.c_double}
 _SIG = re.compile(r'^export\s*\nfunction\s+(?:([wlsd]|:[\w.]+)\s+)?\$(\w+)\(([^)]*)\)', re.M)
@@ -252,7 +298,7 @@ def _build(src, filename='<string>', include_dirs=(), host_headers=False, define
     _check_machine()
     pp = _preprocess(src, filename, include_dirs, host_headers, defines)
     key = hashlib.sha256(_VERSION + _link.compiler_key().encode() + TARGET.encode() + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
-                         + pp.encode()).hexdigest()[:24]
+                         + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
     hit = _cache_get(key)
     if hit is not None:
         return hit
@@ -417,9 +463,8 @@ def compile(src, include_dirs=(), link=(), host_headers=False, defines=()):
 
 def load(path, include_dirs=(), link=(), host_headers=False, defines=()):
     """Compile a .c file; its directory is searched for "..." includes. Options as compile()."""
-    with open(path) as f:
-        src = f.read()
-    return _module(src, path, include_dirs, link, host_headers, defines)
+    from .resources import read_text
+    return _module(read_text(path), path, include_dirs, link, host_headers, defines)
 
 
 def _module(src, filename, include_dirs, link, host_headers, defines):

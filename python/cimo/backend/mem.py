@@ -78,8 +78,12 @@ def promote(fn):
                 t.ndef += 1
             else:
                 if k == -1:
-                    err("slot %%%s is read but never stored to",
-                        fn.tmp[rval(l.arg[0])].name)
+                    # fix over C QBE (an error, rejecting C that reads an uninitialized
+                    # local): never stored, the value is indeterminate; read 0
+                    l.op = Ocopy
+                    l.arg[0] = CON_Z
+                    t.nuse -= 1
+                    continue
                 # try to turn loads into copies so we
                 # can eliminate them later
                 if (l.op == Oloadsw or l.op == Oloaduw) and k == Kl:
@@ -298,7 +302,10 @@ def coalesce(fn):
     sl0 = []
     for s in sl:
         total += s.sz
-        if not s.r.b:
+        # fix over C QBE (it killed the slot and passed address 0): a slot never stored but
+        # passed by value (an uninitialized struct, valid C) is kept
+        if not s.r.b and not any(u.type == UIns and u.u.op == Oargc
+                                 for u in fn.tmp[s.t].use[:fn.tmp[s.t].nuse]):
             stk.append(s.t)
             freed += s.sz
         else:
@@ -333,9 +340,9 @@ def coalesce(fn):
             if i.to != R:
                 assert rtype(i.to) == RTmp
                 stk.append(rval(i.to))
-            elif isarg(i.op):
+            elif isarg(i.op):  # unreachable: slots passed by value are kept (above)
                 assert i.op == Oargc
-                i.arg[1] = CON_Z  # crash
+                i.arg[1] = CON_Z
             else:
                 if i.op == Oblit0:
                     b = fn.rpo[u.bid]

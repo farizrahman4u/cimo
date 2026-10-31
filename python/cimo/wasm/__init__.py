@@ -136,7 +136,7 @@ def build(src, filename='<string>', include_dirs=(), defines=()):
     pp = d._preprocess(src, filename, include_dirs, False, defines, 'arm64')
     from .. import linker as L
     key = hashlib.sha256(_VERSION + L.compiler_key().encode() + (b'm' if d.MIDDLE else b'')
-                         + pp.encode()).hexdigest()[:24]
+                         + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
     hit = _cache_get(key)
     if hit is not None:
         return hit
