@@ -50,7 +50,7 @@
   const FILES = { c: 'saxpy.c', ir: 'saxpy.ssa · from the front end', opt: 'saxpy.ssa · optimized', asm: 'saxpy.s · arm64', enc: 'saxpy · machine code', run: 'python' };
   const slug = o => o.replace(/[^a-z]/gi, '').toLowerCase();
 
-  let data = null, cur = 0, timer = null, auto = true, inView = false, track = null;
+  let data = null, cur = 0, timer = null, auto = true, inView = false, slides = [];
   const RM = matchMedia('(prefers-reduced-motion:reduce)').matches;
 
   // every slide is rendered once, side by side in a track; changing stage only moves the track
@@ -68,9 +68,21 @@
     </div>`;
   }
 
-  function place(animate) {
-    track.style.transition = animate && !RM ? 'transform .45s cubic-bezier(.3,.7,.2,1)' : 'none';
-    track.style.transform = `translateX(calc(${-cur} * (100% + 48px)))`;
+  // coverflow: the current card in front, its neighbours peeking in at the sides, smaller,
+  // turned away and dimmed; frac shifts everything during a drag (in cards)
+  function layout(frac, animate) {
+    const w = slides[0].offsetWidth, step = w * .94;
+    slides.forEach((el, i) => {
+      const off = i - cur + frac, a = Math.min(Math.abs(off), 1.6);
+      el.style.transition = animate && !RM ? 'transform .5s cubic-bezier(.3,.7,.2,1), opacity .5s ease' : 'none';
+      el.style.transform = `translateX(calc(-50% + ${off * step}px)) rotateY(${Math.max(-1.2, Math.min(1.2, off)) * -14}deg) scale(${1 - a * .08})`;
+      el.style.opacity = a > 1.5 ? 0 : 1 - Math.min(a, 1) * .5;
+      el.style.zIndex = 10 - Math.round(a * 4);
+      el.classList.toggle('side', Math.abs(off) > .5);
+    });
+  }
+  function fit() {  // the stage is as tall as the tallest card
+    view.style.height = Math.max(...slides.map(el => el.offsetHeight)) + 'px';
   }
 
   function show(k, user, animate = true) {
@@ -82,8 +94,8 @@
       b.setAttribute('aria-selected', i === cur);
     });
     steps.style.setProperty('--p', cur / (data.length - 1));
-    track.querySelectorAll('.arch-slide').forEach((el, i) => el.setAttribute('aria-hidden', i !== cur));
-    place(animate);
+    slides.forEach((el, i) => el.setAttribute('aria-hidden', i !== cur));
+    layout(0, animate);
     if (auto) { clearTimeout(timer); timer = setTimeout(tick, 6000); }
   }
   function tick() {
@@ -95,11 +107,15 @@
     data = j.stages;
     steps.innerHTML = '<i class="arch-line"><b></b></i>' + data.map((s, i) =>
       `<button type="button" class="arch-step" role="tab" data-i="${i}"><span class="n">${i + 1}</span><b>${s.title}</b><small class="o-${slug(s.origin)}">${s.origin}</small></button>`).join('');
-    view.innerHTML = `<div class="arch-track">${data.map(slideHTML).join('')}</div>`;
-    track = view.firstChild;
+    view.innerHTML = data.map(slideHTML).join('');
+    slides = [...view.querySelectorAll('.arch-slide')];
+    fit();
+    addEventListener('resize', () => { fit(); layout(0, false); });
     steps.addEventListener('click', e => { const b = e.target.closest('.arch-step'); if (b) show(+b.dataset.i, true); });
-    view.addEventListener('click', e => {  // the encoder's arm64 / WebAssembly toggle
-      const b = e.target.closest('.arch-alt button');
+    view.addEventListener('click', e => {
+      const side = e.target.closest('.arch-slide.side');  // a peeking card: bring it forward
+      if (side && !moved) { show(slides.indexOf(side), true); return; }
+      const b = e.target.closest('.arch-alt button');  // the encoder's arm64 / WebAssembly toggle
       if (!b) return;
       const slide = b.closest('.arch-slide'), alt = b.dataset.v === 'alt', s = data[cur];
       slide.querySelectorAll('.arch-alt button').forEach(x => x.classList.toggle('on', x === b));
@@ -116,9 +132,10 @@
 
     // drag: the track follows the pointer, so the next slide comes in as you pull; a drag
     // only counts once it is clearly sideways, so vertical scrolling in the code still works
-    let d = null;
+    let d = null, moved = false;
     view.addEventListener('pointerdown', e => {
       if (e.button || e.target.closest('button, a')) return;
+      moved = false;
       d = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, on: false, dx: 0 };
     });
     view.addEventListener('pointermove', e => {
@@ -127,7 +144,7 @@
       if (!d.on) {
         if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) { d = null; return; }
         if (Math.abs(dx) < 8) return;
-        d.on = true;
+        d.on = true; moved = true;
         view.setPointerCapture(d.id);
         view.classList.add('dragging');
         window.getSelection().removeAllRanges();
@@ -135,15 +152,14 @@
       }
       const end = (dx > 0 && cur === 0) || (dx < 0 && cur === data.length - 1);
       d.dx = end ? dx / 3 : dx;
-      track.style.transition = 'none';
-      track.style.transform = `translateX(calc(${-cur} * (100% + 48px) + ${d.dx}px))`;
+      layout(d.dx / (slides[0].offsetWidth * .94), false);
     });
     const release = e => {
       if (!d) return;
       const was = d; d = null;
       if (!was.on) return;
       view.classList.remove('dragging');
-      const w = view.clientWidth, v = Math.abs(was.dx) / Math.max(1, e.timeStamp - was.t);
+      const w = slides[0].offsetWidth, v = Math.abs(was.dx) / Math.max(1, e.timeStamp - was.t);
       let next = cur;
       if (Math.abs(was.dx) > w * .18 || (v > .45 && Math.abs(was.dx) > 20)) next = cur + (was.dx < 0 ? 1 : -1);
       show(next, true);
