@@ -42,3 +42,5 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 - Demos (see "Demos (planned)" in `requirements.md`).
 - Website demo (`docs/demo.js`): C vector field → particles, recompiled in Pyodide on every edit.
   `docs/cimo.py` is a `cimo bundle` build: regenerate it when the compiler changes.
+- Website training demo (`docs/nn.js`, `docs/nn/codegen.py`): a drawn network → JSON → C
+  (forward, backward, Adam) → cimo → WASM, trained in the page. `docs/runtime.js` shares Pyodide.

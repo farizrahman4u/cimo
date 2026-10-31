@@ -1,0 +1,456 @@
+// The training demo: a network you draw -> JSON -> C (nn/codegen.py, in Pyodide) -> cimo ->
+// WebAssembly -> trained here, with every stage on screen. Shares Pyodide with the banner demo
+// (runtime.js). Each frame JS calls the compiled train/predict/acts directly on buffers in
+// Pyodide's memory.
+(function () {
+  'use strict';
+  const root = document.getElementById('nn');
+  if (!root) return;
+  const $ = s => root.querySelector(s);
+
+  const N = 300;          // data points
+  const G = 64;           // decision-boundary grid (G*G <= NMAX in codegen.py)
+  const TH = 20;          // grid of each neuron thumbnail
+  const LIM = 1.25;       // the plane shown: [-LIM, LIM]^2
+  const STEPS = 3000, PER_FRAME = 20;
+
+  // ---- datasets: two classes in the plane
+  function rng(seed) { let s = seed >>> 0 || 1; return () => ((s = Math.imul(s ^ (s >>> 15), 2246822507) + 0x6D2B79F5 >>> 0) / 4294967296); }
+  function gauss(r) { return Math.sqrt(-2 * Math.log(r() + 1e-12)) * Math.cos(2 * Math.PI * r()); }
+  const DATA = {
+    'Two spirals': r => { const P = []; for (let i = 0; i < N; i++) { const c = i % 2, t = (i >> 1) / (N / 2) * 2.8 * Math.PI + 0.4, a = t + c * Math.PI, d = t / (3.2 * Math.PI); P.push([d * Math.cos(a) + gauss(r) * .025, d * Math.sin(a) + gauss(r) * .025, c]); } return P; },
+    'Circles': r => { const P = []; for (let i = 0; i < N; i++) { const c = i % 2, a = r() * 2 * Math.PI, d = (c ? .75 : .32) + gauss(r) * .07; P.push([d * Math.cos(a), d * Math.sin(a), c]); } return P; },
+    'Moons': r => { const P = []; for (let i = 0; i < N; i++) { const c = i % 2, t = r() * Math.PI; P.push(c ? [.9 * Math.cos(t) - .45 + gauss(r) * .06, .9 * Math.sin(t) - .25 + gauss(r) * .06, 0] : [.9 * Math.cos(t + Math.PI) + .45 + gauss(r) * .06, .9 * Math.sin(t + Math.PI) + .25 + gauss(r) * .06, 1]); } return P; },
+    'XOR': r => { const P = []; for (let i = 0; i < N; i++) { const x = r() * 2 - 1, y = r() * 2 - 1; P.push([x, y, (x > 0) !== (y > 0) ? 1 : 0]); } return P; },
+  };
+
+  // ---- graphs
+  const OPS = {
+    input: { label: 'Input', ins: 0 }, output: { label: 'Output', ins: 1 },
+    dense: { label: 'Dense', ins: 1 }, relu: { label: 'ReLU', ins: 1 }, tanh: { label: 'Tanh', ins: 1 },
+    sigmoid: { label: 'Sigmoid', ins: 1 }, sin: { label: 'Sin', ins: 1 }, square: { label: 'Square', ins: 1 },
+    add: { label: 'Add', ins: 2 }, concat: { label: 'Concat', ins: 2 },
+  };
+  const PALETTE = ['dense', 'tanh', 'relu', 'sin', 'sigmoid', 'square', 'add', 'concat'];
+  // [id, op, x, y, inputs, units]: positions on a 0..1 by 0..1 board
+  const PRESETS = {
+    'Tanh MLP': [['in', 'input', .015, .45, []], ['d1', 'dense', .155, .45, ['in'], 8], ['t1', 'tanh', .295, .45, ['d1']], ['d2', 'dense', .435, .45, ['t1'], 8], ['t2', 'tanh', .575, .45, ['d2']], ['d3', 'dense', .715, .45, ['t2'], 1], ['out', 'output', .86, .45, ['d3']]],
+    'Sine features': [['in', 'input', .015, .45, []], ['d1', 'dense', .155, .45, ['in'], 12], ['s1', 'sin', .295, .45, ['d1']], ['d2', 'dense', .435, .45, ['s1'], 8], ['t2', 'tanh', .575, .45, ['d2']], ['d3', 'dense', .715, .45, ['t2'], 1], ['out', 'output', .86, .45, ['d3']]],
+    'Skip connection': [['in', 'input', .015, .45, []], ['d1', 'dense', .145, .25, ['in'], 8], ['t1', 'tanh', .285, .25, ['d1']], ['d2', 'dense', .425, .25, ['t1'], 8], ['t2', 'tanh', .565, .25, ['d2']], ['a', 'add', .6, .7, ['t1', 't2']], ['d3', 'dense', .73, .7, ['a'], 1], ['out', 'output', .86, .7, ['d3']]],
+    'Linear (too simple)': [['in', 'input', .015, .45, []], ['d1', 'dense', .43, .45, ['in'], 1], ['out', 'output', .86, .45, ['d1']]],
+  };
+
+  let graph = [];   // [{id, op, x, y, inputs: [id|null], units}]
+  let uid = 0;
+  function loadPreset(name) {
+    graph = PRESETS[name].map(([id, op, x, y, inputs, units]) => ({ id, op, x, y, inputs: inputs.slice(), units }));
+    uid = 0;
+  }
+
+  // ---- DOM
+  const board = $('.nn-board'), wires = $('.nn-wires'), boundary = $('.nn-boundary'), lossCv = $('.nn-loss');
+  const ui = {
+    start: $('.nn-start'), status: $('.nn-status'), data: $('.nn-data'), preset: $('.nn-preset'),
+    lr: $('.nn-lr'), retrain: $('.nn-retrain'), step: $('.nn-step'), lossT: $('.nn-loss-t'),
+    acc: $('.nn-acc'), err: $('.nn-err'), panel: $('.nn-panel pre'), palette: $('.nn-palette'),
+  };
+  ui.data.innerHTML = Object.keys(DATA).map(n => `<option>${n}</option>`).join('');
+  ui.preset.innerHTML = Object.keys(PRESETS).map(n => `<option>${n}</option>`).join('');
+  ui.palette.innerHTML = PALETTE.map(op => `<button type="button" data-op="${op}" title="add a ${OPS[op].label} node">+${OPS[op].label}</button>`).join('');
+  loadPreset(ui.preset.value);
+
+  let widths = {}, usedSet = new Set(), thumbs = {};
+  function render() {
+    board.querySelectorAll('.nn-node').forEach(e => e.remove());
+    thumbs = {};
+    for (const n of graph) {
+      const el = document.createElement('div');
+      el.className = 'nn-node op-' + n.op + (usedSet.size && !usedSet.has(n.id) ? ' unused' : '');
+      el.dataset.id = n.id;
+      el.style.left = (n.x * 100) + '%';
+      el.style.top = (n.y * 100) + '%';
+      const fixed = n.op === 'input' || n.op === 'output';
+      let body = '';
+      if (n.op === 'dense') body += `<div class="nn-units"><button type="button" data-d="-1" aria-label="fewer units">−</button><b>${n.units}</b><button type="button" data-d="1" aria-label="more units">+</button></div>`;
+      if (!fixed) body += '<canvas class="nn-th" width="1" height="1"></canvas>';
+      if (n.op === 'input') body += '<div class="nn-note">x, y</div>';
+      if (n.op === 'output') body += '<div class="nn-note">score</div>';
+      el.innerHTML = `<div class="nn-h">${OPS[n.op].label}${fixed ? '' : '<button type="button" class="nn-x" aria-label="remove">×</button>'}</div>${body}` +
+        (OPS[n.op].ins ? Array.from({ length: OPS[n.op].ins }, (_, k) => `<i class="nn-in" data-k="${k}" style="top:${OPS[n.op].ins === 2 ? 34 + k * 40 : 50}%"></i>`).join('') : '') +
+        (n.op !== 'output' ? '<i class="nn-out"></i>' : '');
+      board.appendChild(el);
+      if (!fixed) thumbs[n.id] = el.querySelector('.nn-th');
+    }
+    drawWires();
+  }
+
+  function portPos(el, sel) {
+    const p = el.querySelector(sel).getBoundingClientRect(), b = board.getBoundingClientRect();
+    return [p.left + p.width / 2 - b.left, p.top + p.height / 2 - b.top];
+  }
+  function curve(a, b) {
+    const dx = Math.max(30, Math.abs(b[0] - a[0]) / 2);
+    return `M${a[0]},${a[1]} C${a[0] + dx},${a[1]} ${b[0] - dx},${b[1]} ${b[0]},${b[1]}`;
+  }
+  let temp = null;
+  function drawWires() {
+    let s = '';
+    const node = id => board.querySelector(`.nn-node[data-id="${id}"]`);
+    for (const n of graph) n.inputs.forEach((src, k) => {
+      if (!src || !node(src)) return;
+      const a = portPos(node(src), '.nn-out'), b = portPos(node(n.id), `.nn-in[data-k="${k}"]`);
+      const d = curve(a, b), w = widths[src];
+      s += `<path class="w" d="${d}"/><path class="hit" d="${d}" data-to="${n.id}" data-k="${k}"><title>click to disconnect</title></path>`;
+      if (w) s += `<text x="${(a[0] + b[0]) / 2}" y="${Math.min(a[1], b[1]) - 9}">${w}</text>`;
+    });
+    if (temp) s += `<path class="w temp" d="${curve(temp.a, temp.b)}"/>`;
+    wires.innerHTML = s;
+  }
+
+  // dragging nodes, drawing wires, editing
+  board.addEventListener('pointerdown', e => {
+    const el = e.target.closest('.nn-node');
+    if (e.target.closest('button')) return;
+    if (e.target.classList.contains('nn-out') && el) {
+      temp = { from: el.dataset.id, a: portPos(el, '.nn-out'), b: portPos(el, '.nn-out') };
+      board.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+    if (el && e.target.closest('.nn-h')) {
+      const n = graph.find(q => q.id === el.dataset.id), b = board.getBoundingClientRect();
+      const ox = e.clientX - (n.x * b.width), oy = e.clientY - (n.y * b.height);
+      const move = ev => {
+        n.x = Math.max(0, Math.min(.88, (ev.clientX - ox) / b.width));
+        n.y = Math.max(0, Math.min(.86, (ev.clientY - oy) / b.height));
+        el.style.left = (n.x * 100) + '%'; el.style.top = (n.y * 100) + '%';
+        drawWires();
+      };
+      const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+      addEventListener('pointermove', move); addEventListener('pointerup', up);
+      e.preventDefault();
+    }
+  });
+  board.addEventListener('pointermove', e => {
+    if (!temp) return;
+    const b = board.getBoundingClientRect();
+    temp.b = [e.clientX - b.left, e.clientY - b.top];
+    drawWires();
+  });
+  board.addEventListener('pointerup', e => {
+    if (!temp) return;
+    const t = document.elementFromPoint(e.clientX, e.clientY), from = temp.from;
+    temp = null;
+    if (t && t.classList.contains('nn-in')) {
+      const to = graph.find(q => q.id === t.closest('.nn-node').dataset.id);
+      if (to.id !== from) { to.inputs[+t.dataset.k] = from; changed(); return; }
+    }
+    drawWires();
+  });
+  board.addEventListener('click', e => {
+    const hit = e.target.closest('.hit');
+    if (hit) { graph.find(q => q.id === hit.dataset.to).inputs[+hit.dataset.k] = null; changed(); return; }
+    const el = e.target.closest('.nn-node');
+    if (!el) return;
+    const n = graph.find(q => q.id === el.dataset.id);
+    if (e.target.classList.contains('nn-x')) {
+      graph = graph.filter(q => q !== n);
+      graph.forEach(q => { q.inputs = q.inputs.map(s => s === n.id ? null : s); });
+      changed();
+    } else if (e.target.dataset.d) {
+      n.units = Math.max(1, Math.min(32, n.units + +e.target.dataset.d));
+      changed();
+    }
+  });
+  ui.palette.addEventListener('click', e => {
+    const op = e.target.dataset && e.target.dataset.op;
+    if (!op) return;
+    const n = { id: 'n' + (++uid), op, x: .4 + (uid % 5) * .03, y: .74 - (uid % 3) * .05, inputs: Array(OPS[op].ins).fill(null) };
+    if (op === 'dense') n.units = 8;
+    graph.push(n);
+    changed();
+  });
+  ui.preset.addEventListener('change', () => { loadPreset(ui.preset.value); changed(); });
+  ui.data.addEventListener('change', () => { setData(); restart(); });
+  ui.lr.addEventListener('change', restart);
+  ui.retrain.addEventListener('click', () => { seed++; restart(); });
+  addEventListener('resize', drawWires);
+  new ResizeObserver(drawWires).observe(board);
+
+  // ---- stages
+  const stage = { json: '', c: '', wasm: '' };
+  let openStage = 'c';
+  root.querySelectorAll('.nn-chip[data-s]').forEach(ch => ch.addEventListener('click', () => {
+    openStage = openStage === ch.dataset.s ? null : ch.dataset.s;
+    showStage();
+  }));
+  function showStage() {
+    root.querySelectorAll('.nn-chip[data-s]').forEach(ch => ch.classList.toggle('open', ch.dataset.s === openStage));
+    if (openStage) ui.panel.textContent = stage[openStage] || '';
+    root.classList.toggle('panel-open', !!(openStage && stage[openStage]));
+  }
+  function chip(s, text) { const el = root.querySelector(`.nn-chip[data-s="${s}"] small`); if (el) el.textContent = text; }
+
+  function toJSON() {
+    return JSON.stringify({ nodes: graph.map(n => Object.assign({ id: n.id, op: n.op }, n.op === 'dense' ? { units: n.units } : {}, OPS[n.op].ins ? { inputs: n.inputs } : {})) });
+  }
+
+  // ---- Python side
+  const PY = `
+import json, time, ctypes, struct
+import cimo, codegen
+import cimo.wasm as _cw
+F = ctypes.c_float
+N, G, TH = ${N}, ${G}, ${TH}
+X = (F * (N * 2))(); Y = (F * N)(); PX = (F * N)()
+GX = (F * (G * G * 2))(); GO = (F * (G * G))(); TX = (F * (TH * TH * 2))()
+ADDR = {k: ctypes.addressof(v) for k, v in dict(X=X, Y=Y, PX=PX, GX=GX, GO=GO, TX=TX).items()}
+_live = {}
+
+def _sections(mod):
+    names = {0: 'custom', 1: 'type', 2: 'import', 3: 'function', 7: 'export', 9: 'elem', 10: 'code', 11: 'data'}
+    out, i = [], 8
+    while i < len(mod):
+        sid = mod[i]; i += 1
+        n = sh = 0
+        while True:
+            b = mod[i]; i += 1; n |= (b & 0x7f) << sh; sh += 7
+            if not b & 0x80: break
+        label = names.get(sid, str(sid))
+        if sid == 0:
+            ln = mod[i]; label = 'custom "%s"' % bytes(mod[i + 1:i + 1 + ln]).decode()
+        out.append((label, n)); i += n
+    return out
+
+def nn_build(graph_json):
+    t0 = time.perf_counter()
+    pretty = json.dumps(json.loads(graph_json), indent=1)
+    try:
+        r = codegen.generate(graph_json)
+    except codegen.GraphError as e:
+        return {'ok': False, 'stage': 'graph', 'error': str(e), 'json': pretty}
+    t1 = time.perf_counter()
+    try:
+        m = cimo.compile(r['c'])
+        mod, _ = _cw.build(r['c'])
+    except cimo.CompileError as e:
+        return {'ok': False, 'stage': 'c', 'error': str(e), 'json': pretty, 'c': r['c']}
+    t2 = time.perf_counter()
+    np_ = max(r['nparams'], 1)
+    na = sum(a['width'] for a in r['acts'])
+    bufs = dict(P=(F * np_)(), M=(F * np_)(), V=(F * np_)(), WS=(F * r['ws'])(), AO=(F * max(1, na * TH * TH))())
+    _live.clear(); _live.update(bufs); _live['m'] = m
+    sec = _sections(mod)
+    hexd = ' '.join('%02x' % b for b in mod[:16])
+    wasm = 'cimo-generated WebAssembly side module, %d bytes\\n\\n%s ...\\n\\n' % (len(mod), hexd) + \\
+        '\\n'.join('%-22s %6d bytes' % s for s in sec) + \\
+        '\\n\\nexports: init, train, predict, acts (and the module\\'s helpers)\\nimports: Pyodide\\'s memory, table and stack pointer'
+    e = m.exports
+    return {'ok': True, 'json': pretty, 'c': r['c'], 'wasm': wasm, 'nparams': r['nparams'],
+            'acts': r['acts'], 'widths': r['widths'], 'used': r['used'],
+            'gen_ms': (t1 - t0) * 1000, 'cc_ms': (t2 - t1) * 1000, 'size': len(mod),
+            'addr': dict(ADDR, **{k: ctypes.addressof(v) for k, v in bufs.items()}),
+            'init': m.init.function, 'train': m.train.function, 'predict': m.predict.function,
+            'acts_fn': m.acts.function,
+            'getsp': getattr(e, '__cimo_get_sp'), 'setsp': getattr(e, '__cimo_set_sp')}
+`;
+
+  let py = null, buildPy = null, net = null, seed = 1, step = 0, t = 0, running = false, losses = [];
+  function heap() { return py._module.HEAPF32; }
+  function put(addr, arr) { heap().set(arr, addr >> 2); }
+
+  let points = [];
+  function setData() {
+    points = DATA[ui.data.value](rng(7 + ui.data.selectedIndex));
+    if (!py) { drawBoundary(); return; }
+    const A = py.globals.get('ADDR').toJs();
+    const X = new Float32Array(N * 2), Y = new Float32Array(N);
+    points.forEach((p, i) => { X[2 * i] = p[0]; X[2 * i + 1] = p[1]; Y[i] = p[2]; });
+    put(A.get('X'), X); put(A.get('Y'), Y);
+    const g = new Float32Array(G * G * 2), th = new Float32Array(TH * TH * 2);
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { g[2 * (j * G + i)] = -LIM + (i + .5) / G * 2 * LIM; g[2 * (j * G + i) + 1] = LIM - (j + .5) / G * 2 * LIM; }
+    for (let j = 0; j < TH; j++) for (let i = 0; i < TH; i++) { th[2 * (j * TH + i)] = -LIM + (i + .5) / TH * 2 * LIM; th[2 * (j * TH + i) + 1] = LIM - (j + .5) / TH * 2 * LIM; }
+    put(A.get('GX'), g); put(A.get('TX'), th);
+  }
+
+  let timer = null;
+  function changed() {
+    render();
+    if (!py) return;
+    clearTimeout(timer);
+    timer = setTimeout(build, 250);
+  }
+
+  function build() {
+    const json = toJSON();
+    const proxy = buildPy(json);
+    const r = proxy.toJs({ dict_converter: Object.fromEntries });
+    proxy.destroy();
+    stage.json = r.json || json;
+    chip('graph', `${graph.length} nodes`);
+    chip('json', `${(json.length / 1024).toFixed(1)} KB`);
+    if (!r.ok) {
+      ui.err.textContent = (r.stage === 'graph' ? 'graph: ' : 'C: ') + r.error;
+      ui.err.hidden = false;
+      root.classList.add('broken');
+      if (r.c) stage.c = r.c;
+      showStage();
+      return;
+    }
+    ui.err.hidden = true;
+    root.classList.remove('broken');
+    stage.c = r.c; stage.wasm = r.wasm;
+    widths = r.widths instanceof Map ? Object.fromEntries(r.widths) : r.widths;
+    usedSet = new Set(r.used);
+    chip('graph', `${graph.length} nodes · ${r.nparams} params`);
+    chip('c', `${r.c.split('\n').length} lines · ${r.gen_ms.toFixed(0)} ms`);
+    chip('wasm', `${(r.size / 1024).toFixed(1)} KB · cimo ${r.cc_ms.toFixed(0)} ms`);
+    net = r;
+    net.addr = r.addr instanceof Map ? Object.fromEntries(r.addr) : r.addr;
+    render();
+    showStage();
+    restart();
+  }
+
+  function call(f, ...args) {  // pointer arguments (BigInt) are marked by the caller
+    const sp = net.getsp();
+    try { return f(...args); } catch (e) { net.setsp(sp); throw e; }
+  }
+
+  function restart() {
+    if (!net) return;
+    const A = net.addr;
+    heap().fill(0, A.M >> 2, (A.M >> 2) + Math.max(1, net.nparams));
+    heap().fill(0, A.V >> 2, (A.V >> 2) + Math.max(1, net.nparams));
+    call(net.init, seed, BigInt(A.P));
+    step = 0; t = 0; losses = [];
+    running = true;
+  }
+
+  // ---- drawing
+  const C0 = [63, 92, 246], C1 = [245, 158, 11];   // class 0 blue, class 1 amber
+  function drawBoundary(prob) {
+    const ctx = boundary.getContext('2d'), W = boundary.width;
+    if (prob) {
+      const img = ctx.createImageData(G, G);
+      for (let k = 0; k < G * G; k++) {
+        const p = prob[k], c = p > .5 ? C1 : C0, a = Math.min(1, Math.abs(p - .5) * 2);
+        img.data[4 * k] = 255 + (c[0] - 255) * a * .55;
+        img.data[4 * k + 1] = 255 + (c[1] - 255) * a * .55;
+        img.data[4 * k + 2] = 255 + (c[2] - 255) * a * .55;
+        img.data[4 * k + 3] = 255;
+      }
+      const off = document.createElement('canvas'); off.width = off.height = G;
+      off.getContext('2d').putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(off, 0, 0, W, W);
+    } else {
+      ctx.fillStyle = '#f5f6fa'; ctx.fillRect(0, 0, W, W);
+    }
+    for (const [x, y, c] of points) {
+      const px = (x + LIM) / (2 * LIM) * W, py_ = (LIM - y) / (2 * LIM) * W;
+      ctx.beginPath(); ctx.arc(px, py_, W / 110, 0, 7);
+      ctx.fillStyle = c ? 'rgb(217,119,6)' : 'rgb(39,55,189)';
+      ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = '#fff'; ctx.stroke();
+    }
+  }
+  function drawLoss() {
+    const ctx = lossCv.getContext('2d'), W = lossCv.width, H = lossCv.height;
+    ctx.clearRect(0, 0, W, H);
+    if (losses.length < 2) return;
+    const mx = Math.max(...losses.slice(0, 5), .1);
+    ctx.beginPath();
+    losses.forEach((l, i) => { const x = i / (STEPS / PER_FRAME) * W, y = H - 2 - Math.min(1, l / mx) * (H - 4); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.strokeStyle = '#3f5cf6'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  function drawThumbs() {
+    const A = net.addr, h = heap(), n = TH * TH;
+    call(net.acts_fn, n, BigInt(A.TX), BigInt(A.P), BigInt(A.WS), BigInt(A.AO));
+    for (const a of net.acts) {
+      const cv = thumbs[a.id];
+      if (!cv) continue;
+      const show = Math.min(a.width, 8), cols = Math.min(show, 4), rows = Math.ceil(show / cols);
+      if (cv.width !== cols * (TH + 1) - 1) { cv.width = cols * (TH + 1) - 1; cv.height = rows * (TH + 1) - 1; }
+      const ctx = cv.getContext('2d'), img = ctx.createImageData(cv.width, cv.height);
+      const base = (A.AO >> 2) + a.offset * n;
+      for (let u = 0; u < show; u++) {
+        let lo = Infinity, hi = -Infinity;
+        for (let k = 0; k < n; k++) { const v = h[base + k * a.width + u]; if (v < lo) lo = v; if (v > hi) hi = v; }
+        const ox = (u % cols) * (TH + 1), oy = Math.floor(u / cols) * (TH + 1), sc = hi - lo > 1e-6 ? 1 / (hi - lo) : 0;
+        for (let k = 0; k < n; k++) {
+          const v = (h[base + k * a.width + u] - lo) * sc, c = v > .5 ? C1 : C0, s = Math.abs(v - .5) * 2;
+          const q = 4 * ((oy + Math.floor(k / TH)) * cv.width + ox + k % TH);
+          img.data[q] = 255 + (c[0] - 255) * s; img.data[q + 1] = 255 + (c[1] - 255) * s; img.data[q + 2] = 255 + (c[2] - 255) * s; img.data[q + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+  }
+
+  let frameN = 0;
+  function frame() {
+    requestAnimationFrame(frame);
+    if (!net || !running) return;
+    const A = net.addr;
+    try {
+      const k = Math.min(PER_FRAME, STEPS - step);
+      const loss = call(net.train, k, N, BigInt(A.X), BigInt(A.Y), BigInt(A.P), BigInt(A.M), BigInt(A.V), BigInt(A.WS), +ui.lr.value, t);
+      step += k; t += k; losses.push(loss);
+      call(net.predict, G * G, BigInt(A.GX), BigInt(A.P), BigInt(A.WS), BigInt(A.GO));
+      drawBoundary(heap().subarray(A.GO >> 2, (A.GO >> 2) + G * G));
+      if (frameN++ % 3 === 0 || step >= STEPS) {
+        drawThumbs();
+        call(net.predict, N, BigInt(A.X), BigInt(A.P), BigInt(A.WS), BigInt(A.PX));
+        const px = heap().subarray(A.PX >> 2, (A.PX >> 2) + N);
+        let ok = 0;
+        points.forEach((p, i) => { if ((px[i] > .5) === (p[2] === 1)) ok++; });
+        ui.acc.textContent = (100 * ok / N).toFixed(0) + '%';
+      }
+      ui.step.textContent = step;
+      ui.lossT.textContent = loss.toFixed(3);
+      drawLoss();
+      if (step >= STEPS) running = false;
+    } catch (e) {
+      running = false;
+      ui.err.textContent = 'training stopped: ' + String(e.message || e).split('\n')[0];
+      ui.err.hidden = false;
+    }
+  }
+
+  // ---- start: with the banner's Pyodide when it is already there, else on request
+  async function start() {
+    if (py) return;
+    ui.start.disabled = true;
+    root.classList.add('loading');
+    try {
+      py = await window.cimoRuntime.load(m => { ui.status.textContent = m; });
+      ui.status.textContent = 'Loading the code generator…';
+      const src = await (await fetch('nn/codegen.py')).text();
+      py.FS.writeFile('/home/pyodide/codegen.py', src);
+      await py.runPythonAsync(PY);
+      buildPy = py.globals.get('nn_build');
+      setData();
+      root.classList.remove('loading');
+      root.classList.add('running');
+      build();
+      requestAnimationFrame(frame);
+    } catch (e) {
+      py = null;
+      ui.status.textContent = 'Could not start: ' + (e && e.message || e);
+      ui.start.disabled = false;
+      root.classList.remove('loading');
+    }
+  }
+  ui.start.addEventListener('click', start);
+  // start by itself once on screen if Pyodide is already loading (the banner demo started it)
+  let onScreen = false;
+  new IntersectionObserver(es => {
+    onScreen = es[0].isIntersecting;
+    if (onScreen && window.cimoRuntime && window.cimoRuntime.started()) start();
+  }, { threshold: 0.2 }).observe(root);
+  addEventListener('cimo-runtime', () => { if (onScreen) start(); });
+
+  render();
+  setData();
+  showStage();
+})();

@@ -200,15 +200,8 @@ def build(src):
       status('Loading three.js and CodeMirror…');
       await Promise.all(LIBS.map(script));
       await script(CM_MODE);
-      status('Loading Pyodide (CPython in WebAssembly)…');
-      await script(PYODIDE + 'pyodide.js');
-      py = await loadPyodide({ indexURL: PYODIDE });
+      py = await window.cimoRuntime.load(status);  // shared with the training demo (nn.js)
       py.setStdout({ batched: s => { ui.out.textContent = s; } });
-      status('Loading cimo (one 1.1 MB Python file)…');
-      const text = await (await fetch('cimo.py')).text();
-      py.FS.writeFile('/home/pyodide/cimo.py', text);
-      py.runPython("import sys; sys.path.insert(0, '/home/pyodide')");
-      status('Importing cimo…');
       await py.runPythonAsync(PY);
       buildPy = py.globals.get('build');
       setupEditor();
