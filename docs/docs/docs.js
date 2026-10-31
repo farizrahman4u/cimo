@@ -19,7 +19,9 @@
     const a = side.querySelector(`a[data-p="${slug}"]`); if (a && a.querySelector('.n')) a.classList.add('read');
   }
   function fetchPage(slug) {
-    if (!cache[slug]) cache[slug] = fetch(`content/${slug}.md`).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
+    // no-cache: revalidate with the server on every load (GitHub Pages lets browsers keep
+    // files for 10 minutes), so an edited page shows on the next reload
+    if (!cache[slug]) cache[slug] = fetch(`content/${slug}.md`, { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
     return cache[slug];
   }
 
@@ -271,7 +273,7 @@
 
   // ---- start
   marked.use({ gfm: true });
-  fetch('nav.json').then(r => r.json()).then(nav => {
+  fetch('nav.json', { cache: 'no-cache' }).then(r => r.json()).then(nav => {
     buildSide(nav);
     const q = new URLSearchParams(location.search);
     show(q.get('p') || pages[0].slug, location.hash, false);
