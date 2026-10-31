@@ -56,7 +56,19 @@
   };
   ui.data.innerHTML = Object.keys(DATA).map(n => `<option>${n}</option>`).join('');
   ui.preset.innerHTML = Object.keys(PRESETS).map(n => `<option>${n}</option>`).join('');
-  ui.palette.innerHTML = PALETTE.map(op => `<button type="button" data-op="${op}" title="add a ${OPS[op].label} node">+${OPS[op].label}</button>`).join('');
+  // small pictures of each op (16x16, stroked): what the layer computes
+  const ICONS = {
+    dense: '<circle cx="3" cy="4" r="1.3"/><circle cx="3" cy="12" r="1.3"/><circle cx="13" cy="3" r="1.3"/><circle cx="13" cy="8" r="1.3"/><circle cx="13" cy="13" r="1.3"/><path d="M4.3 4L11.7 3M4.3 4L11.7 8M4.3 4L11.7 13M4.3 12L11.7 3M4.3 12L11.7 8M4.3 12L11.7 13" stroke-width=".9"/>',
+    tanh: '<path d="M1 8h14M8 1v14" stroke-width=".7" opacity=".45"/><path d="M1 13.5C5 13.5 5.5 13 8 8s3-5.5 7-5.5"/>',
+    relu: '<path d="M1 12h14M8 1v14" stroke-width=".7" opacity=".45"/><path d="M1 12h7l7-9"/>',
+    sin: '<path d="M1 8h14" stroke-width=".7" opacity=".45"/><path d="M1 8c2-6 4.5-6 6.5 0s4.5 6 6.5 0"/>',
+    sigmoid: '<path d="M1 14h14" stroke-width=".7" opacity=".45"/><path d="M1 13.5C6 13.5 6.5 3 8 3h0c-1.5 0 2 0 7 0" stroke-width="0"/><path d="M1 13.5c4.5 0 4.5-.5 7-5.5S11 2.5 15 2.5"/><path d="M1 2.5h14" stroke-width=".7" stroke-dasharray="1.5 1.5" opacity=".45"/>',
+    square: '<path d="M1 14h14M8 1v14" stroke-width=".7" opacity=".45"/><path d="M2 2.5C4 11 6 14 8 14s4-3 6-11.5"/>',
+    add: '<circle cx="8" cy="8" r="6"/><path d="M8 5v6M5 8h6"/>',
+    concat: '<rect x="1.5" y="4" width="5" height="8" rx="1"/><rect x="9.5" y="4" width="5" height="8" rx="1"/><path d="M6.5 8h3" />',
+  };
+  const icon = op => `<svg viewBox="0 0 16 16" aria-hidden="true">${ICONS[op]}</svg>`;
+  ui.palette.innerHTML = '<span class="nn-add">add</span>' + PALETTE.map(op => `<button type="button" data-op="${op}" title="add a ${OPS[op].label} node">${icon(op)}${OPS[op].label}</button>`).join('');
   loadPreset(ui.preset.value);
 
   let widths = {}, usedSet = new Set(), thumbs = {};

@@ -177,7 +177,10 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .nn-left{padding:14px 16px 10px;min-width:0;border-right:1px solid var(--line2)}
 .nn-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .nn-tools select,.nn-ctl select,.nn-ctl button,.nn-palette button{font:500 12px var(--font);color:var(--ink2);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;cursor:pointer}
-.nn-palette button{font-size:11.5px;padding:4px 6px}
+.nn-palette button{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:4px 7px 4px 6px}
+.nn-palette svg{width:14px;height:14px;fill:none;stroke:var(--brand);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.nn-add{font-size:11.5px;color:var(--ink4);margin-right:2px}
+.nn-board .nn-preset{position:absolute;top:8px;right:8px;z-index:2;font:500 11.5px var(--font);color:var(--ink2);background:var(--white);border:1px solid var(--line);border-radius:6px;padding:3px 6px;cursor:pointer}
 .nn-tools{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.nn-tools::-webkit-scrollbar{display:none}
 .nn-palette{display:contents}
 .nn-palette button:hover,.nn-ctl button:hover{border-color:var(--brand200);color:var(--ink)}
@@ -663,8 +666,8 @@ with ThreadPoolExecutor() as pool:
   <div class="nn" id="nn">
     <div class="nn-top">
       <div class="nn-left">
-        <div class="nn-tools"><select class="nn-preset" aria-label="Network"></select><span class="nn-palette"></span></div>
-        <div class="nn-board"><svg class="nn-wires"></svg><p class="nn-help">drag titles to move · drag from a dot to a dot to connect · click a wire to cut it</p></div>
+        <div class="nn-tools"><span class="nn-palette"></span></div>
+        <div class="nn-board"><svg class="nn-wires"></svg><select class="nn-preset" aria-label="Start from"></select><p class="nn-help">drag titles to move · drag from a dot to a dot to connect · click a wire to cut it</p></div>
       <div class="nn-strip">
         <span class="nn-chip" data-n="graph"><b>Graph</b><small>drag and drop</small></span><i>→</i>
         <button type="button" class="nn-chip" data-s="json" data-n="json"><b>JSON</b><small>–</small></button><i>→</i>
@@ -925,6 +928,6 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=17d42879" defer></script>
-<script src="nn.js?v=4d95c5d6" defer></script>
+<script src="nn.js?v=2bcf3a49" defer></script>
 </body>
 </html>
