@@ -44,3 +44,5 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   `docs/cimo.py` is a `cimo bundle` build: regenerate it when the compiler changes.
 - Website training demo (`docs/nn.js`, `docs/nn/codegen.py`): a drawn network → JSON → C
   (forward, backward, Adam) → cimo → WASM, trained in the page. `docs/runtime.js` shares Pyodide.
+- Website Architecture section (`docs/arch.js`): real output of each compiler stage for one kernel,
+  from `docs/arch/gen.py`; rerun it when the compiler's output changes.

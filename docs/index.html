@@ -258,6 +258,38 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 .nn-panel pre .more{display:block;padding-left:46px}
 .nn-panel .t-op{color:#79c0ff}.nn-panel pre.hl-wasm .t-ty{color:#ff7b72}
 @media(max-width:900px){.nn-top{grid-template-columns:minmax(0,1fr)}.nn-left{border-right:0;border-bottom:1px solid var(--line2);overflow-x:auto}.nn-board{min-width:620px;height:300px;touch-action:pan-x}}
+/* architecture: one kernel through every stage */
+.arch{margin-top:26px;outline:0}
+.arch-steps{position:relative;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;--p:0}
+.arch-line{position:absolute;left:calc(100% / 12);right:calc(100% / 12);top:15px;height:2px;background:var(--line);border-radius:1px}
+.arch-line b{display:block;height:100%;width:calc(var(--p) * 100%);background:var(--brand);border-radius:1px;transition:width .5s cubic-bezier(.3,.7,.2,1)}
+.arch-step{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;padding:0 4px 6px;background:none;border:0;cursor:pointer;font:inherit;text-align:center}
+.arch-step .n{width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:var(--white);border:2px solid var(--line);font:600 13px var(--mono);color:var(--ink3);transition:all .25s}
+.arch-step.done .n{border-color:var(--brand200);color:var(--brand)}
+.arch-step.on .n{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 0 0 5px var(--brand100)}
+.arch-step b{margin-top:5px;font-size:13.5px;font-weight:600;color:var(--ink2)}
+.arch-step.on b{color:var(--ink)}
+.arch-step small,.arch-origin{font-family:var(--mono);font-size:10.5px;color:var(--ink4)}
+.arch-step small.o-cimosown,.arch-origin.o-cimosown{color:var(--brand)}
+.arch-step:hover b{color:var(--ink)}
+.arch-body{display:grid;grid-template-columns:minmax(0,.75fr) minmax(0,1.25fr);gap:28px;margin-top:22px;align-items:start}
+.arch-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.arch-title{font-size:22px;letter-spacing:-.02em}
+.arch-origin{padding:2px 8px;border-radius:999px;background:var(--white);border:1px solid var(--line)}
+.arch-origin.o-cimosown{background:var(--brand50);border-color:var(--brand200)}
+.arch-desc{margin-top:12px;font-size:15px;line-height:1.6;color:var(--ink2)}
+.arch-stat{display:inline-block;margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--ink3);border-left:2px solid var(--brand);padding-left:8px}
+.arch-alt{display:flex;gap:4px;margin-top:16px}
+.arch-alt button{font:500 12px var(--font);color:var(--ink2);background:var(--white);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+.arch-alt button.on{border-color:var(--brand);background:var(--brand50);color:var(--ink)}
+.arch-alt[hidden]{display:none}
+.arch-code pre{height:340px;overflow:auto;white-space:pre-wrap;font-size:12px;line-height:1.55;scrollbar-width:none}
+.arch-code pre::-webkit-scrollbar{display:none}
+.arch-code.swap pre{animation:archin .35s ease}
+@keyframes archin{from{opacity:.2;transform:translateY(4px)}to{opacity:1;transform:none}}
+.arch-code .t-op{color:#79c0ff}.arch-code .t-out{color:#8b949e}
+@media(max-width:900px){.arch-steps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:14px}.arch-line{display:none}.arch-body{grid-template-columns:minmax(0,1fr)}}
+@media (prefers-reduced-motion:reduce){.arch-code.swap pre{animation:none}.arch-line b{transition:none}}
 /* code panels */
 .code{background:var(--code);border:1px solid var(--codeline);border-radius:12px;overflow:hidden;color:#c9d1d9;min-width:0}
 .code .bar{height:32px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #262b38;background:var(--code2);font-family:var(--mono);font-size:11.5px;color:#8e94a3}
@@ -749,15 +781,20 @@ with ThreadPoolExecutor() as pool:
 <section class="s" id="how"><div class="wrap">
   <span class="k">Design</span>
   <h2>Architecture</h2>
-  <div class="pipe">
-    <div class="stage"><i>in</i><h3>C source</h3><p>A string or a <span style="font-family:var(--mono)">.c</span> file</p></div><span class="arr" aria-hidden="true"></span>
-    <div class="stage"><i>from cproc</i><h3>Front end</h3><p>C11 parser and type checker</p></div><span class="arr" aria-hidden="true"></span>
-    <div class="stage own"><i>cimo's own</i><h3>Loop optimizer</h3><p>Unrolling, scalar replacement, alias checks</p></div><span class="arr" aria-hidden="true"></span>
-    <div class="stage"><i>from QBE</i><h3>Backend</h3><p>SSA, instruction selection, register allocation</p></div><span class="arr" aria-hidden="true"></span>
-    <div class="stage own"><i>cimo's own</i><h3>Encoder</h3><p>arm64, amd64, WASM</p></div><span class="arr" aria-hidden="true"></span>
-    <div class="stage"><i>out</i><h3>Executable memory</h3><p>JIT, or ELF / Mach-O / PE</p></div>
+  <p class="lede">One kernel through every stage of the compiler. This is cimo's real output for it, regenerated from the compiler.</p>
+  <div class="arch" id="arch" tabindex="0" aria-label="The stages of the compiler; arrow keys move between them">
+    <div class="arch-steps" role="tablist"></div>
+    <div class="arch-body">
+      <div class="arch-text">
+        <div class="arch-head"><h3 class="arch-title">C source</h3><span class="arch-origin"></span></div>
+        <p class="arch-desc"></p>
+        <span class="arch-stat"></span>
+        <div class="arch-alt" hidden><button type="button" data-v="main" class="on">arm64</button><button type="button" data-v="alt">WebAssembly</button></div>
+      </div>
+      <div class="code arch-code"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="arch-file">saxpy.c</span></div><pre></pre></div>
+    </div>
   </div>
-  <p class="lede" style="margin-top:22px"><a href="https://sr.ht/~mcf/cproc/">cproc</a> and <a href="https://c9x.me/compile/">QBE</a> are ported to Python and checked against the originals by diffing their IR pass by pass. The loop optimizer and machine-code encoder are new. Every release is differential-tested against gcc and clang on generated random programs.</p>
+  <p class="lede" style="margin-top:26px"><a href="https://sr.ht/~mcf/cproc/">cproc</a> and <a href="https://c9x.me/compile/">QBE</a> are ported to Python and checked against the originals by diffing their IR pass by pass. The loop optimizer and machine-code encoder are new. Every release is differential-tested against gcc and clang on generated random programs.</p>
 </div></section>
 
 <section class="end"><div class="wrap">
@@ -966,6 +1003,7 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=17d42879" defer></script>
+<script src="arch.js?v=b22623e6" defer></script>
 <script src="nn.js?v=753f3944" defer></script>
 </body>
 </html>
