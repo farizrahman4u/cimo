@@ -196,12 +196,30 @@
     openStage = openStage === ch.dataset.s ? null : ch.dataset.s;
     showStage();
   }));
+  const MAXLINES = 1500;  // a disassembly runs to ~10k lines: show the start, quickly
+  const html = {};       // highlighted HTML per stage, built once per build
   function showStage() {
     root.querySelectorAll('.nn-chip[data-s]').forEach(ch => ch.classList.toggle('open', ch.dataset.s === openStage));
-    if (openStage === 'wasm' && !stage.wasm && net) stage.wasm = py.globals.get('nn_wat')();
-    const text = openStage ? stage[openStage] : '';
-    ui.panel.className = 'hl-' + (openStage || '');
-    ui.panel.innerHTML = text ? HL[openStage](text) : '';
+    const want = openStage;
+    if (want === 'wasm' && !stage.wasm && net) {  // switch now, disassemble on the next tick
+      ui.panel.className = 'hl-wasm';
+      ui.panel.textContent = ';; disassembling the module…';
+      root.classList.add('panel-open');
+      setTimeout(() => {
+        try { stage.wasm = ns.get('nn_wat')(); } catch (e) { stage.wasm = ';; could not disassemble: ' + e.message; }
+        if (openStage === want) showStage();
+      }, 30);
+      return;
+    }
+    const text = want ? stage[want] : '';
+    if (text && !html[want]) {
+      const lines = text.split('\n');
+      const cut = lines.length > MAXLINES;
+      html[want] = HL[want](cut ? lines.slice(0, MAXLINES).join('\n') : text) +
+        (cut ? `\n<span class="t-cm">${want === 'wasm' ? ';;' : '/*'} … ${(lines.length - MAXLINES).toLocaleString()} more lines${want === 'wasm' ? '' : ' */'}</span>` : '');
+    }
+    ui.panel.className = 'hl-' + (want || '');
+    ui.panel.innerHTML = text ? html[want] : '';
     ui.panel.scrollTop = 0;
     root.classList.toggle('panel-open', !!text);
   }
@@ -283,7 +301,7 @@ def nn_build(graph_json):
             'getsp': getattr(e, '__cimo_get_sp'), 'setsp': getattr(e, '__cimo_set_sp')}
 `;
 
-  let py = null, buildPy = null, net = null, seed = 1, step = 0, t = 0, running = false, losses = [];
+  let py = null, ns = null, buildPy = null, net = null, seed = 1, step = 0, t = 0, running = false, losses = [];
   function heap() { return py._module.HEAPF32; }
   function put(addr, arr) { heap().set(arr, addr >> 2); }
 
@@ -291,7 +309,7 @@ def nn_build(graph_json):
   function setData() {
     points = DATA[ui.data.value](rng(7 + ui.data.selectedIndex));
     if (!py) { drawBoundary(); return; }
-    const A = py.globals.get('ADDR').toJs();
+    const A = ns.get('ADDR').toJs();
     const X = new Float32Array(N * 2), Y = new Float32Array(N);
     points.forEach((p, i) => { X[2 * i] = p[0]; X[2 * i + 1] = p[1]; Y[i] = p[2]; });
     put(A.get('X'), X); put(A.get('Y'), Y);
@@ -315,19 +333,21 @@ def nn_build(graph_json):
     const r = proxy.toJs({ dict_converter: Object.fromEntries });
     proxy.destroy();
     stage.json = r.json || json;
+    delete html.json;
     chip('graph', `${graph.length} nodes`);
     chip('json', `${(json.length / 1024).toFixed(1)} KB`);
     if (!r.ok) {
       ui.err.textContent = (r.stage === 'graph' ? 'graph: ' : 'C: ') + r.error;
       ui.err.hidden = false;
       root.classList.add('broken');
-      if (r.c) stage.c = r.c;
+      if (r.c) { stage.c = r.c; delete html.c; }
       showStage();
       return;
     }
     ui.err.hidden = true;
     root.classList.remove('broken');
     stage.c = r.c; stage.wasm = '';
+    for (const k in html) delete html[k];
     widths = r.widths instanceof Map ? Object.fromEntries(r.widths) : r.widths;
     usedSet = new Set(r.used);
     chip('graph', `${r.nparams} params`);
@@ -455,8 +475,9 @@ def nn_build(graph_json):
       ui.status.textContent = 'Loading the code generator…';
       for (const f of ['codegen.py', 'wat.py'])
         py.FS.writeFile('/home/pyodide/' + f, await (await fetch('nn/' + f)).text());
-      await py.runPythonAsync(PY);
-      buildPy = py.globals.get('nn_build');
+      ns = py.toPy({});  // its own namespace: the banner demo's Python shares globals
+      await py.runPythonAsync(PY, { globals: ns });
+      buildPy = ns.get('nn_build');
       setData();
       root.classList.remove('loading');
       root.classList.add('running');
