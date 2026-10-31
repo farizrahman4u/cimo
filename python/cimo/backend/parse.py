@@ -656,8 +656,9 @@ def typecheck(fn):
                 if bshas(ppb, p.blk[n].id):
                     err("multiple entries for @%s in phi %%%s", p.blk[n].name, t.name)
                 if not usecheck(p.arg[n], k, fn):
+                    v = rval(p.arg[n])  # as in typecheck: C reads fn->tmp with any ref's value
                     err("invalid type for operand %%%s in phi %%%s",
-                        fn.tmp[rval(p.arg[n])].name, t.name)
+                        fn.tmp[v].name if v < len(fn.tmp) else '', t.name)
                 bsset(ppb, p.blk[n].id)
             if not bsequal(pb, ppb):
                 err("predecessors not matched in phi %%%s", t.name)

@@ -340,7 +340,7 @@ def salloc(rt, rs, fn):
         emit(Osalloc, Kl, rt, r0, R)
         emit(Oand, Kl, r0, r1, getcon(-16, fn))
         emit(Oadd, Kl, r1, rs, getcon(15, fn))
-        if fn.tmp[rval(rs)].slot != -1:
+        if rtype(rs) == RTmp and fn.tmp[rval(rs)].slot != -1:
             err("unlikely alloc argument %%%s for %%%s",
                 fn.tmp[rval(rs)].name, fn.tmp[rval(rt)].name)
 

@@ -48,8 +48,6 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   operations): 34 torture programs. Emit them as ordinary stores the optimizer may not remove.
 - **Backend speed on huge functions:** a Csmith function with a 125 KB initializer compiles in
   18 s (spill, liveness bitsets, `filluse`); C QBE takes well under a second.
-- `fn.tmp[rval(r)]` is evaluated before checking `rtype(r) == RTmp` in places (C computes the
-  pointer without reading it); one caused an `IndexError` (`parse.typecheck`). Audit the rest.
 - GNU overflow builtins (`__builtin_add_overflow`, ...) and `__builtin_isunordered` & co.
 
 - Profiler symbols: write a perf map (`/tmp/perf-<pid>.map`) and/or jitdump for loaded modules, so

@@ -290,8 +290,9 @@ def cmpfold(c, k, a, b):
 
 
 def defblock(fn, r):
-    """Block id of the definition of tmp r (U32 if none: a parameter-less undefined tmp)."""
-    return fn.tmp[rval(r)].bid
+    """Block id of the definition of tmp r (U32 if none: a parameter-less undefined tmp, or
+    not a tmp)."""
+    return fn.tmp[rval(r)].bid if rtype(r) == RTmp else U32
 
 
 def istmp(r):

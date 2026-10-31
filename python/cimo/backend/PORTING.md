@@ -76,7 +76,11 @@ output for these is broken, so no comparison test depends on it):
   word use) took the branch. Only the low 32 bits count.
 - `parse.typecheck`: C indexes `fn->tmp` with any argument's value (a constant's too) and reads
   it only in an error message; the port indexed the list first, an `IndexError` once a function
-  had more constants than temporaries. (Not a C bug; a porting one.)
+  had more constants than temporaries. (Not a C bug; a porting one.) All 65 `tmp[rval(r)]`
+  sites were audited: the others check `rtype(r) == RTmp` first or index a phi/instruction
+  destination. Guarded besides: `gvn.assoccon` (C passes `&fn->tmp[val]` of any ref to
+  `adduse`, which would corrupt a tmp's uses if the operand were a constant), `util.salloc`,
+  the phi operand error message, and `middle.ir.defblock`.
 - `util.newcon`/`getcon`: QBE searches the constants linearly, quadratic in their number; the
   port keeps an index (`Fn.concache`), same results (constants are only appended). A 125 KB
   local initializer took 223 s, now 18 s.

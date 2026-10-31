@@ -197,7 +197,8 @@ def assoccon(fn, b, i1):
     i1.op = op
     i1.arg[0] = i2.arg[0]
     i1.arg[1] = newcon(c, fn)
-    adduse(fn.tmp[rval(i1.arg[0])], UIns, b, i1)
+    if rtype(i1.arg[0]) == D.RTmp:  # fix over C QBE: it took tmp[val] of any ref
+        adduse(fn.tmp[rval(i1.arg[0])], UIns, b, i1)
 
 
 def killins(fn, i, r):
