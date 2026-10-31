@@ -11,6 +11,8 @@ garbage collected; keep a reference for as long as its functions may be called.
 Executable memory ("Platform loading findings" in requirements.md):
 - Linux: anonymous mmap RW, copy code and data in, mprotect the code pages RX (W^X), then
   flush the instruction cache over the code with our own `dc cvau` / `ic ivau` routine.
+- Windows: VirtualAlloc RW, copy, VirtualProtect the code pages PAGE_EXECUTE_READ, then
+  FlushInstructionCache.
 - macOS: code in an `mmap(MAP_JIT)` region written between `pthread_jit_write_protect_np(0)`
   and `(1)`, data in a separate RW mapping placed right after it (needs to stay within adrp
   range, +-4 GB); then `sys_icache_invalidate`. If MAP_JIT fails, or the data mapping lands out
@@ -36,6 +38,7 @@ __all__ = ['Image', 'LoadError', 'flush_icache']
 PROT_READ, PROT_WRITE, PROT_EXEC = 1, 2, 4
 MAP_PRIVATE = 0x02
 _MAC = sys.platform == 'darwin'
+_WIN = sys.platform == 'win32'
 MAP_ANON = 0x1000 if _MAC else 0x20
 MAP_JIT = 0x800
 PAGE = _mmap.PAGESIZE
@@ -51,7 +54,7 @@ class _RangeError(LoadError):
     pass
 
 
-if sys.platform != 'win32':
+if not _WIN:
     _libc = ctypes.CDLL(None, use_errno=True)
     _c_mmap = _libc.mmap
     _c_mmap.restype = ctypes.c_void_p
@@ -65,9 +68,35 @@ if sys.platform != 'win32':
     _c_munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
 else:
     _libc = None
+    from ctypes import wintypes as _wt
+    _k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    _VirtualAlloc = _k32.VirtualAlloc
+    _VirtualAlloc.restype = ctypes.c_void_p
+    _VirtualAlloc.argtypes = [ctypes.c_void_p, ctypes.c_size_t, _wt.DWORD, _wt.DWORD]
+    _VirtualProtect = _k32.VirtualProtect
+    _VirtualProtect.restype = _wt.BOOL
+    _VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, _wt.DWORD,
+                                ctypes.POINTER(_wt.DWORD)]
+    _VirtualFree = _k32.VirtualFree
+    _VirtualFree.restype = _wt.BOOL
+    _VirtualFree.argtypes = [ctypes.c_void_p, ctypes.c_size_t, _wt.DWORD]
+    _FlushInstructionCache = _k32.FlushInstructionCache
+    _FlushInstructionCache.restype = _wt.BOOL
+    _FlushInstructionCache.argtypes = [_wt.HANDLE, ctypes.c_void_p, ctypes.c_size_t]
+    _GetCurrentProcess = _k32.GetCurrentProcess
+    _GetCurrentProcess.restype = _wt.HANDLE
+    MEM_COMMIT, MEM_RESERVE, MEM_RELEASE = 0x1000, 0x2000, 0x8000
+    _PAGE = {PROT_READ | PROT_WRITE: 0x04, PROT_READ | PROT_EXEC: 0x20,  # READWRITE, EXECUTE_READ
+             PROT_READ: 0x02}
 
 
 def _map(size, prot, flags=0, hint=None):
+    """Anonymous zeroed memory (VirtualAlloc on Windows, where flags and hint are ignored)."""
+    if _WIN:
+        a = _VirtualAlloc(None, size, MEM_COMMIT | MEM_RESERVE, _PAGE[prot])
+        if not a:
+            raise OSError(ctypes.get_last_error(), 'VirtualAlloc failed')
+        return a
     a = _c_mmap(hint, size, prot, MAP_PRIVATE | MAP_ANON | flags, -1, 0)
     if a is None or a == _FAILED:
         raise OSError(ctypes.get_errno(), 'mmap failed')
@@ -75,8 +104,21 @@ def _map(size, prot, flags=0, hint=None):
 
 
 def _protect(addr, size, prot):
+    if _WIN:
+        old = _wt.DWORD()
+        if not _VirtualProtect(addr, size, _PAGE[prot], ctypes.byref(old)):
+            raise OSError(ctypes.get_last_error(), 'VirtualProtect failed')
+        return
     if _c_mprotect(addr, size, prot) != 0:
         raise OSError(ctypes.get_errno(), 'mprotect failed')
+
+
+def _unmap(addr, size):
+    """Release a mapping made by _map (the whole of it)."""
+    if _WIN:
+        _VirtualFree(addr, 0, MEM_RELEASE)
+    else:
+        _c_munmap(addr, size)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -151,7 +193,9 @@ def flush_icache(addr, size):
     """Make [addr, addr+size) coherent for instruction fetch after writing code there."""
     if not _ARM64 or size <= 0:
         return
-    if _MAC:
+    if _WIN:
+        _FlushInstructionCache(_GetCurrentProcess(), addr, size)
+    elif _MAC:
         f = _libc.sys_icache_invalidate
         f.restype = None
         f.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
@@ -169,8 +213,9 @@ _libs = None
 def _dlsym(name):
     global _libs
     if _libs is None:
-        _libs = [_libc]  # the process: libc, and libm on macOS (libSystem)
-        if not _MAC:
+        # the process: libc, and libm on macOS (libSystem); the Universal CRT on Windows
+        _libs = [_libc] if _libc else [ctypes.CDLL('ucrtbase')]
+        if not _MAC and not _WIN:
             for m in ('libm.so.6', 'libm.so', None):
                 try:
                     _libs.append(ctypes.CDLL(m or ctypes.util.find_library('m')))
@@ -250,8 +295,6 @@ class Image:
     def __init__(self, obj, resolve=None):
         if not _ARM64:
             raise LoadError('cimo loads arm64 code only; this machine is %s' % platform.machine())
-        if sys.platform == 'win32':
-            raise LoadError('loading on Windows is not implemented yet')
         self._maps = []
         self.prefix = obj.prefix
         self._layout(obj)
@@ -413,7 +456,7 @@ class Image:
         maps, self._maps = self._maps, []
         for a, n in maps:
             if a and n:
-                _c_munmap(a, n)
+                _unmap(a, n)
 
     def __del__(self):
         try:

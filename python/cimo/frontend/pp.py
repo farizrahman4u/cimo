@@ -330,12 +330,18 @@ def directive():
         S.scan(tok)
         nfile = tok.loc.file
         if tok.kind == TSTRINGLIT:
-            # XXX: handle escape sequences (reuse string decoding from expr.c)
+            # cproc: "XXX: handle escape sequences"; cimo unescapes \\ and \" (gcc writes
+            # Windows paths as "C:\\dir\\f.c" in line markers)
             q = tok.lit.find('"')
             assert q >= 0
-            q2 = tok.lit.find('"', q + 1)
-            assert q2 >= 0
-            nfile = tok.lit[q + 1:q2]
+            out = []
+            i = q + 1
+            while tok.lit[i] != '"':
+                if tok.lit[i] == '\\' and tok.lit[i + 1] in '\\"':
+                    i += 1
+                out.append(tok.lit[i])
+                i += 1
+            nfile = ''.join(out)
             S.scan(tok)
         while tok.kind == TNUMBER:
             S.scan(tok)

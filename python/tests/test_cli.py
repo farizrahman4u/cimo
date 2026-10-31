@@ -8,6 +8,7 @@ import sys
 
 import pytest
 
+from cimo import driver
 from cimo.cli import main
 from cimo.cli import parse as P
 from cimo.cli.commands import build_tree
@@ -166,15 +167,18 @@ def test_run_defines_and_includes(capsys, prog, tmp_path):
 
 @needs_arm64
 def test_compile_error_excerpt(capsys, prog):
-    p = prog('bad.c', 'int main(void) {\n\tdouble y = 1;\n\ty = y * (long double)2;\n'
-                      '\treturn 0;\n}\n')
+    # long double is binary64 (allowed) on Apple and Windows, 128-bit (rejected) on Linux
+    ty, msg = (('long double', 'long double is not supported') if driver.TARGET == 'arm64'
+               else ('__int128', 'cast type must be scalar'))
+    p = prog('bad.c', 'int main(void) {\n\tdouble y = 1;\n\ty = y * (%s)2;\n'
+                      '\treturn 0;\n}\n' % ty)
     status, _, err = run(capsys, 'run', p)
     assert status == 1
     lines = err.splitlines()
-    assert lines[0] == 'error: long double is not supported'
+    assert lines[0] == 'error: ' + msg
     assert re.match(r'  -> .*bad\.c:3:\d+$', lines[1]) or re.match(r'  → .*bad\.c:3:\d+$',
                                                                     lines[1])
-    assert '    y = y * (long double)2;' in err  # tabs expanded
+    assert '    y = y * (%s)2;' % ty in err  # tabs expanded
     caret = [l for l in lines if l.rstrip().endswith('^')]
     assert caret
 

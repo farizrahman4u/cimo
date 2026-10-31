@@ -33,7 +33,7 @@ cimo passes the address; it does not check that the array's dtype matches the C 
 | `unsigned char`, `uint8_t` | `uint8` |
 | `short` | `int16` |
 
-`long` is 64 bits on every platform cimo targets, including the browser.
+`long` is 64 bits on every platform cimo targets, including Windows and the browser.
 
 The array must also be contiguous: pass `np.ascontiguousarray(a)` if it might be a slice or a transposed view.
 

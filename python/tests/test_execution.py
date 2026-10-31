@@ -172,7 +172,7 @@ function w $leaf() {
     assert execution.stack_checked(ssa) == {'b', 'c', 'd'}  # d can call itself through $d
 
 
-CB = ctypes.CFUNCTYPE(ctypes.c_long, ctypes.c_long)
+CB = ctypes.CFUNCTYPE(ctypes.c_int64, ctypes.c_int64)
 
 
 def test_callback_reentry(em):
@@ -237,7 +237,7 @@ def test_errors_from_many_threads(em):
 
 
 def test_raw_address_still_callable(em):
-    f = ctypes.CFUNCTYPE(ctypes.c_long, ctypes.c_long)(em.rec.address)
+    f = ctypes.CFUNCTYPE(ctypes.c_int64, ctypes.c_int64)(em.rec.address)
     assert f(10) == 10
 
 
@@ -472,7 +472,7 @@ def test_cross_thread_free(hm):
     i+1 allocated in the previous round: every free is a cross-thread free, racing with the
     owner's mallocs."""
     nthreads, n, rounds = 8, 400, 12
-    bufs = [[((ctypes.c_void_p * n)(), (ctypes.c_long * n)(), (ctypes.c_long * n)())
+    bufs = [[((ctypes.c_void_p * n)(), (ctypes.c_int64 * n)(), (ctypes.c_int64 * n)())
              for _ in range(nthreads)] for _ in range(2)]
     barrier = threading.Barrier(nthreads)
     errors = []
@@ -501,7 +501,7 @@ def test_cross_thread_free(hm):
 def test_concurrent_produce_consume(hm):
     """Frees of thread j's blocks run while thread j is mallocing (double-buffered rounds)."""
     nthreads, n, rounds = 6, 300, 10
-    bufs = [[((ctypes.c_void_p * n)(), (ctypes.c_long * n)(), (ctypes.c_long * n)())
+    bufs = [[((ctypes.c_void_p * n)(), (ctypes.c_int64 * n)(), (ctypes.c_int64 * n)())
              for _ in range(nthreads)] for _ in range(2)]
     barrier = threading.Barrier(nthreads)
     errors = []

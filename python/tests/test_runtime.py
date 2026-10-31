@@ -573,12 +573,15 @@ double all(int n) {
     assert undefined == []
 
 
+GETPID = '_getpid' if sys.platform == 'win32' else 'getpid'  # the UCRT's name
+
+
 def test_unknown_symbol_is_a_compile_error():
-    src = 'int getpid(void);\nint f(void) { return getpid(); }\n'
+    src = 'int getpid(void);\nint f(void) { return getpid(); }\n'.replace('getpid', GETPID)
     with pytest.raises(cimo.CompileError) as e:
         cimo.compile(src)
     msg = str(e.value)
-    assert "'getpid'" in msg and 'link=' in msg
+    assert "'%s'" % GETPID in msg and 'link=' in msg
     m = cimo.compile(src, link=['libc'])
     assert m.f() == os.getpid()
 
@@ -606,7 +609,7 @@ def test_runtime_wins_over_linked_libc():
     m = cimo.compile(r'''
 #include <stdio.h>
 int getpid(void);
-int f(void) { return printf("pid %d\n", getpid()); }''', link=['libc'])
+int f(void) { return printf("pid %d\n", getpid()); }'''.replace('getpid', GETPID), link=['libc'])
     f = io.StringIO()
     with contextlib.redirect_stdout(f):
         m.f()
@@ -623,6 +626,7 @@ long f(void) { return getpid() + strlen("abc"); }''', link=['libc'], host_header
     assert m.f() == os.getpid() + 3
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='host_headers is not available on Windows')
 def test_host_data_symbols():
     """External data of linked libraries is reached through GOT slots, so it doesn't matter
     how far from the module the library is mapped."""

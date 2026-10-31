@@ -4,6 +4,7 @@ import ctypes
 import gc
 import platform
 import struct
+import sys
 
 import pytest
 
@@ -153,7 +154,9 @@ def test_external_data_out_of_range():
     # rather than a silently wrong address. (If the mapping happens to land within 4 GB of
     # libc, it links fine, which is also correct.)
     try:
-        loader.Image(assembler.assemble('adrp x0, environ\n\tadd x0, x0, #:lo12:environ\n\tret\n'))
+        sym = 'labs' if sys.platform == 'win32' else 'environ'  # the UCRT exports little data
+        loader.Image(assembler.assemble('adrp x0, %s\n\tadd x0, x0, #:lo12:%s\n\tret\n'
+                                        % (sym, sym)))
     except loader.LoadError as e:
         assert 'adrp range' in str(e)
 

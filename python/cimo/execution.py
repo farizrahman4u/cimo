@@ -16,9 +16,9 @@ Design (requirements.md, "Execution model"):
   run no destructors, and the heap's bookkeeping is never mid-update when they abort).
 - How kernel code finds its context: a per-module hash table keyed by the OS thread's
   thread-pointer register (`tpidr_el0` on Linux, `tpidrro_el0` on macOS, both readable
-  from user mode and unique per live thread), filled by Python the first time a thread calls
-  into the module. Rejected alternatives: x18 (reserved on macOS and Windows, clobbered by
-  host code); TLS (the loader would need TLS relocations and a TLS block per module); a
+  from user mode and unique per live thread; on Windows x18, which always holds the
+  thread's TEB), filled by Python the first time a thread calls into the module. Rejected
+  alternatives: x18 as a free register (reserved on macOS and Windows); TLS (the loader would need TLS relocations and a TLS block per module); a
   hidden argument (changes every function's ABI and the frontend). The lookup costs about 20
   instructions and runs once per kernel call, `malloc` and `free`; never in loops otherwise.
 - One context per (module, thread), allocated by Python (two pages). Its layout is shared by
@@ -34,7 +34,7 @@ Design (requirements.md, "Execution model"):
 - Stack guard: functions that can recurse (in a call-graph cycle, counting indirect calls as
   edges to every address-taken function) call `__cimo_stkchk` in their prologue, which compares
   sp against the thread's stack bottom + STACK_MARGIN (from pthread_getattr_np /
-  pthread_get_stackaddr_np). `alloca`/VLAs and frames larger than the margin are not covered.
+  pthread_get_stackaddr_np; GetCurrentThreadStackLimits on Windows). `alloca`/VLAs and frames larger than the margin are not covered.
 - Thread safety: each context and heap is used only by its own thread; the table only grows
   (Python inserts under a lock; a full rebuild is published with a `dmb ish` before the
   pointer store, and readers depend on the loaded pointer). Cross-thread `free` uses one
@@ -78,9 +78,10 @@ class KernelError(Exception):
 # ---------------------------------------------------------------------------------------------
 # assembly
 
-def _find(apple, s):
+def _find(apple, s, windows=False):
     """x9 = this thread's context or 0. Clobbers x10-x13 and flags only."""
     return '\n'.join([
+        '\tmov\tx10, x18' if windows else  # the TEB
         '\t.word\t0xd53bd06a' if apple else '\t.word\t0xd53bd04a',  # mrs x10, tpidr(ro)_el0
         '\tand\tx10, x10, #0xfffffffffffffff8' if apple else '',  # low bits: old XNU cpu number
         '\tadrp\tx11, %s' % s['tabpage'],
@@ -125,7 +126,7 @@ _SAVE = [('x19', 'x20', 0), ('x21', 'x22', 16), ('x23', 'x24', 32), ('x25', 'x26
 _DSAVE = [('d8', 'd9', 104), ('d10', 'd11', 120), ('d12', 'd13', 136), ('d14', 'd15', 152)]
 
 
-def glue(names, apple=False):
+def glue(names, apple=False, windows=False):
     """Assembly text (the syntax `cimo.backend` emits for the target) with the context
     routines and an entry trampoline `__cimo_entry_<name>` for each name."""
     p = '_' if apple else ''
@@ -137,7 +138,7 @@ def glue(names, apple=False):
 
     def find():
         n[0] += 1
-        return _find(apple, dict(s, n='_cimo%d' % n[0]))
+        return _find(apple, dict(s, n='_cimo%d' % n[0]), windows)
 
     def fn(name):
         return '\t.globl\t%s%s\n\t.p2align\t2\n%s%s:\n' % (p, name, p, name)
@@ -191,7 +192,8 @@ def glue(names, apple=False):
     # void *__cimo_ctx(void): this thread's context (0 outside a registered thread)
     o.append(fn('__cimo_ctx') + find() + '\tmov\tx0, x9\n\tret\n')
     # unsigned long __cimo_tid(void): the key the table uses
-    o.append(fn('__cimo_tid') + ('\t.word\t0xd53bd060\n\tand\tx0, x0, #0xfffffffffffffff8\n'
+    o.append(fn('__cimo_tid') + ('\tmov\tx0, x18\n' if windows else
+                                 '\t.word\t0xd53bd060\n\tand\tx0, x0, #0xfffffffffffffff8\n'
                                  if apple else '\t.word\t0xd53bd040\n') + '\tret\n')
     # void *__cimo_cas(void **p, void *expect, void *desired): returns the old *p
     o.append(fn('__cimo_cas') +
@@ -302,6 +304,10 @@ def _stack_bottom():
     """Lowest usable address of the calling thread's stack, or None if unknown."""
     libc = _jit._libc
     try:
+        if sys.platform == 'win32':
+            lo, hi = ctypes.c_size_t(), ctypes.c_size_t()
+            ctypes.windll.kernel32.GetCurrentThreadStackLimits(ctypes.byref(lo), ctypes.byref(hi))
+            return lo.value or None
         if sys.platform == 'darwin':
             self_ = libc.pthread_self
             self_.restype = ctypes.c_void_p
@@ -482,7 +488,7 @@ class State:
             with self._lock:
                 size = self._large.pop(ptr, None)
             if size:
-                _jit._c_munmap(ptr, size)
+                _jit._unmap(ptr, size)
         except Exception:
             pass
 
@@ -499,7 +505,7 @@ class State:
         for c in ctxs:
             self._reset_c(ctypes.addressof(c) + CTX_HEAP)
         for a, n in large.items():
-            _jit._c_munmap(a, n)
+            _jit._unmap(a, n)
 
     def free(self, ptr):
         """free() a heap pointer a kernel returned (from any thread)."""
@@ -520,7 +526,7 @@ class State:
             self._chunks = []
             large, self._large = self._large, {}
         for a, n in maps + list(large.items()):
-            _jit._c_munmap(a, n)
+            _jit._unmap(a, n)
 
     def __del__(self):
         try:

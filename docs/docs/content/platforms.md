@@ -4,6 +4,7 @@
 |---|---|---|
 | Linux, arm64 | arm64 | supported: CPython 3.9 and newer |
 | Pyodide, JupyterLite, marimo | WebAssembly | supported: Pyodide 0.27 |
+| Windows, arm64 | arm64 | supported: arm64 builds of CPython |
 | macOS, Apple silicon | arm64 | planned: loading is prototyped; needs testing on M-series Macs |
 | Linux, x86-64 | x86-64 | planned |
 | Windows, x64 | x86-64 | planned: loading is prototyped |

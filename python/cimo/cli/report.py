@@ -3,8 +3,9 @@ hints rewritten from Python API spelling into command-line flags."""
 
 import re
 
-_LOC = re.compile(r'^(?P<file>[^:\n]+?):(?P<line>\d+)(?::(?P<col>\d+))?: (?P<kind>error|warning|note): '
-                  r'(?P<msg>.*)$', re.S)
+# file:line[:col]: kind: message (file may start with a Windows drive letter)
+_LOC = re.compile(r'^(?P<file>(?:[A-Za-z]:)?[^:\n]+?):(?P<line>\d+)(?::(?P<col>\d+))?: '
+                  r'(?P<kind>error|warning|note): (?P<msg>.*)$', re.S)
 
 # hints in driver messages name Python keyword arguments; the CLI spells them as flags
 _API_TO_FLAGS = [

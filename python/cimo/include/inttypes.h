@@ -1,4 +1,4 @@
-/* cimo: <inttypes.h> for LP64 arm64 (Linux and Apple). */
+/* cimo: <inttypes.h> for LP64 arm64 (Linux, Apple and Windows). */
 #ifndef __CIMO_INTTYPES_H
 #define __CIMO_INTTYPES_H
 
@@ -14,6 +14,9 @@ uintmax_t strtoumax(const char *restrict, char **restrict, int);
 #ifdef __APPLE__
 #define __CIMO_PRI64 "ll"
 #define __CIMO_PRIFAST ""
+#elif defined(_WIN32)
+#define __CIMO_PRI64 "ll"
+#define __CIMO_PRIFAST "l"
 #else
 #define __CIMO_PRI64 "l"
 #define __CIMO_PRIFAST "l"

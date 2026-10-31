@@ -71,9 +71,11 @@ def _run(directory, env, rebuild=None):
 
 
 def _bare_env(home, cache):
-    env = {'HOME': str(home), 'CIMO_CACHE_DIR': str(cache)}
-    if 'PATH' in os.environ:
-        env['PATH'] = os.environ['PATH']
+    env = {'HOME': str(home), 'USERPROFILE': str(home), 'LOCALAPPDATA': str(home),
+           'CIMO_CACHE_DIR': str(cache)}
+    for k in ('PATH', 'SYSTEMROOT'):  # Windows needs SYSTEMROOT to start Python
+        if k in os.environ:
+            env[k] = os.environ[k]
     return env
 
 

@@ -15,6 +15,9 @@ pytestmark = pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aar
                                 reason='cimo.compile generates arm64 code')
 
 LOC = re.compile(r'^<string>:\d+:\d+: error: ')
+# long double is 128-bit (rejected) on Linux; binary64, a plain double, on Apple and Windows
+QUAD = cimo.driver.TARGET == 'arm64'
+needs_quad = pytest.mark.skipif(not QUAD, reason='long double is double on this target')
 
 REJECTED = [
     # attributes that would silently change the meaning of the program
@@ -78,6 +81,8 @@ REJECTED = [
 
 @pytest.mark.parametrize('src,msg', REJECTED, ids=[s for s, m in REJECTED])
 def test_rejected(src, msg):
+    if 'long double' in msg and not QUAD:
+        pytest.skip('long double is double on this target')
     with pytest.raises(cimo.CompileError) as ei:
         cimo.compile(src)
     text = str(ei.value)
@@ -129,7 +134,8 @@ ACCEPTED = [
      'int f(void){ return _Alignof(T) * 100 + sizeof(T); }', 1624),
     # declaring what cimo cannot generate code for is fine
     ('long double g(long double); extern _Thread_local int t; '
-     'struct s { __uint128_t v[2]; }; int f(void){ return sizeof(struct s) + sizeof(long double); }', 48),
+     'struct s { __uint128_t v[2]; }; int f(void){ return sizeof(struct s) + sizeof(long double); }',
+     48 if QUAD else 40),
     # the GNU conditional with omitted operand evaluates its condition once
     ('int f(void){ int x = 1; return (++x ?: 0) * 10 + x; }', 22),
 ]
@@ -168,6 +174,7 @@ int f(void) {
                      host_headers=True)
 
 
+@needs_quad
 def test_long_double_error_points_at_the_expression():
     src = 'double f(double x) {\n    double y = x + 1;\n    y = y * (long double)x + 2;\n    return y;\n}'
     with pytest.raises(cimo.CompileError, match=r'<string>:3:(\d+): error: long double') as e:

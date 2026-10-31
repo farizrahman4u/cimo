@@ -83,8 +83,8 @@ def test_frontend_does_not_contract():
 
 def test_fma_keyword_needs_flag(tmp_path, capsys):
     p = tmp_path / 'f.ssa'
-    p.write_text('export function d $f(d %a, d %b, d %c) {\n@start\n'
-                 '\t%r =d fma %a, %b, %c\n\tret %r\n}\n')
+    p.write_bytes(b'export function d $f(d %a, d %b, d %c) {\n@start\n'
+                  b'\t%r =d fma %a, %b, %c\n\tret %r\n}\n')  # LF on Windows too
     assert qbe_main([str(p)]) == 1
     assert 'unknown keyword fma' in capsys.readouterr().err
     with ext.options(fma=True):

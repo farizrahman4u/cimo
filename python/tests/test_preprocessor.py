@@ -62,8 +62,9 @@ def test_line_markers_for_includes(tmp_path):
     main = tmp_path / 'm.c'
     main.write_text('before\n#include "h.h"\nafter\n')
     out = preprocess(main.read_text(), str(main))
-    assert '# 1 "%s" 1' % (tmp_path / 'h.h') in out
-    assert '# 3 "%s" 2' % main in out
+    q = lambda p: str(p).replace('\\', '\\\\')  # backslashes escaped, as gcc does
+    assert '# 1 "%s" 1' % q(tmp_path / 'h.h') in out
+    assert '# 3 "%s" 2' % q(main) in out
 
 
 def test_include_search_order(tmp_path):

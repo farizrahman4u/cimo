@@ -48,4 +48,4 @@ The browser has its own page: [In the browser](browser.md).
 
 ## Platforms
 
-cimo generates arm64 code today, on Linux, and WebAssembly for Pyodide. x86-64, Windows and macOS are planned; see [Platforms](platforms.md).
+cimo generates arm64 code today, on Linux and Windows, and WebAssembly for Pyodide. x86-64 and macOS are planned; see [Platforms](platforms.md).

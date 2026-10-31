@@ -6,6 +6,9 @@ va_list types (Type.value, set by emittype) does not leak between compiles.
 Extension (not in cproc): target "aarch64-apple" for Apple arm64 (see PORTING.md):
 va_list is `char *`, plain char is signed, wchar_t is int, long double is
 double-sized (8 bytes, so it compiles as QBE `d`).
+
+Extension: target "aarch64-windows" for Windows arm64: as aarch64-apple, but wchar_t is
+unsigned short. Still LP64 (cimo keeps `long` 64-bit on every target; Windows' own C is LLP64).
 """
 
 from .cc import Type, TYPEARRAY, TYPESTRUCT, TYPEPOINTER, PROPSCALAR, QUALNONE, Ref
@@ -42,6 +45,9 @@ def _alltargs():
         Target("aarch64-apple",
                Type(kind=TYPEPOINTER, prop=PROPSCALAR, align=8, size=8, base=TY.typechar),
                TY.typeint, 1, 8),
+        Target("aarch64-windows",
+               Type(kind=TYPEPOINTER, prop=PROPSCALAR, align=8, size=8, base=TY.typechar),
+               TY.typeushort, 1, 8),
     ]
 
 

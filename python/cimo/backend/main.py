@@ -11,7 +11,7 @@ from .parse import parse, printfn
 
 def _targets():
     from .arm64 import targ
-    return [targ.T_arm64, targ.T_arm64_apple]
+    return [targ.T_arm64, targ.T_arm64_apple, targ.T_arm64_win]
 
 
 class _Lazy:

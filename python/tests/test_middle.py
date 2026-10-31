@@ -173,7 +173,7 @@ def _kernel_cases(n, rng):
         'conv3x3': (None, [n, w, f32(n * w), f32(9), f32(n * w)]),
         'rgb2gray': (None, [n, u8(3 * n), u8(n)]),
         'dot': (D, [n, f64(n), f64(n)]),
-        'isum': (ctypes.c_long, [n, i32(n)]),
+        'isum': (ctypes.c_int64, [n, i32(n)]),
         'prefix_sum': (None, [n, f32(n), f32(n)]),
         'iir': (None, [n, F(0.3), F(-0.5), F(0.2), f32(n), f32(n)]),
         'edit_distance': (I, [n, w, u8(n, 4), u8(w, 4), np.zeros(w + 1, np.int32),

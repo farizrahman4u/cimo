@@ -120,7 +120,7 @@ def test_aliasing_runs():
         assert m.store2(a, a) == 1 and list(buf) == [1, 2, 3, 4]
         buf[:] = [0, 0, 9, 9]
         assert m.store2(a, a + 4) == 0 and list(buf)[:2] == [1, 2]
-        ls = (ctypes.c_long * 10)(*range(10, 20))
+        ls = (ctypes.c_int64 * 10)(*range(10, 20))
         assert m.sum(ctypes.addressof(ls), 10) == -5
         src = (ctypes.c_float * 40)(*[i * 0.5 for i in range(40)])
         dst = (ctypes.c_float * 40)()

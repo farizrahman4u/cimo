@@ -1,4 +1,13 @@
-"""Port of QBE arm64/abi.c."""
+"""Port of QBE arm64/abi.c.
+
+Extension (not in QBE): the Windows arm64 variant (T.windows). Non-variadic calls follow
+AAPCS64 as on Linux. Calls to and definitions of variadic functions use Windows' rules for
+*every* argument, named ones included: as if all were laid out on a stack whose first 64
+bytes travel in x0-x7, so floats go in integer registers (as their bits, Cgp below) and HFAs
+are ordinary composites. A variadic function saves x0-x7 right below its stack arguments,
+and va_list is a `char *` walking that area and then the stack (like Apple's va_arg).
+Not supported: a composite split between x7 and the stack (MSVC allows it).
+"""
 
 import sys
 
@@ -11,6 +20,7 @@ from ..defs import (R, RTmp, RCall, NIns, U32, Ins, Phi, Jmp_, Kx, Kw, Kl, Ks, K
                     Oparsb, Oparub, Oparsh, Oparuh, Opar, Oarg, Oparc, Oargc, Opare,
                     Oarge, Oargv, Ovastart, Ovaarg, Oextsb, Jret0, Jretc, Jretw, Jretsb,
                     Jjmp, Jjnz, isret, isarg, ispar, isargbh, isparbh, isretbh)
+from ..defs import Ocast
 from ..util import (err, die, newtmp, getcon, emit, emiti, idup, icpy, vgrow)
 from ..cfg import newblk
 from ..parse import printfn
@@ -18,6 +28,7 @@ from .regs import SP, R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, V0, V1, V2, V3, V4
 
 Cstk = 1  # pass on the stack
 Cptr = 2  # replaced by a pointer
+Cgp = 4  # Windows variadic: a float passed in an integer register (cls holds Kw/Kl)
 
 
 class Class:
@@ -87,8 +98,9 @@ def isfloatv(t, cls):
     return 1
 
 
-def typclass(c, t, gp, fp):
-    """gp, fp are indices into gpreg, fpreg."""
+def typclass(c, t, gp, fp, nohfa=0):
+    """gp, fp are indices into gpreg, fpreg. nohfa: treat HFAs as other composites (Windows
+    variadic calls)."""
     sz = (t.size + 7) & -8
     c.t = t
     c.class_ = 0
@@ -104,7 +116,7 @@ def typclass(c, t, gp, fp):
     c.ishfa = isfloatv(t, base)
     c.hfa_base = base[0]
     hfasz = t.size // (8 if KWIDE(c.hfa_base) else 4)
-    c.ishfa &= int(not t.isdark and hfasz <= 4)
+    c.ishfa &= int(not t.isdark and hfasz <= 4 and not nohfa)
     c.hfa_size = hfasz & 0xff
 
     if c.ishfa:
@@ -190,8 +202,8 @@ def selret(b, fn):
     b.jmp.arg = CALL(cty)
 
 
-def argsclass(ins, i0, i1, carg):
-    """ins[i0:i1] classified into carg[0:i1-i0]."""
+def argsclass(ins, i0, i1, carg, winva=0):
+    """ins[i0:i1] classified into carg[0:i1-i0]. winva: Windows variadic rules."""
     va = 0
     envc = 0
     gp = 0
@@ -220,6 +232,18 @@ def argsclass(ins, i0, i1, carg):
                 c.size = 8
                 c.align = 8
                 continue
+            if winva:
+                c.size = c.align = 8
+                if ngp > 0:
+                    ngp -= 1
+                    c.reg[0] = gpreg[gp]
+                    gp += 1
+                    if KBASE(i.cls) == 1:
+                        c.class_ |= Cgp
+                        c.cls[0] = Kl if i.cls == Kd else Kw
+                    continue
+                c.class_ |= Cstk
+                continue
             if KBASE(i.cls) == 0 and ngp > 0:
                 ngp -= 1
                 c.reg[0] = gpreg[gp]
@@ -232,7 +256,10 @@ def argsclass(ins, i0, i1, carg):
                 continue
             c.class_ |= Cstk
         elif op in (Oparc, Oargc):
-            typclass(c, D.typ[rval(i.arg[0])], gp, fp)
+            typclass(c, D.typ[rval(i.arg[0])], gp, fp, winva)
+            if winva and 0 < ngp < c.ngp:
+                err("a %d-byte struct split between x7 and the stack in a variadic call "
+                    "is not supported on Windows" % c.t.size)
             if c.ngp <= ngp:
                 if c.nfp <= nfp:
                     ngp -= c.ngp
@@ -316,7 +343,8 @@ def _emitil(il):
 
 def selcall(fn, ins, i0, i1, il):
     ca = [Class() for _ in range(i1 - i0)]
-    cty = argsclass(ins, i0, i1, ca)
+    winva = D.T.windows and any(ins[k].op == Oargv for k in range(i0, i1))
+    cty = argsclass(ins, i0, i1, ca, winva)
 
     stk = 0
     for k in range(i0, i1):
@@ -366,15 +394,22 @@ def selcall(fn, ins, i0, i1, il):
         # struct return argument
         emit(Ocopy, Kl, TMP(R8), ic.to, R)
 
+    casts = []
     for k in range(i0, i1):
         i = ins[k]
         c = ca[k - i0]
         if (c.class_ & Cstk) != 0:
             continue
-        if i.op == Oarg or i.op == Oarge or isargbh(i.op):
+        if c.class_ & Cgp:
+            r = newtmp("abi", c.cls[0], fn)
+            emit(Ocopy, c.cls[0], TMP(c.reg[0]), r, R)
+            casts.append((c.cls[0], r, i.arg[0]))
+        elif i.op == Oarg or i.op == Oarge or isargbh(i.op):
             emit(Ocopy, c.cls[0], TMP(c.reg[0]), i.arg[0], R)
         if i.op == Oargc:
             ldregs(c.reg, c.cls, c.nreg, i.arg[1], fn)
+    for k, r, a in casts:  # before every copy into an argument register
+        emit(Ocast, k, r, a, R)
 
     # populate the stack
     off = 0
@@ -417,7 +452,8 @@ def selpar(fn, i0, i1):
     ca = [Class() for _ in range(i1 - i0)]
     D.curi = NIns
 
-    cty = argsclass(ins, i0, i1, ca)
+    winva = D.T.windows and fn.vararg
+    cty = argsclass(ins, i0, i1, ca, winva)
     fn.reg = arm64_argregs(CALL(cty), None)
 
     il = []
@@ -441,12 +477,22 @@ def selpar(fn, i0, i1):
             emit(Ocopy, Kl, fn.retr, TMP(R8), R)
             fn.reg |= BIT(R8)
 
+    casts = []
+    for k in range(i0, i1):  # after every copy out of an argument register
+        i = ins[k]
+        c = ca[k - i0]
+        if c.class_ & Cgp:
+            r = newtmp("abi", c.cls[0], fn)
+            emit(Ocast, i.cls, i.to, r, R)
+            casts.append(r)
     t = 0
     off = 0
     for k in range(i0, i1):
         i = ins[k]
         c = ca[k - i0]
-        if i.op == Oparc and not (c.class_ & Cptr):
+        if c.class_ & Cgp:
+            emit(Ocopy, c.cls[0], casts.pop(0), TMP(c.reg[0]), R)
+        elif i.op == Oparc and not (c.class_ & Cptr):
             if c.class_ & Cstk:
                 off = align(off, c.align)
                 fn.tmp[rval(i.to)].slot = -(off + 2)
@@ -601,6 +647,18 @@ def apple_selvastart(fn, p, ap):
     emit(Oaddr, Kl, stk, SLOT(-1), R)
 
 
+def win_selvastart(fn, p, ap):
+    """Windows: x0-x7 are saved right below the stack arguments (SLOT(-1), see emit), so
+    the first variadic argument is at 8 * (named gp registers) + (named stack bytes)."""
+    off = getcon((8 * p.ngp + p.stk) & U32, fn)
+    stk = newtmp("abi", Kl, fn)
+    arg = newtmp("abi", Kl, fn)
+
+    emit(Ostorel, 0, R, arg, ap)
+    emit(Oadd, Kl, arg, stk, off)
+    emit(Oaddr, Kl, stk, SLOT(-1), R)
+
+
 def arm64_selvastart(fn, p, ap):
     rsave = newtmp("abi", Kl, fn)
 
@@ -677,12 +735,14 @@ def arm64_abi(fn):
                     selcall(fn, ins, i0, i, il)
                     i = i0
                 elif op == Ovastart:
-                    if D.T.apple:
+                    if D.T.windows:
+                        win_selvastart(fn, p, ins[i].arg[0])
+                    elif D.T.apple:
                         apple_selvastart(fn, p, ins[i].arg[0])
                     else:
                         arm64_selvastart(fn, p, ins[i].arg[0])
                 elif op == Ovaarg:
-                    if D.T.apple:
+                    if D.T.apple or D.T.windows:
                         apple_selvaarg(fn, b, ins[i])
                     else:
                         arm64_selvaarg(fn, b, ins[i])
