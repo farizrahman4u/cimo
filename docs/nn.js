@@ -397,6 +397,27 @@ def nn_build(graph_json):
     } else {
       ctx.fillStyle = '#f5f6fa'; ctx.fillRect(0, 0, W, W);
     }
+    // the plot's coordinates: a light grid every 0.5, axes through 0, ticks along two edges
+    const at = v => (v + LIM) / (2 * LIM) * W;
+    ctx.save();
+    ctx.font = `${Math.round(W / 40)}px "DM Mono", ui-monospace, monospace`;
+    for (const v of [-1, -0.5, 0, 0.5, 1]) {
+      ctx.strokeStyle = v === 0 ? 'rgba(15,23,42,.28)' : 'rgba(15,23,42,.1)';
+      ctx.lineWidth = v === 0 ? 1.2 : 1;
+      ctx.beginPath(); ctx.moveTo(at(v), 0); ctx.lineTo(at(v), W); ctx.moveTo(0, W - at(v)); ctx.lineTo(W, W - at(v)); ctx.stroke();
+      ctx.fillStyle = 'rgba(15,23,42,.5)';
+      const t = String(v);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(t, at(v), W - 4);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(t, 5, W - at(v));
+    }
+    ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillStyle = 'rgba(15,23,42,.38)';
+    ctx.fillText('x', W - 6, W - 4);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('y', 5, 4);
+    ctx.restore();
     for (const [x, y, c] of points) {
       const px = (x + LIM) / (2 * LIM) * W, py_ = (LIM - y) / (2 * LIM) * W;
       ctx.beginPath(); ctx.arc(px, py_, W / 110, 0, 7);
