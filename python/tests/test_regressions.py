@@ -170,3 +170,41 @@ def test_bit_fields_promote_through_comma_and_conditional():
                      'int d(int x) { struct S1 s = {20, -17, 4}; return (x ? s.f2 : s.f2) < g5; }\n'
                      'int e(int x) { return sizeof(x ? c1 : c1); }\n')
     assert m.b() == 0 and m.d(1) == 0 and m.e(1) == 4
+
+
+# found by the semantics model (test_semantics.py)
+
+def test_bool_increment_and_decrement():
+    # cproc stored x + 1 and x - 1 unconverted: 2 and 255
+    m = cimo.compile('int c(void) { _Bool x = 1; x++; return x; }\n'
+                     'int d(void) { _Bool x = 0; x--; return x; }\n'
+                     'int e(void) { _Bool x = 1; return x++ * 10 + x; }\n'
+                     'struct S { _Bool b : 1; };\n'
+                     'int g(void) { struct S s = {1}; s.b++; s.b++; return s.b; }\n')
+    assert (m.c(), m.d(), m.e(), m.g()) == (1, 1, 11, 1)
+
+
+def test_constant_conversions_to_bool_and_unsigned():
+    # cproc folded (_Bool)2 to 0 (low bit), (_Bool)0.5 to 0, and rejected (_Bool)-0.5 and
+    # (unsigned)-0.5 (the integer part, 0, is representable)
+    m = cimo.compile('static _Bool g = 2; static _Bool h = (_Bool)-0.5; static _Bool z = (_Bool)0.0;\n'
+                     'int a(void) { return g * 100 + h * 10 + z; }\n'
+                     'int b(void) { return (_Bool)2 + (_Bool)(float)0.5f * 10; }\n'
+                     'unsigned u(void) { return (unsigned)-0.75; }\n')
+    assert (m.a(), m.b(), m.u()) == (110, 11, 0)
+
+
+def test_constant_conditional_with_a_bit_field_operand():
+    # folding `1 ? b.f : 0u` left the bit-field, which then promoted to int again
+    m = cimo.compile('struct { unsigned f : 14; } b1;\n'
+                     'long long u(void) { b1.f = 9182; return 1 - (1 ? b1.f : 0u); }\n'
+                     'long long y(void) { b1.f = 9182; return 1 - (1 ? b1.f : b1.f); }\n')
+    assert m.u() == 4294958115 and m.y() == -9181
+
+
+def test_jnz_on_a_narrowed_constant():
+    # QBE took `jnz 0x8000000000000` (a long constant converted to int, so 0) as true
+    m = cimo.compile('int c(int x) { return x && (int)2251799813685248LL; }\n'
+                     'int h(int x) { if ((int)2251799813685248LL) return 1; return 0; }\n'
+                     'int n(int x) { return x && (int)4294967297LL; }\n')
+    assert (m.c(1), m.h(1), m.n(1)) == (0, 0, 1)

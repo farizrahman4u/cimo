@@ -1172,7 +1172,12 @@ def condexpr(s):
             error(tok.loc, "invalid operands to conditional operator")
     e = EV.eval(e)
     if e.kind == EXPRCONST and e.type.prop & PROPINT:
-        return exprconvert(l if e.u else r, t)
+        c = l if e.u else r
+        if bitfieldwidth(c) != M32:
+            # cimo: the result is not a bit-field: it must not promote as one again
+            # (`1 - (1 ? b.f : 0u)` with an unsigned:14 field is unsigned)
+            return Expr(EXPRCAST, t, c)
+        return exprconvert(c, t)
     e = Expr(EXPRCOND, t, e)
     e.ct = l
     e.cf = r

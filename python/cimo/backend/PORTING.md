@@ -66,6 +66,9 @@ output for these is broken, so no comparison test depends on it):
   stored to"), so C reading an uninitialized local did not compile. It reads 0.
 - `mem.coalesce`: a never-stored slot passed by value (`argc`, an uninitialized struct
   argument) was killed and address 0 passed (a segfault). Such slots are kept.
+- `gvn`: `jnz` on a constant was decided on all 64 bits, but `jnz` tests a word (isel compares
+  the w register): `x && (int)0x8000000000000LL` (cproc leaves narrowing a constant to the
+  word use) took the branch. Only the low 32 bits count.
 - `parse.typecheck`: C indexes `fn->tmp` with any argument's value (a constant's too) and reads
   it only in an error message; the port indexed the list first, an `IndexError` once a function
   had more constants than temporaries. (Not a C bug; a porting one.)

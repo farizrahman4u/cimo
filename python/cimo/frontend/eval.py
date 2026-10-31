@@ -9,7 +9,7 @@ import math
 import struct
 
 from .cc import (M64, EXPRIDENT, EXPRCONST, EXPRCOMPOUND, EXPRUNARY, EXPRSTRING, EXPRCAST,
-                 EXPRBINARY, PROPFLOAT, PROPINT, TYPEPOINTER, DECLCONST, SDSTATIC, TSUB, TMUL,
+                 EXPRBINARY, PROPFLOAT, PROPINT, TYPEPOINTER, TYPEBOOL, DECLCONST, SDSTATIC, TSUB, TMUL,
                  TDIV, TMOD, TADD, TSHL, TSHR, TBAND, TBOR, TXOR, TLESS, TGREATER, TLEQ, TGEQ,
                  TEQL, TNEQ, TLOR, TLAND, Expr)
 from .token import tok, error
@@ -201,7 +201,11 @@ def eval(expr):
         l = eval(expr.base)
         if l.kind == EXPRCONST:
             expr.kind = EXPRCONST
-            if l.type.prop & PROPINT and t.prop & PROPFLOAT:
+            if t.kind == TYPEBOOL:
+                # cimo: compares with 0 (C11 6.3.1.2); cproc kept the low bit of an integer
+                # ((_Bool)2 was 0) and truncated a float ((_Bool)0.5 was 0, -0.5 an error)
+                expr.u = int(_truth(l))
+            elif l.type.prop & PROPINT and t.prop & PROPFLOAT:
                 if l.type.issigned:
                     expr.f = float(l.i)
                 else:
@@ -213,12 +217,14 @@ def eval(expr):
                         error(tok.loc, "integer part of floating-point constant %s cannot be represented as signed integer", _g(lf))
                     expr.i = int(lf) if lf == lf else 0  # fcvtzs: NaN -> 0
                 else:
-                    if lf < 0.0 or lf >= 18446744073709551616.0:
+                    # cimo: -1 < lf < 0 truncates to 0, representable (cproc: lf < 0.0)
+                    if lf <= -1.0 or lf >= 18446744073709551616.0:
                         error(tok.loc, "integer part of floating-point constant %s cannot be represented as unsigned integer", _g(lf))
                     expr.u = int(lf) if lf == lf else 0  # fcvtzu: NaN -> 0
             else:
                 expr.u = l.u
-            cast(expr)
+            if t.kind != TYPEBOOL:
+                cast(expr)
         elif l.type.kind == TYPEPOINTER:
             # A cast from a pointer to integer is not a valid constant expression, but
             # C11 allows implementations to recognize other forms of constant

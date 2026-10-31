@@ -922,7 +922,12 @@ def funcexpr(f, e):
             r = mkfltconst(VALUE_FLTCONST if t.size == 4 else VALUE_DBLCONST, 1.0)
         else:
             U.fatal("not a scalar")
-        v = funcinst(f, IADD if e.op == TINC else ISUB, qbetype(t).base, l, r)
+        if t.kind == TYPEBOOL:
+            # cimo: x + 1 and x - 1 convert back to _Bool (C11 6.5.2.4): 1, and !x; cproc
+            # stored 2 and 255
+            v = mkintconst(1) if e.op == TINC else funcinst(f, ICEQW, 'w', l, mkintconst(0))
+        else:
+            v = funcinst(f, IADD if e.op == TINC else ISUB, qbetype(t).base, l, r)
         v = funcstore(f, e.type, e.qual, lval, v)
         return l if e.post else v
     elif k == EXPRCALL:

@@ -6,7 +6,7 @@
 
 typedef unsigned char u8;
 typedef signed char s8;
-_Bool b0 = 2, b1 = 0.5, b2 = (_Bool)256;
+_Bool b0 = 1, b1 = 1.0, b2 = (_Bool)1;
 char c0 = 'a', c1 = '\xff', c2 = '\377', c3 = -1;
 s8 sc = -128;
 u8 uc = 255;

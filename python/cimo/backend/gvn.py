@@ -338,7 +338,9 @@ def dedupjmp(fn, b):
     if not hit:
         cv = isconbits(fn, b.jmp.arg)
         if cv is not None:
-            v = cv
+            # fix over C QBE: jnz tests a word, so only the low 32 bits of a constant count
+            # (`x && (int)0x8000000000000LL` took the branch); isel compares the w register
+            v = cv & 0xffffffff
             hit = True
     if not hit:
         zz = zeroval(fn, b, b.jmp.arg, Kw)

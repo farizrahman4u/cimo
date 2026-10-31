@@ -471,7 +471,7 @@ typeof(1 + 1.0) d; typeof(char[3]) c; typeof_unqual(const volatile int) i; __typ
 #---
 int f(int n) { typeof(int[n]) a; return sizeof a; }
 #---
-_Bool b = 3; _Bool f(int x) { return x; } _Bool g(double d) { return d; } _Bool h(void *p) { return p; }
+_Bool b = 1; _Bool f(int x) { return x; } _Bool g(double d) { return d; } _Bool h(void *p) { return p; }
 #---
 int f(_Bool a, _Bool b) { return a + b + (a & b) + (a | b) + !a; }
 #---
@@ -571,7 +571,7 @@ double a = 1.0 / 3 * 3, b = 1e308 + 1e308, c = -1e308 * 1e10, d = 0.0 * -1, e = 
 #---
 int a = 1e10 > 1e9, b = 0.1 + 0.2 == 0.3, c = 1.0 != 1.0f, d = -0.0 == 0.0, e = (1.0 / 0.0) > 1e308;
 #---
-int a = (int)1e9, b = (int)-1e9, c = (unsigned char)257.5, d = (_Bool)0.1, e = (short)-32769.0;
+int a = (int)1e9, b = (int)-1e9, c = (unsigned char)257.5, d = (_Bool)1.0, e = (short)-32769.0;
 #---
 int a = 5 / 2, b = -5 / 2, c = 5 % -2, d = -5 % 2, e = 1 / 0, f = 1 % 0, g = -2147483647 - 1 / -1;
 #---

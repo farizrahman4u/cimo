@@ -97,6 +97,12 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   operands of the same arithmetic type skipped the usual arithmetic conversions (`c ? ch : ch`
   was a `char`, a bit-field was not promoted), and a bit-field as a comma operator's last
   operand did not promote as one (`(0, s.f2) < -8` was unsigned; gcc and clang: signed).
+  Found by the semantics model (`tests/test_semantics.py`): `++`/`--` on a `_Bool` stored
+  `x + 1`/`x - 1` unconverted (2, 255); constant conversion to `_Bool` kept the low bit of an
+  integer (`_Bool b = 2;` was 0; C cproc even stores `_Bool b = 3;` as 3) and truncated a
+  float (`(_Bool)0.5` was 0, `(_Bool)-0.5` an error); `(unsigned)-0.5` was rejected (its
+  integer part, 0, is representable); folding `1 ? b.f : 0u` returned the bit-field itself,
+  which then promoted to `int` again.
 - Target `aarch64-windows`: a call to a variadic function gets the `...` marker even when no
   variadic argument follows (cproc emits it before the first one), since Windows passes all
   arguments of a variadic call its own way. Found by `tests/test_abi.py`.
