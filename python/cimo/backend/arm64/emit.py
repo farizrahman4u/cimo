@@ -424,7 +424,11 @@ def emitins(i, e):
         if rtype(i.to) == RSlot:
             r = i.to
             if not isreg(i.arg[0]):
-                i.to = TMP(IP1)
+                # fix over C QBE: a float through v31 (it used x17, an invalid class), as the
+                # slot-to-slot copies of a large parallel move need
+                i.to = TMP(V31 if KBASE(i.cls) == 1 else IP1)
+                if rtype(i.arg[0]) == RSlot:
+                    i.op = Oload
                 emitins(i, e)
                 i.arg[0] = i.to
             i.op = Ostorew + i.cls

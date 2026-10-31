@@ -66,6 +66,11 @@ output for these is broken, so no comparison test depends on it):
   stored to"), so C reading an uninitialized local did not compile. It reads 0.
 - `mem.coalesce`: a never-stored slot passed by value (`argc`, an uninitialized struct
   argument) was killed and address 0 passed (a segfault). Such slots are kept.
+- `rega.pmadd`: a parallel move held at most 64 copies ("no more pm slots"); a loop keeping
+  more values in registers needs more on an edge. The list grows.
+- `arm64.emit` (`copy` to a slot from a slot): the value went through x17 whatever its class,
+  so a float was "invalid class"; floats go through v31. Reached once a large parallel move
+  copies spilled values. Both found by `tests/test_backend_edges.py` (64 live values).
 - `gvn`: `jnz` on a constant was decided on all 64 bits, but `jnz` tests a word (isel compares
   the w register): `x && (int)0x8000000000000LL` (cproc leaves narrowing a constant to the
   word use) took the branch. Only the low 32 bits count.

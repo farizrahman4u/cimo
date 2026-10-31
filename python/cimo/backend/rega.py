@@ -187,8 +187,12 @@ def mdump(m):
 
 def pmadd(src, dst, k):
     global npm
-    if npm == NPm:
-        die("no more pm slots")
+    if npm == len(pm_src):
+        # fix over C QBE (died at NPm = 64): a loop keeping more values in registers needs
+        # more copies on an edge
+        pm_src.append(R)
+        pm_dst.append(R)
+        pm_cls.append(0)
     pm_src[npm] = src
     pm_dst[npm] = dst
     pm_cls[npm] = k
