@@ -272,10 +272,12 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 .arch-step small,.arch-origin{font-family:var(--mono);font-size:10.5px;color:var(--ink4)}
 .arch-step small.o-cimosown,.arch-origin.o-cimosown{color:var(--brand)}
 .arch-step:hover b{color:var(--ink)}
-.arch-view{margin-top:22px;overflow:hidden;touch-action:pan-y;cursor:grab}
+.arch-view{position:relative;margin-top:22px;perspective:1800px;touch-action:pan-y;cursor:grab}
+#how{overflow-x:clip}
 .arch-view.dragging{cursor:grabbing;user-select:none}
-.arch-track{display:flex;gap:48px;will-change:transform}
-.arch-slide{flex:0 0 100%;min-width:0;display:grid;grid-template-columns:minmax(0,.75fr) minmax(0,1.25fr);gap:28px;align-items:start;padding:0 1px}
+.arch-slide{position:absolute;top:0;left:50%;width:min(82%,980px);display:grid;grid-template-columns:minmax(0,.72fr) minmax(0,1.28fr);gap:24px;align-items:start;padding:20px;background:var(--white);border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 50px -30px rgba(15,23,42,.45);transform-origin:50% 50%;will-change:transform}
+.arch-slide.side{cursor:pointer}
+.arch-slide.side *{pointer-events:none}
 .arch-view button{cursor:pointer}
 .arch{padding:8px 0 4px}
 .arch-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
@@ -287,14 +289,14 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 .arch-alt{display:flex;gap:4px;margin-top:16px}
 .arch-alt button{font:500 12px var(--font);color:var(--ink2);background:var(--white);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
 .arch-alt button.on{border-color:var(--brand);background:var(--brand50);color:var(--ink)}
-.arch-code pre{height:340px;overflow:auto;white-space:pre-wrap;font-size:12px;line-height:1.55;scrollbar-width:none}
+.arch-code pre{height:320px;overflow:auto;white-space:pre-wrap;font-size:12px;line-height:1.55;scrollbar-width:none}
 .arch-code pre::-webkit-scrollbar{display:none}
 .arch-code pre.numbered{counter-reset:ln;padding-left:0}
 .arch-code pre .ln{display:block;position:relative;min-height:1.55em;padding-left:46px;counter-increment:ln}
 .arch-code pre .ln::before{content:counter(ln);position:absolute;left:0;width:34px;text-align:right;color:#3e4659;user-select:none}
 .arch-code pre[hidden]{display:none}
 .arch-code .t-op{color:#79c0ff}.arch-code .t-out{color:#8b949e}
-@media(max-width:900px){.arch-steps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:14px}.arch-line{display:none}.arch-slide{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:900px){.arch-steps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:14px}.arch-line{display:none}.arch-slide{grid-template-columns:minmax(0,1fr);width:86%;padding:16px}}
 @media (prefers-reduced-motion:reduce){.arch-line b{transition:none}}
 /* code panels */
 .code{background:var(--code);border:1px solid var(--codeline);border-radius:12px;overflow:hidden;color:#c9d1d9;min-width:0}
@@ -1001,7 +1003,7 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=17d42879" defer></script>
-<script src="arch.js?v=3bcb8b97" defer></script>
+<script src="arch.js?v=e10a5f5c" defer></script>
 <script src="nn.js?v=753f3944" defer></script>
 </body>
 </html>
