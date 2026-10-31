@@ -246,6 +246,10 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 .nn.panel-open .nn-panel{display:block}
 .nn-panel pre{margin:0;height:236px;overflow:auto;padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.55;color:#c9d1d9;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:none}
 .nn-panel pre::-webkit-scrollbar{display:none}
+.nn-panel pre.numbered{counter-reset:ln;padding-left:0}
+.nn-panel pre .ln{display:block;position:relative;min-height:1.55em;padding-left:46px;counter-increment:ln}
+.nn-panel pre .ln::before{content:counter(ln);position:absolute;left:0;width:34px;text-align:right;color:#3e4659;user-select:none}
+.nn-panel pre .more{display:block;padding-left:46px}
 .nn-panel .t-op{color:#79c0ff}.nn-panel pre.hl-wasm .t-ty{color:#ff7b72}
 @media(max-width:900px){.nn-top{grid-template-columns:minmax(0,1fr)}.nn-left{border-right:0;border-bottom:1px solid var(--line2);overflow-x:auto}.nn-board{min-width:620px;height:300px;touch-action:pan-x}}
 /* code panels */
@@ -956,6 +960,6 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=17d42879" defer></script>
-<script src="nn.js?v=a7408562" defer></script>
+<script src="nn.js?v=2bb1f05c" defer></script>
 </body>
 </html>

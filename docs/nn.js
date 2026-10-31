@@ -216,13 +216,26 @@
     if (text && !html[want]) {
       const lines = text.split('\n');
       const cut = lines.length > MAXLINES;
-      html[want] = HL[want](cut ? lines.slice(0, MAXLINES).join('\n') : text) +
-        (cut ? `\n<span class="t-cm">${want === 'wasm' ? ';;' : '/*'} … ${(lines.length - MAXLINES).toLocaleString()} more lines${want === 'wasm' ? '' : ' */'}</span>` : '');
+      html[want] = numbered(HL[want](cut ? lines.slice(0, MAXLINES).join('\n') : text)) +
+        (cut ? `<span class="more t-cm">${want === 'wasm' ? ';;' : '/*'} … ${(lines.length - MAXLINES).toLocaleString()} more lines${want === 'wasm' ? '' : ' */'}</span>` : '');
     }
-    ui.panel.className = 'hl-' + (want || '');
+    ui.panel.className = 'hl-' + (want || '') + ' numbered';
     ui.panel.innerHTML = text ? html[want] : '';
     ui.panel.scrollTop = 0;
     root.classList.toggle('panel-open', !!text);
+  }
+
+  // one block per source line (CSS numbers them); a highlight span that crosses a line break
+  // (a multi-line comment) is closed at the end of the line and reopened on the next
+  function numbered(h) {
+    let open = null;
+    return h.replace(/\n$/, '').split('\n').map(line => {
+      const head = open ? `<span class="${open}">` : '';
+      const re = /<span class="([^"]+)">|<\/span>/g;
+      let m;
+      while ((m = re.exec(line))) open = m[1] || null;
+      return `<span class="ln">${head}${line}${open ? '</span>' : ''}</span>`;
+    }).join('');
   }
 
   // ---- syntax highlighting (JSON, C, WebAssembly text)
