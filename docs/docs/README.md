@@ -1,6 +1,9 @@
 # cimo docs
 
-Served at https://www.cimo.dev/docs/. No build step: `docs.js` renders the Markdown in the browser.
+Served at https://www.cimo.dev/docs/. No build step: `docs.js` fetches the Markdown and renders it
+in the browser, so a pushed edit is live once GitHub Pages redeploys (about a minute). Pages are
+fetched with `cache: 'no-cache'`, so readers get the new version on their next load. After
+changing `docs.js` or `docs.css`, update the `?v=` on their tags in `index.html`.
 
 - `content/<page>.md`: one page each, plain Markdown (GitHub flavored: tables, fenced code).
 - `nav.json`: the order and grouping. Parts with `"walk": true` are the walkthrough (numbered,
