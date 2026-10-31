@@ -949,6 +949,10 @@ def funcexpr(f, e):
             funcinst(f, IARG, qbetype(t).base, argvals[i], t.value)
             arg = arg.next
             i += 1
+        if ftype.isvararg and i <= ftype.nparam and TG.targ.name == 'aarch64-windows':
+            # cimo: Windows passes every argument of a variadic call its own way (floats in
+            # x registers), so the backend needs the `...` even when nothing follows it
+            funcinst(f, IVARARG, 0, None, None)
         e = e.base
         if e.kind == EXPRUNARY and e.op == TBAND:
             e = e.base

@@ -97,6 +97,9 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   operands of the same arithmetic type skipped the usual arithmetic conversions (`c ? ch : ch`
   was a `char`, a bit-field was not promoted), and a bit-field as a comma operator's last
   operand did not promote as one (`(0, s.f2) < -8` was unsigned; gcc and clang: signed).
+- Target `aarch64-windows`: a call to a variadic function gets the `...` marker even when no
+  variadic argument follows (cproc emits it before the first one), since Windows passes all
+  arguments of a variadic call its own way. Found by `tests/test_abi.py`.
 - `compile(diagnostics=True)` accepts pointers whose targets differ only in integer signedness
   or in qualifiers below the top level (assignment, `==`, `!=`), as gcc does without a warning;
   cproc calls them incompatible (`diag.ptrsimilar`).

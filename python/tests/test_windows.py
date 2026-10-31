@@ -63,6 +63,12 @@ def test_variadic_call_passes_floats_in_integer_registers():
     assert 'fmov\tx1, d0' in s and 'fmov\tx2, d1' in s and 'mov\tw3, #7' in s
 
 
+def test_variadic_call_without_variadic_arguments():
+    # the frontend emitted no `...`, so the call used the normal convention (d0, not x0)
+    s = asm('double v(double, ...);\ndouble f(double d) { return v(d); }\n')
+    assert 'fmov\tx0, d0' in s
+
+
 def test_variadic_definition_saves_x0_x7_only():
     s = asm('double named(double a, ...) { return a; }\n'
             'double defv(int n, ...) { __builtin_va_list ap; __builtin_va_start(ap, n); '
