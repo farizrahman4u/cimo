@@ -255,10 +255,11 @@ def build(src):
     ghostTimer = setTimeout(whenVisible, /[?&]ghost\b/.test(location.search) ? 300 : 3500);
   }
 
-  // only type while the banner is on screen: wait for the reader to come back to it
+  // only type while the editor is on screen (on phones it sits below the particles): wait for
+  // the reader to get to it, or come back to it
   function whenVisible() {
-    const r = root.getBoundingClientRect();
-    if (r.bottom > 80 && r.top < innerHeight - 80 && !document.hidden) ghost();
+    const r = $('.demo-side', root).getBoundingClientRect();
+    if (r.bottom > 160 && r.top < innerHeight - 200 && !document.hidden) ghost();
     else ghostTimer = setTimeout(whenVisible, 700);
   }
 
