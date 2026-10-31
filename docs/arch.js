@@ -29,11 +29,7 @@
       return m ? `<span class="t-cm">${m[1]}</span>  <span class="t-num">${m[2]}</span>   ${HL.asm(m[3])}` : HL.asm(l);
     }).join('\n'),
     wasm: t => tokens(t, /(;;[^\n]*)|\b((?:i32|i64|f32|f64)\.[a-z0-9_]+|local\.(?:get|set|tee)|global\.(?:get|set)|memory\.\w+)\b|\b(func|param|result|local|export)\b|(\$[\w.]+)|("[^"]*")|\b(block|loop|if|else|end|br_if|br_table|br|return|call|unreachable|drop|select)\b|(-?\b\d+(?:\.\d+)?\b)/g, ['cm', 'op', 'ty', 'fn', 'str', 'kw', 'num']),
-    py: t => t.split('\n').map(l => {
-      if (l.startsWith('#')) return `<span class="t-cm">${esc(l)}</span>`;
-      if (!l.startsWith('>>>')) return `<span class="t-out">${esc(l)}</span>`;
-      return '<span class="t-pr">&gt;&gt;&gt;</span>' + tokens(l.slice(3), /(#[^\n]*)|("[^"]*")|\b(import|as)\b|(\b\d+(?:\.\d+)?\b)|\b([A-Za-z_]\w*)(?=\()/g, ['cm', 'str', 'kw', 'num', 'fn']);
-    }).join('\n'),
+    py: t => tokens(t, /(#[^\n]*)|("[^"]*")|\b(import|as)\b|(\b\d+(?:\.\d+)?\b)|\b([A-Za-z_]\w*)(?=\()/g, ['cm', 'str', 'kw', 'num', 'fn']),
   };
   // one block per source line (CSS numbers them); a highlight span crossing a line break is
   // closed at the end of the line and reopened on the next
@@ -47,7 +43,7 @@
       return `<span class="ln">${head}${line}${open ? '</span>' : ''}</span>`;
     }).join('');
   }
-  const FILES = { c: 'saxpy.c', ir: 'saxpy.ssa · from the front end', opt: 'saxpy.ssa · optimized', asm: 'saxpy.s · arm64', enc: 'saxpy · machine code', run: 'python' };
+  const FILES = { c: 'saxpy.c', ir: 'saxpy.ssa · from the front end', opt: 'saxpy.ssa · optimized', asm: 'saxpy.s · arm64', enc: 'saxpy · machine code', run: 'saxpy.py' };
   const slug = o => o.replace(/[^a-z]/gi, '').toLowerCase();
 
   let data = null, cur = 0, timer = null, auto = true, inView = false, slides = [];
