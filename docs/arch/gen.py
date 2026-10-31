@@ -108,11 +108,15 @@ def main():
     watext, _, _ = wat.disassemble(mod, {'saxpy'})
     k = cimo.compile(SRC)
     loader = '''>>> import cimo, numpy as np
->>> k = cimo.compile(open("saxpy.c").read())
->>> k.saxpy                       # %d bytes of arm64, mapped read+execute
+>>> src = open("saxpy.c").read()
+>>> k = cimo.compile(src)
+# %d bytes of arm64, mapped read+execute
+>>> k.saxpy
 <cimo kernel saxpy>
->>> x = np.ones(1000, np.float32); y = np.arange(1000, dtype=np.float32)
->>> k.saxpy(len(x), 2.0, x, y)    # a direct call through ctypes; y is updated in place
+>>> x = np.ones(1000, np.float32)
+>>> y = np.arange(1000, dtype=np.float32)
+# a direct call through ctypes; y is updated in place
+>>> k.saxpy(len(x), 2.0, x, y)
 >>> y[:4]
 array([2., 3., 4., 5.], dtype=float32)
 

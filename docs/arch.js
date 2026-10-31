@@ -110,7 +110,7 @@
     else timer = setTimeout(tick, 1500);
   }
 
-  fetch('arch/arch.json').then(r => r.json()).then(j => {
+  fetch('arch/arch.json', { cache: 'no-cache' }).then(r => r.json()).then(j => {
     data = j.stages;
     steps.innerHTML = '<i class="arch-line"><b></b></i>' + data.map((s, i) =>
       `<button type="button" class="arch-step" role="tab" data-i="${i}"><span class="n">${i + 1}</span><b>${s.title}</b><small class="o-${slug(s.origin)}">${s.origin}</small></button>`).join('');

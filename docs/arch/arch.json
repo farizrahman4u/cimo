@@ -57,7 +57,7 @@
    "title": "Executable memory",
    "origin": "in your process",
    "lang": "py",
-   "text": ">>> import cimo, numpy as np\n>>> k = cimo.compile(open(\"saxpy.c\").read())\n>>> k.saxpy                       # 284 bytes of arm64, mapped read+execute\n<cimo kernel saxpy>\n>>> x = np.ones(1000, np.float32); y = np.arange(1000, dtype=np.float32)\n>>> k.saxpy(len(x), 2.0, x, y)    # a direct call through ctypes; y is updated in place\n>>> y[:4]\narray([2., 3., 4., 5.], dtype=float32)\n\n# what happened: the encoded bytes were linked with the runtime parts they use,\n# written to an anonymous mmap (RW), switched to RX with mprotect (W^X), the\n# instruction cache flushed, and each function wrapped as a ctypes callable.\n# In the browser the same module is WebAssembly, loaded into Pyodide's memory.",
+   "text": ">>> import cimo, numpy as np\n>>> src = open(\"saxpy.c\").read()\n>>> k = cimo.compile(src)\n# 284 bytes of arm64, mapped read+execute\n>>> k.saxpy\n<cimo kernel saxpy>\n>>> x = np.ones(1000, np.float32)\n>>> y = np.arange(1000, dtype=np.float32)\n# a direct call through ctypes; y is updated in place\n>>> k.saxpy(len(x), 2.0, x, y)\n>>> y[:4]\narray([2., 3., 4., 5.], dtype=float32)\n\n# what happened: the encoded bytes were linked with the runtime parts they use,\n# written to an anonymous mmap (RW), switched to RX with mprotect (W^X), the\n# instruction cache flushed, and each function wrapped as a ctypes callable.\n# In the browser the same module is WebAssembly, loaded into Pyodide's memory.",
    "desc": "The code is mapped into the running Python process and called on numpy buffers in place. Compiled modules are cached by content hash.",
    "stat": "called in place"
   }
