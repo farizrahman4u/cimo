@@ -104,6 +104,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .banner{position:relative;background:#080b16;color:#c9d1d9;overflow:hidden;height:clamp(600px,calc(100vh - 62px),780px)}
 .demo{height:100%}
 .demo-view{position:absolute;inset:0}
+.demo.off *,.nn.off *{animation-play-state:paused!important}
 .demo-view canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 .demo-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:40% 50%;pointer-events:none;transition:opacity .9s ease}
 .demo.running .demo-poster{opacity:0}
@@ -1024,8 +1025,8 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 })();
 </script>
 <script src="runtime.js?v=44110710" defer></script>
-<script src="demo.js?v=7728920a" defer></script>
+<script src="demo.js?v=130f5236" defer></script>
 <script src="arch.js?v=32d2efc1" defer></script>
-<script src="nn.js?v=bc791a76" defer></script>
+<script src="nn.js?v=a93f1fad" defer></script>
 </body>
 </html>

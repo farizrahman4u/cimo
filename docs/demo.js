@@ -217,7 +217,7 @@ def build(src):
       if (warm) { resetIndex(); fullUpload = true; }
       root.classList.remove('loading');
       root.classList.add('running');
-      requestAnimationFrame(frame);
+      loop();
       scheduleGhost();
     } catch (e) {
       status('Could not start the demo: ' + (e && e.message || e));
@@ -522,8 +522,24 @@ def build(src):
     scale += (s - scale) * q;
   }
 
+  // the simulation and the rendering run only while the banner is on screen and the tab is
+  // visible: scrolled away, the loop stops and nothing is computed until it comes back
   let last = performance.now(), fpsAcc = 0, fpsN = 0, fps = 0;
+  let visible = true, looping = false;
+  function loop() {
+    if (looping || !visible || document.hidden || !root.classList.contains('running')) return;
+    looping = true;
+    last = performance.now();
+    requestAnimationFrame(frame);
+  }
+  new IntersectionObserver(es => {
+    visible = es[0].isIntersecting;
+    root.classList.toggle('off', !visible);
+    loop();
+  }).observe(root);
+  document.addEventListener('visibilitychange', loop);
   function frame(now) {
+    if (!visible || document.hidden) { looping = false; return; }
     requestAnimationFrame(frame);
     if (!kernel || !renderer) return;
     const dt = now - last; last = now;
