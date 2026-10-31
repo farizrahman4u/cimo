@@ -209,7 +209,8 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .nn-node{position:absolute;width:76px;transform:translateY(-50%);background:var(--white);border:1px solid var(--line);border-radius:9px;box-shadow:0 6px 14px -10px rgba(15,23,42,.35);font-size:11.5px;user-select:none}
 .nn-node.unused{opacity:.45}
 .nn-node.op-input,.nn-node.op-output{border-color:var(--brand200);background:var(--brand50)}
-.nn-h{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;font-weight:600;color:var(--ink);cursor:grab}
+.nn-h{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;font-weight:600;color:var(--ink)}
+.nn-node{cursor:grab;touch-action:none}.nn-node:active{cursor:grabbing}.nn-node button{cursor:pointer}.nn-out{cursor:crosshair}
 .nn-x{border:0;background:none;color:var(--ink4);font-size:14px;line-height:1;cursor:pointer;padding:0 2px}.nn-x:hover{color:var(--bad)}
 .nn-units{display:flex;align-items:center;justify-content:center;gap:8px;padding:0 6px 5px;font-family:var(--mono);color:var(--ink2)}
 .nn-units button{width:18px;height:18px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink2);font-size:12px;line-height:1;cursor:pointer;padding:0}
@@ -273,7 +274,7 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 .nn-panel pre .more{display:block;padding-left:46px}
 .nn-panel .t-op{color:#79c0ff}.nn-panel pre.hl-wasm .t-ty{color:#ff7b72}
 @media(max-width:900px){.nn-top{grid-template-columns:minmax(0,1fr)}.nn-left{border-right:0;border-bottom:1px solid var(--line2)}}
-@media(max-width:600px){.nn-left,.nn-right{padding:12px}.nn-tools,.nn-strip{flex-wrap:wrap;row-gap:6px}.nn-board{height:360px;touch-action:pan-y}.nn-h,.nn-out{touch-action:none}.nn-help{font-size:9.5px;right:10px}.nn-panel pre{height:300px;font-size:11.5px}}
+@media(max-width:600px){.nn-left,.nn-right{padding:12px}.nn-tools,.nn-strip{flex-wrap:wrap;row-gap:6px}.nn-board{height:360px;touch-action:pan-y}.nn-help{font-size:9.5px;right:10px}.nn-panel pre{height:300px;font-size:11.5px}}
 /* architecture: one kernel through every stage */
 .arch{margin-top:26px;outline:0}
 .arch-steps{position:relative;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;--p:0}
@@ -797,7 +798,7 @@ with ThreadPoolExecutor() as pool:
     <div class="nn-top">
       <div class="nn-left">
         <div class="nn-tools"><span class="nn-palette"></span></div>
-        <div class="nn-board"><svg class="nn-wires"></svg><select class="nn-preset" aria-label="Start from"></select><p class="nn-help">drag titles to move · drag from a dot to a dot to connect · click a wire to cut it</p></div>
+        <div class="nn-board"><svg class="nn-wires"></svg><select class="nn-preset" aria-label="Start from"></select><p class="nn-help">drag nodes to move · drag from a dot to a dot to connect · click a wire to cut it</p></div>
       <div class="nn-strip">
         <span class="nn-chip" data-n="graph"><b>Graph</b><small>drag and drop</small></span><i>→</i>
         <button type="button" class="nn-chip" data-s="json" data-n="json"><b>JSON</b><small>–</small></button><i>→</i>
@@ -1071,6 +1072,6 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=130f5236" defer></script>
 <script src="arch.js?v=c33b326c" defer></script>
-<script src="nn.js?v=a93f1fad" defer></script>
+<script src="nn.js?v=262d08c0" defer></script>
 </body>
 </html>

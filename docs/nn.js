@@ -140,7 +140,7 @@
       e.preventDefault();
       return;
     }
-    if (el && e.target.closest('.nn-h')) {
+    if (el && !e.target.classList.contains('nn-in')) {  // drag a node by any point on it (its buttons and ports aside)
       const n = graph.find(q => q.id === el.dataset.id), b = board.getBoundingClientRect();
       const ox = e.clientX - (n.x * b.width), oy = e.clientY - (n.y * b.height);
       const move = ev => {
@@ -149,8 +149,8 @@
         el.style.left = (n.x * 100) + '%'; el.style.top = (n.y * 100) + '%';
         drawWires();
       };
-      const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
-      addEventListener('pointermove', move); addEventListener('pointerup', up);
+      const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); };
+      addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
       e.preventDefault();
     }
   });
