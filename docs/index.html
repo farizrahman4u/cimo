@@ -173,7 +173,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .cm-err-line{background:rgba(190,18,60,.22)}
 /* training demo */
 .nn{margin-top:26px;background:var(--white);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-.nn-top{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);border-bottom:1px solid var(--line2)}
+.nn-top{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr)}
 .nn-left{padding:14px 16px 10px;min-width:0;border-right:1px solid var(--line2)}
 .nn-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .nn-tools select,.nn-ctl select,.nn-ctl button,.nn-palette button{font:500 12px var(--font);color:var(--ink2);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;cursor:pointer}
@@ -181,7 +181,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .nn-tools{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.nn-tools::-webkit-scrollbar{display:none}
 .nn-palette{display:contents}
 .nn-palette button:hover,.nn-ctl button:hover{border-color:var(--brand200);color:var(--ink)}
-.nn-board{position:relative;height:330px;margin-top:10px;border-radius:10px;background:radial-gradient(circle,#dfe4ee 1px,transparent 1.2px) 0 0/18px 18px,#fafbfd;border:1px solid var(--line2);overflow:hidden;touch-action:none}
+.nn-board{position:relative;height:290px;margin-top:10px;border-radius:10px;background:radial-gradient(circle,#dfe4ee 1px,transparent 1.2px) 0 0/18px 18px,#fafbfd;border:1px solid var(--line2);overflow:hidden;touch-action:none}
 .nn-wires{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .nn-wires .w{fill:none;stroke:var(--brand2);stroke-width:2}
 .nn-wires .w.temp{stroke-dasharray:5 4}
@@ -199,8 +199,8 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .nn-note{padding:0 8px 7px;font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
 .nn-in,.nn-out{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--white);border:2px solid var(--brand);transform:translateY(-50%)}
 .nn-in{left:-7px}.nn-out{right:-7px;top:50%;cursor:crosshair;background:var(--brand)}
-.nn-help{margin-top:8px;font-size:12px;color:var(--ink3)}
-.nn-right{padding:14px 16px 12px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.nn-help{position:absolute;left:10px;bottom:6px;margin:0;font-family:var(--mono);font-size:10.5px;color:var(--ink4);pointer-events:none}
+.nn-right{padding:14px 16px 12px;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:10px}
 .nn-plot{position:relative;aspect-ratio:1;max-width:360px;width:100%;align-self:center;border-radius:10px;overflow:hidden;border:1px solid var(--line2)}
 .nn-boundary{display:block;width:100%;height:100%}
 .nn-cover{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:20px;text-align:center;background:rgba(245,246,250,.82)}
@@ -211,17 +211,17 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .nn-stats{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;justify-content:center;font-size:12px;color:var(--ink3)}
 .nn-stats b{font-family:var(--mono);color:var(--ink);font-weight:500}
 .nn-loss{width:100%;max-width:300px;height:34px}
-.nn-strip{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 14px;background:#fafbfd}
+.nn-strip{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:10px}
 .nn-strip i{font-style:normal;color:var(--ink4)}
-.nn-chip{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--white);font:inherit;text-align:left}
+.nn-chip{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:5px 9px;border-radius:8px;border:1px solid var(--line);background:var(--white);font:inherit;text-align:left}
 button.nn-chip{cursor:pointer}button.nn-chip:hover{border-color:var(--brand200)}
 .nn-chip.open{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand100)}
 .nn-chip b{font-size:12px;font-weight:600;color:var(--ink)}
 .nn-chip small{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
-.nn-err{padding:8px 14px;font-family:var(--mono);font-size:12px;color:var(--bad);background:#fff1f3;border-top:1px solid #ffd5dd}
-.nn-panel{display:none;background:var(--code);border-top:1px solid var(--codeline)}
+.nn-err{margin-top:8px;border-radius:6px;padding:7px 10px;font-family:var(--mono);font-size:12px;color:var(--bad);background:#fff1f3;border-top:1px solid #ffd5dd}
+.nn-panel{display:none;margin-top:8px;background:var(--code);border:1px solid var(--codeline);border-radius:8px;overflow:hidden}
 .nn.panel-open .nn-panel{display:block}
-.nn-panel pre{margin:0;max-height:340px;overflow:auto;padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.55;color:#c9d1d9;white-space:pre;scrollbar-width:thin}
+.nn-panel pre{margin:0;height:200px;overflow:auto;padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.55;color:#c9d1d9;white-space:pre;scrollbar-width:thin}
 @media(max-width:900px){.nn-top{grid-template-columns:minmax(0,1fr)}.nn-left{border-right:0;border-bottom:1px solid var(--line2);overflow-x:auto}.nn-board{min-width:620px;height:300px;touch-action:pan-x}}
 /* code panels */
 .code{background:var(--code);border:1px solid var(--codeline);border-radius:12px;overflow:hidden;color:#c9d1d9;min-width:0}
@@ -662,8 +662,16 @@ with ThreadPoolExecutor() as pool:
     <div class="nn-top">
       <div class="nn-left">
         <div class="nn-tools"><select class="nn-preset" aria-label="Network"></select><span class="nn-palette"></span></div>
-        <div class="nn-board"><svg class="nn-wires"></svg></div>
-        <p class="nn-help">Drag a node's title to move it, drag from an output dot to an input dot to connect, click a wire to cut it.</p>
+        <div class="nn-board"><svg class="nn-wires"></svg><p class="nn-help">drag titles to move · drag from a dot to a dot to connect · click a wire to cut it</p></div>
+      <div class="nn-strip">
+        <span class="nn-chip"><b>1 Graph</b><small>drag and drop</small></span><i>→</i>
+        <button type="button" class="nn-chip" data-s="json"><b>2 JSON</b><small>–</small></button><i>→</i>
+        <button type="button" class="nn-chip" data-s="c"><b>3 C</b><small>Python codegen</small></button><i>→</i>
+        <button type="button" class="nn-chip" data-s="wasm"><b>4 WebAssembly</b><small>cimo</small></button><i>→</i>
+        <span class="nn-chip"><b>5 Training</b><small>Adam, full batch</small></span>
+      </div>
+      <div class="nn-err" role="status" hidden></div>
+      <div class="nn-panel"><pre></pre></div>
       </div>
       <div class="nn-right">
         <div class="nn-plot">
@@ -678,15 +686,6 @@ with ThreadPoolExecutor() as pool:
         <div class="nn-stats"><span>step <b class="nn-step">0</b></span><span>loss <b class="nn-loss-t">–</b></span><span>accuracy <b class="nn-acc">–</b></span><canvas class="nn-loss" width="300" height="34"></canvas></div>
       </div>
     </div>
-    <div class="nn-strip">
-      <span class="nn-chip"><b>1 Graph</b><small>drag and drop</small></span><i>→</i>
-      <button type="button" class="nn-chip" data-s="json"><b>2 JSON</b><small>–</small></button><i>→</i>
-      <button type="button" class="nn-chip" data-s="c"><b>3 C</b><small>Python codegen</small></button><i>→</i>
-      <button type="button" class="nn-chip" data-s="wasm"><b>4 WebAssembly</b><small>cimo</small></button><i>→</i>
-      <span class="nn-chip"><b>5 Training</b><small>Adam, full batch</small></span>
-    </div>
-    <div class="nn-err" role="status" hidden></div>
-    <div class="nn-panel"><pre></pre></div>
   </div>
   <p class="note">In a notebook: <code>await micropip.install("cimo")</code>, then <code>cimo.compile(src)</code> as anywhere else. The code generator is <a href="nn/codegen.py">one Python file</a>.</p>
 </div></section>
