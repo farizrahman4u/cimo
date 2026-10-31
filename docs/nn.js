@@ -398,6 +398,7 @@ def nn_build(graph_json):
     call(net.init, seed, BigInt(A.P));
     step = 0; t = 0; losses = [];
     running = true;
+    loop();
   }
 
   // ---- drawing
@@ -593,10 +594,17 @@ def nn_build(graph_json):
     ui.form.requestSubmit();
   });
 
-  let frameN = 0;
-  function frame() {
+  // training runs only while the demo is on screen and the tab is visible; the loop stops
+  // when it is scrolled away or training ends, and restarts when either changes back
+  let frameN = 0, onScreen = false, looping = false;
+  function loop() {
+    if (looping || !net || !running || !onScreen || document.hidden) return;
+    looping = true;
     requestAnimationFrame(frame);
-    if (!net || !running) return;
+  }
+  function frame() {
+    if (!net || !running || !onScreen || document.hidden) { looping = false; return; }
+    requestAnimationFrame(frame);
     const A = net.addr;
     try {
       const k = Math.min(PER_FRAME, STEPS - step);
@@ -641,7 +649,7 @@ def nn_build(graph_json):
       root.classList.remove('loading');
       root.classList.add('running');
       build();
-      requestAnimationFrame(frame);
+      loop();
       const q = /[?&]nnq=([^&#]+)/.exec(location.search);  // (for screenshots: ?nnq=0.3,-0.5)
       if (q) { ui.q.value = decodeURIComponent(q[1]); setTimeout(() => ui.form.requestSubmit(), 600); }
     } catch (e) {
@@ -653,11 +661,13 @@ def nn_build(graph_json):
   }
   ui.start.addEventListener('click', start);
   // start by itself once on screen if Pyodide is already loading (the banner demo started it)
-  let onScreen = false;
   new IntersectionObserver(es => {
     onScreen = es[0].isIntersecting;
+    root.classList.toggle('off', !onScreen);
     if (onScreen && window.cimoRuntime && window.cimoRuntime.started()) start();
+    loop();
   }, { threshold: 0.2 }).observe(root);
+  document.addEventListener('visibilitychange', loop);
   addEventListener('cimo-runtime', () => { if (onScreen) start(); });
 
   render();
