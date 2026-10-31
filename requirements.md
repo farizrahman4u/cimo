@@ -12,7 +12,8 @@ applied) and cproc at `~/code/cproc`.
 
 - `python/cimo/`: the compiler and the Python runtime (the PyPI package).
 - `js/`: reserved for a later JS port of the compiler and browser glue. Empty for now.
-- `docs/`: user-facing documentation.
+- `docs/`: the website (GitHub Pages serves `main:/docs` at www.cimo.dev). The user documentation
+  lives in `docs/docs/` (www.cimo.dev/docs/), as HTML: the site has no Jekyll (`.nojekyll`).
 - `examples/`: example kernels and the demos (see "Demos").
 - `scratch/`: research code and spikes (benchmarks, hand-optimized IR, loading tests). Not part of
   the package.
