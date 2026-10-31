@@ -179,16 +179,40 @@
 
   // ---- stages
   const stage = { json: '', c: '', wasm: '' };
-  let openStage = 'c';
+  let openStage = (/[?&]nnstage=(\w+)/.exec(location.search) || [0, 'c'])[1];  // (?nnstage=: for screenshots)
   root.querySelectorAll('.nn-chip[data-s]').forEach(ch => ch.addEventListener('click', () => {
     openStage = openStage === ch.dataset.s ? null : ch.dataset.s;
     showStage();
   }));
   function showStage() {
     root.querySelectorAll('.nn-chip[data-s]').forEach(ch => ch.classList.toggle('open', ch.dataset.s === openStage));
-    if (openStage) ui.panel.textContent = stage[openStage] || '';
-    root.classList.toggle('panel-open', !!(openStage && stage[openStage]));
+    if (openStage === 'wasm' && !stage.wasm && net) stage.wasm = py.globals.get('nn_wat')();
+    const text = openStage ? stage[openStage] : '';
+    ui.panel.className = 'hl-' + (openStage || '');
+    ui.panel.innerHTML = text ? HL[openStage](text) : '';
+    ui.panel.scrollTop = 0;
+    root.classList.toggle('panel-open', !!text);
   }
+
+  // ---- syntax highlighting (JSON, C, WebAssembly text)
+  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function tokens(text, re, cls) {
+    let out = '', last = 0;
+    text.replace(re, (m, ...g) => {
+      const at = g[g.length - 2];
+      out += esc(text.slice(last, at));
+      const k = g.findIndex((x, i) => i < cls.length && x !== undefined);
+      out += k < 0 || !cls[k] ? esc(m) : `<span class="t-${cls[k]}">${esc(m)}</span>`;
+      last = at + m.length;
+      return m;
+    });
+    return out + esc(text.slice(last));
+  }
+  const HL = {
+    json: t => tokens(t, /("(?:[^"\\]|\\.)*")(?=\s*:)|("(?:[^"\\]|\\.)*")|(-?\b\d+(?:\.\d+)?\b)|\b(true|false|null)\b/g, ['fn', 'str', 'num', 'kw']),
+    c: t => tokens(t, /(\/\*[\s\S]*?\*\/|\/\/[^\n]*)|(^[ \t]*#[^\n]*)|\b(for|if|else|return|while|static|const|unsigned)\b|\b(void|int|float|double|char|long)\b|(\b\d+(?:\.\d+)?(?:e[-+]?\d+)?[fu]?\b)|\b([A-Za-z_]\w*)(?=\s*\()/gm, ['cm', 'pp', 'kw', 'ty', 'num', 'fn']),
+    wasm: t => tokens(t, /(;;[^\n]*)|\b((?:i32|i64|f32|f64)\.[a-z0-9_]+|local\.(?:get|set|tee)|global\.(?:get|set)|memory\.\w+)\b|\b(func|param|result|local|export|type|offset)\b|(\$[\w.]+)|("[^"]*")|\b(block|loop|if|else|end|br_if|br_table|br|return|call_indirect|call|unreachable|drop|select)\b|(-?\b\d+(?:\.\d+)?(?:e[-+]?\d+)?\b)/g, ['cm', 'op', 'ty', 'fn', 'str', 'kw', 'num']),
+  };
   function chip(s, text) { const el = root.querySelector(`.nn-chip[data-s="${s}"] small`); if (el) el.textContent = text; }
 
   function toJSON() {
@@ -198,7 +222,7 @@
   // ---- Python side
   const PY = `
 import json, time, ctypes, struct
-import cimo, codegen
+import cimo, codegen, wat
 import cimo.wasm as _cw
 F = ctypes.c_float
 N, G, TH = ${N}, ${G}, ${TH}
@@ -207,20 +231,16 @@ GX = (F * (G * G * 2))(); GO = (F * (G * G))(); TX = (F * (TH * TH * 2))()
 ADDR = {k: ctypes.addressof(v) for k, v in dict(X=X, Y=Y, PX=PX, GX=GX, GO=GO, TX=TX).items()}
 _live = {}
 
-def _sections(mod):
-    names = {0: 'custom', 1: 'type', 2: 'import', 3: 'function', 7: 'export', 9: 'elem', 10: 'code', 11: 'data'}
-    out, i = [], 8
-    while i < len(mod):
-        sid = mod[i]; i += 1
-        n = sh = 0
-        while True:
-            b = mod[i]; i += 1; n |= (b & 0x7f) << sh; sh += 7
-            if not b & 0x80: break
-        label = names.get(sid, str(sid))
-        if sid == 0:
-            ln = mod[i]; label = 'custom "%s"' % bytes(mod[i + 1:i + 1 + ln]).decode()
-        out.append((label, n)); i += n
-    return out
+def nn_wat():
+    """The network's own functions as WebAssembly text, disassembled from the built module."""
+    mod = _live['mod']
+    text, sec, others = wat.disassemble(mod, {'init', 'train', 'predict', 'acts', 'views',
+                                              'forward', 'backward'})
+    head = [';; WebAssembly text of the network, disassembled from the %.1f KB module cimo built' % (len(mod) / 1024),
+            ';; sections: ' + ' \u00b7 '.join('%s %d B' % (n.replace('custom ', ''), z) for n, z in sec),
+            ';; also in the module: %d runtime functions (%s)' % (len(others), ', '.join(o for o in others if not o.startswith('__'))[:160]),
+            '']
+    return '\\n'.join(head) + text
 
 def nn_build(graph_json):
     t0 = time.perf_counter()
@@ -240,13 +260,9 @@ def nn_build(graph_json):
     na = sum(a['width'] for a in r['acts'])
     bufs = dict(P=(F * np_)(), M=(F * np_)(), V=(F * np_)(), WS=(F * r['ws'])(), AO=(F * max(1, na * TH * TH))())
     _live.clear(); _live.update(bufs); _live['m'] = m
-    sec = _sections(mod)
-    hexd = ' '.join('%02x' % b for b in mod[:16])
-    wasm = 'cimo-generated WebAssembly side module, %d bytes\\n\\n%s ...\\n\\n' % (len(mod), hexd) + \\
-        '\\n'.join('%-22s %6d bytes' % s for s in sec) + \\
-        '\\n\\nexports: init, train, predict, acts (and the module\\'s helpers)\\nimports: Pyodide\\'s memory, table and stack pointer'
+    _live['mod'] = mod
     e = m.exports
-    return {'ok': True, 'json': pretty, 'c': r['c'], 'wasm': wasm, 'nparams': r['nparams'],
+    return {'ok': True, 'json': pretty, 'c': r['c'], 'nparams': r['nparams'],
             'acts': r['acts'], 'widths': r['widths'], 'used': r['used'],
             'gen_ms': (t1 - t0) * 1000, 'cc_ms': (t2 - t1) * 1000, 'size': len(mod),
             'addr': dict(ADDR, **{k: ctypes.addressof(v) for k, v in bufs.items()}),
@@ -299,7 +315,7 @@ def nn_build(graph_json):
     }
     ui.err.hidden = true;
     root.classList.remove('broken');
-    stage.c = r.c; stage.wasm = r.wasm;
+    stage.c = r.c; stage.wasm = '';
     widths = r.widths instanceof Map ? Object.fromEntries(r.widths) : r.widths;
     usedSet = new Set(r.used);
     chip('graph', `${graph.length} nodes · ${r.nparams} params`);
@@ -425,8 +441,8 @@ def nn_build(graph_json):
     try {
       py = await window.cimoRuntime.load(m => { ui.status.textContent = m; });
       ui.status.textContent = 'Loading the code generator…';
-      const src = await (await fetch('nn/codegen.py')).text();
-      py.FS.writeFile('/home/pyodide/codegen.py', src);
+      for (const f of ['codegen.py', 'wat.py'])
+        py.FS.writeFile('/home/pyodide/' + f, await (await fetch('nn/' + f)).text());
       await py.runPythonAsync(PY);
       buildPy = py.globals.get('nn_build');
       setData();
