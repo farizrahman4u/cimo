@@ -93,7 +93,10 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   zero-length array) was taken for a VLA (an assertion). Found by Csmith: the common type of
   `unsigned long` and `long long` was `long long` (C11 6.3.1.8: `unsigned long long`), so
   `uint64_t` against a `LL` constant compared signed; constant `||`/`&&` folded to an operand
-  (`5L || x` was the `long` 5, `1 && 7` was 7) instead of the `int` 0 or 1.
+  (`5L || x` was the `long` 5, `1 && 7` was 7) instead of the `int` 0 or 1; `?:` with two
+  operands of the same arithmetic type skipped the usual arithmetic conversions (`c ? ch : ch`
+  was a `char`, a bit-field was not promoted), and a bit-field as a comma operator's last
+  operand did not promote as one (`(0, s.f2) < -8` was unsigned; gcc and clang: signed).
 - `compile(diagnostics=True)` accepts pointers whose targets differ only in integer signedness
   or in qualifiers below the top level (assignment, `==`, `!=`), as gcc does without a warning;
   cproc calls them incompatible (`diag.ptrsimilar`).

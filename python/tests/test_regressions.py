@@ -159,3 +159,14 @@ def test_pointers_differing_in_signedness_or_inner_qualifiers():
     assert m.f() == 4
     with pytest.raises(cimo.CompileError):
         cimo.compile('int *f(long *p) { return p; }')
+
+
+def test_bit_fields_promote_through_comma_and_conditional():
+    # cproc: (0, s.f2) and (x ? s.f2 : s.f2) were unsigned int, not promoted to int as a
+    # 15-bit field is (gcc and clang agree); and c ? ch : ch kept char (C11 6.5.15p5)
+    m = cimo.compile('struct S1 { unsigned f0 : 10; signed f1 : 15; unsigned f2 : 15; };\n'
+                     'int g5 = -8; char c1 = 1;\n'
+                     'int b(void) { struct S1 s = {20, -17, 4}; return (0, s.f2) < g5; }\n'
+                     'int d(int x) { struct S1 s = {20, -17, 4}; return (x ? s.f2 : s.f2) < g5; }\n'
+                     'int e(int x) { return sizeof(x ? c1 : c1); }\n')
+    assert m.b() == 0 and m.d(1) == 0 and m.e(1) == 4

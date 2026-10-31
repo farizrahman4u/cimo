@@ -99,6 +99,12 @@ def mkunaryexpr(op, base):
 
 def bitfieldwidth(e):
     """Returns unsigned: -1 is M32."""
+    if e.kind == EXPRCOMMA:
+        # cimo: a bit-field as the last operand promotes as one, `(0, s.f2) < -8` (gcc, clang)
+        e = e.base
+        while e.next:
+            e = e.next
+        return bitfieldwidth(e)
     if e.kind != EXPRBITFIELD:
         return M32
     return (e.type.size * 8 - e.bits[0] - e.bits[1]) & M32
@@ -1134,10 +1140,12 @@ def condexpr(s):
 
     lt = l.type
     rt = r.type
-    if lt is rt:
-        t = lt
-    elif lt.prop & PROPARITH and rt.prop & PROPARITH:
+    if lt.prop & PROPARITH and rt.prop & PROPARITH:
+        # cimo: also when both have the same type (cproc kept it): C11 6.5.15p5 applies the
+        # usual arithmetic conversions, so `c ? ch1 : ch2` is an int and bit-fields promote
         t = typecommonreal(lt, bitfieldwidth(l), rt, bitfieldwidth(r))
+    elif lt is rt:
+        t = lt
     elif lt is TY.typevoid and rt is TY.typevoid:
         t = TY.typevoid
     else:
