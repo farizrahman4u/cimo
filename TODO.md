@@ -39,6 +39,9 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Small
 
+- Profiler symbols: write a perf map (`/tmp/perf-<pid>.map`) and/or jitdump for loaded modules, so
+  `perf record` names kernel functions (the docs' profiling page marks it Planned).
+
 - Demos (see "Demos (planned)" in `requirements.md`).
 - Website demo (`docs/demo.js`): C vector field → particles, recompiled in Pyodide on every edit.
   `docs/cimo.py` is a `cimo bundle` build: regenerate it when the compiler changes.
