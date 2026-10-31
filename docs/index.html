@@ -313,7 +313,10 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 .arch-code pre .ln::before{content:counter(ln);position:absolute;left:0;width:34px;text-align:right;color:#3e4659;user-select:none}
 .arch-code pre[hidden]{display:none}
 .arch-code .t-op{color:#79c0ff}.arch-code .t-out{color:#8b949e}
-@media(max-width:900px){.arch-steps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:14px}.arch-line{display:none}.arch-slide{display:flex;flex-direction:column;align-items:stretch;gap:14px;width:88%;padding:16px}.arch-code{flex:1 0 auto;display:flex;flex-direction:column}.arch-slide .arch-code pre{flex:1 0 auto;height:240px;white-space:pre-wrap;font-size:11.5px}.arch-desc{font-size:14.5px}.arch-head h3{font-size:20px}}
+/* narrow screens: the stages stay on one line and scroll sideways; arch.js centres the current one */
+@media(max-width:900px){.arch-steps{grid-template-columns:repeat(6,112px);overflow-x:auto;scrollbar-width:none;margin:0 -24px;padding:6px 24px 0;-webkit-mask-image:linear-gradient(90deg,transparent,#000 24px,#000 calc(100% - 24px),transparent);mask-image:linear-gradient(90deg,transparent,#000 24px,#000 calc(100% - 24px),transparent)}.arch-steps::-webkit-scrollbar{display:none}.arch-line{left:80px;right:auto;width:590px;top:21px}}
+@media(max-width:600px){.arch-steps{margin:0 -16px;padding:6px 16px 0}.arch-line{left:72px}}
+@media(max-width:900px){.arch-slide{display:flex;flex-direction:column;align-items:stretch;gap:14px;width:88%;padding:16px}.arch-code{flex:1 0 auto;display:flex;flex-direction:column}.arch-slide .arch-code pre{flex:1 0 auto;height:240px;white-space:pre-wrap;font-size:11.5px}.arch-desc{font-size:14.5px}.arch-head h3{font-size:20px}}
 @media (prefers-reduced-motion:reduce){.arch-line b{transition:none}}
 .doclink{margin-top:18px;font-size:14px;font-weight:500}.doclink a{color:var(--brand)}.doclink a:hover{color:var(--brandD)}.doclink .sep{color:var(--ink4);margin:0 6px}
 /* code panels */
@@ -1068,7 +1071,7 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=130f5236" defer></script>
-<script src="arch.js?v=32d2efc1" defer></script>
+<script src="arch.js?v=5b177095" defer></script>
 <script src="nn.js?v=a93f1fad" defer></script>
 </body>
 </html>

@@ -97,6 +97,10 @@
       b.setAttribute('aria-selected', i === cur);
     });
     steps.style.setProperty('--p', cur / (data.length - 1));
+    if (steps.scrollWidth > steps.clientWidth) {  // one scrolling line (narrow screens): centre the current stage as far as the ends allow
+      const b = steps.querySelectorAll('.arch-step')[cur];
+      steps.scrollTo({ left: b.offsetLeft + b.offsetWidth / 2 - steps.clientWidth / 2, behavior: animate && !RM ? 'smooth' : 'auto' });
+    }
     slides.forEach((el, i) => el.setAttribute('aria-hidden', i !== cur));
     layout(0, animate);
     if (auto) { clearTimeout(timer); timer = setTimeout(tick, 6000); }
