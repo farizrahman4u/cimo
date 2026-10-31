@@ -4,10 +4,7 @@
   'use strict';
   const root = document.getElementById('arch');
   if (!root) return;
-  const steps = root.querySelector('.arch-steps'), code = root.querySelector('.arch-code pre');
-  const tab = root.querySelector('.arch-file'), title = root.querySelector('.arch-title');
-  const origin = root.querySelector('.arch-origin'), desc = root.querySelector('.arch-desc');
-  const stat = root.querySelector('.arch-stat'), alt = root.querySelector('.arch-alt');
+  const steps = root.querySelector('.arch-steps'), view = root.querySelector('.arch-view');
 
   const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   function tokens(text, re, cls) {
@@ -39,101 +36,111 @@
     }).join('\n'),
   };
   const FILES = { c: 'saxpy.c', ir: 'saxpy.ssa · from the front end', opt: 'saxpy.ssa · optimized', asm: 'saxpy.s · arm64', enc: 'saxpy · machine code', run: 'python' };
+  const slug = o => o.replace(/[^a-z]/gi, '').toLowerCase();
 
-  let data = null, cur = 0, showAlt = false, timer = null, auto = true, inView = false;
+  let data = null, cur = 0, timer = null, auto = true, inView = false, track = null;
+  const RM = matchMedia('(prefers-reduced-motion:reduce)').matches;
 
-  function show(k, user) {
-    cur = (k + data.length) % data.length;
+  // every slide is rendered once, side by side in a track; changing stage only moves the track
+  function slideHTML(s) {
+    const v = (x, alt) => `<pre class="lang-${x.lang}${alt ? ' alt' : ''}"${alt ? ' hidden' : ''}>${HL[x.lang](x.text)}</pre>`;
+    return `<div class="arch-slide" role="tabpanel">
+      <div class="arch-text">
+        <div class="arch-head"><h3>${s.title}</h3><span class="arch-origin o-${slug(s.origin)}">${s.origin}</span></div>
+        <p class="arch-desc">${esc(s.desc)}</p>
+        <span class="arch-stat">${s.stat}</span>
+        ${s.alt ? '<div class="arch-alt"><button type="button" data-v="main" class="on">arm64</button><button type="button" data-v="alt">WebAssembly</button></div>' : ''}
+      </div>
+      <div class="code arch-code"><div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="arch-file">${FILES[s.id] || s.id}</span></div>${v(s)}${s.alt ? v(s.alt, true) : ''}</div>
+    </div>`;
+  }
+
+  function place(animate) {
+    track.style.transition = animate && !RM ? 'transform .45s cubic-bezier(.3,.7,.2,1)' : 'none';
+    track.style.transform = `translateX(calc(${-cur} * (100% + 48px)))`;
+  }
+
+  function show(k, user, animate = true) {
+    cur = Math.max(0, Math.min(data.length - 1, k));
     if (user) { auto = false; clearTimeout(timer); }
-    const s = data[cur];
     steps.querySelectorAll('.arch-step').forEach((b, i) => {
       b.classList.toggle('on', i === cur);
       b.classList.toggle('done', i < cur);
       b.setAttribute('aria-selected', i === cur);
     });
     steps.style.setProperty('--p', cur / (data.length - 1));
-    const v = s.alt && showAlt ? s.alt : s;
-    title.textContent = s.title;
-    origin.textContent = s.origin;
-    origin.className = 'arch-origin o-' + s.origin.replace(/[^a-z]/gi, '').toLowerCase();
-    desc.textContent = s.desc;
-    stat.textContent = v.stat;
-    tab.textContent = s.alt && showAlt ? 'saxpy.wasm · as text' : FILES[s.id] || s.id;
-    alt.hidden = !s.alt;
-    if (s.alt) alt.querySelectorAll('button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'alt') === showAlt));
-    code.className = 'lang-' + v.lang;
-    code.innerHTML = HL[v.lang](v.text);
-    code.scrollTop = 0;
-    code.parentNode.classList.remove('swap'); void code.offsetWidth; code.parentNode.classList.add('swap');
+    track.querySelectorAll('.arch-slide').forEach((el, i) => el.setAttribute('aria-hidden', i !== cur));
+    place(animate);
     if (auto) { clearTimeout(timer); timer = setTimeout(tick, 6000); }
   }
-  function tick() { if (auto && inView && !root.matches(':hover')) show(cur + 1); else timer = setTimeout(tick, 1500); }
+  function tick() {
+    if (auto && inView && !root.matches(':hover')) show((cur + 1) % data.length);
+    else timer = setTimeout(tick, 1500);
+  }
 
   fetch('arch/arch.json').then(r => r.json()).then(j => {
     data = j.stages;
     steps.innerHTML = '<i class="arch-line"><b></b></i>' + data.map((s, i) =>
-      `<button type="button" class="arch-step" role="tab" data-i="${i}"><span class="n">${i + 1}</span><b>${s.title}</b><small class="o-${s.origin.replace(/[^a-z]/gi, '').toLowerCase()}">${s.origin}</small></button>`).join('');
+      `<button type="button" class="arch-step" role="tab" data-i="${i}"><span class="n">${i + 1}</span><b>${s.title}</b><small class="o-${slug(s.origin)}">${s.origin}</small></button>`).join('');
+    view.innerHTML = `<div class="arch-track">${data.map(slideHTML).join('')}</div>`;
+    track = view.firstChild;
     steps.addEventListener('click', e => { const b = e.target.closest('.arch-step'); if (b) show(+b.dataset.i, true); });
-    alt.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; showAlt = b.dataset.v === 'alt'; show(cur, true); });
+    view.addEventListener('click', e => {  // the encoder's arm64 / WebAssembly toggle
+      const b = e.target.closest('.arch-alt button');
+      if (!b) return;
+      const slide = b.closest('.arch-slide'), alt = b.dataset.v === 'alt', s = data[cur];
+      slide.querySelectorAll('.arch-alt button').forEach(x => x.classList.toggle('on', x === b));
+      slide.querySelector('pre:not(.alt)').hidden = alt;
+      slide.querySelector('pre.alt').hidden = !alt;
+      slide.querySelector('.arch-stat').textContent = alt ? s.alt.stat : s.stat;
+      slide.querySelector('.arch-file').textContent = alt ? 'saxpy.wasm · as text' : FILES[s.id];
+      auto = false; clearTimeout(timer);
+    });
     root.addEventListener('keydown', e => {
       if (e.key === 'ArrowRight') { show(cur + 1, true); e.preventDefault(); }
       if (e.key === 'ArrowLeft') { show(cur - 1, true); e.preventDefault(); }
     });
-    // drag the whole slide body sideways to change stage; a drag only counts once it is
-    // clearly horizontal, so vertical scrolling in the code window keeps working
-    const body = root.querySelector('.arch-body');
-    const RM = matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+    // drag: the track follows the pointer, so the next slide comes in as you pull; a drag
+    // only counts once it is clearly sideways, so vertical scrolling in the code still works
     let d = null;
-    body.addEventListener('pointerdown', e => {
+    view.addEventListener('pointerdown', e => {
       if (e.button || e.target.closest('button, a')) return;
       d = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, on: false, dx: 0 };
     });
-    body.addEventListener('pointermove', e => {
+    view.addEventListener('pointermove', e => {
       if (!d || e.pointerId !== d.id) return;
       const dx = e.clientX - d.x, dy = e.clientY - d.y;
       if (!d.on) {
-        if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) { d = null; return; }  // a scroll
+        if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) { d = null; return; }
         if (Math.abs(dx) < 8) return;
         d.on = true;
-        body.setPointerCapture(d.id);
-        body.classList.add('dragging');
+        view.setPointerCapture(d.id);
+        view.classList.add('dragging');
         window.getSelection().removeAllRanges();
+        auto = false; clearTimeout(timer);
       }
       const end = (dx > 0 && cur === 0) || (dx < 0 && cur === data.length - 1);
-      d.dx = end ? dx / 3 : dx;  // resist past the ends
-      body.style.transition = 'none';
-      body.style.transform = `translateX(${d.dx}px)`;
-      body.style.opacity = 1 - Math.min(.5, Math.abs(d.dx) / 600);
+      d.dx = end ? dx / 3 : dx;
+      track.style.transition = 'none';
+      track.style.transform = `translateX(calc(${-cur} * (100% + 48px) + ${d.dx}px))`;
     });
     const release = e => {
       if (!d) return;
       const was = d; d = null;
       if (!was.on) return;
-      body.classList.remove('dragging');
-      const v = Math.abs(was.dx) / Math.max(1, e.timeStamp - was.t);
-      const dir = was.dx < 0 ? 1 : -1, next = cur + dir;
-      if ((Math.abs(was.dx) > 60 || v > .5) && next >= 0 && next < data.length) slide(dir, next);
-      else { body.style.transition = 'transform .25s ease, opacity .25s ease'; body.style.transform = ''; body.style.opacity = ''; }
+      view.classList.remove('dragging');
+      const w = view.clientWidth, v = Math.abs(was.dx) / Math.max(1, e.timeStamp - was.t);
+      let next = cur;
+      if (Math.abs(was.dx) > w * .18 || (v > .45 && Math.abs(was.dx) > 20)) next = cur + (was.dx < 0 ? 1 : -1);
+      show(next, true);
     };
-    body.addEventListener('pointerup', release);
-    body.addEventListener('pointercancel', release);
-    function slide(dir, next) {  // out to one side, in from the other
-      if (RM) { body.style.transform = ''; body.style.opacity = ''; show(next, true); return; }
-      body.style.transition = 'transform .18s ease-in, opacity .18s ease-in';
-      body.style.transform = `translateX(${-dir * 120}px)`;
-      body.style.opacity = 0;
-      setTimeout(() => {
-        show(next, true);
-        body.style.transition = 'none';
-        body.style.transform = `translateX(${dir * 120}px)`;
-        void body.offsetWidth;
-        body.style.transition = 'transform .28s cubic-bezier(.3,.7,.2,1), opacity .28s ease';
-        body.style.transform = ''; body.style.opacity = '';
-      }, 180);
-    }
+    view.addEventListener('pointerup', release);
+    view.addEventListener('pointercancel', release);
+
     if (RM) auto = false;
     new IntersectionObserver(es => { inView = es[0].isIntersecting; }, { threshold: 0.3 }).observe(root);
     const pick = /[?&]arch=(\d)/.exec(location.search);  // (?arch=N: for screenshots)
-    show(pick ? +pick[1] : 0, !!pick);
-  }).catch(() => { desc.textContent = 'Could not load the stages.'; });
+    show(pick ? +pick[1] : 0, !!pick, false);
+  }).catch(() => { view.textContent = 'Could not load the stages.'; });
 })();
