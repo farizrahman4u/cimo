@@ -215,11 +215,17 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .nn-stats b{font-family:var(--mono);color:var(--ink);font-weight:500}
 .nn-loss{width:100%;max-width:300px;height:34px}
 .nn-infer{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink3);flex-wrap:wrap;justify-content:center}
-.nn-q{width:150px;font:12px var(--mono);color:var(--ink);background:var(--white);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+.nn-q{width:160px;text-overflow:ellipsis;font:12px var(--mono);color:var(--ink);background:var(--white);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
 .nn-q:focus{outline:2px solid var(--brand100);border-color:var(--brand)}
+.nn-qwrap{position:relative;display:inline-flex}
+.nn-xy{font-family:var(--mono);font-size:11px;color:var(--ink4)}
+.nn-qwrap .nn-q{padding-right:24px}
+.nn-qx{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:17px;height:17px;border:0;border-radius:50%;background:var(--line2);color:var(--ink3);font:14px/17px var(--font);padding:0;cursor:pointer}
+.nn-qx:hover{background:var(--line);color:var(--ink)}
+.nn-qx[hidden]{display:none}
 .nn-q.bad{border-color:var(--bad);outline-color:#ffd5dd}
-.nn-infer button{font:600 12px var(--font);color:#fff;background:var(--brand);border:0;border-radius:6px;padding:6px 11px;cursor:pointer}
-.nn-infer button:hover{background:var(--brandD)}
+.nn-infer button[type=submit]{font:600 12px var(--font);color:#fff;background:var(--brand);border:0;border-radius:6px;padding:6px 11px;cursor:pointer}
+.nn-infer button[type=submit]:hover{background:var(--brandD)}
 .nn-qerr{font-size:12px;color:var(--bad);text-align:center}
 .nn-res{display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;color:var(--ink2)}
 .nn-res[hidden],.nn-qerr[hidden]{display:none}
@@ -714,8 +720,8 @@ with ThreadPoolExecutor() as pool:
         </div>
         <div class="nn-stats"><span>step <b class="nn-step">0</b></span><span>loss <b class="nn-loss-t">–</b></span><span>accuracy <b class="nn-acc">–</b></span><canvas class="nn-loss" width="300" height="34"></canvas></div>
         <form class="nn-infer" novalidate>
-          <label for="nn-q">Try a point</label>
-          <input id="nn-q" class="nn-q" placeholder="x, y   e.g. 0.3, -0.5" autocomplete="off" spellcheck="false">
+          <label for="nn-q">Try a point <span class="nn-xy">x, y</span></label>
+          <span class="nn-qwrap"><input id="nn-q" class="nn-q" placeholder="e.g. 0.3, -0.5" autocomplete="off" spellcheck="false"><button type="button" class="nn-qx" aria-label="Clear the point" title="clear" hidden>×</button></span>
           <button type="submit">Run</button>
         </form>
         <div class="nn-qerr" role="alert" hidden></div>
@@ -960,6 +966,6 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=17d42879" defer></script>
-<script src="nn.js?v=2bb1f05c" defer></script>
+<script src="nn.js?v=753f3944" defer></script>
 </body>
 </html>

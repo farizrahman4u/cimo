@@ -53,7 +53,7 @@
     start: $('.nn-start'), status: $('.nn-status'), data: $('.nn-data'), preset: $('.nn-preset'),
     lr: $('.nn-lr'), retrain: $('.nn-retrain'), step: $('.nn-step'), lossT: $('.nn-loss-t'),
     acc: $('.nn-acc'), err: $('.nn-err'), panel: $('.nn-panel pre'), palette: $('.nn-palette'),
-    form: $('.nn-infer'), q: $('.nn-q'), qerr: $('.nn-qerr'), res: $('.nn-res'), resBox: $('.nn-res-box'), resT: $('.nn-res-t'),
+    form: $('.nn-infer'), q: $('.nn-q'), qx: $('.nn-qx'), qerr: $('.nn-qerr'), res: $('.nn-res'), resBox: $('.nn-res-box'), resT: $('.nn-res-t'),
   };
   ui.data.innerHTML = Object.keys(DATA).map(n => `<option>${n}</option>`).join('');
   ui.preset.innerHTML = Object.keys(PRESETS).map(n => `<option>${n}</option>`).join('');
@@ -548,13 +548,34 @@ def nn_build(graph_json):
       query = parsePoint(ui.q.value);
       ui.qerr.hidden = true; ui.q.classList.remove('bad');
       if (!net) { ui.qerr.textContent = 'Start the demo first (Train it live).'; ui.qerr.hidden = false; return; }
+      ui.qx.hidden = false;
       infer(true);
     } catch (err) {
       ui.qerr.textContent = err.message; ui.qerr.hidden = false; ui.q.classList.add('bad');
       ui.res.hidden = true;
     }
   });
-  ui.q.addEventListener('input', () => { ui.q.classList.remove('bad'); ui.qerr.hidden = true; });
+  // an empty field (or the x) clears the point from everything, as if it was never entered
+  function clearQuery() {
+    query = null;
+    ui.qx.hidden = true;
+    ui.res.hidden = true; ui.qerr.hidden = true; ui.q.classList.remove('bad');
+    flowTimers.forEach(clearTimeout); flowTimers = [];
+    flowing.clear();
+    board.querySelectorAll('.nn-node.lit').forEach(e => e.classList.remove('lit'));
+    board.querySelectorAll('.nn-vals').forEach(e => { e.innerHTML = ''; });
+    drawWires();
+    if (net && !running) {
+      const A = net.addr;
+      drawBoundary(heap().subarray(A.GO >> 2, (A.GO >> 2) + G * G));
+      drawThumbs();
+    } else if (!net) drawBoundary();
+  }
+  ui.q.addEventListener('input', () => {
+    ui.q.classList.remove('bad'); ui.qerr.hidden = true;
+    if (!ui.q.value.trim()) clearQuery();
+  });
+  ui.qx.addEventListener('click', () => { ui.q.value = ''; clearQuery(); ui.q.focus(); });
   boundary.addEventListener('click', e => {
     const r = boundary.getBoundingClientRect();
     const x = -LIM + (e.clientX - r.left) / r.width * 2 * LIM, y = LIM - (e.clientY - r.top) / r.height * 2 * LIM;
