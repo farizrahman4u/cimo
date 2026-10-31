@@ -11,7 +11,7 @@ import struct
 from .cc import (M64, EXPRIDENT, EXPRCONST, EXPRCOMPOUND, EXPRUNARY, EXPRSTRING, EXPRCAST,
                  EXPRBINARY, PROPFLOAT, PROPINT, TYPEPOINTER, DECLCONST, SDSTATIC, TSUB, TMUL,
                  TDIV, TMOD, TADD, TSHL, TSHR, TBAND, TBOR, TXOR, TLESS, TGREATER, TLEQ, TGEQ,
-                 TEQL, TNEQ, TLOR, TLAND)
+                 TEQL, TNEQ, TLOR, TLAND, Expr)
 from .token import tok, error
 from . import type as TY
 from . import qbe as Q
@@ -243,16 +243,29 @@ def eval(expr):
                     binary(expr.r, expr.op, l.r, r)
                     expr.op = TADD
                     expr.l = l.l
-        elif op == TLOR:
+        elif op == TLOR or op == TLAND:
+            # cimo: the result is an int 0 or 1 (C11 6.5.13, 6.5.14); cproc returned the
+            # operand itself (`5L || x` was the long 5, `1 && 7` was 7)
             if l.kind == EXPRCONST:
-                return l if l.u else r
-        elif op == TLAND:
-            if l.kind == EXPRCONST:
-                return r if l.u else l
+                if _truth(l) == (op == TLOR):
+                    return _intconst(1 if op == TLOR else 0)
+                if r.kind == EXPRCONST:
+                    return _intconst(int(_truth(r)))
         else:
             if l.kind == EXPRCONST and r.kind == EXPRCONST:
                 binary(expr, expr.op, l, r)
     return expr
+
+
+def _truth(e):
+    """Whether constant e compares unequal to 0."""
+    return e.f != 0 if e.type.prop & PROPFLOAT else e.u != 0
+
+
+def _intconst(n):
+    e = Expr(EXPRCONST, TY.typeint, None)
+    e.u = n
+    return e
 
 
 def _g(x):

@@ -666,7 +666,6 @@ def typecheck(fn):
             for n in range(2):
                 k = optab[i.op].argcls[n][i.cls]
                 r = i.arg[n]
-                t = fn.tmp[rval(r)]
                 if k == Ke:
                     err("invalid instruction type in %s", optab[i.op].name)
                 if rtype(r) == RType:
@@ -678,8 +677,12 @@ def typecheck(fn):
                     err("missing %s operand in %s",
                         "second" if n == 1 else "first", optab[i.op].name)
                 if not usecheck(r, k, fn):
+                    # C indexes fn->tmp with any ref's value (a constant's too) and only reads
+                    # it here; the port must not index past the list before that
+                    v = rval(r)
                     err("invalid type for %s operand %%%s in %s",
-                        "second" if n == 1 else "first", t.name, optab[i.op].name)
+                        "second" if n == 1 else "first",
+                        fn.tmp[v].name if v < len(fn.tmp) else '', optab[i.op].name)
         r = b.jmp.arg
         jerr = False
         if isret(b.jmp.type):

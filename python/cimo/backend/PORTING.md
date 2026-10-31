@@ -66,6 +66,12 @@ output for these is broken, so no comparison test depends on it):
   stored to"), so C reading an uninitialized local did not compile. It reads 0.
 - `mem.coalesce`: a never-stored slot passed by value (`argc`, an uninitialized struct
   argument) was killed and address 0 passed (a segfault). Such slots are kept.
+- `parse.typecheck`: C indexes `fn->tmp` with any argument's value (a constant's too) and reads
+  it only in an error message; the port indexed the list first, an `IndexError` once a function
+  had more constants than temporaries. (Not a C bug; a porting one.)
+- `util.newcon`/`getcon`: QBE searches the constants linearly, quadratic in their number; the
+  port keeps an index (`Fn.concache`), same results (constants are only appended). A 125 KB
+  local initializer took 223 s, now 18 s.
 - `load.def`: `vaarg`/`vastart` (lowered only by `abi1`, after load elimination) were not seen
   as writing their `va_list`, so a store was forwarded across them: with Apple's and Windows'
   `char *` `va_list`, a parameter passed on after `va_arg` was passed unchanged.

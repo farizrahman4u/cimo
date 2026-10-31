@@ -12,9 +12,10 @@ defining an object of it is an error.
 
 from .cc import (TIDENT, TMUL, TLBRACE, T__ASM__, T__ALIGNOF__, TCONST, TRESTRICT, TVOLATILE,
                  TYPELDOUBLE, TYPESTRUCT, TYPEUNION, TYPEARRAY, TYPELONG, TYPEPOINTER, TYPEFUNC,
-                 TYPEENUM, DECLFUNC, DECLOBJECT, LINKEXTERN, SDTHREAD, QUALNONE, Type, Token)
+                 TYPEENUM, TYPEBOOL, TYPEBITINT, PROPINT, DECLFUNC, DECLOBJECT, LINKEXTERN, SDTHREAD,
+                 QUALNONE, Type, Token)
 from .token import tok, tokenget, tokenstr, error
-from .type import mkpointertype, typevoid
+from .type import mkpointertype, typevoid, typecompatible
 
 # GNU and standard attributes that do not change the meaning of a program compiled by cimo
 # (hints, warnings, linkage/visibility details of a single module); they are parsed and
@@ -278,3 +279,14 @@ def longexterns():
     return sorted(d.asmname or d.name for d in SC.filescope.decls.values()
                   if d.kind in (DECLFUNC, DECLOBJECT) and d.linkage == LINKEXTERN
                   and not d.defined and not d.tentative and mentionslong(d.type))
+
+
+def ptrsimilar(a, b):
+    """Pointer targets a and b that cproc calls incompatible but gcc accepts without a
+    warning, as cimo does: integer types that differ only in signedness (`int *` and
+    `unsigned *`, `char *` and `unsigned char *`), and qualifiers below the top level
+    (`int **` and `const int *const *` compared). Code generation does not depend on either."""
+    if a.kind == TYPEPOINTER and b.kind == TYPEPOINTER:
+        return typecompatible(a.base, b.base) or ptrsimilar(a.base, b.base)
+    return (a.prop & PROPINT and b.prop & PROPINT and a.kind == b.kind
+            and a.kind not in (TYPEBOOL, TYPEENUM, TYPEBITINT))

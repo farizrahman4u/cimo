@@ -1,5 +1,6 @@
 """test_corpora.py's worker process: reads C file paths from stdin, one per line; for each,
-compiles it with cimo, calls main() and writes one result line to the original stdout:
+compiles it with cimo (include directories: $CIMO_INCLUDE, os.pathsep-separated), calls main()
+and writes one result line to the original stdout:
 
     PASS | COMPILE <message> | ABORT <message> | STATUS <n> | OUTPUT <repr> | ERROR <message>
 
@@ -18,9 +19,12 @@ import cimo  # noqa: E402
 from cimo.driver import CompileError, KernelError  # noqa: E402
 
 
+INCLUDE = [d for d in os.environ.get('CIMO_INCLUDE', '').split(os.pathsep) if d]
+
+
 def run(path):
     try:
-        m = cimo.load(path)
+        m = cimo.load(path, include_dirs=INCLUDE)
     except CompileError as e:
         return 'COMPILE ' + str(e).replace(os.path.dirname(path) + os.sep, '').splitlines()[0]
     k = m._kernels.get('main')

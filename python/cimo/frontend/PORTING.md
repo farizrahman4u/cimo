@@ -90,7 +90,13 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   variably modified typedef was computed at its first use, which need not dominate the others
   (now at the typedef, C11 6.7.8p3); a parameter's array length with side effects
   (`int a[i++]`) was dropped (now evaluated on entry, C11 6.9.1p10); a local of size 0 (GNU
-  zero-length array) was taken for a VLA (an assertion).
+  zero-length array) was taken for a VLA (an assertion). Found by Csmith: the common type of
+  `unsigned long` and `long long` was `long long` (C11 6.3.1.8: `unsigned long long`), so
+  `uint64_t` against a `LL` constant compared signed; constant `||`/`&&` folded to an operand
+  (`5L || x` was the `long` 5, `1 && 7` was 7) instead of the `int` 0 or 1.
+- `compile(diagnostics=True)` accepts pointers whose targets differ only in integer signedness
+  or in qualifiers below the top level (assignment, `==`, `!=`), as gcc does without a warning;
+  cproc calls them incompatible (`diag.ptrsimilar`).
 - GNU attributes are accepted among a pointer declarator's qualifiers (`int *__attribute__((x))
   f(void)`). The math builtins are recognized by symbol name, so the prelude's
   `__builtin_sqrt` (declared as an alias of `sqrt`) is inlined too.

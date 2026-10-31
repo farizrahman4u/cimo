@@ -136,7 +136,8 @@ def exprassign(e, t):
         if not nullpointer(e) and not _nullptrval(e):
             if et.kind != TYPEPOINTER:
                 error(tok.loc, "assignment to pointer must be from pointer or null pointer constant")
-            if t.base is not TY.typevoid and et.base is not TY.typevoid and not typecompatible(t.base, et.base):
+            if t.base is not TY.typevoid and et.base is not TY.typevoid and not typecompatible(t.base, et.base) \
+                    and not (U.diagnostics and DG.ptrsimilar(t.base, et.base)):
                 error(tok.loc, "base types of pointer assignment must be compatible or void")
             if (et.qual & t.qual) != et.qual:
                 error(tok.loc, "assignment to pointer discards qualifiers")
@@ -214,7 +215,8 @@ def mkbinaryexpr(loc, op, l, r):
                     l, r = r, l
                 if r.type.base.kind == TYPEVOID and l.type.base.kind != TYPEFUNC:
                     r = exprconvert(r, l.type)
-                elif not typecompatible(l.type.base, r.type.base):
+                elif not typecompatible(l.type.base, r.type.base) \
+                        and not (U.diagnostics and DG.ptrsimilar(l.type.base, r.type.base)):
                     error(loc, "pointer operands to '%s' operator are to incompatible types", tokenstr(op))
     elif op == TLESS or op == TGREATER or op == TLEQ or op == TGEQ:
         t = TY.typeint

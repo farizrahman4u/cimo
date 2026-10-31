@@ -691,12 +691,13 @@ class Lnk:
 class Fn:
     __slots__ = ('start', 'tmp', 'con', 'mem', 'ntmp', 'ncon', 'nmem', 'nblk', 'retty',
                  'retr', 'rpo', 'reg', 'slot', 'salign', 'vararg', 'dynalloc', 'leaf',
-                 'name', 'lnk')
+                 'name', 'lnk', 'concache')
 
     def __init__(self):
         self.start = None
         self.tmp = []
         self.con = []
+        self.concache = None  # util._concache: lookup index over con (not in C)
         self.mem = []
         self.ntmp = 0
         self.ncon = 0

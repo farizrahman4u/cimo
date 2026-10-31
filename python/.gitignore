@@ -49,3 +49,4 @@ coverage.xml
 
 # third-party test corpora (tests/corpora.py)
 tests/corpora/
+tests/fuzz_failures/

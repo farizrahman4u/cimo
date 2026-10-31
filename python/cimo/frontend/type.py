@@ -203,7 +203,9 @@ def typecommonreal(t1, w1, t2, w2):
     if k == TYPELONG:
         return typeulong
     if k == TYPELLONG:
-        return typellong
+        # cimo: cproc returned typellong, so unsigned long op long long (uint64_t and a LL
+        # constant) was computed signed (C11 6.3.1.8: the unsigned type of the signed operand)
+        return typeullong
     U.fatal("internal error; could not find common real type")
     return None
 

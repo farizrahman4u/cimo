@@ -261,11 +261,28 @@ def symeq(s0, s1):
     return s0.type == s1.type and s0.id == s1.id
 
 
+def _concache(fn):
+    """(full, bits): the first index of each constant in fn.con[1:ncon], by
+    (type, sym.type, sym.id, i) and, for CBits, by i. C QBE searches linearly, which is
+    quadratic in the constants of a function (minutes in Python for a large initializer);
+    constants are only appended, so the entries added since the last call are indexed."""
+    c = fn.concache
+    if c is None or c[0] is not fn.con:
+        c = fn.concache = [fn.con, 1, {}, {}]
+    con, n, full, bits = c
+    for i in range(n, fn.ncon):
+        k = con[i]
+        full.setdefault((k.type, k.sym.type, k.sym.id, k.i), i)
+        if k.type == CBits:
+            bits.setdefault(k.i, i)
+    c[1] = max(n, fn.ncon)
+    return full, bits
+
+
 def newcon(c0, fn):
-    for i in range(1, fn.ncon):
-        c1 = fn.con[i]
-        if c0.type == c1.type and symeq(c0.sym, c1.sym) and c0.i == c1.i:
-            return CON(i)
+    i = _concache(fn)[0].get((c0.type, c0.sym.type, c0.sym.id, c0.i))
+    if i is not None:
+        return CON(i)
     i = fn.ncon
     fn.ncon += 1
     vgrow(fn.con, fn.ncon, Con)
@@ -274,9 +291,9 @@ def newcon(c0, fn):
 
 
 def getcon(val, fn):
-    for c in range(1, fn.ncon):
-        if fn.con[c].type == CBits and fn.con[c].i == val:
-            return CON(c)
+    c = _concache(fn)[1].get(val)
+    if c is not None:
+        return CON(c)
     c = fn.ncon
     fn.ncon += 1
     vgrow(fn.con, fn.ncon, Con)
@@ -339,8 +356,11 @@ def bszero(bs):
     bs.t = 0
 
 
+_popcount = getattr(int, 'bit_count', None) or (lambda x: bin(x).count('1'))  # 3.10+
+
+
 def bscount(bs):
-    return bin(bs.t).count('1')
+    return _popcount(bs.t)
 
 
 def bsset(bs, elt):

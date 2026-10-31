@@ -109,3 +109,53 @@ def test_load_of_a_non_utf8_source(tmp_path):
     p = tmp_path / 'latin1.c'
     p.write_bytes(b'/* caf\xe9 */ int f(void) { return 7; }\n')
     assert cimo.load(str(p)).f() == 7
+
+
+# found by Csmith (fuzz_csmith.py)
+
+def test_unsigned_long_with_long_long_is_unsigned():
+    # cproc's common type of unsigned long and long long was long long (C11 6.3.1.8: unsigned
+    # long long), so uint64_t compared with a LL constant was signed
+    m = cimo.compile('#include <stdint.h>\n'
+                     'static uint64_t g = 0xB67E062F4CF3161CULL;\n'
+                     'int a(void) { return 0x49E8EF73C2DC727CLL <= g; }\n'
+                     'int b(void) { return (g + 1LL) > 0; }\n'
+                     'unsigned long long c(void) { return g / 3LL; }\n')
+    assert m.a() == 1 and m.b() == 1 and m.c() == 0xB67E062F4CF3161C // 3
+
+
+def test_logical_operators_fold_to_int_0_or_1():
+    # cproc folded `5L || x` to the long 5 and `1 && 7` to 7; in a comparison inside && this
+    # gave IR the backend rejected
+    m = cimo.compile('unsigned char x; int y = 2;\n'
+                     'int f(long l) { return ((y != ((5L || l) < (x = 255))) && y); }\n'
+                     'int k(void) { return (1 && 7) + (0 || 0.5) * 10 + (-0.0 || 0) * 100; }\n'
+                     'static int arr[(2 || 0) + (3 && 4)];\n'
+                     'int n(void) { return sizeof arr / sizeof arr[0]; }\n')
+    assert m.f(0) == 1 and m.k() == 11 and m.n() == 2
+
+
+def test_function_with_more_constants_than_temporaries():
+    # the port indexed fn.tmp with a constant's number (IndexError); and constant lookup was
+    # quadratic (minutes for a large local initializer)
+    import time
+    elems = ','.join('{%d,{%d,%dL,%d},%dU,{1,2,3}}' % (k, k, k * 7, k % 100, k)
+                     for k in range(512))
+    t = time.time()
+    m = cimo.compile('struct S1 { int a; long b; short c; };\n'
+                     'struct S2 { char x; struct S1 s; unsigned y; struct S1 t; };\n'
+                     'int f(int i) { const struct S2 l[512] = {%s}; return l[i].s.a + l[i].t.c; }\n'
+                     % elems)
+    assert m.f(300) == 303
+    assert time.time() - t < 30
+
+
+def test_pointers_differing_in_signedness_or_inner_qualifiers():
+    # accepted as gcc does (cproc: incompatible); Csmith generates both
+    m = cimo.compile('unsigned g = 5; int h = -1;\n'
+                     'int f(void) { int *p = &h; unsigned *q = p; const int *const *pp = 0;\n'
+                     '  int **r = 0; unsigned char *s = (char *)0;\n'
+                     '  return (*q == 0xffffffffu) + (pp == r) + (s == 0) + (q != &g); }\n')
+    assert m.f() == 4
+    with pytest.raises(cimo.CompileError):
+        cimo.compile('int *f(long *p) { return p; }')

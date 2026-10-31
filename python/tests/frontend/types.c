@@ -26,7 +26,7 @@ double dinf = 1.0 / 0.0, dnan = 0.0 / 0.0, dninf = -1.0 / 0.0;
 int folded[] = {
 	1 + 2 * 3, 7 / 2, -7 / 2, 7 % -3, -7 % 3, 1 << 31, (int)(1u << 31) >> 31, -1 >> 1,
 	(unsigned)-1 >> 1, 3 < 4, -1 < 0u, 5 == 5.0, 2.5 > 2, !0, ~0, 1 ? 2 : 3, 0 ? 2 : 3,
-	(char)300, (signed char)200, (short)70000, (unsigned char)-1, 1 && 0, 0 || 2,
+	(char)300, (signed char)200, (short)70000, (unsigned char)-1, 1 && 0, 0 || 1,
 	sizeof(long double), _Alignof(double), (int)3.99, (int)-3.99, (unsigned)3e9, 10 / 0 == 0,
 };
 unsigned long long folded2[] = {
