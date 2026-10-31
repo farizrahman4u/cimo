@@ -24,7 +24,9 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    assembly, Apple ABI variant. Needs `python/tests` on an M-series Mac.
 8. **SIGSEGV/SIGBUS in a kernel kills the process.** Turn faults inside module code into
    `KernelError` (signal handler that unwinds to the entry trampoline when the pc is in a
-   module; chain to Python's handler otherwise).
+   module; chain to Python's handler otherwise). On Windows an access violation ends the
+   process silently (exit 5); a vectored exception handler that resumes at the unwind glue
+   would do the same job there.
 9. **`_Complex` / `complex.h`.** Not in cproc or QBE. Needs: frontend lowering (Annex G
    `__muldc3`/`__divdc3` semantics), arm64 ABI (two FP registers), musl `src/complex` in the
    runtime, numpy `complex128` binding.
