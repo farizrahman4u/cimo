@@ -1,0 +1,29 @@
+{
+  "parts": [
+    { "title": "Getting started", "walk": true, "pages": [
+      ["introduction", "Introduction"],
+      ["install", "Install"],
+      ["first-kernel", "Your first kernel"]
+    ]},
+    { "title": "Writing kernels", "walk": true, "pages": [
+      ["arrays", "Passing arrays"],
+      ["c-language", "The C you can use"],
+      ["errors", "Errors"],
+      ["performance", "Performance"],
+      ["threads", "Threads and the heap"]
+    ]},
+    { "title": "Going further", "walk": true, "pages": [
+      ["files-and-cache", "Files, includes and the cache"],
+      ["host-libraries", "Calling host libraries"],
+      ["browser", "In the browser"],
+      ["distribution", "Shipping code that uses cimo"]
+    ]},
+    { "title": "Reference", "walk": false, "pages": [
+      ["api", "Python API"],
+      ["cli", "Command line"],
+      ["environment", "Environment variables"],
+      ["platforms", "Platforms"],
+      ["faq", "Troubleshooting"]
+    ]}
+  ]
+}
