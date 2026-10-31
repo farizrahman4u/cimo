@@ -45,6 +45,16 @@
   function loadPreset(name) {
     graph = PRESETS[name].map(([id, op, x, y, inputs, units]) => ({ id, op, x, y, inputs: inputs.slice(), units }));
     uid = 0;
+    // a phone-width board fits four nodes across: wrap the chain onto two rows, left to right
+    if (board.clientWidth && board.clientWidth < 560) {
+      const s = [...graph].sort((a, b) => a.x - b.x), rows = s.length > 4 ? 2 : 1, per = Math.ceil(s.length / rows);
+      const span = 1 - 84 / board.clientWidth;
+      s.forEach((n, k) => {
+        const r = Math.floor(k / per), c = k % per;
+        n.x = .015 + c * (span - .015) / Math.max(1, per - 1);
+        n.y = rows === 1 ? .45 : [.29, .73][r];
+      });
+    }
   }
 
   // ---- DOM
@@ -134,7 +144,7 @@
       const n = graph.find(q => q.id === el.dataset.id), b = board.getBoundingClientRect();
       const ox = e.clientX - (n.x * b.width), oy = e.clientY - (n.y * b.height);
       const move = ev => {
-        n.x = Math.max(0, Math.min(.88, (ev.clientX - ox) / b.width));
+        n.x = Math.max(0, Math.min(1 - el.offsetWidth / b.width, (ev.clientX - ox) / b.width));
         n.y = Math.max(0, Math.min(.86, (ev.clientY - oy) / b.height));
         el.style.left = (n.x * 100) + '%'; el.style.top = (n.y * 100) + '%';
         drawWires();
