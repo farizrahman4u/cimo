@@ -35,6 +35,18 @@
       return '<span class="t-pr">&gt;&gt;&gt;</span>' + tokens(l.slice(3), /(#[^\n]*)|("[^"]*")|\b(import|as)\b|(\b\d+(?:\.\d+)?\b)|\b([A-Za-z_]\w*)(?=\()/g, ['cm', 'str', 'kw', 'num', 'fn']);
     }).join('\n'),
   };
+  // one block per source line (CSS numbers them); a highlight span crossing a line break is
+  // closed at the end of the line and reopened on the next
+  function numbered(h) {
+    let open = null;
+    return h.replace(/\n$/, '').split('\n').map(line => {
+      const head = open ? `<span class="${open}">` : '';
+      const re = /<span class="([^"]+)">|<\/span>/g;
+      let m;
+      while ((m = re.exec(line))) open = m[1] || null;
+      return `<span class="ln">${head}${line}${open ? '</span>' : ''}</span>`;
+    }).join('');
+  }
   const FILES = { c: 'saxpy.c', ir: 'saxpy.ssa · from the front end', opt: 'saxpy.ssa · optimized', asm: 'saxpy.s · arm64', enc: 'saxpy · machine code', run: 'python' };
   const slug = o => o.replace(/[^a-z]/gi, '').toLowerCase();
 
@@ -43,7 +55,8 @@
 
   // every slide is rendered once, side by side in a track; changing stage only moves the track
   function slideHTML(s) {
-    const v = (x, alt) => `<pre class="lang-${x.lang}${alt ? ' alt' : ''}"${alt ? ' hidden' : ''}>${HL[x.lang](x.text)}</pre>`;
+    // line numbers on every listing except the machine code, which carries its own offsets
+    const v = (x, alt) => `<pre class="lang-${x.lang}${alt ? ' alt' : ''}${x.lang === 'hex' ? '' : ' numbered'}"${alt ? ' hidden' : ''}>${x.lang === 'hex' ? HL.hex(x.text) : numbered(HL[x.lang](x.text))}</pre>`;
     return `<div class="arch-slide" role="tabpanel">
       <div class="arch-text">
         <div class="arch-head"><h3>${s.title}</h3><span class="arch-origin o-${slug(s.origin)}">${s.origin}</span></div>

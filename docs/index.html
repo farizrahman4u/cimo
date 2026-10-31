@@ -289,6 +289,9 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 .arch-alt button.on{border-color:var(--brand);background:var(--brand50);color:var(--ink)}
 .arch-code pre{height:340px;overflow:auto;white-space:pre-wrap;font-size:12px;line-height:1.55;scrollbar-width:none}
 .arch-code pre::-webkit-scrollbar{display:none}
+.arch-code pre.numbered{counter-reset:ln;padding-left:0}
+.arch-code pre .ln{display:block;position:relative;min-height:1.55em;padding-left:46px;counter-increment:ln}
+.arch-code pre .ln::before{content:counter(ln);position:absolute;left:0;width:34px;text-align:right;color:#3e4659;user-select:none}
 .arch-code pre[hidden]{display:none}
 .arch-code .t-op{color:#79c0ff}.arch-code .t-out{color:#8b949e}
 @media(max-width:900px){.arch-steps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:14px}.arch-line{display:none}.arch-slide{grid-template-columns:minmax(0,1fr)}}
@@ -998,7 +1001,7 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=17d42879" defer></script>
-<script src="arch.js?v=08206567" defer></script>
+<script src="arch.js?v=3bcb8b97" defer></script>
 <script src="nn.js?v=753f3944" defer></script>
 </body>
 </html>
