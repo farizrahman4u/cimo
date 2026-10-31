@@ -33,10 +33,10 @@ def compile_object(src, filename='<string>', include_dirs=(), defines=(), runtim
     from ..linker import RUNTIME_INCLUDE
     if runtime:
         include_dirs = tuple(include_dirs) + (RUNTIME_INCLUDE,)
-    pp = d._preprocess(src, filename, include_dirs, False, defines)
+    pp = d._preprocess(src, filename, include_dirs, False, defines, 'arm64')
     from ..frontend import FrontendError
     try:
-        ssa, params = d._frontend(pp, filename, fma=False, builtins=True,
+        ssa, params = d._frontend(pp, filename, 'arm64', fma=False, builtins=True,
                                   diagnostics=not runtime, prune=True)
     except FrontendError as e:
         raise d.CompileError(str(e)) from None
@@ -133,7 +133,7 @@ _memory_cache = {}
 def build(src, filename='<string>', include_dirs=(), defines=()):
     """C source -> (module bytes, signatures text as cimo.driver._sigs gives)."""
     d = _driver()
-    pp = d._preprocess(src, filename, include_dirs, False, defines)
+    pp = d._preprocess(src, filename, include_dirs, False, defines, 'arm64')
     from .. import linker as L
     key = hashlib.sha256(_VERSION + L.compiler_key().encode() + (b'm' if d.MIDDLE else b'')
                          + pp.encode()).hexdigest()[:24]

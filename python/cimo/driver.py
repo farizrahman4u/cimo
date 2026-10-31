@@ -91,6 +91,11 @@ def _cache_put(key, text, sigs):
 
 
 _APPLE = sys.platform == 'darwin'
+_WINDOWS = sys.platform == 'win32'
+# This machine's target, as the preprocessor, backend and linker name it: Linux, Apple's ABI
+# variant, or Windows (LLP64, Windows' variadic convention).
+TARGET = 'arm64_apple' if _APPLE else 'arm64_win' if _WINDOWS else 'arm64'
+_FRONTEND = {'arm64': 'aarch64', 'arm64_apple': 'aarch64-apple', 'arm64_win': 'aarch64-windows'}
 _PYODIDE = sys.platform == 'emscripten'  # cimo.wasm: an Emscripten side module, not arm64
 _VERSION = b'cimo-1'  # cache entry format; the compiler's own sources are hashed too (linker.compiler_key)
 
@@ -102,16 +107,17 @@ MIDDLE = os.environ.get('CIMO_MIDDLE', '1') != '0'
 FMA = os.environ.get('CIMO_FMA', '1') != '0'
 
 
-def _qbe(ssa, params=None, middle=None, stkchk=None):
+def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
     """QBE IR text to assembly text, with the Python QBE port, in this process.
     params: the frontend's parameter info (restrict flags) for the middle end.
-    stkchk: names of the functions that get the stack guard (cimo.execution)."""
+    stkchk: names of the functions that get the stack guard (cimo.execution).
+    target: a backend target name (default: this machine's)."""
     from .backend import defs as D
     from .backend.main import _Driver, _targets
     from .backend.parse import parse
     from . import middle as _middle
     from .backend import ext as _ext
-    D.T = _targets()[1 if _APPLE else 0]  # arm64_apple: Apple's ABI variant
+    D.T = next(t for t in _targets() if t.name == (target or TARGET))
     out = io.StringIO()
     try:
         with _middle.options(enabled=MIDDLE if middle is None else middle,
@@ -147,13 +153,13 @@ def _qbe_wasm(ssa, params=None, middle=None):
     return obj
 
 
-def _frontend(pp, filename, **kw):
-    """Preprocessed C to (QBE IR text, parameter info for the middle end)."""
+def _frontend(pp, filename, target=None, **kw):
+    """Preprocessed C to (QBE IR text, parameter info for the middle end). target: as _qbe."""
     from .frontend import compile as cproc_compile
     from .frontend import qbe as _fq
     _fq.paraminfo = {}
     try:
-        ssa = cproc_compile(pp, filename, target='aarch64-apple' if _APPLE else 'aarch64', **kw)
+        ssa = cproc_compile(pp, filename, target=_FRONTEND[target or TARGET], **kw)
         return ssa, _fq.paraminfo
     finally:
         _fq.paraminfo = None
@@ -189,6 +195,9 @@ def _hint(msg, host_headers):
 
 def _host_include_dirs():
     """The host's C header directories (for host_headers=True)."""
+    if _WINDOWS:
+        raise CompileError("host_headers=True is not available on Windows (the Windows SDK's "
+                           "headers need MSVC extensions)")
     if _APPLE:
         import subprocess
         try:
@@ -213,15 +222,17 @@ def _check_machine():
                            % platform.machine())
 
 
-def _preprocess(src, filename='<string>', include_dirs=(), host_headers=False, defines=()):
-    """C source -> preprocessed text, with the prelude. defines: (name, value or None) pairs."""
+def _preprocess(src, filename='<string>', include_dirs=(), host_headers=False, defines=(),
+                target=None):
+    """C source -> preprocessed text, with the prelude. defines: (name, value or None) pairs.
+    target: as _qbe."""
     from .preprocessor import preprocess, PreprocessError
     if host_headers:
         include_dirs = tuple(include_dirs) + tuple(_host_include_dirs())
     try:
         return preprocess(_PRELUDE + '#line 1\n' + src, filename, include_dirs=include_dirs,
                           defines=list(defines) or None,
-                          target='arm64_apple' if _APPLE else 'arm64', keep_attributes=True)
+                          target=target or TARGET, keep_attributes=True)
     except PreprocessError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
 
@@ -239,7 +250,7 @@ def _build(src, filename='<string>', include_dirs=(), host_headers=False, define
     """C source -> (assembly text, signatures), cached by a hash of the preprocessed source."""
     _check_machine()
     pp = _preprocess(src, filename, include_dirs, host_headers, defines)
-    key = hashlib.sha256(_VERSION + _link.compiler_key().encode() + (b'apple' if _APPLE else b'') + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
+    key = hashlib.sha256(_VERSION + _link.compiler_key().encode() + TARGET.encode() + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
                          + pp.encode()).hexdigest()[:24]
     hit = _cache_get(key)
     if hit is not None:
@@ -332,7 +343,8 @@ class Module:
     def __init__(self, text, sigs, link=()):
         names = [line.split(' ')[0] for line in sigs.splitlines()]
         try:
-            obj = _asm.assemble(text + _exe.glue(names, _APPLE), 'macho' if _APPLE else 'elf')
+            obj = _asm.assemble(text + _exe.glue(names, _APPLE, _WINDOWS),
+                                'macho' if _APPLE else 'elf')
             obj, resolve = _link.link(obj, libs=link)
             self._image = _jit.Image(obj, resolve)
         except (_asm.AssemblerError, _jit.LoadError, _link.LinkError) as e:

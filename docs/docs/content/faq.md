@@ -28,9 +28,9 @@ See [Platforms](platforms.md): x86-64 is planned.
 
 A kernel that writes outside its arrays can crash the process, as in any C. `assert`, `abort` and deep recursion are caught; bad pointers aren't yet. Check array lengths and the indices your loops use.
 
-### In Pyodide, a `long *` array gives garbage
+### In Pyodide or on Windows, a `long *` array gives garbage
 
-`ctypes.c_long` is 32 bits in Pyodide, while cimo's `long` is 64 bits. Use `ctypes.c_int64` or `np.int64` arrays. See [In the browser](browser.md).
+`ctypes.c_long` is 32 bits in Pyodide and on Windows, while cimo's `long` is 64 bits. Use `ctypes.c_int64` or `np.int64` arrays. See [In the browser](browser.md).
 
 ### Stale results after changing a header
 

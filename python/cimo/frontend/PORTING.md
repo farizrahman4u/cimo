@@ -80,6 +80,11 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
 - Extra target `aarch64-apple` (cproc has none; its driver maps `aarch64-*` to `aarch64`):
   `va_list` is `char *`, plain `char` is signed, `wchar_t` is `int`, `long double` is 8
   bytes. Pair it with QBE's `arm64_apple`.
+- Extra target `aarch64-windows`: as `aarch64-apple`, but `wchar_t` is `unsigned short`. LP64
+  (Windows' own C is LLP64; cimo keeps `long` 64-bit everywhere). Pair it with the backend's
+  `arm64_win`.
+- Line markers: the file name's `\\` and `\"` escapes are decoded (cproc has an "XXX" and
+  takes the text up to the next quote), so Windows paths in diagnostics are right.
 - Where C cproc trips an `assert`, the CLI prints a similar message (naming the Python
   source) and `abort()`s, losing stdout as C does. Where C would crash (NULL dereference,
   e.g. `extern int x;` redeclared in a nested block), the port raises a Python exception;

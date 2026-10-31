@@ -11,13 +11,12 @@ from cimo.backend import ext
 
 FLAGS = ('fma', 'ldp', 'layout')
 APPLE = sys.platform == 'darwin'
+TARGET = driver.TARGET  # this machine's: arm64, arm64_apple or arm64_win
 
 
 def ir(src, fma=False, filename='t.c'):
-    pp = preprocess(driver._PRELUDE + '#line 1\n' + src, filename,
-                    target='arm64_apple' if APPLE else 'arm64')
-    return frontend.compile(pp, filename, target='aarch64-apple' if APPLE else 'aarch64',
-                            fma=fma)
+    pp = preprocess(driver._PRELUDE + '#line 1\n' + src, filename, target=TARGET)
+    return frontend.compile(pp, filename, target=driver._FRONTEND[TARGET], fma=fma)
 
 
 def backend(ssa, flags=(), target=None):
@@ -26,7 +25,7 @@ def backend(ssa, flags=(), target=None):
     from cimo.backend.main import _Driver, _targets
     from cimo.backend.parse import parse
     old = D.T
-    D.T = _targets()[1 if (APPLE if target is None else target == 'arm64_apple') else 0]
+    D.T = next(t for t in _targets() if t.name == (target or TARGET))
     out = io.StringIO()
     try:
         with ext.options(**{f: f in flags for f in FLAGS}):

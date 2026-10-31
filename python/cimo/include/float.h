@@ -34,7 +34,7 @@
 #define DBL_TRUE_MIN 4.94065645841246544176568792868221372e-324
 #define DBL_HAS_SUBNORM 1
 
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
 #define LDBL_MANT_DIG 53
 #define LDBL_DIG 15
 #define LDBL_DECIMAL_DIG 17

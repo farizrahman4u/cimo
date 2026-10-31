@@ -203,9 +203,9 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
     faulting pc, `expr`/`file`/`line` for assert). Adds ~0.1 us to a ~0.9 us call.
   - **How kernel code finds its context:** a per-module hash table keyed by the thread-pointer
     register (`mrs tpidr_el0` on Linux; `tpidrro_el0` & ~7 on macOS, where `tpidr_el0` holds the
-    CPU number), filled by Python on a thread's first call. ~20 instructions per lookup (once
-    per call, `malloc`, `free`). Rejected: x18 (reserved on macOS/Windows, clobbered by host
-    code; Windows would use x18 = TEB as the key instead), TLS (loader support, a TLS block per
+    CPU number; x18, the TEB, on Windows), filled by Python on a thread's first call. ~20 instructions per lookup (once
+    per call, `malloc`, `free`). Rejected: x18 as a register of cimo's own (reserved on
+    macOS/Windows, clobbered by host code), TLS (loader support, a TLS block per
     module), a hidden argument (changes every function's ABI and the ported frontend). The table
     only grows; Python inserts under a lock and publishes a rebuilt table after a `dmb ish`.
   - **Stack guard:** functions that can recurse (in a call-graph cycle; an indirect call counts
@@ -382,6 +382,7 @@ a Python-owned buffer.
 | Linux arm64 (CPython 3.12, 3.13) | works | anonymous `mmap` RW → `mprotect` RX via ctypes on libc (W^X compliant). Plain `mmap.mmap(prot=RWX)` also works. |
 | Linux x86-64 (Ubuntu 24.04, CPython 3.12) | works | same two strategies; no cache flush needed on x86 |
 | Windows Server 2022 x64 (embeddable CPython 3.12.10) | works, with Defender real-time protection on | `VirtualAlloc` RW → `VirtualProtect` RX via ctypes on kernel32 |
+| Windows 11 arm64 (Snapdragon X, CPython 3.13 arm64) | works (cimo end to end, see "Windows arm64") | same, then `FlushInstructionCache` |
 | Pyodide 0.27.7 (Node 22) | works, zero-copy | see below |
 | macOS 26.7 arm64 (M4): Apple CLT Python 3.9, Homebrew 3.14, python.org 3.13 | works | `mmap(MAP_JIT)` + `pthread_jit_write_protect_np` + `sys_icache_invalidate`. W^X `mmap` RW → `mprotect` RX also works. Plain RWX `mmap` is **refused** (`EACCES`); never use it on macOS. |
 | Locked-down Windows (AppLocker/WDAC, third-party EDR) | not yet tested | default Defender didn't object; enterprise policies may |
@@ -392,10 +393,11 @@ data, run it at boot, write results to the serial console (Linux `/dev/ttyS0`; W
 inbound rules needed.
 
 - **arm64 needs an instruction-cache flush** after writing code.
-  - macOS: `sys_icache_invalidate`; Windows: `FlushInstructionCache`.
+  - macOS: `sys_icache_invalidate`.
   - Linux: `__clear_cache` is exported by `libgcc_s.so.1`, but that library isn't guaranteed
     (musl, minimal images). `cimo.loader` uses its own 25-instruction `dc cvau` / `ic ivau` routine
     (line sizes from `CTR_EL0`, loops skipped when its IDC/DIC bits say so).
+  - Windows: `FlushInstructionCache(GetCurrentProcess(), ...)`.
   - Bootstrapping that routine: it gets its own page, written RW and then made executable once
     with `mprotect`. Linux arm64 makes a user page I-cache coherent when it first becomes
     executable (`set_pte_at` → `__sync_icache_dcache`), and the page is never rewritten or
@@ -451,6 +453,46 @@ inbound rules needed.
   1.1 ms and matches numpy bit for bit; the single-file bundle is 1.1 MB.
 - **Tests:** `tests/test_wasm.py` runs modules under Node in a stand-in loader
   (`tests/wasm/host.mjs`); with `PYODIDE_JS` set, also in real Pyodide.
+
+## Windows arm64 (2026-10-31)
+
+Target `arm64_win` (preprocessor/backend/linker; frontend `aarch64-windows`), picked by
+`driver.TARGET` when `sys.platform == 'win32'`. Same pipeline and runtime as Linux; differences:
+
+- **Data model: LP64, as on every cimo target** (decided 2026-10-31; Windows' own C is LLP64):
+  `long` is 64-bit, so kernels behave the same everywhere. Windows conventions otherwise:
+  plain `char` signed, `wchar_t` = `unsigned short`, `long double` = `double`, `int64_t` =
+  `long long`; `_WIN32`, `_WIN64`, `_M_ARM64`. Consequences: Python's `ctypes.c_long` is 32
+  bits on Windows (as in Pyodide), so `long *` buffers must be int64; and a host DLL function
+  whose signature uses `long` (CRT `strtol`, Win32 `LONG`) must be declared with `int` in the
+  kernel. (A full LLP64 variant was built and tested first: frontend `size_t`/`ptrdiff_t`
+  types, headers, and `heap.c`/`abort.c`/`builtins.c` assumed `long` is pointer-sized; musl
+  needed nothing else. Dropped for uniformity.)
+- **ABI:** AAPCS64 as on Linux (callee-side extension of small ints, like clang), except that
+  calls to and definitions of *variadic* functions pass every argument, named ones included,
+  in x0-x7 then the stack: floats as their bits in integer registers, HFAs as ordinary
+  composites. A variadic function saves only x0-x7, right below its stack arguments; `va_list`
+  is a `char *` (Apple's `va_arg`). A struct split between x7 and the stack (MSVC allows it)
+  is a compile error. x18 is the TEB: the backend's store fix-up scratch (x18 on Linux) is not
+  used, and the runtime's context key is `mov x10, x18`.
+- **Stack probes:** Windows commits a stack through one guard page, so a frame or VLA that
+  skips a page faults. Prologues of frames over 4 KB touch every page first (x16/x17, like
+  `__chkstk`); `alloca`/VLAs step sp down a page at a time. Stack limit for the recursion guard:
+  `GetCurrentThreadStackLimits`.
+- **Host:** `link=['libc']`/`'libm'` mean `ucrtbase.dll` (exports no variadic functions;
+  `msvcrt.dll` does); `host_headers=True` is a CompileError (the SDK headers need MSVC
+  extensions). Cache: `%LOCALAPPDATA%\cimo`.
+- **Faults:** an access violation in a kernel ends the process silently (exit status 5): the
+  exception dispatcher cannot unwind through code without unwind data to ctypes' SEH handler.
+  Fix with a vectored exception handler that resumes at the unwind glue (TODO).
+- **Testing:** a Windows-on-arm machine with WSL; a *native arm64* CPython is needed (the
+  default python.org/Store install on Snapdragon is often x64 under emulation, which cannot
+  call arm64 code): `uv python install cpython-3.13-windows-aarch64`. Reference compiler:
+  Visual Studio's `VC/Tools/Llvm/ARM64/bin/clang.exe --target=aarch64-pc-windows-msvc`
+  (`-nostdlib -fuse-ld=lld -Wl,/noentry` needs no SDK). `tests/test_windows.py`: LLP64 types
+  and the Windows codegen on any host; on Windows, calls into msvcrt's `_snprintf`/`sscanf`,
+  calls both ways with clang-built code (variadic, HFA, mixed and stack arguments), probes on
+  a 1.6 MB frame. The gcc-based differential tests skip on Windows; the rest of the suite passes.
 
 ## Preprocessor and bundled headers (2026-10-30)
 
@@ -583,8 +625,8 @@ terminal width and a spinner.
 1. ~~Validate the architecture~~ **Done: GO.** Good IR + patched QBE is within 1.04x of gcc's
    scalar `-O3` on all 4 kernels tried on Linux arm64 (threshold was 1.2x). On Apple M4 vs clang,
    3 of 4 are within 1.11x; saxpy is at 1.43x until `ldp`/`stp` pairing lands. See "Architecture check".
-2. ~~Check loading in each environment~~ **Done** for Linux arm64/x86-64, Windows x64, macOS
-   arm64 and Pyodide. Still open: locked-down Windows (AppLocker/WDAC/EDR), notarized macOS apps
+2. ~~Check loading in each environment~~ **Done** for Linux arm64/x86-64, Windows x64 and
+   arm64 (cimo runs end to end on Windows arm64), macOS arm64 and Pyodide. Still open: locked-down Windows (AppLocker/WDAC/EDR), notarized macOS apps
    that embed Python without `allow-jit`.
 3. **Port QBE (arm64 first) with `qbe-arm64-isel.patch` applied** (done, see M1), **then cproc**, verified by IR
    diffs against the C originals, plus differential testing against gcc using generated random programs.

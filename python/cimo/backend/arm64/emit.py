@@ -176,13 +176,40 @@ def rname(r, k):
         die("invalid register")
 
 
+def _vasave(T):
+    """Bytes a variadic function saves above its frame record: x0-x7 and q0-q7 (AAPCS64),
+    x0-x7 only on Windows (cimo extension), nothing on Apple."""
+    return 0 if T.apple else 64 if T.windows else 192
+
+
+def _probe(e, size):
+    """cimo extension, Windows: touch each page from sp down to sp - size before the
+    prologue allocates it. Windows grows a stack through one guard page, so a frame larger
+    than a page must not skip over it (MSVC calls __chkstk). Uses x16, x17."""
+    global _nprobe
+    _nprobe += 1
+    e.f.write("\tmov\tx16, #%d\n" % (size & 0xFFFF))
+    if size >> 16:
+        e.f.write("\tmovk\tx16, #%d, lsl #16\n" % (size >> 16))
+    e.f.write("\tsub\tx16, sp, x16\n"
+              "\tmov\tx17, sp\n"
+              ".Lprobe%d:\n"
+              "\tsub\tx17, x17, #4096\n"
+              "\tldr\txzr, [x17]\n"
+              "\tcmp\tx17, x16\n"
+              "\tb.hi\t.Lprobe%d\n" % (_nprobe, _nprobe))
+
+
+_nprobe = 0
+
+
 def slot(r, e):
     s = rsval(r)
     if s == -1:
         return 16 + e.frame
     if s < 0:
         if e.fn.vararg and not D.T.apple:
-            return 16 + e.frame + 192 - (s + 2)
+            return 16 + e.frame + _vasave(D.T) - (s + 2)
         else:
             return 16 + e.frame - (s + 2)
     else:
@@ -439,6 +466,21 @@ def emitins(i, e):
         l = str_(c.sym.id)
         p = "" if l[0] == '"' else T.assym
         e.f.write("\tbl\t%s%s\n" % (p, l))
+    elif op == Osalloc and D.T.windows:
+        # cimo extension: probe each page (see _probe); x17 is reserved (IP1)
+        global _nprobe
+        _nprobe += 1
+        emitf("sub x17, sp, %0", i, e)
+        e.f.write(".Lprobe%d:\n"
+                  "\tcmp\tsp, x17\n"
+                  "\tb.ls\t.Lprobed%d\n"
+                  "\tsub\tsp, sp, #4096\n"
+                  "\tldr\txzr, [sp]\n"
+                  "\tb\t.Lprobe%d\n"
+                  ".Lprobed%d:\n"
+                  "\tmov\tsp, x17\n" % (_nprobe, _nprobe, _nprobe, _nprobe))
+        if not req(i.to, R):
+            emitf("mov %=, sp", i, e)
     elif op == Osalloc:
         emitf("sub sp, sp, %0", i, e)
         if not req(i.to, R):
@@ -456,7 +498,7 @@ def emitins(i, e):
         if isload(i.op):
             fixarg(i.arg, 0, _loadsz(i), IP1, e)
         if isstore(i.op):
-            t = -1 if T.apple else R18
+            t = -1 if T.apple or T.windows else R18  # x18 is the platform register
             if fixarg(i.arg, 1, _storesz(i), t, e):
                 if req(i.arg[0], TMP(IP1)):
                     e.f.write("\tfmov\t%s31, %s17\n"
@@ -630,10 +672,13 @@ def arm64_emitfn(fn, out):
     framelayout(e)
 
     if e.fn.vararg and not T.apple:
-        for n in range(7, -1, -1):
-            e.f.write("\tstr\tq%d, [sp, -16]!\n" % n)
+        if not T.windows:
+            for n in range(7, -1, -1):
+                e.f.write("\tstr\tq%d, [sp, -16]!\n" % n)
         for n in range(7, -1, -2):
             e.f.write("\tstp\tx%d, x%d, [sp, -16]!\n" % (n - 1, n))
+    if T.windows and e.frame + 16 > 4096:
+        _probe(e, e.frame + 16)
 
     if e.frame + 16 <= 512:
         e.f.write("\tstp\tx29, x30, [sp, -%d]!\n" % (e.frame + 16))
@@ -698,7 +743,7 @@ def arm64_emitfn(fn, out):
                 e.f.write("\tmov sp, x29\n")
             o = e.frame + 16
             if e.fn.vararg and not T.apple:
-                o += 192
+                o += _vasave(T)
             if o <= 504:
                 e.f.write("\tldp\tx29, x30, [sp], %d\n" % o)
             elif o - 16 <= 4095:

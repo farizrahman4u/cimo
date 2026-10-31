@@ -82,7 +82,8 @@ class Terminal:
 
     def __init__(self, stream, mode='auto'):
         self.stream = stream
-        self.color = _wants_color(stream, mode) and _enable_windows_vt()
+        # --color=always colors even where Windows VT mode can't be enabled (a pipe)
+        self.color = _wants_color(stream, mode) and (_enable_windows_vt() or mode == 'always')
         enc = getattr(stream, 'encoding', None) or 'ascii'
         try:
             '✓✗→•│─╭╰⠋'.encode(enc)

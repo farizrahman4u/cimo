@@ -1,5 +1,5 @@
 /* cimo: <stdint.h> (C11 7.20), LP64 aarch64. 64-bit types are long on Linux and long long on
-   Apple, as in the platform headers (this matters for C++-style mangling and for printf formats,
+   Apple and Windows, as in the platform headers (this matters for C++-style mangling and for printf formats,
    not for code generation). */
 #ifndef __CIMO_STDINT_H
 #define __CIMO_STDINT_H
@@ -10,7 +10,7 @@ typedef int int32_t;
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
 typedef unsigned int uint32_t;
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
 typedef long long int64_t;
 typedef unsigned long long uint64_t;
 #define __CIMO_I64(c) c ## LL
@@ -109,7 +109,12 @@ typedef unsigned long uintmax_t;
 #define SIZE_MAX 18446744073709551615UL
 #define SIG_ATOMIC_MIN (-2147483647 - 1)
 #define SIG_ATOMIC_MAX 2147483647
-#ifdef __APPLE__
+#ifdef _WIN32
+#define WCHAR_MIN 0
+#define WCHAR_MAX 65535
+#define WINT_MIN 0
+#define WINT_MAX 65535
+#elif defined(__APPLE__)
 #define WCHAR_MIN (-2147483647 - 1)
 #define WCHAR_MAX 2147483647
 #define WINT_MIN (-2147483647 - 1)

@@ -258,18 +258,31 @@ _APPLE_OVERRIDE = {
     '__WINT_TYPE__': 'int', '__WINT_MAX__': '2147483647', '__WINT_MIN__': '(-2147483647-1)',
 }
 _APPLE_TYPES = [(k, _APPLE_OVERRIDE.get(k, v)) for k, v in _GCC_TYPES]
+# Windows arm64: as Apple, but wchar_t is a 16-bit unsigned short (Windows' own C is LLP64;
+# cimo keeps long 64-bit on every target)
+_WIN_OVERRIDE = dict(_APPLE_OVERRIDE, **{
+    '__SIZEOF_WCHAR_T__': '2', '__SIZEOF_WINT_T__': '2',
+    '__WCHAR_TYPE__': 'short unsigned int', '__WCHAR_MAX__': '0xffff', '__WCHAR_MIN__': '0',
+    '__WCHAR_WIDTH__': '16',
+    '__WINT_TYPE__': 'short unsigned int', '__WINT_MAX__': '0xffff', '__WINT_MIN__': '0',
+    '__WINT_WIDTH__': '16',
+})
+_WIN_TYPES = [(k, _WIN_OVERRIDE.get(k, v)) for k, v in _GCC_TYPES]
 
-#: Predefined macros per target: cproc's config.h list (aarch64-linux-gnu) and a macOS variant,
-#: plus gcc's type macros.
+#: Predefined macros per target: cproc's config.h list (aarch64-linux-gnu), macOS and Windows
+#: variants, plus gcc's type macros.
 TARGETS = {
     'arm64': (_COMMON_DEFINES + [('__linux__', None), ('__unix__', None)] + _TAIL_DEFINES
               + _LINUX_TYPES),
     'arm64_apple': (_COMMON_DEFINES + [('__APPLE__', None), ('__MACH__', None)] + _TAIL_DEFINES
                     + _APPLE_TYPES),
+    'arm64_win': (_COMMON_DEFINES + [('_WIN32', '1'), ('_WIN64', '1'), ('_M_ARM64', '1')]
+                  + _TAIL_DEFINES + _WIN_TYPES),
 }
 # Whether plain char is signed, for character constants in #if.
-_CHAR_SIGNED = {'arm64': False, 'arm64_apple': True}
-_WCHAR_SIGNED = {'arm64': False, 'arm64_apple': True}
+_CHAR_SIGNED = {'arm64': False, 'arm64_apple': True, 'arm64_win': True}
+# wchar_t: (bits, signed), for L'x' in #if
+_WCHAR = {'arm64': (32, False), 'arm64_apple': (32, True), 'arm64_win': (16, False)}
 
 BUNDLED_INCLUDE = _res.path('include')
 
@@ -1554,9 +1567,10 @@ class _IfParser(object):
             if len(vals) > 1:
                 self.pp._warn('character constant too long for its type', t)
             if prefix == 'L':
-                v &= 0xffffffff
-                if _WCHAR_SIGNED[self.pp.target] and v & 0x80000000:
-                    v -= 1 << 32
+                bits, signed = _WCHAR[self.pp.target]
+                v &= (1 << bits) - 1
+                if signed and v >> (bits - 1):
+                    v -= 1 << bits
             elif prefix == 'u':
                 v &= 0xffff
             else:
@@ -1671,7 +1685,8 @@ def preprocess(src, filename='<string>', include_dirs=(), defines=None, target='
 
     include_dirs: searched (after the including file's directory for "...") before the bundled
     headers in cimo/include. defines: dict name -> value (None means 1); a name may carry a
-    parameter list, e.g. {'SQ(x)': '((x)*(x))'}. target: 'arm64' (Linux) or 'arm64_apple'.
+    parameter list, e.g. {'SQ(x)': '((x)*(x))'}. target: 'arm64' (Linux), 'arm64_apple' or
+    'arm64_win'.
     warn: callable receiving warning strings (default: print to stderr).
     keep_attributes: ignore `#define __attribute__` (glibc defines it away for compilers other
     than gcc and clang), so that the frontend sees every attribute.

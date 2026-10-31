@@ -79,6 +79,16 @@ T_arm64 = _common(
     asloc=".L",
 )
 
+# cimo extension: Windows arm64 (AAPCS64 with Windows' variadic convention, x18 untouched,
+# stack probes; ELF syntax, since cimo assembles and links in memory)
+T_arm64_win = _common(
+    name="arm64_win",
+    windows=1,
+    abi0=_elimsb,
+    emitfin=lambda f: _gemit().elf_emitfin(f),
+    asloc=".L",
+)
+
 T_arm64_apple = _common(
     name="arm64_apple",
     apple=1,

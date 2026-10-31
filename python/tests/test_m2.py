@@ -96,7 +96,7 @@ CASES = {
                        lambda: f32(40 * 33)]),
     'rgb2gray': (None, [lambda: 999, lambda: u8(3 * 999), lambda: u8(999)]),
     'dot': (D, [lambda: 1001, lambda: f64(1001), lambda: f64(1001)]),
-    'isum': (ctypes.c_long, [lambda: 999, lambda: rng.integers(-1 << 30, 1 << 30, 999,
+    'isum': (ctypes.c_int64, [lambda: 999, lambda: rng.integers(-1 << 30, 1 << 30, 999,
                                                                dtype=np.int32)]),
     'prefix_sum': (None, [lambda: 1000, lambda: f32(1000), lambda: f32(1000)]),
     'iir': (None, [lambda: 1000, lambda: F(0.3), lambda: F(-0.5), lambda: F(0.2),

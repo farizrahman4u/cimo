@@ -1,5 +1,5 @@
 /* cimo: <limits.h> (C11 7.10, 5.2.4.2.1), LP64 aarch64. Plain char is unsigned on Linux
-   aarch64 and signed on Apple arm64. */
+   aarch64 and signed on Apple and Windows arm64. */
 #ifndef __CIMO_LIMITS_H
 #define __CIMO_LIMITS_H
 
@@ -7,7 +7,7 @@
 #define SCHAR_MIN (-128)
 #define SCHAR_MAX 127
 #define UCHAR_MAX 255
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
 #define CHAR_MIN SCHAR_MIN
 #define CHAR_MAX SCHAR_MAX
 #define MB_LEN_MAX 6

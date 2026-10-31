@@ -201,7 +201,7 @@ clang-in-WASM download.
 |-----------------------------|----------------|---------------------------------|
 | Linux arm64 / x86-64        | arm64, amd64   | `mmap` + `mprotect` (W^X)       |
 | macOS (Apple silicon)       | arm64          | `MAP_JIT`, W^X fallback         |
-| Windows x64                 | amd64          | `VirtualAlloc` + `VirtualProtect` |
+| Windows arm64 / x64         | arm64, amd64   | `VirtualAlloc` + `VirtualProtect` |
 | Pyodide / browser           | WebAssembly    | shared-memory side module       |
 
 CPython 3.9+ and Pyodide. Zero runtime dependencies.
