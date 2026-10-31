@@ -46,3 +46,6 @@ coverage.xml
 *.o
 *.s
 *.ssa
+
+# third-party test corpora (tests/corpora.py)
+tests/corpora/

@@ -41,6 +41,15 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Small
 
+- **Large struct copies** are unrolled (8 bytes per load/store pair, as QBE does): a 64 KB
+  argument takes 4.4 s to compile and grows faster than linearly (gcc `pr28982b.c`, 256 KB,
+  takes minutes). Emit a loop or a `memcpy` call above a size threshold.
+- **`volatile` stores** are rejected (cproc: "not yet supported"; QBE has no volatile
+  operations): 34 torture programs. Emit them as ordinary stores the optimizer may not remove.
+- **C11 vs C23:** cproc treats `f()` as `f(void)` and `true`/`false` as keywords; C11 code that
+  relies on either does not compile (a handful of torture programs). Decide which C cimo is.
+- GNU overflow builtins (`__builtin_add_overflow`, ...) and `__builtin_isunordered` & co.
+
 - Profiler symbols: write a perf map (`/tmp/perf-<pid>.map`) and/or jitdump for loaded modules, so
   `perf record` names kernel functions (the docs' profiling page marks it Planned).
 
