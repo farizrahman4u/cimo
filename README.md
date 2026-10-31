@@ -225,7 +225,8 @@ random programs.
 
 - [`python/cimo/`](python/cimo/): the compiler and Python runtime
 - [`js/`](js/): browser glue
-- [`docs/`](docs/): the website, [cimo.dev](https://www.cimo.dev/)
+- [`docs/`](docs/): the website, [cimo.dev](https://www.cimo.dev/); the documentation goes in
+  [`docs/docs/`](docs/docs/) ([cimo.dev/docs](https://www.cimo.dev/docs/))
 - [`examples/`](examples/): kernels and demos
 - [`requirements.md`](requirements.md): the design spec, measurements and roadmap
 
