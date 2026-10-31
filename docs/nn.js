@@ -213,7 +213,7 @@
     c: t => tokens(t, /(\/\*[\s\S]*?\*\/|\/\/[^\n]*)|(^[ \t]*#[^\n]*)|\b(for|if|else|return|while|static|const|unsigned)\b|\b(void|int|float|double|char|long)\b|(\b\d+(?:\.\d+)?(?:e[-+]?\d+)?[fu]?\b)|\b([A-Za-z_]\w*)(?=\s*\()/gm, ['cm', 'pp', 'kw', 'ty', 'num', 'fn']),
     wasm: t => tokens(t, /(;;[^\n]*)|\b((?:i32|i64|f32|f64)\.[a-z0-9_]+|local\.(?:get|set|tee)|global\.(?:get|set)|memory\.\w+)\b|\b(func|param|result|local|export|type|offset)\b|(\$[\w.]+)|("[^"]*")|\b(block|loop|if|else|end|br_if|br_table|br|return|call_indirect|call|unreachable|drop|select)\b|(-?\b\d+(?:\.\d+)?(?:e[-+]?\d+)?\b)/g, ['cm', 'op', 'ty', 'fn', 'str', 'kw', 'num']),
   };
-  function chip(s, text) { const el = root.querySelector(`.nn-chip[data-s="${s}"] small`); if (el) el.textContent = text; }
+  function chip(s, text) { const el = root.querySelector(`.nn-chip[data-n="${s}"] small`); if (el) el.textContent = text; }
 
   function toJSON() {
     return JSON.stringify({ nodes: graph.map(n => Object.assign({ id: n.id, op: n.op }, n.op === 'dense' ? { units: n.units } : {}, OPS[n.op].ins ? { inputs: n.inputs } : {})) });
@@ -318,9 +318,9 @@ def nn_build(graph_json):
     stage.c = r.c; stage.wasm = '';
     widths = r.widths instanceof Map ? Object.fromEntries(r.widths) : r.widths;
     usedSet = new Set(r.used);
-    chip('graph', `${graph.length} nodes · ${r.nparams} params`);
-    chip('c', `${r.c.split('\n').length} lines · ${r.gen_ms.toFixed(0)} ms`);
-    chip('wasm', `${(r.size / 1024).toFixed(1)} KB · cimo ${r.cc_ms.toFixed(0)} ms`);
+    chip('graph', `${r.nparams} params`);
+    chip('c', `${r.c.split('\n').length} lines`);
+    chip('wasm', `${(r.size / 1024).toFixed(1)} KB · ${r.cc_ms.toFixed(0)} ms`);
     net = r;
     net.addr = r.addr instanceof Map ? Object.fromEntries(r.addr) : r.addr;
     render();
