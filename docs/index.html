@@ -272,7 +272,10 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 .arch-step small,.arch-origin{font-family:var(--mono);font-size:10.5px;color:var(--ink4)}
 .arch-step small.o-cimosown,.arch-origin.o-cimosown{color:var(--brand)}
 .arch-step:hover b{color:var(--ink)}
-.arch-body{display:grid;grid-template-columns:minmax(0,.75fr) minmax(0,1.25fr);gap:28px;margin-top:22px;align-items:start}
+.arch-body{display:grid;grid-template-columns:minmax(0,.75fr) minmax(0,1.25fr);gap:28px;margin-top:22px;align-items:start;touch-action:pan-y;cursor:grab;will-change:transform}
+.arch-body.dragging{cursor:grabbing;user-select:none}
+.arch-body button{cursor:pointer}
+.arch{overflow:hidden;padding:8px 0 4px}
 .arch-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .arch-title{font-size:22px;letter-spacing:-.02em}
 .arch-origin{padding:2px 8px;border-radius:999px;background:var(--white);border:1px solid var(--line)}
@@ -1003,7 +1006,7 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=17d42879" defer></script>
-<script src="arch.js?v=b22623e6" defer></script>
+<script src="arch.js?v=b3a93019" defer></script>
 <script src="nn.js?v=753f3944" defer></script>
 </body>
 </html>
