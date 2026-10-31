@@ -214,6 +214,26 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .nn-stats{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;justify-content:center;font-size:12px;color:var(--ink3)}
 .nn-stats b{font-family:var(--mono);color:var(--ink);font-weight:500}
 .nn-loss{width:100%;max-width:300px;height:34px}
+.nn-infer{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink3);flex-wrap:wrap;justify-content:center}
+.nn-q{width:150px;font:12px var(--mono);color:var(--ink);background:var(--white);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+.nn-q:focus{outline:2px solid var(--brand100);border-color:var(--brand)}
+.nn-q.bad{border-color:var(--bad);outline-color:#ffd5dd}
+.nn-infer button{font:600 12px var(--font);color:#fff;background:var(--brand);border:0;border-radius:6px;padding:6px 11px;cursor:pointer}
+.nn-infer button:hover{background:var(--brandD)}
+.nn-qerr{font-size:12px;color:var(--bad);text-align:center}
+.nn-res{display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;color:var(--ink2)}
+.nn-res[hidden],.nn-qerr[hidden]{display:none}
+.nn-res-box{width:22px;height:22px;border-radius:6px;border:1px solid rgba(15,23,42,.15);transition:background .3s}
+.nn-res-t b{font-family:var(--mono);font-weight:500;color:var(--ink)}
+.nn-qhint{font-size:11px;color:var(--ink4);text-align:center;margin:-4px 0 0}
+.nn-boundary{cursor:crosshair}
+.nn-vals{display:flex;gap:2px;padding:0 6px 6px;flex-wrap:wrap}
+.nn-vals i{flex:1 0 8px;height:7px;border-radius:2px;background:var(--line2)}
+.nn-node{transition:box-shadow .25s}
+.nn-node.lit{box-shadow:0 0 0 2px rgba(239,68,68,.55),0 6px 16px -8px rgba(239,68,68,.6)}
+.nn-wires .w.flow{stroke:#ef4444;stroke-dasharray:6 5;animation:nnflow .5s linear infinite}
+@keyframes nnflow{to{stroke-dashoffset:-11}}
+@media (prefers-reduced-motion:reduce){.nn-wires .w.flow{animation:none;stroke-dasharray:none}}
 .nn-strip{display:flex;flex-wrap:nowrap;align-items:center;gap:3px;margin-top:8px;overflow-x:auto;scrollbar-width:none}.nn-strip::-webkit-scrollbar{display:none}
 .nn-strip i{font-style:normal;font-size:11px;color:var(--ink4)}
 .nn-chip{display:flex;flex:none;align-items:baseline;gap:5px;padding:3px 8px;border-radius:6px;border:1px solid transparent;background:none;font:inherit;white-space:nowrap}
@@ -689,6 +709,14 @@ with ThreadPoolExecutor() as pool:
           <button type="button" class="nn-retrain">Retrain</button>
         </div>
         <div class="nn-stats"><span>step <b class="nn-step">0</b></span><span>loss <b class="nn-loss-t">–</b></span><span>accuracy <b class="nn-acc">–</b></span><canvas class="nn-loss" width="300" height="34"></canvas></div>
+        <form class="nn-infer" novalidate>
+          <label for="nn-q">Try a point</label>
+          <input id="nn-q" class="nn-q" placeholder="x, y   e.g. 0.3, -0.5" autocomplete="off" spellcheck="false">
+          <button type="submit">Run</button>
+        </form>
+        <div class="nn-qerr" role="alert" hidden></div>
+        <div class="nn-res" hidden><span class="nn-res-box"></span><span class="nn-res-t"></span></div>
+        <p class="nn-qhint">or click the plot</p>
       </div>
     </div>
   </div>
@@ -928,6 +956,6 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=17d42879" defer></script>
-<script src="nn.js?v=10f6577a" defer></script>
+<script src="nn.js?v=277b5b0d" defer></script>
 </body>
 </html>
