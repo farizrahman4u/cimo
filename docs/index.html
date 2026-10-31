@@ -211,17 +211,17 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .nn-stats{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;justify-content:center;font-size:12px;color:var(--ink3)}
 .nn-stats b{font-family:var(--mono);color:var(--ink);font-weight:500}
 .nn-loss{width:100%;max-width:300px;height:34px}
-.nn-strip{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:10px}
-.nn-strip i{font-style:normal;color:var(--ink4)}
-.nn-chip{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:5px 9px;border-radius:8px;border:1px solid var(--line);background:var(--white);font:inherit;text-align:left}
-button.nn-chip{cursor:pointer}button.nn-chip:hover{border-color:var(--brand200)}
-.nn-chip.open{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand100)}
-.nn-chip b{font-size:12px;font-weight:600;color:var(--ink)}
-.nn-chip small{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+.nn-strip{display:flex;flex-wrap:nowrap;align-items:center;gap:3px;margin-top:8px;overflow-x:auto;scrollbar-width:none}.nn-strip::-webkit-scrollbar{display:none}
+.nn-strip i{font-style:normal;font-size:11px;color:var(--ink4)}
+.nn-chip{display:flex;flex:none;align-items:baseline;gap:5px;padding:3px 8px;border-radius:6px;border:1px solid transparent;background:none;font:inherit;white-space:nowrap}
+button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{border-color:var(--brand200)}
+.nn-chip.open{border-color:var(--brand);background:var(--brand50)}
+.nn-chip b{font-size:11.5px;font-weight:600;color:var(--ink)}
+.nn-chip small{font-family:var(--mono);font-size:10px;color:var(--ink3)}
 .nn-err{margin-top:8px;border-radius:6px;padding:7px 10px;font-family:var(--mono);font-size:12px;color:var(--bad);background:#fff1f3;border-top:1px solid #ffd5dd}
-.nn-panel{display:none;margin-top:8px;background:var(--code);border:1px solid var(--codeline);border-radius:8px;overflow:hidden}
+.nn-panel{display:none;margin-top:6px;background:var(--code);border:1px solid var(--codeline);border-radius:8px;overflow:hidden}
 .nn.panel-open .nn-panel{display:block}
-.nn-panel pre{margin:0;height:200px;overflow:auto;padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.55;color:#c9d1d9;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:none}
+.nn-panel pre{margin:0;height:236px;overflow:auto;padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.55;color:#c9d1d9;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:none}
 .nn-panel pre::-webkit-scrollbar{display:none}
 .nn-panel .t-op{color:#79c0ff}.nn-panel pre.hl-wasm .t-ty{color:#ff7b72}
 @media(max-width:900px){.nn-top{grid-template-columns:minmax(0,1fr)}.nn-left{border-right:0;border-bottom:1px solid var(--line2);overflow-x:auto}.nn-board{min-width:620px;height:300px;touch-action:pan-x}}
@@ -666,11 +666,11 @@ with ThreadPoolExecutor() as pool:
         <div class="nn-tools"><select class="nn-preset" aria-label="Network"></select><span class="nn-palette"></span></div>
         <div class="nn-board"><svg class="nn-wires"></svg><p class="nn-help">drag titles to move · drag from a dot to a dot to connect · click a wire to cut it</p></div>
       <div class="nn-strip">
-        <span class="nn-chip"><b>1 Graph</b><small>drag and drop</small></span><i>→</i>
-        <button type="button" class="nn-chip" data-s="json"><b>2 JSON</b><small>–</small></button><i>→</i>
-        <button type="button" class="nn-chip" data-s="c"><b>3 C</b><small>Python codegen</small></button><i>→</i>
-        <button type="button" class="nn-chip" data-s="wasm"><b>4 WebAssembly</b><small>cimo</small></button><i>→</i>
-        <span class="nn-chip"><b>5 Training</b><small>Adam, full batch</small></span>
+        <span class="nn-chip" data-n="graph"><b>Graph</b><small>drag and drop</small></span><i>→</i>
+        <button type="button" class="nn-chip" data-s="json" data-n="json"><b>JSON</b><small>–</small></button><i>→</i>
+        <button type="button" class="nn-chip" data-s="c" data-n="c"><b>C</b><small>Python codegen</small></button><i>→</i>
+        <button type="button" class="nn-chip" data-s="wasm" data-n="wasm"><b>WASM</b><small>cimo</small></button><i>→</i>
+        <span class="nn-chip"><b>Training</b><small>Adam</small></span>
       </div>
       <div class="nn-err" role="status" hidden></div>
       <div class="nn-panel"><pre></pre></div>
@@ -925,6 +925,6 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=17d42879" defer></script>
-<script src="nn.js?v=afff5a9a" defer></script>
+<script src="nn.js?v=4d95c5d6" defer></script>
 </body>
 </html>
