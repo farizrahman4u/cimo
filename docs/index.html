@@ -347,6 +347,7 @@ section.s{padding:72px 0 8px}
 .rep.shown .rep-out{opacity:1;transform:none}
 .rep.anim .rep-out{transition-delay:0s}
 .rep-out.on{opacity:1;transform:none}
+.rep-sum{margin-top:6px;color:#8e94a3}
 .rep .caret{display:inline-block;width:7px;height:1.15em;vertical-align:-3px;background:#8e94a3;animation:caret 1s steps(2) infinite}
 /* pipeline */
 .pipe{display:flex;align-items:stretch;margin-top:28px}
@@ -533,7 +534,7 @@ void ema(int n, const double x[n], double y[n], double a) {
       </ul>
       <div class="code report">
         <div class="bar"><span class="dots"><i></i><i></i><i></i></span>terminal</div>
-<pre class="rep"><span class="t-pr">$</span> <span class="rep-cmd">python -m cimo report kernels.c</span><span class="rep-out">kernels.c:12  loop j: <span class="t-ok">optimized</span> (unrolled x4, alias check src/dst)</span><span class="rep-out">kernels.c:31  loop i: <span class="t-err">not optimized</span>: base of `p` depends on a branch</span><span class="rep-out rep-end"><span class="t-pr">$</span> </span></pre>
+<pre class="rep"><span class="t-pr">$</span> <span class="rep-cmd">python -m cimo report kernels.c</span><span class="rep-out">kernels.c:12  loop j: <span class="t-ok">optimized</span> (unrolled x4, alias check src/dst)</span><span class="rep-out">kernels.c:19  loop i,j: <span class="t-ok">optimized</span> (unroll-and-jam 2x4, scalar replacement)</span><span class="rep-out">kernels.c:27  loop k: <span class="t-ok">optimized</span> (strength reduction, 3 loads hoisted)</span><span class="rep-out">kernels.c:31  loop i: <span class="t-err">not optimized</span>: base of `p` depends on a branch</span><span class="rep-out">kernels.c:38  loop t: <span class="t-err">not optimized</span>: y[t] depends on y[t-1]</span><span class="rep-out">kernels.c:44  loop n: <span class="t-err">not optimized</span>: calls `next_sample` (not inlined)</span><span class="rep-out rep-sum">3 of 6 loops optimized</span><span class="rep-out rep-end"><span class="t-pr">$</span> </span></pre>
       </div>
     </div>
   </div>
