@@ -465,7 +465,8 @@ Target `arm64_win` (preprocessor/backend/linker; frontend `aarch64-windows`), pi
   `long long`; `_WIN32`, `_WIN64`, `_M_ARM64`. Consequences: Python's `ctypes.c_long` is 32
   bits on Windows (as in Pyodide), so `long *` buffers must be int64; and a host DLL function
   whose signature uses `long` (CRT `strtol`, Win32 `LONG`) must be declared with `int` in the
-  kernel. (A full LLP64 variant was built and tested first: frontend `size_t`/`ptrdiff_t`
+  kernel; `compile()` warns (`UserWarning`) when a symbol resolved from a `link=` library was
+  declared with `long` anywhere in its type (pointers, struct members, callbacks). (A full LLP64 variant was built and tested first: frontend `size_t`/`ptrdiff_t`
   types, headers, and `heap.c`/`abort.c`/`builtins.c` assumed `long` is pointer-sized; musl
   needed nothing else. Dropped for uniformity.)
 - **ABI:** AAPCS64 as on Linux (callee-side extension of small ints, like clang), except that

@@ -18,6 +18,7 @@ import os
 import platform
 import re
 import sys
+import warnings
 
 from . import assembler as _asm
 from . import execution as _exe
@@ -93,7 +94,7 @@ def _cache_put(key, text, sigs):
 _APPLE = sys.platform == 'darwin'
 _WINDOWS = sys.platform == 'win32'
 # This machine's target, as the preprocessor, backend and linker name it: Linux, Apple's ABI
-# variant, or Windows (LLP64, Windows' variadic convention).
+# variant, or Windows (LP64 like the others, with Windows' variadic convention).
 TARGET = 'arm64_apple' if _APPLE else 'arm64_win' if _WINDOWS else 'arm64'
 _FRONTEND = {'arm64': 'aarch64', 'arm64_apple': 'aarch64-apple', 'arm64_win': 'aarch64-windows'}
 _PYODIDE = sys.platform == 'emscripten'  # cimo.wasm: an Emscripten side module, not arm64
@@ -258,6 +259,11 @@ def _build(src, filename='<string>', include_dirs=(), host_headers=False, define
     ssa, params = _ir(pp, filename, host_headers)
     text = _qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
     sigs = _sigs(ssa)
+    if _WINDOWS:
+        from .frontend.diag import longexterns
+        names = longexterns()
+        if names:  # Module warns if one resolves to a link= library
+            sigs += '\n#long ' + ' '.join(names)
     _cache_put(key, text, sigs)
     return text, sigs
 
@@ -341,14 +347,22 @@ class Module:
     or the only function if there is just one."""
 
     def __init__(self, text, sigs, link=()):
+        lines = sigs.splitlines()
+        longs = set(next((l.split()[1:] for l in lines if l.startswith('#long ')), ()))
+        sigs = '\n'.join(l for l in lines if not l.startswith('#'))
         names = [line.split(' ')[0] for line in sigs.splitlines()]
+        libsyms = {}
         try:
             obj = _asm.assemble(text + _exe.glue(names, _APPLE, _WINDOWS),
                                 'macho' if _APPLE else 'elf')
-            obj, resolve = _link.link(obj, libs=link)
+            obj, resolve = _link.link(obj, libs=link, libsyms=libsyms)
             self._image = _jit.Image(obj, resolve)
         except (_asm.AssemblerError, _jit.LoadError, _link.LinkError) as e:
             raise CompileError(str(e)) from None
+        for c in sorted(longs & set(libsyms)):
+            warnings.warn("'%s' (from %s) is declared with long, which is 64-bit in cimo but "
+                          "32-bit in Windows DLLs; declare it with int (or long long where the "
+                          "DLL uses a 64-bit type)" % (c, libsyms[c]), stacklevel=4)
         self._state = _exe.State(self._image)
         self._out = _link.Stdout.attach(self._image)
         self._kernels = {}

@@ -32,6 +32,8 @@ A kernel that writes outside its arrays can crash the process, as in any C. `ass
 
 `ctypes.c_long` is 32 bits in Pyodide and on Windows, while cimo's `long` is 64 bits. Use `ctypes.c_int64` or `np.int64` arrays. See [In the browser](browser.md).
 
+For the same reason, a Windows DLL function whose C signature uses `long` (`LONG`, `DWORD`) must be declared with `int` (`unsigned` for `DWORD`) in your kernel. `cimo.compile()` warns when you link one declared with `long`.
+
 ### Stale results after changing a header
 
 The cache key includes every header the source includes, so this shouldn't happen. If it does, `cimo cache clear` and please [report it](https://github.com/farizrahman4u/cimo/issues).

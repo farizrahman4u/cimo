@@ -11,8 +11,8 @@ defining an object of it is an error.
 """
 
 from .cc import (TIDENT, TMUL, TLBRACE, T__ASM__, T__ALIGNOF__, TCONST, TRESTRICT, TVOLATILE,
-                 TYPELDOUBLE, TYPESTRUCT, TYPEUNION, TYPEARRAY, DECLFUNC, DECLOBJECT, SDTHREAD,
-                 QUALNONE, Type, Token)
+                 TYPELDOUBLE, TYPESTRUCT, TYPEUNION, TYPEARRAY, TYPELONG, TYPEPOINTER, TYPEFUNC,
+                 TYPEENUM, DECLFUNC, DECLOBJECT, LINKEXTERN, SDTHREAD, QUALNONE, Type, Token)
 from .token import tok, tokenget, tokenstr, error
 from .type import mkpointertype, typevoid
 
@@ -240,3 +240,41 @@ def alignedtype(t, align):
     v.value = None
     v.link = None
     return v
+
+
+def mentionslong(t, seen=None):
+    """Whether type t is or contains `long` (through pointers, arrays, function types and
+    struct members)."""
+    k = t.kind
+    if k == TYPELONG:
+        return True
+    if k in (TYPEPOINTER, TYPEARRAY, TYPEENUM):
+        return t.base is not None and mentionslong(t.base, seen)
+    if k == TYPEFUNC:
+        p = t.params
+        while p:
+            if mentionslong(p.type, seen):
+                return True
+            p = p.next
+        return mentionslong(t.base, seen)
+    if k == TYPESTRUCT or k == TYPEUNION:
+        seen = seen if seen is not None else set()
+        if id(t) in seen:
+            return False
+        seen.add(id(t))
+        m = t.members
+        while m:
+            if mentionslong(m.type, seen):
+                return True
+            m = m.next
+    return False
+
+
+def longexterns():
+    """After compile(): the names of the file-scope declarations with external linkage and no
+    definition whose type mentions `long`. On Windows cimo's long is 64-bit but a DLL's is
+    32-bit, so the driver warns when one of these resolves to a `link=` library."""
+    from . import scope as SC
+    return sorted(d.asmname or d.name for d in SC.filescope.decls.values()
+                  if d.kind in (DECLFUNC, DECLOBJECT) and d.linkage == LINKEXTERN
+                  and not d.defined and not d.tentative and mentionslong(d.type))

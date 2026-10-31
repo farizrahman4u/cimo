@@ -537,8 +537,8 @@ def test_default_build_resolves_nothing_from_the_process(monkeypatch):
     seen = []
     real_link = linker.link
 
-    def spy(obj, hooks=None, libs=()):
-        merged, resolve = real_link(obj, hooks, libs)
+    def spy(obj, hooks=None, libs=(), libsyms=None):
+        merged, resolve = real_link(obj, hooks, libs, libsyms)
         seen.append(merged)
         return merged, resolve
     monkeypatch.setattr(linker, 'link', spy)

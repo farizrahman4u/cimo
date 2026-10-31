@@ -410,12 +410,13 @@ def _report(rt, ncompiled, t0):
             'cached for next time' if rt.dir else 'no writable cache: kept for this process'))
 
 
-def link(obj, hooks=None, libs=()):
+def link(obj, hooks=None, libs=(), libsyms=None):
     """Link a module's object with the runtime.
 
     hooks: {C name: address} of the Python callbacks the runtime may import.
     libs: `link=` entries; their symbols resolve what neither the module nor the runtime
     defines.
+    libsyms: a dict to fill with {C name: `link=` entry} for the symbols resolved from libs.
     Returns (merged object, resolve) where resolve(C name) -> address serves cimo.loader for
     the symbols that stay external; it never falls back to the process."""
     rt = runtime()
@@ -461,10 +462,12 @@ def link(obj, hooks=None, libs=()):
         if c in hooks:
             resolved[c] = hooks[c]
             continue
-        for _, h in handles:
+        for n, h in handles:
             a = _dlsym(h, c)
             if a is not None:
                 resolved[c] = a
+                if libsyms is not None:
+                    libsyms[c] = n
                 break
         else:
             missing.append(c)

@@ -11,12 +11,14 @@ import os
 import platform
 import subprocess
 import sys
+import warnings
 
 import pytest
 
 import cimo
 import extcompile as X
 from cimo import frontend
+from cimo.frontend.diag import longexterns
 from cimo.preprocessor import preprocess
 
 WIN_ARM64 = sys.platform == 'win32' and platform.machine().lower() in ('arm64', 'aarch64')
@@ -79,6 +81,39 @@ def test_no_x18_and_stack_probes():
     assert s.count('ldr\txzr, [sp]') == 1  # the VLA
     small = asm('double f(double *p) { double a[400]; a[3] = *p; return a[3]; }\n')
     assert 'xzr' not in small
+
+
+def test_long_in_external_declarations():
+    ir('''
+typedef unsigned long DWORD;
+struct S { int a; long b; };
+long strtol(const char *, char **, int);
+int plain(int, double *);
+long long wide(long long);
+void bystruct(struct S *);
+int out(DWORD *);
+long defined(long x) { return x; }
+static long internal(void);
+extern unsigned long counter;
+long tentative;
+int (*getcb(void))(long);
+''')
+    assert longexterns() == ['bystruct', 'counter', 'getcb', 'out', 'strtol']
+
+
+@needs_win
+def test_warns_about_long_from_a_dll():
+    src = 'long _lrotl(unsigned long, int);\nint f(void) { return _lrotl(1, 3); }\n'
+    with pytest.warns(UserWarning, match=r"'_lrotl' \(from ucrtbase.dll\) is declared with long"):
+        m = cimo.compile(src, link=['ucrtbase.dll'])
+    with pytest.warns(UserWarning):  # also when the module comes from the cache
+        cimo.compile(src, link=['ucrtbase.dll'])
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        m = cimo.compile(src.replace('long', 'int'), link=['ucrtbase.dll'])
+        assert m.f() == 8
+        cimo.compile('#include <stdlib.h>\nlong f(long x) { return labs(x); }\n',
+                     link=['ucrtbase.dll'])  # labs comes from cimo's runtime
 
 
 @needs_win
