@@ -53,6 +53,7 @@
     start: $('.nn-start'), status: $('.nn-status'), data: $('.nn-data'), preset: $('.nn-preset'),
     lr: $('.nn-lr'), retrain: $('.nn-retrain'), step: $('.nn-step'), lossT: $('.nn-loss-t'),
     acc: $('.nn-acc'), err: $('.nn-err'), panel: $('.nn-panel pre'), palette: $('.nn-palette'),
+    form: $('.nn-infer'), q: $('.nn-q'), qerr: $('.nn-qerr'), res: $('.nn-res'), resBox: $('.nn-res-box'), resT: $('.nn-res-t'),
   };
   ui.data.innerHTML = Object.keys(DATA).map(n => `<option>${n}</option>`).join('');
   ui.preset.innerHTML = Object.keys(PRESETS).map(n => `<option>${n}</option>`).join('');
@@ -84,7 +85,7 @@
       const fixed = n.op === 'input' || n.op === 'output';
       let body = '';
       if (n.op === 'dense') body += `<div class="nn-units"><button type="button" data-d="-1" aria-label="fewer units">−</button><b>${n.units}</b><button type="button" data-d="1" aria-label="more units">+</button></div>`;
-      if (!fixed) body += '<canvas class="nn-th" width="1" height="1"></canvas>';
+      if (!fixed) body += '<canvas class="nn-th" width="1" height="1"></canvas><div class="nn-vals"></div>';
       if (n.op === 'input') body += '<div class="nn-note">x, y</div>';
       if (n.op === 'output') body += '<div class="nn-note">score</div>';
       el.innerHTML = `<div class="nn-h">${OPS[n.op].label}${fixed ? '' : '<button type="button" class="nn-x" aria-label="remove">×</button>'}</div>${body}` +
@@ -104,7 +105,7 @@
     const dx = Math.max(30, Math.abs(b[0] - a[0]) / 2);
     return `M${a[0]},${a[1]} C${a[0] + dx},${a[1]} ${b[0] - dx},${b[1]} ${b[0]},${b[1]}`;
   }
-  let temp = null;
+  let temp = null, flowing = new Set();
   function drawWires() {
     let s = '';
     const node = id => board.querySelector(`.nn-node[data-id="${id}"]`);
@@ -112,7 +113,7 @@
       if (!src || !node(src)) return;
       const a = portPos(node(src), '.nn-out'), b = portPos(node(n.id), `.nn-in[data-k="${k}"]`);
       const d = curve(a, b), w = widths[src];
-      s += `<path class="w" d="${d}"/><path class="hit" d="${d}" data-to="${n.id}" data-k="${k}"><title>click to disconnect</title></path>`;
+      s += `<path class="w${flowing.has(n.id) ? ' flow' : ''}" data-to="${n.id}" d="${d}"/><path class="hit" d="${d}" data-to="${n.id}" data-k="${k}"><title>click to disconnect</title></path>`;
       if (w) s += `<text x="${(a[0] + b[0]) / 2}" y="${Math.min(a[1], b[1]) - 9}">${w}</text>`;
     });
     if (temp) s += `<path class="w temp" d="${curve(temp.a, temp.b)}"/>`;
@@ -256,9 +257,9 @@ import cimo, codegen, wat
 import cimo.wasm as _cw
 F = ctypes.c_float
 N, G, TH = ${N}, ${G}, ${TH}
-X = (F * (N * 2))(); Y = (F * N)(); PX = (F * N)()
+X = (F * (N * 2))(); Y = (F * N)(); PX = (F * N)(); QX = (F * 2)(); QO = (F * 1)()
 GX = (F * (G * G * 2))(); GO = (F * (G * G))(); TX = (F * (TH * TH * 2))()
-ADDR = {k: ctypes.addressof(v) for k, v in dict(X=X, Y=Y, PX=PX, GX=GX, GO=GO, TX=TX).items()}
+ADDR = {k: ctypes.addressof(v) for k, v in dict(X=X, Y=Y, PX=PX, GX=GX, GO=GO, TX=TX, QX=QX, QO=QO).items()}
 _live = {}
 
 def nn_wat():
@@ -288,7 +289,7 @@ def nn_build(graph_json):
     t2 = time.perf_counter()
     np_ = max(r['nparams'], 1)
     na = sum(a['width'] for a in r['acts'])
-    bufs = dict(P=(F * np_)(), M=(F * np_)(), V=(F * np_)(), WS=(F * r['ws'])(), AO=(F * max(1, na * TH * TH))())
+    bufs = dict(P=(F * np_)(), M=(F * np_)(), V=(F * np_)(), WS=(F * r['ws'])(), AO=(F * max(1, na * TH * TH))(), QA=(F * max(1, na))())
     _live.clear(); _live.update(bufs); _live['m'] = m
     _live['mod'] = mod
     e = m.exports
@@ -358,6 +359,7 @@ def nn_build(graph_json):
     render();
     showStage();
     restart();
+    if (query) infer(false);
   }
 
   function call(f, ...args) {  // pointer arguments (BigInt) are marked by the caller
@@ -401,6 +403,14 @@ def nn_build(graph_json):
       ctx.fillStyle = c ? 'rgb(217,119,6)' : 'rgb(39,55,189)';
       ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = '#fff'; ctx.stroke();
     }
+    if (query) {  // the inference point: a red laser dot
+      const qx = (query[0] + LIM) / (2 * LIM) * W, qy = (LIM - query[1]) / (2 * LIM) * W;
+      const g = ctx.createRadialGradient(qx, qy, 0, qx, qy, W / 22);
+      g.addColorStop(0, 'rgba(239,68,68,.55)'); g.addColorStop(1, 'rgba(239,68,68,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(qx, qy, W / 22, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(qx, qy, W / 85, 0, 7);
+      ctx.fillStyle = '#ef4444'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.stroke();
+    }
   }
   function drawLoss() {
     const ctx = lossCv.getContext('2d'), W = lossCv.width, H = lossCv.height;
@@ -431,9 +441,92 @@ def nn_build(graph_json):
           img.data[q] = 255 + (c[0] - 255) * s; img.data[q + 1] = 255 + (c[1] - 255) * s; img.data[q + 2] = 255 + (c[2] - 255) * s; img.data[q + 3] = 255;
         }
       }
+      if (query) {  // where the point falls in each unit's map
+        const ix = Math.min(TH - 1, Math.max(0, Math.floor((query[0] + LIM) / (2 * LIM) * TH)));
+        const iy = Math.min(TH - 1, Math.max(0, Math.floor((LIM - query[1]) / (2 * LIM) * TH)));
+        for (let u = 0; u < show; u++) {
+          const q = 4 * ((Math.floor(u / cols) * (TH + 1) + iy) * cv.width + (u % cols) * (TH + 1) + ix);
+          img.data[q] = 239; img.data[q + 1] = 68; img.data[q + 2] = 68; img.data[q + 3] = 255;
+        }
+      }
       ctx.putImageData(img, 0, 0);
     }
   }
+
+  // ---- inference on one point
+  let query = null;
+  function parsePoint(text) {
+    const parts = text.split(',').map(t => t.trim());
+    if (parts.length !== 2 || parts.some(t => t === ''))
+      throw new Error('Enter two numbers separated by a comma, e.g. 0.3, -0.5');
+    const v = parts.map(t => (/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t) ? Number(t) : NaN));
+    const bad = parts.find((t, i) => !Number.isFinite(v[i]));
+    if (bad !== undefined) throw new Error(`"${bad}" is not a number`);
+    if (v.some(x => Math.abs(x) > LIM)) throw new Error(`x and y must be between -${LIM} and ${LIM} (the plot's range)`);
+    return v;
+  }
+  function infer(animate) {
+    if (!net || !query) return;
+    const A = net.addr, h = heap();
+    h[A.QX >> 2] = query[0]; h[(A.QX >> 2) + 1] = query[1];
+    call(net.predict, 1, BigInt(A.QX), BigInt(A.P), BigInt(A.WS), BigInt(A.QO));
+    const p = h[A.QO >> 2], c = p > .5 ? C1 : C0, a = Math.min(1, Math.abs(p - .5) * 2);
+    ui.resBox.style.background = `rgb(${c.map(v => Math.round(255 + (v - 255) * (.25 + .75 * a))).join(',')})`;
+    ui.resT.innerHTML = `${p > .5 ? 'amber' : 'blue'} class, <b>${(100 * Math.max(p, 1 - p)).toFixed(1)}%</b> <span style="color:var(--ink4)">(p = ${p.toFixed(3)})</span>`;
+    ui.res.hidden = false;
+    call(net.acts_fn, 1, BigInt(A.QX), BigInt(A.P), BigInt(A.WS), BigInt(A.QA));
+    for (const n of net.acts) {  // each node's activations for this point, as colored cells
+      const el = board.querySelector(`.nn-node[data-id="${n.id}"] .nn-vals`);
+      if (!el) continue;
+      const vals = Array.from({ length: n.width }, (_, j) => h[(A.QA >> 2) + n.offset + j]);
+      const m = Math.max(1e-6, ...vals.map(Math.abs));
+      el.innerHTML = vals.slice(0, 16).map(v => {
+        const s = Math.abs(v) / m, c = v > 0 ? C1 : C0;
+        return `<i title="${v.toFixed(3)}" style="background:rgb(${c.map(q => Math.round(255 + (q - 255) * s)).join(',')})"></i>`;
+      }).join('');
+    }
+    if (!running) { drawBoundary(h.subarray(A.GO >> 2, (A.GO >> 2) + G * G)); drawThumbs(); }
+    if (animate) flow();
+  }
+  let flowTimers = [];
+  function flow() {  // light up the path the point takes, node by node
+    flowTimers.forEach(clearTimeout);
+    flowTimers = [];
+    board.querySelectorAll('.nn-node.lit').forEach(e => e.classList.remove('lit'));
+    flowing.clear();
+    drawWires();
+    (net.used || []).forEach((id, k) => {
+      flowTimers.push(setTimeout(() => {
+        const el = board.querySelector(`.nn-node[data-id="${id}"]`);
+        if (el) el.classList.add('lit');
+        flowing.add(id);
+        drawWires();
+      }, 140 * k));
+    });
+    flowTimers.push(setTimeout(() => {
+      flowing.clear(); drawWires();
+      board.querySelectorAll('.nn-node.lit').forEach(e => e.classList.remove('lit'));
+    }, 140 * (net.used || []).length + 1400));
+  }
+  ui.form.addEventListener('submit', e => {
+    e.preventDefault();
+    try {
+      query = parsePoint(ui.q.value);
+      ui.qerr.hidden = true; ui.q.classList.remove('bad');
+      if (!net) { ui.qerr.textContent = 'Start the demo first (Train it live).'; ui.qerr.hidden = false; return; }
+      infer(true);
+    } catch (err) {
+      ui.qerr.textContent = err.message; ui.qerr.hidden = false; ui.q.classList.add('bad');
+      ui.res.hidden = true;
+    }
+  });
+  ui.q.addEventListener('input', () => { ui.q.classList.remove('bad'); ui.qerr.hidden = true; });
+  boundary.addEventListener('click', e => {
+    const r = boundary.getBoundingClientRect();
+    const x = -LIM + (e.clientX - r.left) / r.width * 2 * LIM, y = LIM - (e.clientY - r.top) / r.height * 2 * LIM;
+    ui.q.value = x.toFixed(2) + ', ' + y.toFixed(2);
+    ui.form.requestSubmit();
+  });
 
   let frameN = 0;
   function frame() {
@@ -453,6 +546,7 @@ def nn_build(graph_json):
         let ok = 0;
         points.forEach((p, i) => { if ((px[i] > .5) === (p[2] === 1)) ok++; });
         ui.acc.textContent = (100 * ok / N).toFixed(0) + '%';
+        if (query) infer(false);
       }
       ui.step.textContent = step;
       ui.lossT.textContent = loss.toFixed(3);
@@ -483,6 +577,8 @@ def nn_build(graph_json):
       root.classList.add('running');
       build();
       requestAnimationFrame(frame);
+      const q = /[?&]nnq=([^&#]+)/.exec(location.search);  // (for screenshots: ?nnq=0.3,-0.5)
+      if (q) { ui.q.value = decodeURIComponent(q[1]); setTimeout(() => ui.form.requestSubmit(), 600); }
     } catch (e) {
       py = null;
       ui.status.textContent = 'Could not start: ' + (e && e.message || e);
