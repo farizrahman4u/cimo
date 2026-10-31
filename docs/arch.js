@@ -81,8 +81,11 @@
       el.classList.toggle('side', Math.abs(off) > .5);
     });
   }
-  function fit() {  // the stage is as tall as the tallest card
-    view.style.height = Math.max(...slides.map(el => el.offsetHeight)) + 'px';
+  function fit() {  // the stage is as tall as the tallest card; stacked cards (narrow screens) all stretch to it
+    slides.forEach(el => { el.style.height = ''; });
+    const h = Math.max(...slides.map(el => el.offsetHeight));
+    view.style.height = h + 'px';
+    if (matchMedia('(max-width:900px)').matches) slides.forEach(el => { el.style.height = h + 'px'; });
   }
 
   function show(k, user, animate = true) {

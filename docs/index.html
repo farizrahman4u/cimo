@@ -155,11 +155,20 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .demo{display:flex;flex-direction:column}
 .banner-in{display:contents}
 .banner-copy{order:1;max-width:none;padding:36px 16px 20px}
-.demo-view{order:2;position:relative;height:380px;flex:none}
+.demo-view{order:2;position:relative;height:380px;flex:none;overflow:hidden}
 .demo-view canvas{touch-action:pan-y}
 .demo-poster{object-position:16% 50%;transform-origin:50% 62%;transform:translateY(-12%) scale(1.6)}
 .demo-shade{background:linear-gradient(180deg,rgba(8,11,22,1),rgba(8,11,22,0) 18%,rgba(8,11,22,0) 82%,rgba(8,11,22,1))}
 .demo-side{order:3;height:440px;margin:0 16px 24px}
+}
+@media(max-width:600px){
+.banner-copy{padding:28px 16px 8px}
+.banner .lede{font-size:15.5px}
+.banner .hero-cta{margin-top:20px;flex-wrap:nowrap}
+.banner .pip{padding-left:12px;font-size:13px;flex:none}
+.banner .hero-docs{padding-left:14px;padding-right:14px;white-space:nowrap}
+.demo-view{height:320px}
+.demo-side{height:360px}
 .demo-foot{flex-wrap:wrap}
 }
 .cm-s-cimo.CodeMirror{height:100%;background:transparent;color:#c9d1d9;font-family:var(--mono);font-size:11.5px;line-height:1.6}
@@ -257,7 +266,8 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 .nn-panel pre .ln::before{content:counter(ln);position:absolute;left:0;width:34px;text-align:right;color:#3e4659;user-select:none}
 .nn-panel pre .more{display:block;padding-left:46px}
 .nn-panel .t-op{color:#79c0ff}.nn-panel pre.hl-wasm .t-ty{color:#ff7b72}
-@media(max-width:900px){.nn-top{grid-template-columns:minmax(0,1fr)}.nn-left{border-right:0;border-bottom:1px solid var(--line2);overflow-x:auto}.nn-board{min-width:620px;height:300px;touch-action:pan-x}}
+@media(max-width:900px){.nn-top{grid-template-columns:minmax(0,1fr)}.nn-left{border-right:0;border-bottom:1px solid var(--line2)}}
+@media(max-width:600px){.nn-left,.nn-right{padding:12px}.nn-tools,.nn-strip{flex-wrap:wrap;row-gap:6px}.nn-board{height:360px;touch-action:pan-y}.nn-h,.nn-out{touch-action:none}.nn-help{font-size:9.5px;right:10px}.nn-panel pre{height:300px;font-size:11.5px}}
 /* architecture: one kernel through every stage */
 .arch{margin-top:26px;outline:0}
 .arch-steps{position:relative;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;--p:0}
@@ -296,8 +306,9 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 .arch-code pre .ln::before{content:counter(ln);position:absolute;left:0;width:34px;text-align:right;color:#3e4659;user-select:none}
 .arch-code pre[hidden]{display:none}
 .arch-code .t-op{color:#79c0ff}.arch-code .t-out{color:#8b949e}
-@media(max-width:900px){.arch-steps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:14px}.arch-line{display:none}.arch-slide{grid-template-columns:minmax(0,1fr);width:86%;padding:16px}}
+@media(max-width:900px){.arch-steps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:14px}.arch-line{display:none}.arch-slide{display:flex;flex-direction:column;align-items:stretch;gap:14px;width:88%;padding:16px}.arch-code{flex:1 0 auto;display:flex;flex-direction:column}.arch-slide .arch-code pre{flex:1 0 auto;height:240px;white-space:pre-wrap;font-size:11.5px}.arch-desc{font-size:14.5px}.arch-head h3{font-size:20px}}
 @media (prefers-reduced-motion:reduce){.arch-line b{transition:none}}
+.doclink{margin-top:18px;font-size:14px;font-weight:500}.doclink a{color:var(--brand)}.doclink a:hover{color:var(--brandD)}.doclink .sep{color:var(--ink4);margin:0 6px}
 /* code panels */
 .code{background:var(--code);border:1px solid var(--codeline);border-radius:12px;overflow:hidden;color:#c9d1d9;min-width:0}
 .code .bar{height:32px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #262b38;background:var(--code2);font-family:var(--mono);font-size:11.5px;color:#8e94a3}
@@ -534,6 +545,7 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
       <p class="lede">cimo compiles C to native code at runtime and calls it on numpy arrays. No compiler, SDK or LLVM needed: it runs wherever CPython or Pyodide does, including this page.</p>
     <div class="hero-cta">
       <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo" aria-label="Copy" title="Copy"><svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
+      <a class="btn btn-d hero-docs" href="docs/">Read the docs</a>
     </div>
     </div>
     <div class="demo-side">
@@ -629,6 +641,7 @@ void ema(int n, const double x[n], double y[n], double a) {
     <div class="car-bar"><span class="car-title">Script · compile a kernel and call it on numpy arrays</span><span class="car-ctl"><button type="button" class="car-prev" aria-label="Previous example">‹</button><span class="car-count">01 / 02</span><button type="button" class="car-next" aria-label="Next example">›</button></span></div>
   </div>
   </div>
+  <p class="doclink"><a href="docs/?p=first-kernel">Docs: your first kernel, then the whole walkthrough →</a></p>
 </div></section>
 
 <section class="s" id="why"><div class="wrap">
@@ -670,6 +683,7 @@ void ema(int n, const double x[n], double y[n], double a) {
       </div>
     </div>
   </div>
+  <p class="doclink"><a href="docs/?p=profiling">Docs: measuring and profiling your kernels →</a></p>
 </div></section>
 
 <section class="s" id="c"><div class="wrap">
@@ -701,6 +715,7 @@ k = cimo.load("kernels.c")   # or keep kernels in a file</pre>
       </table></div>
     </div>
   </div>
+  <p class="doclink"><a href="docs/?p=c-language">Docs: the C you can use →</a></p>
 </div></section>
 
 <section class="s" id="threads"><div class="wrap">
@@ -728,6 +743,7 @@ with ThreadPoolExecutor() as pool:
       </div>
     </div>
   </div>
+  <p class="doclink"><a href="docs/?p=threads">Docs: threads and the heap →</a> <span class="sep">·</span> <a href="docs/?p=errors">errors →</a></p>
 </div></section>
 
 <section class="s" id="browser"><div class="wrap">
@@ -772,6 +788,7 @@ with ThreadPoolExecutor() as pool:
     </div>
   </div>
   <p class="note">In a notebook: <code>await micropip.install("cimo")</code>, then <code>cimo.compile(src)</code> as anywhere else. The code generator is <a href="nn/codegen.py">one Python file</a>.</p>
+  <p class="doclink"><a href="docs/?p=browser">Docs: cimo in the browser →</a></p>
 </div></section>
 
 <section class="s" id="platforms"><div class="wrap">
@@ -785,6 +802,7 @@ with ThreadPoolExecutor() as pool:
     <tr><td>Pyodide / browser</td><td class="m">WebAssembly</td><td class="m">shared-memory side module</td></tr>
   </table></div>
   <p class="note">Kernels run with the full privileges of your Python process, like ctypes. There is no sandbox.</p>
+  <p class="doclink"><a href="docs/?p=platforms">Docs: platforms and how code is loaded →</a></p>
 </div></section>
 
 <section class="s" id="how"><div class="wrap">
@@ -804,6 +822,7 @@ with ThreadPoolExecutor() as pool:
   <div class="hero-cta">
     <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo" aria-label="Copy" title="Copy"><svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
     <a class="btn btn-p" href="https://github.com/farizrahman4u/cimo">GitHub</a>
+    <a class="btn btn-s" href="docs/">Docs</a>
     <a class="btn btn-s" href="https://github.com/farizrahman4u/cimo/issues">Issues</a>
   </div>
 </div></section>
@@ -811,7 +830,7 @@ with ThreadPoolExecutor() as pool:
 
 <footer class="site"><div class="wrap foot">
   <span>cimo · MIT. Bundled code from QBE (MIT), cproc (ISC) and musl (MIT) keeps its license.</span>
-  <nav class="foot-links" aria-label="Footer"><a href="https://github.com/farizrahman4u/cimo">GitHub</a><a href="https://github.com/farizrahman4u/cimo/blob/main/requirements.md">Design spec</a><a href="https://github.com/farizrahman4u/cimo/blob/main/LICENSE">License</a></nav>
+  <nav class="foot-links" aria-label="Footer"><a href="docs/">Docs</a><a href="https://github.com/farizrahman4u/cimo">GitHub</a><a href="https://github.com/farizrahman4u/cimo/blob/main/requirements.md">Design spec</a><a href="https://github.com/farizrahman4u/cimo/blob/main/LICENSE">License</a></nav>
 </div></footer>
 
 <script>
@@ -1004,7 +1023,7 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
 </script>
 <script src="runtime.js?v=44110710" defer></script>
 <script src="demo.js?v=17d42879" defer></script>
-<script src="arch.js?v=e10a5f5c" defer></script>
-<script src="nn.js?v=753f3944" defer></script>
+<script src="arch.js?v=32d2efc1" defer></script>
+<script src="nn.js?v=bc791a76" defer></script>
 </body>
 </html>
