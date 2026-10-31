@@ -37,6 +37,8 @@ $ cimo compile --ir kernels.c        # the intermediate representation (QBE IR)
 > [!PLANNED]
 > `cimo report kernels.c`: which loops were optimized, and why the others weren't.
 
+To find out where the time goes before changing anything, see [Measuring and profiling](profiling.md).
+
 ## Compile time
 
 Compiling a kernel file takes well under a second. Results are cached by a hash of the preprocessed source, so the second run of the same code starts immediately; see [Files, includes and the cache](files-and-cache.md).
