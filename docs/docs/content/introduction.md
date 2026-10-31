@@ -20,6 +20,7 @@ double dot(long n, const double *x, const double *y) {
 ## When to use it
 
 - **Loops numpy can't express.** Stencils, recurrences, flood fills, dynamic programming: code where pure Python is 100x too slow and vectorized numpy doesn't fit.
+- **Native speed in a pure-Python package.** Ship C kernels as source instead of building and releasing platform-specific binaries: one package for every OS, architecture and Python version. There is no wheel matrix to build, test and release, so CI stays small and simple.
 - **Native code generated at runtime.** If your program writes C (from a model, a query, a formula) and needs it compiled on the user's machine, cimo is the compiler, with nothing to install.
 - **Places without a toolchain.** Pyodide, JupyterLite and marimo in the browser, plugin repositories that accept no binaries, locked-down machines.
 
