@@ -52,7 +52,10 @@ def _run(inputs, target, pponly):
         while tok.kind != TEOF:
             if not D.decl(SC.filescope, None):
                 if tok.kind == TSEMICOLON:
-                    TK.error(tok.loc, "unexpected ';' at top-level")
+                    # cimo: an empty declaration at file scope, which gcc and clang accept
+                    # (the macOS SDK's headers have them, from macros that expand to nothing)
+                    PP.next()
+                    continue
                 if U.diagnostics:
                     DG.unknowntype()
                 TK.error(tok.loc, "expected declaration or function definition")

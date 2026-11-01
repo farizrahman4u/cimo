@@ -20,8 +20,9 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    of the loops the middle end already analyzes. Closes the 1.58x gap to gcc `-O3`.
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.
-7. **macOS (Apple silicon).** Never run: `MAP_JIT` loader, `tpidrro_el0` contexts, Mach-O
-   assembly, Apple ABI variant. Needs `python/tests` on an M-series Mac.
+7. ~~**macOS (Apple silicon).**~~ **Done:** the suite, corpora and examples pass on an M-series
+   Mac, ABI checked against Apple clang, CI job `macos-arm64` (see "macOS on Apple silicon" in
+   `requirements.md`).
 8. **SIGSEGV/SIGBUS in a kernel kills the process.** Turn faults inside module code into
    `KernelError` (signal handler that unwinds to the entry trampoline when the pc is in a
    module; chain to Python's handler otherwise). On Windows an access violation ends the

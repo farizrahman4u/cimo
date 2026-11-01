@@ -35,6 +35,7 @@ from cimo import linker
 HERE = os.path.dirname(os.path.abspath(__file__))
 RT = os.path.join(HERE, 'runtime')
 CIMO_PKG = os.path.dirname(os.path.abspath(cimo.__file__))
+_SYM = '_' if cimo.driver.TARGET == 'arm64_apple' else ''  # the target's symbol prefix
 # the reference compiler: on Windows a cc on PATH is MinGW for x86-64 (GitHub's arm64 image),
 # whose libraries an arm64 Python cannot load, so none there
 CC = os.environ.get('CC', 'cc') if sys.platform != 'win32' else '<none on Windows>'
@@ -496,7 +497,7 @@ def test_math_builtins_are_instructions():
     for name in ('b_sqrt', 'b_fabs', 'b_floor', 'b_ceil', 'b_trunc', 'b_round', 'b_fmin',
                  'b_fmax', 'b_fma', 'b_sqrtf', 'b_roundf', 'b_fminf', 'b_floorf', 'b_rint',
                  'b_nearbyint', 'b_rintf', 'b_nearbyintf'):
-        m = re.search(r'^%s:\n(.*?)\n\s*ret\n' % name, text, re.S | re.M)
+        m = re.search(r'^%s%s:\n(.*?)\n\s*ret\n' % (_SYM, name), text, re.S | re.M)
         assert m, name
         body[name] = m.group(1)
         assert 'bl\t' not in body[name] and 'blr' not in body[name], (name, body[name])
@@ -560,7 +561,7 @@ void f(int n, const double *restrict x, double *restrict y) {
     for (int i = 0; i < n; i++) y[i] = 1.0 / sqrt(x[i] * x[i] + 1.0);
 }''')
     assert text.count('fsqrt') >= 4  # unrolled by 4
-    assert '\tbl\t' not in re.split(r'^f:$', text, flags=re.M)[1]
+    assert '\tbl\t' not in re.split(r'^%sf:$' % _SYM, text, flags=re.M)[1]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -681,6 +682,10 @@ def test_host_data_symbols():
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <crt_externs.h>
+#define __environ (*_NSGetEnviron())
+#endif
 extern char **environ;
 int *p = &optind;
 long f(void) {

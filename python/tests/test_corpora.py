@@ -11,7 +11,8 @@ Every other program must pass.
 
     python tests/corpora.py                      # fetch the corpora (once)
     pytest tests/test_corpora.py
-    python tests/test_corpora.py --update        # rewrite the 'unsupported' entries
+    python tests/test_corpora.py --update        # rewrite the 'unsupported' entries (on Linux:
+                                                 # macOS accepts long double, so its list differs)
 """
 
 import os

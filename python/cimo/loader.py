@@ -14,9 +14,10 @@ Executable memory ("Platform loading findings" in requirements.md):
 - Windows: VirtualAlloc RW, copy, VirtualProtect the code pages PAGE_EXECUTE_READ, then
   FlushInstructionCache.
 - macOS: code in an `mmap(MAP_JIT)` region written between `pthread_jit_write_protect_np(0)`
-  and `(1)`, data in a separate RW mapping placed right after it (needs to stay within adrp
-  range, +-4 GB); then `sys_icache_invalidate`. If MAP_JIT fails, or the data mapping lands out
-  of range, fall back to the Linux W^X scheme (RW, then mprotect RX). Plain RWX is refused on
+  and `(1)`, data in a separate RW mapping placed right after it (mapped MAP_FIXED over the
+  tail of a JIT mapping of both sizes; MAP_JIT pages are RX for a thread while it runs
+  kernels, so data can't share them); then `sys_icache_invalidate`. If MAP_JIT fails, fall back
+  to the Linux W^X scheme (RW, then mprotect RX). Plain RWX is refused on
   macOS and never used.
 
 External symbols (interim: `printf`, `memcpy`, libm, ...) are looked up with dlsym on the
@@ -43,6 +44,7 @@ _MAC = sys.platform == 'darwin'
 _WIN = sys.platform == 'win32'
 MAP_ANON = 0x1000 if _MAC else 0x20
 MAP_JIT = 0x800
+MAP_FIXED = 0x10
 PAGE = _mmap.PAGESIZE
 _ARM64 = platform.machine().lower() in ('arm64', 'aarch64')
 _FAILED = (1 << (8 * ctypes.sizeof(ctypes.c_void_p))) - 1
@@ -453,10 +455,19 @@ class Image:
         csize, dsize = self.code_size, self.data_size
         if _MAC:
             try:
-                code = _map(csize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_JIT) if csize else 0
-                self._maps.append((code, csize))
-                data = _map(dsize, PROT_READ | PROT_WRITE, 0, code + csize) if dsize else 0
-                self._maps.append((data, dsize))
+                if csize:
+                    # one MAP_JIT mapping the size of both regions, its tail replaced by plain
+                    # RW memory (MAP_FIXED): data lands right after the code even when the
+                    # pages after a code-sized hole are taken, which a hint alone can't ensure
+                    # (snapshot() needs the two adjacent). MAP_JIT itself refuses MAP_FIXED.
+                    code = _map(csize + dsize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_JIT)
+                    self._maps.append((code, csize + dsize))
+                    data = _map(dsize, PROT_READ | PROT_WRITE, MAP_FIXED, code + csize) \
+                        if dsize else 0
+                else:
+                    code = 0
+                    data = _map(dsize, PROT_READ | PROT_WRITE) if dsize else 0
+                    self._maps.append((data, dsize))
                 cimg, dimg = build(code, data)
                 jw = _libc.pthread_jit_write_protect_np
                 jw.restype = None
