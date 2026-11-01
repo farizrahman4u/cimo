@@ -13,6 +13,7 @@ loading it takes milliseconds.
 
 from __future__ import annotations
 
+import contextvars
 import ctypes
 import hashlib
 import io
@@ -21,6 +22,7 @@ import platform
 import re
 import struct
 import sys
+import threading
 import warnings
 import zlib
 
@@ -245,6 +247,10 @@ MIDDLE = os.environ.get('CIMO_MIDDLE', '1') != '0'
 # fused multiply-add where C allows contraction (within one expression, like clang's
 # -ffp-contract=on); CIMO_FMA=0 turns it off, for results identical to -ffp-contract=off
 FMA = os.environ.get('CIMO_FMA', '1') != '0'
+_fma = contextvars.ContextVar('cimo_fma', default=None)  # compile(fma=): this call's choice
+# the frontend and backend ports keep their state in module globals, as the C programs do: one
+# compilation at a time in a process. Taken only around them, and they take no other lock.
+_compile_lock = threading.RLock()
 # functions of at most this many IR instructions are copied into the callers that follow them
 # (cimo.backend.inline); CIMO_INLINE=0 turns it off
 INLINE = int(os.environ.get('CIMO_INLINE', '40'))
@@ -260,17 +266,17 @@ def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
     from .backend.parse import parse
     from . import middle as _middle
     from .backend import ext as _ext
-    D.T = next(t for t in _targets() if t.name == (target or TARGET))
     out = io.StringIO()
     try:
-        with _middle.options(enabled=MIDDLE if middle is None else middle,
+        with _compile_lock, _middle.options(enabled=MIDDLE if middle is None else middle,
                              params=params or {}), \
                 _ext.options(fma=True, ldp=True, layout=True, math=True, trap=True, volatile=True, vla=True, bigcopy=256,
                              inline=INLINE, stkchk=stkchk), _Recursion():
+            D.T = next(t for t in _targets() if t.name == (target or TARGET))
             drv = _Driver(out, 0)
             parse(ssa.encode('latin-1'), '<cimo>', drv.dbgfile, drv.data, drv.func)
             drv.finish()
-        D.T.emitfin(out)
+            D.T.emitfin(out)
     except D.BackendError as e:
         raise CompileError(str(e)) from None
     return out.getvalue()
@@ -285,13 +291,13 @@ def _qbe_wasm(ssa, params=None, middle=None):
     from .backend.wasm.obj import Object
     from . import middle as _middle
     from .backend import ext as _ext
-    D.T = T_wasm
     obj = Object()
     try:
-        with _middle.options(enabled=MIDDLE if middle is None else middle,
+        with _compile_lock, _middle.options(enabled=MIDDLE if middle is None else middle,
                              params=params or {}), _ext.options(math=True, fma=True, volatile=True, vla=True,
                                         inline=INLINE), \
                 _Recursion():
+            D.T = T_wasm
             drv = _Driver(obj, 0)
             parse(ssa.encode('latin-1'), '<cimo>', drv.dbgfile, drv.data, drv.func)
             drv.finish()
@@ -304,18 +310,19 @@ def _frontend(pp, filename, target=None, **kw):
     """Preprocessed C to (QBE IR text, parameter info for the middle end). target: as _qbe."""
     from .frontend import compile as cproc_compile
     from .frontend import qbe as _fq
-    _fq.paraminfo = {}
     kw.setdefault('volatile', True)
     kw.setdefault('vlafree', True)
     kw.setdefault('bitops', True)
     kw.setdefault('bigcopy', 256)
     kw.setdefault('vastruct', 'slots' if (target or TARGET) in ('arm64_apple', 'arm64_win')
                   else 'aapcs')
-    try:
-        ssa = cproc_compile(pp, filename, target=_FRONTEND[target or TARGET], **kw)
-        return ssa, _fq.paraminfo
-    finally:
-        _fq.paraminfo = None
+    with _compile_lock:
+        _fq.paraminfo = {}
+        try:
+            ssa = cproc_compile(pp, filename, target=_FRONTEND[target or TARGET], **kw)
+            return ssa, _fq.paraminfo
+        finally:
+            _fq.paraminfo = None
 
 
 # hosted libc names that cimo's runtime does not provide (see _hint)
@@ -394,9 +401,16 @@ def _ir(pp, filename='<string>', host_headers=False):
     """Preprocessed text -> (QBE IR text, parameter info for the middle end)."""
     from .frontend import FrontendError
     try:
-        return _frontend(pp, filename, fma=FMA, builtins=True, diagnostics=True, prune=True)
+        return _frontend(pp, filename, fma=_contract(), builtins=True,
+                         diagnostics=True, prune=True)
     except FrontendError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
+
+
+def _contract():
+    """Whether this compile contracts a*b+c: its fma= argument, else the process default."""
+    v = _fma.get()
+    return FMA if v is None else v
 
 
 def _key(pp):
@@ -404,7 +418,7 @@ def _key(pp):
     image contains the runtime members it uses), the target and the code generation options."""
     return hashlib.sha256(
         _VERSION + _link.compiler_key().encode() + _link._key(TARGET).encode() + TARGET.encode()
-        + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'') + b'i%d' % INLINE
+        + (b'm' if MIDDLE else b'') + (b'f' if _contract() else b'') + b'i%d' % INLINE
         + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
 
 
@@ -423,14 +437,15 @@ def _build(src, filename='<string>', include_dirs=(), host_headers=False, define
 
 def _compile(pp, filename, host_headers):
     """Preprocessed source -> (assembly text, signatures)."""
-    ssa, params = _ir(pp, filename, host_headers)
-    text = _qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
-    sigs = _sigs(ssa)
-    if _WINDOWS:
-        from .frontend.diag import longexterns
-        names = longexterns()
-        if names:  # _module warns if one resolves to a link= library
-            sigs += ('\n' if sigs else '') + '#long ' + ' '.join(names)
+    with _compile_lock:  # longexterns() reads what this compilation's frontend left
+        ssa, params = _ir(pp, filename, host_headers)
+        text = _qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
+        sigs = _sigs(ssa)
+        if _WINDOWS:
+            from .frontend.diag import longexterns
+            names = longexterns()
+            if names:  # _module warns if one resolves to a link= library
+                sigs += ('\n' if sigs else '') + '#long ' + ' '.join(names)
     return text, sigs
 
 
@@ -606,7 +621,8 @@ class Module:
 
 
 def compile(src: str, include_dirs: Iterable[PathArg] = (), link: Union[str, Iterable[str]] = (),
-            host_headers: bool = False, defines: Defines = (), cache: bool = True) -> Module:
+            host_headers: bool = False, defines: Defines = (), cache: bool = True,
+            fma: Optional[bool] = None) -> Module:
     """Compile C source and return a Module of callables.
 
     The module is linked with cimo's runtime library (string.h, math.h, printf, malloc, ...)
@@ -616,22 +632,30 @@ def compile(src: str, include_dirs: Iterable[PathArg] = (), link: Union[str, Ite
     before cimo's bundled ones), to use declarations of linked libraries. defines: macros, as
     a dict or (name, value) pairs (value None means 1). cache=False: read the compile cache
     but write nothing to disk (no cache entries, no directories, no intermediate files);
-    whatever is compiled, including runtime library members, is kept in memory."""
-    return _module(src, '<string>', include_dirs, link, host_headers, defines, cache)
+    whatever is compiled, including runtime library members, is kept in memory. fma: contract
+    a*b+c within one expression into a fused multiply-add (one rounding), like
+    -ffp-contract=on; False gives results identical to -ffp-contract=off, and None the process
+    default (on, or off with CIMO_FMA=0). Calls of fma() are always fused. wasm never
+    contracts."""
+    return _module(src, '<string>', include_dirs, link, host_headers, defines, cache, fma)
 
 
 def load(path: PathArg, include_dirs: Iterable[PathArg] = (), link: Union[str, Iterable[str]] = (),
-         host_headers: bool = False, defines: Defines = (), cache: bool = True) -> Module:
+         host_headers: bool = False, defines: Defines = (), cache: bool = True,
+         fma: Optional[bool] = None) -> Module:
     """Compile a .c file; its directory is searched for "..." includes. Options as compile()."""
     from .resources import read_text
-    return _module(read_text(path), path, include_dirs, link, host_headers, defines, cache)
+    path = os.fspath(path)
+    return _module(read_text(path), path, include_dirs, link, host_headers, defines, cache, fma)
 
 
-def _module(src, filename, include_dirs, link, host_headers, defines, cache=True):
+def _module(src, filename, include_dirs, link, host_headers, defines, cache=True, fma=None):
     token = _link.cache_writes.set(bool(cache))
+    ftoken = _fma.set(None if fma is None else bool(fma))
     try:
         return _module1(src, filename, include_dirs, link, host_headers, defines)
     finally:
+        _fma.reset(ftoken)
         _link.cache_writes.reset(token)
 
 

@@ -887,3 +887,59 @@ def test_bytes_arguments_stay_alive():
         assert m.f(memoryview(b'hello')) == 5
         assert m.g(b'x' * 100, memoryview(b'x' * 100)) == 1
     assert m.f(b'') == 0
+
+
+FMA_SRC = 'double f(double a, double b, double c) { return a * b + c; }\n' \
+          '#include <math.h>\ndouble g(double a, double b, double c) { return fma(a, b, c); }\n'
+FUSED, SPLIT = 5.551115123125783e-17, 0.0  # 0.1 * 10 - 1, rounded once or twice
+
+
+def test_fma_per_compile():
+    """compile(fma=) decides for that call alone: in either order, with the cache on (each
+    gets its own entry), without touching the process default. fma() itself stays fused."""
+    from cimo import driver
+    default = driver.FMA
+    src = FMA_SRC + '/* %s */\n' % os.urandom(8).hex()
+    for fma, want in ((False, SPLIT), (True, FUSED), (False, SPLIT), (True, FUSED)):
+        m = cimo.compile(src, fma=fma)
+        assert m.f(0.1, 10.0, -1.0) == want, fma
+        assert m.g(0.1, 10.0, -1.0) == FUSED
+        assert driver.FMA == default
+
+
+def test_fma_none_follows_the_process_default(monkeypatch):
+    from cimo import driver
+    for flag, want in ((False, SPLIT), (True, FUSED)):
+        monkeypatch.setattr(driver, 'FMA', flag)
+        assert cimo.compile(FMA_SRC, cache=False).f(0.1, 10.0, -1.0) == want
+    monkeypatch.setattr(driver, 'FMA', False)
+    assert cimo.compile(FMA_SRC, cache=False, fma=True).f(0.1, 10.0, -1.0) == FUSED
+
+
+def test_fma_on_load(tmp_path):
+    p = tmp_path / 'k.c'
+    p.write_text(FMA_SRC)
+    assert cimo.load(p, fma=False).f(0.1, 10.0, -1.0) == SPLIT
+    assert cimo.load(p, fma=True).f(0.1, 10.0, -1.0) == FUSED
+
+
+def test_compiling_in_threads():
+    """Compilations from several threads: each gets its own program and its own fma= (big
+    enough, and with switches frequent enough, that unlocked compilations overlap)."""
+    from concurrent.futures import ThreadPoolExecutor
+    helpers = '\n'.join('int h%d(int *p, int n) { int s = 0; for (int i = 0; i < n; i++) '
+                        '{ s += p[i] * %d; if (s > 9) s -= 3; } return s; }' % (j, j + 1)
+                        for j in range(40))
+
+    def one(k):
+        fma = bool(k % 2)
+        src = FMA_SRC + helpers + '\nint id(void) { return %d; }\n/* %s */\n' % (k, os.urandom(4).hex())
+        m = cimo.compile(src, cache=False, fma=fma)
+        return m.id() == k and m.f(0.1, 10.0, -1.0) == (FUSED if fma else SPLIT)
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-5)
+    try:
+        with ThreadPoolExecutor(4) as ex:
+            assert all(ex.map(one, range(16)))
+    finally:
+        sys.setswitchinterval(old)

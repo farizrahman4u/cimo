@@ -248,10 +248,12 @@ honored in diagnostics and debug info, a defined convention for numpy buffers an
 compile latency with a usable cache key, and (for loop-heavy code) auto-vectorization.
 
 Also from scramjit's first measurements (its M0, 2026-11-01):
-- **FMA contraction per compile:** `cimo.compile(..., fma=False)` in the Python API, like the
-  CLI's `--no-fma`. Today only the process-wide `CIMO_FMA` controls it, read at import. scramjit
-  must reproduce CPython's float results bit for bit, so it needs contraction off for its
-  compiles without changing other callers in the same process.
+- **FMA contraction per compile:** **Done:** `cimo.compile(..., fma=False)` (also `load`), like the
+  CLI's `--no-fma`; `None` keeps the process default (`CIMO_FMA`). scramjit must reproduce
+  CPython's float results bit for bit without changing other callers in the same process.
+- **Compiling from several threads** is safe: the frontend and backend ports keep their state in
+  module globals, so `driver._compile_lock` runs one at a time (the preprocessor, assembler and
+  loader run outside it). Without the lock, 15 of 16 concurrent compiles failed.
 - **Math functions against CPython:** the bundled libm differs in the last bit from the host libm
   CPython uses (glibc, arm64) for many inputs: `atan2` 18%, `hypot` 14%, `sin`/`cos` 3%,
   `exp`/`pow` under 0.1%, `sqrt`/`log` none. Worth documenting; an option to link the host's libm

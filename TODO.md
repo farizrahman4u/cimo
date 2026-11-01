@@ -55,9 +55,6 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   (`ema` 5.12 to 3.33 ns, a wrapping-add sum 2.05 to 0.34 ns). Costs 13-38% compile time and about
   25-30% more code on `t_printf` and `t_math`. Open: drop a static function once every call is
   inlined (its definition is still compiled and emitted); honor `noinline`.
-- **FMA contraction per compile** (requested by scramjit): `cimo.compile(..., fma=False)`, like the
-  CLI's `--no-fma`; today only the process-wide `CIMO_FMA`, read at import. **When done, note it
-  in scramjit's `TODO.md`** so it can drop setting `CIMO_FMA` and its warning.
 - **Linking the host libm for math calls** (requested by scramjit; see the scramjit paragraph in
   `requirements.md`): needed for results bit-identical to CPython's on native targets, on Linux,
   macOS and Windows. **When done, note it in scramjit's `TODO.md`.**

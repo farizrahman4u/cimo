@@ -7,7 +7,7 @@ import cimo
 ## cimo.compile
 
 ```python
-cimo.compile(src, include_dirs=(), link=(), host_headers=False, defines=())
+cimo.compile(src, include_dirs=(), link=(), host_headers=False, defines=(), cache=True, fma=None)
 ```
 
 Compiles C source and returns a [module](#module). Raises [`CompileError`](#compileerror).
@@ -19,11 +19,13 @@ Compiles C source and returns a [module](#module). Raises [`CompileError`](#comp
 | `link` | host libraries that may resolve functions cimo's C library doesn't provide: `"libc"`, `"libm"`, `"python"`, a soname, a short name or a path. See [Calling host libraries](host-libraries.md). Not in Pyodide. |
 | `host_headers` | also search the host's C headers. Not in Pyodide. |
 | `defines` | macros: a dict or `(name, value)` pairs; `None` means `1` |
+| `cache` | `False`: read the compile cache but write nothing to disk |
+| `fma` | `False`: no fused multiply-add contraction, for results identical to `-ffp-contract=off`. `True`: contract `a*b+c` within one expression. `None` (default): on, unless `CIMO_FMA=0`. wasm never contracts. |
 
 ## cimo.load
 
 ```python
-cimo.load(path, include_dirs=(), link=(), host_headers=False, defines=())
+cimo.load(path, include_dirs=(), link=(), host_headers=False, defines=(), cache=True, fma=None)
 ```
 
 Compiles a `.c` file. The file's directory is searched for `#include "..."`. Other parameters as for `compile`.

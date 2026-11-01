@@ -48,7 +48,7 @@ Compiling a kernel file takes well under a second. Results are cached by a hash 
 | Setting | Effect |
 |---|---|
 | `CIMO_MIDDLE=0` | turns off the loop optimizer (to compare, or to rule it out) |
-| `CIMO_FMA=0` | no fused multiply-add contraction |
+| `CIMO_FMA=0` | no fused multiply-add contraction (for one compile: `cimo.compile(src, fma=False)`) |
 | `CIMO_INLINE=<n>` | largest function inlined, in IR instructions (default 40, `0` turns it off) |
 
 > [!PLANNED]
