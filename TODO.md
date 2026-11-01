@@ -33,6 +33,11 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Performance
 
+- **A public way to get a module's WebAssembly** (requested by scramjit): its site demo shows the
+  compiled kernel's disassembly and calls `cimo.wasm.build` for the bytes, as cimo's own demo does,
+  which isn't documented API. For example `module.wasm` (bytes, in Pyodide) and making
+  `docs/nn/wat.py` a supported `cimo.wat`. **When done, note it in scramjit's `TODO.md`.**
+
 - **Slower than gcc -O3 on scramjit's kernels** (requested by scramjit, 2026-11-01; arm64 WSL,
   gcc 13.3 `-O3 -ffp-contract=off`, cimo with `CIMO_FMA=0`; reproduce with scramjit's
   `python3 bench/gcc.py`, which compiles the same C both ways). On the same generated C:
