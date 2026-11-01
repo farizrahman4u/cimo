@@ -31,6 +31,7 @@ def backend(ssa, flags=(), target=None):
         with ext.options(**{f: f in flags for f in FLAGS}):
             drv = _Driver(out, 0)
             parse(ssa.encode('latin-1'), '<test>', drv.dbgfile, drv.data, drv.func)
+            drv.finish()
             D.T.emitfin(out)
     finally:
         D.T = old

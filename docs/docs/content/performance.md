@@ -24,7 +24,7 @@ cimo is an optimizing compiler. On loops it can analyze it runs close to gcc and
   }
   ```
 
-- **Keep the hot loop in one function.** Calls inside a loop are not inlined.
+- **Write small helpers as functions.** Small functions in the same source are inlined, so they cost the same as a macro. A call to a large function, a recursive one, or one taking a struct by value stays a call.
 - **Prefer `float` when the data is `float32`.** Converting each element to `double` and back costs time.
 
 ## Look at the generated code
@@ -49,6 +49,7 @@ Compiling a kernel file takes well under a second. Results are cached by a hash 
 |---|---|
 | `CIMO_MIDDLE=0` | turns off the loop optimizer (to compare, or to rule it out) |
 | `CIMO_FMA=0` | no fused multiply-add contraction |
+| `CIMO_INLINE=<n>` | largest function inlined, in IR instructions (default 40, `0` turns it off) |
 
 > [!PLANNED]
 > SIMD: auto-vectorization of the loops the optimizer analyzes. This is the remaining gap to gcc and clang with vectorization on.

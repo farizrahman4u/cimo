@@ -245,6 +245,9 @@ MIDDLE = os.environ.get('CIMO_MIDDLE', '1') != '0'
 # fused multiply-add where C allows contraction (within one expression, like clang's
 # -ffp-contract=on); CIMO_FMA=0 turns it off, for results identical to -ffp-contract=off
 FMA = os.environ.get('CIMO_FMA', '1') != '0'
+# functions of at most this many IR instructions are copied into the callers that follow them
+# (cimo.backend.inline); CIMO_INLINE=0 turns it off
+INLINE = int(os.environ.get('CIMO_INLINE', '40'))
 
 
 def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
@@ -263,9 +266,10 @@ def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
         with _middle.options(enabled=MIDDLE if middle is None else middle,
                              params=params or {}), \
                 _ext.options(fma=True, ldp=True, layout=True, math=True, trap=True, volatile=True, vla=True, bigcopy=256,
-                             stkchk=stkchk), _Recursion():
-            parse(ssa.encode('latin-1'), '<cimo>', _Driver(out, 0).dbgfile,
-                  _Driver(out, 0).data, _Driver(out, 0).func)
+                             inline=INLINE, stkchk=stkchk), _Recursion():
+            drv = _Driver(out, 0)
+            parse(ssa.encode('latin-1'), '<cimo>', drv.dbgfile, drv.data, drv.func)
+            drv.finish()
         D.T.emitfin(out)
     except D.BackendError as e:
         raise CompileError(str(e)) from None
@@ -285,10 +289,12 @@ def _qbe_wasm(ssa, params=None, middle=None):
     obj = Object()
     try:
         with _middle.options(enabled=MIDDLE if middle is None else middle,
-                             params=params or {}), _ext.options(math=True, fma=True, volatile=True, vla=True), \
+                             params=params or {}), _ext.options(math=True, fma=True, volatile=True, vla=True,
+                                        inline=INLINE), \
                 _Recursion():
             drv = _Driver(obj, 0)
             parse(ssa.encode('latin-1'), '<cimo>', drv.dbgfile, drv.data, drv.func)
+            drv.finish()
     except D.BackendError as e:
         raise CompileError(str(e)) from None
     return obj
@@ -398,7 +404,7 @@ def _key(pp):
     image contains the runtime members it uses), the target and the code generation options."""
     return hashlib.sha256(
         _VERSION + _link.compiler_key().encode() + _link._key(TARGET).encode() + TARGET.encode()
-        + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
+        + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'') + b'i%d' % INLINE
         + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
 
 

@@ -30,6 +30,7 @@ class _Driver:
     def __init__(self, outf, dbg):
         self.outf = outf
         self.dbg = dbg
+        self.pending = []  # cimo (ext.inline): the module's functions, compiled by finish()
 
     def data(self, d):
         from .emit import emitdat
@@ -46,6 +47,24 @@ class _Driver:
             self.outf.write("/* end data */\n\n")
 
     def func(self, fn):
+        from . import ext
+        if ext.inline:  # cimo: all of the module first, so callees defined later inline too
+            self.pending.append(fn)
+            return
+        self.compile(fn)
+
+    def finish(self):
+        """cimo (ext.inline): inline small functions into their callers, callees first, then
+        compile the functions in their order in the module."""
+        from . import ext, inline
+        fns, self.pending = self.pending, []
+        if not fns:
+            return
+        inline.expand_all(fns, ext.inline)
+        for fn in fns:
+            self.compile(fn)
+
+    def compile(self, fn):
         T = D.T
         err = sys.stderr
         if self.dbg:
@@ -208,6 +227,7 @@ def main(argv=None):
                     sys.stderr.write("cannot open '%s'\n" % f)
                     return 1
             parse(buf, f, drv.dbgfile, drv.data, drv.func)
+        drv.finish()
         if not dbg:
             D.T.emitfin(outf)
     except D.BackendError as e:

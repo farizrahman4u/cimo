@@ -270,6 +270,12 @@ The compiler accepts all of the language; it reaches `-O3` quality on **analyzab
   - **runtime alias checks:** compute each buffer's address range for the loop, compare once
     before the loop, run the fast or the safe version (what gcc does)
 
+Small functions are inlined (`backend/inline.py`, before SSA): a function of at most 40 IR
+instructions is copied into its calls in the same unit, callees first (`CIMO_INLINE=<n>` sets
+the limit, 0 turns it off), so a loop calling helpers stays analyzable. The backend holds a
+unit's functions until its end for this. Recursion, aggregate arguments or returns, variadic
+functions and VLAs keep the call; the callee's own definition is always kept.
+
 Everything else compiles at "QBE quality" (measured 1-4x behind gcc on scalar code, see below).
 `--report` explains why a loop wasn't optimized ("base of `p` depends on a runtime branch"), like
 gcc's `-fopt-info`.
@@ -560,8 +566,8 @@ uses Apple's type macros (signed char and `wchar_t`, `int64_t` = `long long`). S
     helpers (e.g. `isnan`, no double evaluation) landed in every unit that includes it.
     **Done:** `frontend.compile(prune=True)` (driver and runtime build) drops static functions
     and data no exported definition reaches (`frontend/prune.py`, on the IR text); the
-    runtime's first build went from 8.8 s to 5.5 s. QBE has no inliner, so `isnan(x)` is a call
-    until the middle stage inlines.
+    runtime's first build went from 8.8 s to 5.5 s. `isnan(x)` and the other header
+    helpers are now inlined (`backend/inline.py`).
   - cproc's config.h defines `__FLT_EVAL_METHOD__` as 1, but cproc + QBE compute floats in
     single precision (at run time and when folding constants). `cimo.preprocessor` defines 0,
     like gcc on arm64, so `float_t` is `float` (with 1 it was `double`: slower, and results

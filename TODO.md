@@ -51,11 +51,10 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
     division once, but flood_fill (branchy, many small blocks, bounds checks) is still 1.9x.
   **When fixed, add a note to scramjit's `TODO.md`** so it can drop the workarounds listed there.
 
-- **Inline small static functions** (requested by scramjit). `static inline` helpers are
-  compiled as real calls: a loop calling a one-line wrapping-subtract helper ran at 5.15 ns per
-  element against 3.07 ns for the same loop with a macro (arm64). Every C user writing helpers
-  pays this. **When done, add a note to scramjit's `TODO.md`** ("cimo inlines: remove the macro
-  workaround") so its prelude can go back to functions.
+- ~~**Inline small functions**~~ **Done** (`backend/inline.py`): helpers now run as fast as macros
+  (`ema` 5.12 to 3.33 ns, a wrapping-add sum 2.05 to 0.34 ns). Costs 13-38% compile time and about
+  25-30% more code on `t_printf` and `t_math`. Open: drop a static function once every call is
+  inlined (its definition is still compiled and emitted); honor `noinline`.
 - **FMA contraction per compile** (requested by scramjit): `cimo.compile(..., fma=False)`, like the
   CLI's `--no-fma`; today only the process-wide `CIMO_FMA`, read at import. **When done, note it
   in scramjit's `TODO.md`** so it can drop setting `CIMO_FMA` and its warning.
