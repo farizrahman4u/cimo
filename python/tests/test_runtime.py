@@ -254,6 +254,29 @@ int q(void) { return puts("done"); }
     assert f.getvalue() == 'été|  2.2|ff\ndone\n'
 
 
+UTF8_SPLIT_SRC = r'''
+#include <stdio.h>
+void byte(int c) { putchar(c); }
+void fill(int n) { for (int i = 0; i < n; i++) putchar('a'); putchar(0xc3); putchar(0xa9); }
+'''
+
+
+def utf8_split_run(m):
+    """A character split between two kernel calls, then one split by a full buffer (4088 bytes
+    of buffer: 4087 'a's + the lead byte fill it, so the next byte flushes between the two)."""
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+        m.byte(0xc3)
+        m.byte(0xa9)
+        m.fill(4087)
+        m.byte(ord('\n'))
+    return f.getvalue()
+
+
+def test_printf_utf8_split_between_writes():
+    assert utf8_split_run(cimo.compile(UTF8_SPLIT_SRC)) == 'é' + 'a' * 4087 + 'é\n'
+
+
 def test_printf_from_threads():
     """Each thread has its own buffer: lines printed concurrently come out whole, none lost,
     and each thread's lines stay in order. Partial lines are flushed when the kernel returns."""

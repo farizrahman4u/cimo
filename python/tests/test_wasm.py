@@ -172,6 +172,19 @@ try:
 except cimo.KernelError as e:
     assert e.kind == 'assert' and 'x > 0' in str(e), e
 assert k.sum(a, 10) == 45
+import contextlib, io
+u = cimo.compile(r"""
+#include <stdio.h>
+void byte(int c) { putchar(c); }
+void fill(int n) { for (int i = 0; i < n; i++) putchar('a'); putchar(0xc3); putchar(0xa9); }
+""")
+f = io.StringIO()
+with contextlib.redirect_stdout(f):
+    u.byte(0xc3)  # a character split between two kernel calls
+    u.byte(0xa9)
+    u.fill(4087)  # and one split by a full buffer
+    u.byte(10)
+assert f.getvalue() == 'é' + 'a' * 4087 + 'é\n', repr(f.getvalue()[:8] + f.getvalue()[-8:])
 print('PYODIDE OK')
 ''')
     r = subprocess.run(['node', os.path.join(HERE, 'wasm', 'pyodide_run.mjs'), str(script)],

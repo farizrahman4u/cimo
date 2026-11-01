@@ -10,6 +10,7 @@ and errors (abort, exit, assert, traps), which are recorded and raised as Kernel
 JavaScript exception thrown through the kernel's frames has unwound them.
 """
 
+import codecs
 import ctypes
 import itertools
 import sys
@@ -72,6 +73,7 @@ class WasmModule:
 
     def __init__(self, mod, sigs):
         self._err = None
+        self._decoder = codecs.getincrementaldecoder('utf-8')('replace')
         self._chunks = {}
         self._proxies = []
         scope = js.Object.new()
@@ -96,7 +98,11 @@ class WasmModule:
     # imports
 
     def _write(self, buf, n):
-        sys.stdout.write(ctypes.string_at(buf, n).decode('utf-8', 'replace'))
+        # Incremental: a character split between two writes (a full buffer, or a kernel that
+        # returns mid-character) is decoded whole, as on native (cimo.linker._write).
+        text = self._decoder.decode(ctypes.string_at(buf, n))
+        if text:
+            sys.stdout.write(text)
 
     def _grow(self, nbytes, kind):
         b = ctypes.create_string_buffer(nbytes + 16)
