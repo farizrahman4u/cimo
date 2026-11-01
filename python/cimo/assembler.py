@@ -613,7 +613,8 @@ def _i_fp4(a, mn, ops):  # fmadd Fd, Fn, Fm, Fa
 
 # floating-point data-processing (1 source); fneg is QBE's, the rest are cimo's math builtins
 _FP1 = {'fneg': 0x1e214000, 'fabs': 0x1e20c000, 'fsqrt': 0x1e21c000, 'frintp': 0x1e24c000,
-        'frintm': 0x1e254000, 'frintz': 0x1e25c000, 'frinta': 0x1e264000}
+        'frintm': 0x1e254000, 'frintz': 0x1e25c000, 'frinta': 0x1e264000,
+        'frintx': 0x1e274000, 'frinti': 0x1e27c000}
 
 
 def _i_fneg(a, mn, ops):
@@ -903,7 +904,8 @@ _INSNS = {
     'mov': _i_mov, 'movk': _i_movk, 'movz': _i_movk, 'movn': _i_movk, 'cset': _i_cset,
     'fadd': _i_fp3, 'fsub': _i_fp3, 'fmul': _i_fp3, 'fdiv': _i_fp3, 'fneg': _i_fneg,
     'fminnm': _i_fp3, 'fmaxnm': _i_fp3, 'fabs': _i_fneg, 'fsqrt': _i_fneg, 'frintp': _i_fneg,
-    'frintm': _i_fneg, 'frintz': _i_fneg, 'frinta': _i_fneg,
+    'frintm': _i_fneg, 'frintz': _i_fneg, 'frinta': _i_fneg, 'frintx': _i_fneg,
+    'frinti': _i_fneg,
     'clz': _i_dp1, 'rbit': _i_dp1, 'rev16': _i_dp1, 'rev': _i_dp1, 'cnt': _i_simd,
     'addv': _i_simd,
     'fmadd': _i_fp4, 'fmsub': _i_fp4, 'fnmadd': _i_fp4, 'fnmsub': _i_fp4,

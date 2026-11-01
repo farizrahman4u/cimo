@@ -195,6 +195,8 @@ bitops = False
 # cimo extension: an aggregate copy of at least this many bytes calls memcpy (None: always
 # unrolled, as cproc does; the backend's time grows faster than linearly with the unrolled code)
 bigcopy = None
+# cimo extension: rint and nearbyint as instructions (cimo.backend.ext.math), see funcbuiltin
+IFRINT, IFNEARBYINT = 121, 122
 _BITBUILTINS = {}
 for _n, _i in (('clz', IBCLZ), ('ctz', IBCTZ), ('popcount', IBPOPCNT)):
     _BITBUILTINS['__builtin_' + _n] = (_i, 'w')
@@ -214,6 +216,7 @@ instname += [None] * (IFSQRT - len(instname)) + list(_MATHINST)
 instname += ['v' + instname[_o] for _o in range(ISTORED, ILOADUB + 1)]
 instname += ['getsp', 'setsp']
 instname += ['bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16']
+instname += ['frint', 'fnearbyint']
 
 
 def _vol(op, tq):
@@ -227,7 +230,7 @@ builtins = False
 _BUILTINS = {}
 for _i, _n in ((IFSQRT, 'sqrt'), (IFABS, 'fabs'), (IFMIN, 'fmin'), (IFMAX, 'fmax'),
                (IFFLOOR, 'floor'), (IFCEIL, 'ceil'), (IFTRUNC, 'trunc'), (IFROUND, 'round'),
-               (IFMA, 'fma')):
+               (IFRINT, 'rint'), (IFNEARBYINT, 'nearbyint'), (IFMA, 'fma')):
     _nargs = 3 if _i == IFMA else 2 if _i in (IFMIN, IFMAX) else 1
     _BUILTINS[_n] = (_i, _nargs, 8)
     _BUILTINS[_n + 'f'] = (_i, _nargs, 4)
@@ -1022,11 +1025,13 @@ def funcfma(f, e):
 
 
 def funcbuiltin(f, e):
-    """cimo extension: a call of sqrt, fabs, fmin, fmax, floor, ceil, trunc, round, fma (or
+    """cimo extension: a call of sqrt, fabs, fmin, fmax, floor, ceil, trunc, round, rint,
+    nearbyint, fma (or
     the float versions) as one instruction, if the callee is the declared external function
     with the standard prototype (the names are reserved, C11 7.1.3). The results are the
     C functions' exactly: fminnm/fmaxnm return the number when one operand is a quiet NaN
-    (and treat -0 < +0), frinta rounds halfway cases away from zero."""
+    (and treat -0 < +0), frinta rounds halfway cases away from zero, frintx/frinti round in the current mode
+    (frintx raising inexact, as rint does)."""
     b = e.base
     if not (b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT):
         return None

@@ -141,6 +141,8 @@ omap = [
     (D.Ofceil, Ka, "frintp %=, %0"),
     (D.Oftrunc, Ka, "frintz %=, %0"),
     (D.Ofround, Ka, "frinta %=, %0"),
+    (D.Ofrint, Ka, "frintx %=, %0"),
+    (D.Ofnearbyint, Ka, "frinti %=, %0"),
     # cimo bit builtins (ext.math); popcount through v31 (no scalar cnt before FEAT_CSSC)
     (D.Obclz, Ki, "clz %=, %0"),
     (D.Obctz, Ki, "rbit %=, %0\n\tclz %=, %="),

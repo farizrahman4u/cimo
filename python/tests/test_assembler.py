@@ -143,7 +143,8 @@ def test_math_builtins():
     """Instructions cimo's math builtins select (fsqrt, fabs, fminnm/fmaxnm, frint*)."""
     rnd = random.Random(3)
     lines = []
-    for mn in ('fsqrt', 'fabs', 'frintm', 'frintp', 'frintz', 'frinta', 'fminnm', 'fmaxnm'):
+    for mn in ('fsqrt', 'fabs', 'frintm', 'frintp', 'frintz', 'frinta', 'frintx', 'frinti', 'fminnm',
+               'fmaxnm'):
         n = 3 if mn in ('fminnm', 'fmaxnm') else 2
         for k in 'sd':
             for _ in range(20):

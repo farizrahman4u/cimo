@@ -53,6 +53,7 @@ _STORE = {D.Ostoreb: (0x3A, Kw, 0), D.Ostoreh: (0x3B, Kw, 1), D.Ostorew: (0x36, 
 _UNF = {  # math builtins: op -> (f32, f64)
     D.Ofsqrt: (0x91, 0x9F), D.Ofabs: (0x8B, 0x99), D.Offloor: (0x8E, 0x9C),
     D.Ofceil: (0x8D, 0x9B), D.Oftrunc: (0x8F, 0x9D),
+    D.Ofrint: (0x90, 0x9E), D.Ofnearbyint: (0x90, 0x9E),  # nearest: ties to even, no flags
 }
 
 

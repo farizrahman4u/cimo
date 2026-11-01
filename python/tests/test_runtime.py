@@ -431,6 +431,8 @@ double b_floor(double x) { return floor(x); }
 double b_ceil(double x) { return ceil(x); }
 double b_trunc(double x) { return trunc(x); }
 double b_round(double x) { return round(x); }
+double b_rint(double x) { return rint(x); }
+double b_nearbyint(double x) { return nearbyint(x); }
 double b_fmin(double x, double y) { return fmin(x, y); }
 double b_fmax(double x, double y) { return fmax(x, y); }
 double b_fma(double x, double y, double z) { return fma(x, y, z); }
@@ -438,8 +440,11 @@ float b_sqrtf(float x) { return sqrtf(x); }
 float b_roundf(float x) { return roundf(x); }
 float b_fminf(float x, float y) { return fminf(x, y); }
 float b_floorf(float x) { return floorf(x); }
+float b_rintf(float x) { return rintf(x); }
+float b_nearbyintf(float x) { return nearbyintf(x); }
 /* through a function pointer: the runtime's out-of-line definitions */
-static double (*volatile p1[])(double) = { sqrt, fabs, floor, ceil, trunc, round };
+static double (*volatile p1[])(double) = { sqrt, fabs, floor, ceil, trunc, round, rint,
+                                             nearbyint };
 static double (*volatile p2[])(double, double) = { fmin, fmax };
 double o1(int k, double x) { return p1[k](x); }
 double o2(int k, double x, double y) { return p2[k](x, y); }
@@ -468,6 +473,11 @@ def _c_round(x):
     return math.copysign(r, x)
 
 
+def _c_rint(x):
+    """C rint() in the default rounding mode: halfway cases to even."""
+    return x if not math.isfinite(x) else math.copysign(float(round(x)), x)
+
+
 def _c_fmin(x, y, mx=False):
     if math.isnan(x):
         return y
@@ -484,7 +494,8 @@ def test_math_builtins_are_instructions():
     text, _ = driver._build(BUILTIN_SRC)
     body = {}
     for name in ('b_sqrt', 'b_fabs', 'b_floor', 'b_ceil', 'b_trunc', 'b_round', 'b_fmin',
-                 'b_fmax', 'b_fma', 'b_sqrtf', 'b_roundf', 'b_fminf', 'b_floorf'):
+                 'b_fmax', 'b_fma', 'b_sqrtf', 'b_roundf', 'b_fminf', 'b_floorf', 'b_rint',
+                 'b_nearbyint', 'b_rintf', 'b_nearbyintf'):
         m = re.search(r'^%s:\n(.*?)\n\s*ret\n' % name, text, re.S | re.M)
         assert m, name
         body[name] = m.group(1)
@@ -494,7 +505,9 @@ def test_math_builtins_are_instructions():
                        ('b_round', 'frinta\td'), ('b_fmin', 'fminnm\td'),
                        ('b_fmax', 'fmaxnm\td'), ('b_fma', 'fmadd\td'), ('b_sqrtf', 'fsqrt\ts'),
                        ('b_roundf', 'frinta\ts'), ('b_fminf', 'fminnm\ts'),
-                       ('b_floorf', 'frintm\ts')):
+                       ('b_floorf', 'frintm\ts'), ('b_rint', 'frintx\td'),
+                       ('b_nearbyint', 'frinti\td'), ('b_rintf', 'frintx\ts'),
+                       ('b_nearbyintf', 'frinti\ts')):
         assert insn in body[name], (name, body[name])
 
 
@@ -504,7 +517,8 @@ def test_math_builtins_semantics():
            ('fabs', m.b_fabs, abs, 1), ('floor', m.b_floor, lambda x: x if not math.isfinite(x) else math.copysign(math.floor(x), x), 2),
            ('ceil', m.b_ceil, lambda x: x if not math.isfinite(x) else math.copysign(math.ceil(x), x), 3),
            ('trunc', m.b_trunc, lambda x: x if not math.isfinite(x) else math.copysign(math.trunc(x), x), 4),
-           ('round', m.b_round, _c_round, 5)]
+           ('round', m.b_round, _c_round, 5), ('rint', m.b_rint, _c_rint, 6),
+           ('nearbyint', m.b_nearbyint, _c_rint, 7)]
     for name, f, ref, k in ops:
         for x in SPECIALS + [-s for s in SPECIALS]:
             want = ref(x)
@@ -526,6 +540,7 @@ def test_math_builtins_semantics():
     assert m.b_fma(0.1, 10.0, -1.0) == 5.551115123125783e-17  # fused: one rounding
     assert m.b_roundf(2.5) == 3.0 and m.b_roundf(-0.5) == -1.0
     assert m.b_fminf(float('nan'), 2.0) == 2.0
+    assert m.b_rintf(2.5) == 2.0 and m.b_nearbyintf(-3.5) == -4.0 and m.b_rintf(1.25) == 1.0
     assert m.b_sqrtf(2.0) == struct.unpack('<f', struct.pack('<f', math.sqrt(2)))[0]
 
 

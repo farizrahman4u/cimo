@@ -43,8 +43,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   `python3 bench/gcc.py`, which compiles the same C both ways). On the same generated C:
   gray_scott 0.22 vs 0.17 ms (1.3x), flood_fill 3.60 vs 1.93 ms (1.9x), viewshed 7.84 vs 3.43 ms
   (2.3x); on the hand-written C of scramjit's `kernels/c/`: 1.2x, 1.3x and 2.5x. Pinned down so far:
-  - `rint` is a library call: 2.5 vs 1.0 ns per element (gcc emits `frintx`). Lower `rint` and
-    `nearbyint` to single instructions, as `floor`/`ceil`/`trunc` are.
+  - ~~`rint` is a library call~~ **Done:** `rint`/`nearbyint` are `frintx`/`frinti` (wasm
+    `nearest`): 2.5 to 0.44 ns per element, the same as `floor`.
   - The bundled `hypot` is 1.5x glibc's (10.3 vs 6.8 ns).
   - No common subexpression elimination: an expression repeated in the source is computed each
     time (scramjit's `x % n` macro computed `a % b` three times). scramjit now writes each

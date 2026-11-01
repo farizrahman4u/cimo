@@ -289,7 +289,7 @@ _OPS = [
     ('afmsub', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('afnmadd', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('afnmsub', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-    # math builtins (ext.math): C's sqrt, fabs, fmin, fmax, floor, ceil, trunc, round, one
+    # math builtins (ext.math): C's sqrt, fabs, fmin, fmax, floor, ceil, trunc, round, rint, nearbyint, one
     # instruction each on arm64; pure, so gvn merges and gcm hoists them
     ('fsqrt', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('fabs', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
@@ -299,6 +299,8 @@ _OPS = [
     ('fceil', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('ftrunc', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('fround', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('frint', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    ('fnearbyint', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     # volatile accesses (ext.volatile): loads and stores that no pass may delete, merge, move,
     # forward or promote; pinned, and unknown to the memory passes (so their address escapes).
     # arm64 isel and the wasm emitter turn them into plain loads and stores.

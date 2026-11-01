@@ -52,6 +52,8 @@ double dot(int n, const double *a, const double *b) {
     double s = 0; for (int i = 0; i < n; i++) s += a[i] * b[i]; return s; }
 #include <math.h>
 float fmix(float a, float b) { return fminf(a, b) + fmaxf(a, b); }
+double rnd(double x) { return rint(x) + 2 * nearbyint(x); }
+float rndf(float x) { return rintf(x) + 2 * nearbyintf(x); }
 unsigned char sat(int x) { return x < 0 ? 0 : x > 255 ? 255 : x; }
 int fact(int n) { return n < 2 ? 1 : n * fact(n - 1); }
 ''')
@@ -62,6 +64,8 @@ int fact(int n) { return n < 2 ? 1 : n * fact(n - 1); }
     assert host.call('sat', 'w', 300)[0] == 255 and host.call('sat', 'w', -5)[0] == 0
     assert host.call('fact', 'w', 10)[0] == 3628800
     assert host.call('fmix', 's,s', float('nan'), 2.0)[0] == 4.0  # C fmin/fmax ignore a NaN
+    for x, want in ((2.5, 6.0), (-3.5, -12.0), (1.25, 3.0), (-0.5, -0.0)):  # ties to even
+        assert host.call('rnd', 'd', x)[0] == want and host.call('rndf', 's', x)[0] == want
 
 
 def test_control_flow_structs_and_pointers(host):

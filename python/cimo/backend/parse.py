@@ -33,7 +33,8 @@ Ntok = NPubOp + len(_toks)
 del _i, _t
 Tfma = Ntok  # cimo extension: only a keyword when ext.fma is on
 Tmath = Ntok + 1  # cimo extension: the math instructions, keywords when ext.math is on
-_MATHOPS = ('fsqrt', 'fabs', 'fmin', 'fmax', 'ffloor', 'fceil', 'ftrunc', 'fround')
+_MATHOPS = ('fsqrt', 'fabs', 'fmin', 'fmax', 'ffloor', 'fceil', 'ftrunc', 'fround', 'frint',
+            'fnearbyint')
 Tvol = Ntok + 2  # cimo extension: the volatile loads and stores, keywords when ext.volatile is on
 _VOLOPS = {optab[o].name: o for o in range(D.Ovloadsb, D.Ovstored + 1)}
 _VOLOPS.update(vloadw=D.Ovloadsw, vloadl=D.Ovload, vloads=D.Ovload, vloadd=D.Ovload)
