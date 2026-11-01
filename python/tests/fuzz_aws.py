@@ -1,6 +1,7 @@
-"""A differential fuzzing campaign on an AWS EC2 arm64 instance: Csmith, then YARPGen, against
-gcc -O0 (fuzz_csmith.py, fuzz_yarpgen.py), for a time budget. Failures come back to
-tests/fuzz_failures/aws-<time>/.
+"""A one-off differential fuzzing campaign on an AWS EC2 arm64 instance, for runs too long or
+too heavy for a workstation (CI fuzzing is the nightly GitHub Actions job, .github/workflows/
+fuzz.yml): Csmith, then YARPGen, against gcc -O0 (fuzz_csmith.py, fuzz_yarpgen.py), for a time
+budget. Failures come back to tests/fuzz_failures/aws-<time>/.
 
     python tests/fuzz_aws.py [--minutes 60] [--type c7g.4xlarge] [--commit HEAD]
 
