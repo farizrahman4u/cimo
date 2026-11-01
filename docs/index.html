@@ -57,13 +57,14 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .hero .lede{margin-top:18px}
 .hero-cta{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:26px}
 .hero-cta>.btn{height:44px;box-sizing:border-box}
-.pip{display:inline-flex;flex-direction:column;background:var(--code);color:#e6edf3;border-radius:8px;font-family:var(--mono);font-size:14px;border:1px solid var(--codeline);overflow:hidden}
-.pip .pip-row{display:flex;align-items:center;gap:10px;height:44px;padding:0 6px 0 14px}
+.pip{display:inline-flex;flex-direction:column;gap:4px;color:#e6edf3;font-family:var(--mono);font-size:14px}
+.pip .pip-row{display:flex;align-items:center;gap:10px;height:44px;padding:0 6px 0 14px;background:var(--code);border:1px solid var(--codeline);border-radius:8px}
 .pip .pip-cmd{min-width:23ch}.pip .pip-cmd::before{content:"$ ";color:#6e7681}
-.pip .pip-tabs{display:flex;gap:0;padding:0 6px;border-bottom:1px solid var(--codeline)}
-.pip .pip-tab{position:relative;width:auto;height:30px;padding:0 12px;font:inherit;font-size:12px;background:transparent;color:#8b949e;border-radius:0}
-.pip .pip-tab::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:transparent}
+.pip .pip-tabs{display:flex;gap:0;padding:0 2px}
+.pip .pip-tab{position:relative;width:auto;height:26px;padding:0 10px;font:inherit;font-size:12px;background:transparent;color:#8b949e;border-radius:0}
+.pip .pip-tab::after{content:"";position:absolute;left:10px;right:10px;bottom:0;height:2px;border-radius:2px;background:transparent}
 .pip .pip-tab:hover{background:transparent;color:#e6edf3}.pip .pip-tab[aria-pressed="true"]{background:transparent;color:#fff}.pip .pip-tab[aria-pressed="true"]::after{background:var(--brand2)}
+.end .pip .pip-tab{color:var(--ink3)}.end .pip .pip-tab:hover,.end .pip .pip-tab[aria-pressed="true"]{color:var(--ink)}.end .pip .pip-tab[aria-pressed="true"]::after{background:var(--brand)}
 .pip button{display:grid;place-items:center;width:32px;height:32px;background:#1e2640;border:0;color:#c9d1d9;padding:0;border-radius:6px;cursor:pointer}
 .pip button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .pip button .i-done,.pip button.done .i-copy{display:none}.pip button.done .i-done{display:block}.pip button.done{color:#7ee2b8}
