@@ -256,8 +256,8 @@ __cimo_softfma(double x, double y, double z)
 	u.f = z;
 	if ((u.i >> 52 & 0x7ff) == 0x7ff)
 		return z + z;
-	if (z == 0)
-		return x * y + z;
+	if (z == 0) /* x*y is rounded once; adding a zero could only turn an underflow's -0 into +0 */
+		return x * y;
 	r = core(x, y, z, 53, -1022, 1023, &sign, &keep, &exp);
 	if (r == 1)
 		return 0.0;
@@ -281,8 +281,8 @@ __cimo_softfmaf(float x, float y, float z)
 	if (x != x || y != y || z != z || x == 0 || y == 0 || x - x != 0 || y - y != 0 ||
 	    z - z != 0)
 		return (float)((double)x * y + z); /* NaN, infinity or a zero factor: exact */
-	if (z == 0)
-		return x * y + z;
+	if (z == 0) /* x*y is rounded once; adding a zero could only turn an underflow's -0 into +0 */
+		return x * y;
 	r = core(x, y, z, 24, -126, 127, &sign, &keep, &exp);
 	if (r == 1)
 		return 0.0f;

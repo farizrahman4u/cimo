@@ -165,18 +165,22 @@ def load(sl, msk, l):
     # sl.ref might not be live here,
     # but its alias base ref will be
     # (see killsl() below)
+    # fix over C QBE: rebase() moves a load's constant offset from its address into sl.off,
+    # which the address of a load inserted here ignored, so a load of p+24 hoisted out of a
+    # loop read p (gcc's 20011008-3.c, once ext.cse ran load elimination after gvn)
+    off = sl.off
     if rtype(r) == RTmp:
         a = curf.tmp[rval(r)].alias
         if a.type in (ALoc, AEsc, AUnk):
             r = TMP(a.base)
-            if a.offset:
-                r1 = getcon(a.offset, curf)
+            if a.offset + off:
+                r1 = getcon(a.offset + off, curf)
                 r = iins(Kl, Oadd, r, r1, l)
         elif a.type in (ACon, ASym):
             c = Con()
             c.type = CAddr
             c.sym = a.sym.copy()
-            c.i = a.offset
+            c.i = a.offset + off
             r = newcon(c, curf)
         else:
             die("unreachable")
