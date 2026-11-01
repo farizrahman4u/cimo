@@ -134,6 +134,10 @@ class _Driver:
             cfg.filldom(fn)
             if middle.run(fn):
                 self._cleanup(fn, cfg, ssa, gvn, gcm)
+        if ext.cse and T.name.startswith('arm64'):
+            cfg.fillloop(fn)
+            if cse.hoistcons(fn):
+                ssa.filluse(fn)
         if T.name == 'wasm':  # cimo: no machine lowering; the engine allocates registers
             D.unvolatile(fn)
             T.emitfn(fn, self.outf)

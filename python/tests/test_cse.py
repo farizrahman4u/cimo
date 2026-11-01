@@ -256,3 +256,38 @@ def test_a_struct_copy_forwarded_at_an_offset():
     x = array.array('q', [100, 200, 300, 400])
     assert m.f(x, 1) == 200 + 2 * 3400 and m.f(x, 0) == 2 * 3400
     assert m.h(1) == 2 + 2 * 34 and m.h(0) == 2 * 34
+
+
+def test_a_large_multiplier_is_built_out_of_the_loop():
+    src = 'void f(const long *x, long n, long *y) { for (long i = 0; i < n; i++) y[i] = x[i] / 7; }'
+    asm = body(src, 'f')
+    first = asm.index('smulh')
+    assert 'movk' not in asm[first:], asm  # built before the first division, not per copy
+    assert asm.count('movk') == 3, asm
+    import array
+    x = array.array('q', [i * 13 - 50 for i in range(23)])
+    y = array.array('q', [0] * 23)
+    cimo.compile(src, cache=False).f(x, 23, y)
+    assert list(y) == [_tdiv(v, 7) for v in x]
+
+
+def test_a_large_multiplier_with_many_loops_and_calls():
+    """It lives across calls and in nested loops, and also in functions that never reach it."""
+    m = cimo.compile('''long g(long a) { return a + 1; }
+    long f(const long *x, long n, int skip) {
+        long s = 0;
+        if (skip) return -1;
+        for (long i = 0; i < n; i++) {
+            for (long j = 0; j < 3; j++) s += g(x[i] + j) / 1000003;
+            s -= x[i] * 0x123456789abcdefL;
+        }
+        return s; }''', cache=False)
+    import array
+    x = array.array('q', [10 ** 12, -7 * 10 ** 9, 5])
+    want = 0
+    for v in x:
+        for j in range(3):
+            want += _tdiv(v + j + 1, 1000003)
+        want -= v * 0x123456789abcdef
+    want = ((want + 2 ** 63) % 2 ** 64) - 2 ** 63
+    assert m.f(x, 3, 0) == want and m.f(x, 3, 1) == -1
