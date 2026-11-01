@@ -739,7 +739,11 @@ for Linux and macOS (strategies under "Platform loading findings").
 - `scratch/qbe_eval/edge.c` cases are bit-exact.
 - **Done 2026-10-30 on Linux arm64; macOS path written but untested.** `python/cimo/assembler.py`
   assembles QBE's GNU-syntax output (both `arm64` and `arm64_apple` syntax) into an in-memory
-  object; `python/cimo/loader.py` links it into the process. No `cc`, no `dlopen` of generated code.
+  object; `python/cimo/loader.py` links it into the process. No `cc`, and no `dlopen` of generated code, for practical
+  reasons: Apple Silicon kills unsigned file-backed code (anonymous JIT memory needs only
+  `allow-jit`), one in-memory format replaces ELF/Mach-O/PE dynamic linking, imports resolve
+  against the runtime, `link=` libraries and Python hooks (never the process), `dlclose` may not
+  unmap, and Windows locks loaded DLLs. Lost: debuggers and profilers see anonymous memory.
   - Byte-identical to GNU as (sections, relocations, symbols) on all 77 corpus inputs for both
     targets (Apple syntax via a textual translation to ELF syntax), a hand-written file with every
     emitter form, and sweeps of all logical immediates and random immediates/offsets
