@@ -73,6 +73,15 @@ amd64_winabi_rclob = [RBX, R12, R13, R14, R15, RSI, RDI, -1]
 assert (len(amd64_winabi_rsave) == NGPS_WIN + NFPS + 1
         and len(amd64_winabi_rclob) == NCLR_WIN + 1)
 
+# cimo's amd64_windows target (targ.T_amd64_windows): xmm6-xmm15 are callee-saved, as the
+# Windows x64 convention says (QBE's amd64_win treats them as scratch, which corrupts a
+# caller's xmm6+ and so Python's); the emitter saves the ones a function uses, and xmm15
+# when it uses it as scratch
+WIN_XCLOB = [XMM6, XMM7, XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14]
+amd64_windows_rsave = [RCX, RDX, R8, R9, R10, R11, RAX,
+                       XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, -1]
+NFPS_WINDOWS = 6
+
 # layout of call's second argument (RCall)
 #
 # bit 0: rax returned
@@ -569,7 +578,9 @@ def lower_func_parameters(func):
                 emit(Ocopy, instr.cls, arg.ref, SLOT(-slot_offset), R)
                 emit(Oalloc8, Kl, instr.to, getcon(arg.size, func), R)
             else:
-                emit(Ocopy, Kl, instr.to, SLOT(-slot_offset), R)
+                # fix over C QBE (a Kl copy, which put a float parameter in an integer
+                # register: `addss %ecx, %xmm0`): loaded in its own class, as sysv does
+                emit(Oload, instr.cls, instr.to, SLOT(-slot_offset), R)
             slot_offset += 2
         elif st == APS_CopyAndPointerOnStack:
             emit(Oload, Kl, instr.to, SLOT(-slot_offset), R)

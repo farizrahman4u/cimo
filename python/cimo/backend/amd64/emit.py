@@ -1,6 +1,7 @@
 """Port of QBE amd64/emit.c."""
 
 from .. import defs as D
+from .. import ext as _ext
 from ..defs import (R, RTmp, RCon, RSlot, RMem, CBits, CAddr, CUndef, Con, SGlo, SThr, SExt,
                     SExtThr, Kw, Kl, Ks, Kd, KWIDE, KBASE, NCmpI, NCmp, Ins, TMP, BIT,
                     rtype, rval, rsval, optab, NOp, isxsel,
@@ -11,15 +12,22 @@ from ..defs import (R, RTmp, RCon, RSlot, RMem, CBits, CAddr, CUndef, Con, SGlo,
                     Oloadsh, Oloaduh, Oloadsb, Oloadub, Oextsw, Oextuw, Oextsh, Oextuh,
                     Oextsb, Oextub, Oexts, Otruncd, Ostosi, Odtosi, Oswtof, Osltof, Ocast,
                     Oaddr, Oswap, Osign, Oxdiv, Oxidiv, Oxcmp, Oxtest, Oflag, Oflagfeq,
-                    Oflagfne, Onop, Oneg, Ocopy, Ocall, Osalloc, Odbgloc, Oxsel)
+                    Oflagfne, Onop, Oneg, Ocopy, Ocall, Osalloc, Odbgloc, Oxsel, Ogetsp,
+                    Osetsp, Ofsqrt, Ofabs, Obclz, Obctz, Obswap, Obswap16)
 from ..util import die, isreg, str_
 from ..emit import emitfnlnk, emitdbgloc, elf_emitfnfin, stashbits
 from .regs import (RAX, RBX, RCX, RDX, RSI, RDI, RBP, RSP, R8, R9, R10, R11, R12, R13, R14,
                    R15, XMM0, XMM15, NCLR_SYSV, NCLR_WIN)
 
 
+def _cimowin():
+    """cimo's Windows x64 target (targ.T_amd64_windows), not QBE's amd64_win: xmm6-xmm15
+    callee-saved, stack probes (r11 is reserved for them), externs through the GOT."""
+    return D.T.name == 'amd64_windows'
+
+
 class E:
-    __slots__ = ('f', 'fn', 'fp', 'fsz', 'nclob')
+    __slots__ = ('f', 'fn', 'fp', 'fsz', 'nclob', 'xsave', 'xarea')
 
     def __init__(self, f, fn):
         self.f = f
@@ -27,6 +35,8 @@ class E:
         self.fp = 0
         self.fsz = 0
         self.nclob = 0
+        self.xsave = []  # cimo (amd64_windows): callee-saved xmm registers, saved below the
+        self.xarea = 0   # pushes in xarea bytes
 
 
 # (cmp, set/jump suffix, negated suffix)
@@ -171,11 +181,11 @@ def slot(r, e):
     # specific to NAlign == 3
     if s < 0:
         if e.fp == RSP:
-            return 4 * -s - 8 + e.fsz + e.nclob * 8
+            return 4 * -s - 8 + e.fsz + e.nclob * 8 + e.xarea
         else:
             return 4 * -s
     elif e.fp == RSP:
-        return 4 * s + e.nclob * 8
+        return 4 * s + e.nclob * 8 + e.xarea
     elif e.fn.vararg:
         if D.T.windows:
             return -4 * (e.fn.slot - s)
@@ -453,7 +463,7 @@ def emitins(i, e):
             f.write("\tmovq %s%s@tlvp(%%rip), %%%s\n" % (
                 pre, sym, regtoa(rval(i.to), SLong)))
             return
-        if D.T.windows and con.sym.type != SGlo:
+        if D.T.windows and con.sym.type != SGlo and not (_cimowin() and con.sym.type == SExt):
             die("extern/thread unsupported on amd64_win")
         st = con.sym.type
         if st == SThr:
@@ -498,7 +508,14 @@ def emitins(i, e):
         # maybe we should split Osalloc in 2 different
         # instructions depending on the result
         assert e.fp == RBP
-        emitf("subq %L0, %%rsp", i, e)
+        if _cimowin() and not (rtype(i.arg[0]) == RCon
+                               and e.fn.con[rval(i.arg[0])].i <= 4096):
+            # cimo: Windows commits the stack through a guard page; touch every page
+            emitf("movq %%rsp, %%r11", i, e)
+            emitf("subq %L0, %%r11", i, e)
+            _probe(f)
+        else:
+            emitf("subq %L0, %%rsp", i, e)
         if i.to != R:
             emitcopy(i.to, TMP(RSP), Kl, e)
     elif op == Oswap:
@@ -519,8 +536,74 @@ def emitins(i, e):
             if i.to != i.arg[0]:
                 emitf("mov %0, %=", i, e)
             emitf(cmov[op - Oxsel][1], i, e)
+    # cimo extensions (ext.vla, ext.math); SSE2 only, so baseline x86-64 runs them
+    elif op == Ogetsp:
+        emitf("movq %%rsp, %L=", i, e)
+    elif op == Osetsp:
+        emitf("movq %L0, %%rsp", i, e)
+    elif op == Ofsqrt:
+        emitf("sqrt%k %0, %=", i, e)
+    elif op == Ofabs:
+        if i.to != i.arg[0]:
+            emitf("mov%k %0, %=", i, e)
+        f.write("\tandp%c %sfp%d(%%rip), %%%s\n" % (
+            "xxsd"[i.cls], D.T.asloc, stashbits(absmask[i.cls], 16),
+            regtoa(rval(i.to), SLong)))
+    elif op == Obswap:
+        if i.to != i.arg[0]:
+            emitf("mov%k %0, %=", i, e)
+        emitf("bswap%k %=", i, e)
+    elif op == Obswap16:
+        emitf("movzwl %H0, %W=", i, e)
+        emitf("rolw $8, %H=", i, e)
+    elif op == Obclz:  # undefined for 0, as __builtin_clz
+        emitf("bsr%k %0, %=", i, e)
+        emitf("xor%k $63, %=" if i.cls == Kl else "xor%k $31, %=", i, e)
+    elif op == Obctz:
+        emitf("bsf%k %0, %=", i, e)
     else:
         _table(i, e)
+
+
+absmask = {Ks: 0x7fffffff, Kd: 0x7fffffffffffffff}
+_nprobe = 0
+
+
+def _probe(f):
+    """cimo (amd64_windows): move rsp down to r11 a page at a time, touching each page, as
+    __chkstk does: Windows grows a stack through one guard page, so a frame or alloca that
+    skips a page faults."""
+    global _nprobe
+    _nprobe += 1
+    f.write(".Lprobe%d:\n"
+            "\tcmpq %%r11, %%rsp\n"
+            "\tjbe .Lprobed%d\n"
+            "\tsubq $4096, %%rsp\n"
+            "\ttestq %%rsp, (%%rsp)\n"
+            "\tjmp .Lprobe%d\n"
+            ".Lprobed%d:\n"
+            "\tmovq %%r11, %%rsp\n" % (_nprobe, _nprobe, _nprobe, _nprobe))
+
+
+def _stkchk(fn, f):
+    """cimo (ext.stkchk): the stack guard, first thing in the prologue (cimo.execution)."""
+    if _ext.stkchk and fn.name in _ext.stkchk:
+        f.write("\tcallq %s__cimo_stkchk\n" % D.T.assym)
+
+
+def _usesxmm15(fn):
+    """Whether emitins uses xmm15 as a scratch register in fn (see Odiv, Ocopy, Oswap)."""
+    b = fn.start
+    while b:
+        for i in b.ins[:b.nins]:
+            if i.op == Odiv and KBASE(i.cls) == 1 and i.to == i.arg[1]:
+                return True
+            if i.op == Ocopy and rtype(i.to) == RSlot and rtype(i.arg[0]) in (RSlot, RMem):
+                return True
+            if i.op == Oswap and KBASE(i.cls) == 1:
+                return True
+        b = b.link
+    return False
 
 
 def sysv_framesz(e):
@@ -548,6 +631,7 @@ def amd64_sysv_emitfn(fn, f):
     e = E(f, fn)
     emitfnlnk(fn.name, fn.lnk, f)
     f.write("\tendbr64\n")
+    _stkchk(fn, f)
     if not fn.leaf or fn.vararg or fn.dynalloc:
         e.fp = RBP
         f.write("\tpushq %rbp\n\tmovq %rsp, %rbp\n")
@@ -597,10 +681,18 @@ def _emitjmp(b, fn, e, id0, rclob, nclr, win):
     f = e.f
     jt = b.jmp.type
     if jt == Jhlt:
-        f.write("\tud2\n")
+        if _ext.trap:  # cimo: unwind to Python (cimo.execution) instead of killing it
+            f.write("\tcallq %s__cimo_trap\n" % D.T.assym)
+        else:
+            f.write("\tud2\n")
     elif jt == Jret0:
         if fn.dynalloc:
-            f.write("\tmovq %%rbp, %%rsp\n\tsubq $%d, %%rsp\n" % (e.fsz + e.nclob * 8))
+            f.write("\tmovq %%rbp, %%rsp\n\tsubq $%d, %%rsp\n"
+                    % (e.fsz + e.nclob * 8 + e.xarea))
+        if e.xarea:
+            for k, x in enumerate(e.xsave):
+                f.write("\tmovdqu %d(%%rsp), %%xmm%d\n" % (16 * k, x - XMM0))
+            f.write("\taddq $%d, %%rsp\n" % e.xarea)
         for r in reversed(rclob[:nclr]):
             if fn.reg & BIT(r):
                 itmp = Ins(0, 0, R, TMP(r))
@@ -660,6 +752,7 @@ def amd64_winabi_emitfn(fn, f):
     e = E(f, fn)
     emitfnlnk(fn.name, fn.lnk, f)
     f.write("\tendbr64\n")
+    _stkchk(fn, f)
     if fn.vararg:
         f.write("\tmovq %rcx, 0x8(%rsp)\n")
         f.write("\tmovq %rdx, 0x10(%rsp)\n")
@@ -671,13 +764,27 @@ def amd64_winabi_emitfn(fn, f):
     else:
         e.fp = RSP
     winabi_framesz(e)
-    if e.fsz:
+    if e.fsz > 4096 and _cimowin():
+        f.write("\tleaq -%d(%%rsp), %%r11\n" % e.fsz)
+        _probe(f)
+    elif e.fsz:
         f.write("\tsubq $%d, %%rsp\n" % e.fsz)
     for r in amd64_winabi_rclob[:NCLR_WIN]:
         if fn.reg & BIT(r):
             itmp = Ins(0, 0, R, TMP(r))
             emitf("pushq %L0", itmp, e)
             e.nclob += 1
+    if _cimowin():
+        # cimo: xmm6-xmm15 are callee-saved on Windows (QBE treats them as scratch)
+        from .winabi import WIN_XCLOB
+        e.xsave = [x for x in WIN_XCLOB if fn.reg & BIT(x)]
+        if _usesxmm15(fn):
+            e.xsave.append(XMM15)
+        e.xarea = 16 * len(e.xsave)
+        if e.xarea:
+            f.write("\tsubq $%d, %%rsp\n" % e.xarea)
+            for k, x in enumerate(e.xsave):
+                f.write("\tmovdqu %%xmm%d, %d(%%rsp)\n" % (x - XMM0, 16 * k))
 
     lbl = 0
     b = fn.start
@@ -689,3 +796,5 @@ def amd64_winabi_emitfn(fn, f):
         lbl = _emitjmp(b, fn, e, id0, amd64_winabi_rclob, NCLR_WIN, 1)
         b = b.link
     _id0_win = id0 + fn.nblk
+    if _cimowin():
+        elf_emitfnfin(fn.name, f)

@@ -1,4 +1,5 @@
-"""Link a `cimo.assembler` object into executable memory of the running process (arm64).
+"""Link a `cimo.assembler` object into executable memory of the running process (arm64 or
+x86-64).
 
     img = Image(obj)                      # lay out, resolve, relocate, map, flush
     f = img.function('sum', ctypes.c_double, [ctypes.c_void_p, ctypes.c_int64])
@@ -22,7 +23,8 @@ Executable memory ("Platform loading findings" in requirements.md):
 External symbols (interim: `printf`, `memcpy`, libm, ...) are looked up with dlsym on the
 process (and libm); calls reach them through stubs `ldr x16, 8; br x16; .quad addr`, since
 they are beyond branch range. x16 is the intra-procedure-call scratch register, which AAPCS64
-lets veneers clobber.
+lets veneers clobber. On x86-64 (cimo.assembler_amd64 objects, ELF x86-64 relocations) the stub
+is `jmp *0(%rip); .quad addr`, which clobbers nothing, and no cache flush is needed.
 """
 
 import array
@@ -45,6 +47,7 @@ MAP_ANON = 0x1000 if _MAC else 0x20
 MAP_JIT = 0x800
 PAGE = _mmap.PAGESIZE
 _ARM64 = platform.machine().lower() in ('arm64', 'aarch64')
+_X86 = platform.machine().lower() in ('x86_64', 'amd64', 'x64')
 _FAILED = (1 << (8 * ctypes.sizeof(ctypes.c_void_p))) - 1
 
 
@@ -243,10 +246,24 @@ def _wr(buf, off, w):
     struct.pack_into('<I', buf, off, w)
 
 
+_STUB = {'CALL26', 'JUMP26', 'PLT32'}  # calls that reach external functions through a stub
+_GOT = {'ADR_GOT_PAGE', 'LD64_GOT_LO12_NC', 'GOTPCREL'}
+
+
 def _apply(buf, off, P, typ, S, sym):
     """Patch the relocation at buf[off] (runtime address P) for target value S (= symbol + addend,
-    or the GOT slot address for GOT relocations)."""
-    if typ in ('CALL26', 'JUMP26'):
+    or the GOT slot address + addend for GOT relocations)."""
+    if typ in ('PC32', 'PLT32', 'GOTPCREL'):  # x86-64: S + A - P in a signed 32-bit field
+        d = S - P
+        if not -(1 << 31) <= d < 1 << 31:
+            raise _RangeError('%s is out of the +-2 GB range of the code' % sym)
+        struct.pack_into('<i', buf, off, d)
+    elif typ in ('ABS32S', 'ABS8'):
+        n = 4 if typ == 'ABS32S' else 1
+        if not -(1 << (8 * n - 1)) <= S < 1 << (8 * n - (typ == 'ABS32S')):
+            raise LoadError('address of %s does not fit a %d-byte value' % (sym, n))
+        buf[off:off + n] = (S & ((1 << (8 * n)) - 1)).to_bytes(n, 'little')
+    elif typ in ('CALL26', 'JUMP26'):
         d = S - P
         if d & 3 or not -(1 << 27) <= d < 1 << 27:
             raise _RangeError('branch to %s out of range' % sym)
@@ -304,8 +321,10 @@ class Image:
     and page aligned wherever they land."""
 
     def __init__(self, obj, resolve=None, snapshot=False):
-        if not _ARM64:
-            raise LoadError('cimo loads arm64 code only; this machine is %s' % platform.machine())
+        if not (_ARM64 or _X86):
+            raise LoadError('cimo loads arm64 and x86-64 code only; this machine is %s'
+                            % platform.machine())
+        self._x86 = _X86
         self._maps = []
         self.prefix = obj.prefix
         self._snapshot = snapshot
@@ -318,8 +337,9 @@ class Image:
     def load(cls, blob, make_resolve=None):
         """An image from snapshot() bytes. make_resolve(external symbol names) returns a resolve
         function as for Image(); dlsym is the fallback."""
-        if not _ARM64:
-            raise LoadError('cimo loads arm64 code only; this machine is %s' % platform.machine())
+        if not (_ARM64 or _X86):
+            raise LoadError('cimo loads arm64 and x86-64 code only; this machine is %s'
+                            % platform.machine())
         blob = memoryview(blob)
         if bytes(blob[:len(_MAGIC)]) != _MAGIC:
             raise LoadError('not a cimo image')
@@ -415,9 +435,9 @@ class Image:
         for s in secs:
             for r in s.relocs:
                 y = obj.symbols[r.sym]
-                if r.type in ('CALL26', 'JUMP26') and not y.defined and not y.common:
+                if r.type in _STUB and not y.defined and not y.common:
                     stubs.setdefault(r.sym, None)
-                elif r.type in ('ADR_GOT_PAGE', 'LD64_GOT_LO12_NC'):
+                elif r.type in _GOT:
                     got.setdefault(r.sym, None)
         off = _align(off, 8)
         for k in stubs:
@@ -527,8 +547,12 @@ class Image:
         snap = self._snapshot and (not self.data_size or data == code + self.code_size)
         ext_slots, rebases = [], []
         for name, o in self._stubs.items():
-            struct.pack_into('<IIQ', cimg, o, 0x58000050, 0xd61f0200, ext(name))
-            ext_slots.append((o + 8, name, 0))
+            if self._x86:  # jmp *0(%rip); .quad addr
+                struct.pack_into('<6sQ', cimg, o, b'\xff\x25\0\0\0\0', ext(name))
+                ext_slots.append((o + 6, name, 0))
+            else:  # ldr x16, 8; br x16; .quad addr
+                struct.pack_into('<IIQ', cimg, o, 0x58000050, 0xd61f0200, ext(name))
+                ext_slots.append((o + 8, name, 0))
         for name, o in self._got.items():
             struct.pack_into('<Q', dimg, o, ext(name))
             if name in self.symbols:  # a GOT access to a symbol of the image
@@ -540,9 +564,9 @@ class Image:
             for r in s.relocs:
                 off = so + r.offset
                 P = base[k] + off
-                if r.type in ('ADR_GOT_PAGE', 'LD64_GOT_LO12_NC'):
-                    S = data + self._got[r.sym]
-                elif r.sym in self._stubs and r.type in ('CALL26', 'JUMP26'):
+                if r.type in _GOT:
+                    S = data + self._got[r.sym] + (r.addend if r.type == 'GOTPCREL' else 0)
+                elif r.sym in self._stubs and r.type in _STUB:
                     S = code + self._stubs[r.sym] + r.addend
                 else:
                     S = ext(r.sym) + r.addend
@@ -553,7 +577,8 @@ class Image:
                                 rebases.append(at)
                             else:
                                 ext_slots.append((at, r.sym, r.addend))
-                        elif r.type in ('ABS32', 'ABS16') or r.sym not in self.symbols:
+                        elif r.type in ('ABS32', 'ABS16', 'ABS32S', 'ABS8') \
+                                or r.sym not in self.symbols:
                             snap = False
                 _apply(img[k], off, P, r.type, S, r.sym)
         if snap:
