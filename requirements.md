@@ -595,6 +595,9 @@ like the package in any CPython 3.9+ with only the standard library: put it on `
   members on demand instead (M5, link model).
 - **No writable cache** (`CIMO_CACHE_DIR` / `CIMO_RUNTIME_CACHE` / `~/.cache/cimo` cannot be
   created or written): the module cache and the runtime are kept in memory for the process.
+- **`cache=False`** (`compile`/`load`): fully in-memory. The caches are still read; nothing is
+  written (no entries, directories or intermediate files) and what is built, runtime members
+  included, stays in memory for the process. A context variable, so other threads still write.
 - **Measured** (Linux arm64, CPython 3.13): bundle 1.05 MB; building it 1 s with stripping,
   0.05 s without; `import cimo` from it 0.05 s; first compile of a printf/sin/malloc kernel
   1.5 s with nothing cached (15 runtime members), then 0.1 s. `tests/test_bundle.py` runs it

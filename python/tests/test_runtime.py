@@ -689,6 +689,50 @@ def test_runtime_is_compiled_on_demand(tmp_path, monkeypatch):
     assert os.listdir(str(tmp_path / 'rt'))[0].startswith('runtime-')
 
 
+def test_cache_false_writes_nothing(tmp_path, monkeypatch):
+    """compile(cache=False): no file or directory is created, even with the runtime cold and
+    the cache directories writable; the runtime members it builds stay in memory."""
+    import builtins
+    for d in ('rt', 'mods'):
+        (tmp_path / d).mkdir()
+    monkeypatch.setenv('CIMO_RUNTIME_CACHE', str(tmp_path / 'rt'))
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path / 'mods'))
+    monkeypatch.setattr(linker, '_runtime', None)
+    monkeypatch.setattr(linker, 'progress', lambda e, **i: None)
+    real_open = builtins.open
+    writes = []
+
+    def open_(f, mode='r', *a, **k):
+        if any(c in mode for c in 'wax+'):
+            writes.append(f)
+        return real_open(f, mode, *a, **k)
+    monkeypatch.setattr(builtins, 'open', open_)
+    for name in ('makedirs', 'mkdir', 'replace', 'rename'):
+        monkeypatch.setattr(os, name, lambda *a, _n=name, **k: writes.append((_n, a)))
+    src = '#include <string.h>\nlong f(const char *s) { return strlen(s) + 7; }'
+    m = cimo.compile(src, cache=False)
+    assert m.f(b'abc') == 10
+    assert writes == []
+    monkeypatch.undo()
+    assert os.listdir(str(tmp_path / 'rt')) == os.listdir(str(tmp_path / 'mods')) == []
+
+
+def test_cache_false_reads_the_cache(tmp_path, monkeypatch):
+    """cache=False still uses entries already on disk; with no cache directory it creates
+    none."""
+    from cimo import driver
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path / 'mods'))
+    src = 'long f(long x) { return x * 3 + 1; }'
+    cimo.compile(src)
+    monkeypatch.setattr(driver, '_memory_cache', {})
+    monkeypatch.setattr(driver, '_ir', lambda *a: 1 / 0)  # a miss would raise
+    assert cimo.compile(src, cache=False).f(4) == 13
+    monkeypatch.undo()
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path / 'none'))
+    assert cimo.compile('long g(long x) { return x - 9; }', cache=False).g(10) == 1
+    assert not os.path.exists(str(tmp_path / 'none'))
+
+
 def test_headers_are_provided():
     rt = linker.runtime()
     # every exported C library function of the headers is provided

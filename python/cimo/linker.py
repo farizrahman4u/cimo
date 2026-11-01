@@ -21,6 +21,7 @@ Link model (requirements.md, "Language" and "Execution model"):
 """
 
 import codecs
+import contextvars
 import ctypes
 import ctypes.util
 import hashlib
@@ -211,7 +212,7 @@ class Runtime:
                     t = f.read()
             else:
                 t = self._compile(member)
-                if p:
+                if p and cache_writes.get():
                     try:
                         os.makedirs(self.dir, exist_ok=True)
                         tmp = p + '.tmp%d' % os.getpid()
@@ -258,14 +259,27 @@ def member_file(member):
     return member.replace('/', '__') + '.s'
 
 
-def user_cache(var):
-    """A cache directory: $var if set, else $XDG_CACHE_HOME/cimo, %LOCALAPPDATA%\\cimo on
-    Windows, or ~/.cache/cimo, created if needed. None if it cannot be created or written (a
-    read-only home, an embedded interpreter): callers then cache in memory."""
+# False while a compile(cache=False) runs in this context: caches are read but nothing is
+# written to disk, not even a directory; what is built is kept in memory.
+cache_writes = contextvars.ContextVar('cimo_cache_writes', default=True)
+
+
+def cache_path(var):
+    """$var if set, else $XDG_CACHE_HOME/cimo, %LOCALAPPDATA%\\cimo on Windows, or
+    ~/.cache/cimo. Nothing is created."""
     env = os.environ
-    d = env.get(var) or os.path.join(
+    return env.get(var) or os.path.join(
         env.get('XDG_CACHE_HOME') or (_WINDOWS and env.get('LOCALAPPDATA'))
         or os.path.expanduser('~/.cache'), 'cimo')
+
+
+def user_cache(var):
+    """The cache directory (cache_path), created if needed. None if it cannot be created or
+    written (a read-only home, an embedded interpreter): callers then cache in memory. Under
+    cache_writes False: the directory if it exists, for reading only, else None."""
+    d = cache_path(var)
+    if not cache_writes.get():
+        return d if os.path.isdir(d) else None
     try:
         os.makedirs(d, exist_ok=True)
     except OSError:
@@ -287,7 +301,7 @@ def runtime():
     if _runtime is None:
         from .driver import TARGET as target
         key = _key(target)
-        root = _cache_root()
+        root = _cache_root() if cache_writes.get() else cache_path('CIMO_RUNTIME_CACHE')
         _runtime = Runtime(key, target, 'macho' if _APPLE else 'elf',
                            root and os.path.join(root, 'runtime-' + key))
     return _runtime
@@ -407,7 +421,9 @@ def _report(rt, ncompiled, t0):
     else:
         sys.stderr.write('cimo: compiled %d runtime library file%s in %.1f s (%s)\n' % (
             n, '' if n == 1 else 's', last_build['seconds'],
-            'cached for next time' if rt.dir else 'no writable cache: kept for this process'))
+            'cached for next time' if rt.dir and cache_writes.get() else
+            'cache=False: kept for this process' if rt.dir else
+            'no writable cache: kept for this process'))
 
 
 def link(obj, hooks=None, libs=(), libsyms=None):

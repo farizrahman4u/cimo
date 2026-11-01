@@ -57,7 +57,7 @@ class Runtime:
                 self.provider.setdefault(n, m)
         for n in OVERRIDES:  # wasm's own versions of runtime members
             self.provider[n] = 'wasm:' + OVERRIDES[n]
-        d = L.user_cache('CIMO_CACHE_DIR')
+        d = (L.user_cache if L.cache_writes.get() else L.cache_path)('CIMO_CACHE_DIR')
         self.dir = d and os.path.join(d, 'runtime-wasm-' + _key())
         self._objs = {}
         self._lock = threading.RLock()
@@ -81,7 +81,7 @@ class Runtime:
                 except Exception as e:
                     raise _driver().CompileError('building the wasm runtime: %s: %s'
                                                  % (member, e)) from None
-                if p:
+                if p and self.L.cache_writes.get():
                     try:
                         os.makedirs(self.dir, exist_ok=True)
                         with open(p + '.tmp', 'w') as f:
@@ -168,7 +168,7 @@ def _cache_get(key):
 def _cache_put(key, mod, sigs):
     from .. import linker as L
     c = L.user_cache('CIMO_CACHE_DIR')
-    if c:
+    if c and L.cache_writes.get():
         p = os.path.join(c, key + '.wasm')
         try:
             with open(p + '.sig.tmp', 'w') as f:

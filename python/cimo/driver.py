@@ -124,7 +124,7 @@ def _cache_get(key):
 
 def _cache_put(key, text, sigs):
     d = _cache_dir()
-    if d is not None:
+    if d is not None and _link.cache_writes.get():
         path = os.path.join(d, key + '.s')
         try:
             for p, data in ((path[:-2] + '.sig', sigs), (path, text)):  # .s last: it marks
@@ -449,7 +449,7 @@ class Module:
         raise TypeError('module has no main(); call one of: %s' % ', '.join(self._kernels))
 
 
-def compile(src, include_dirs=(), link=(), host_headers=False, defines=()):
+def compile(src, include_dirs=(), link=(), host_headers=False, defines=(), cache=True):
     """Compile C source and return a Module of callables.
 
     The module is linked with cimo's runtime library (string.h, math.h, printf, malloc, ...)
@@ -457,17 +457,27 @@ def compile(src, include_dirs=(), link=(), host_headers=False, defines=()):
     provide: 'libc', 'libm', 'python' (the Python C API), a soname ('libz.so.1'), a short name
     ('z') or a path. host_headers: also search the host's C headers (after include_dirs and
     before cimo's bundled ones), to use declarations of linked libraries. defines: macros, as
-    a dict or (name, value) pairs (value None means 1)."""
-    return _module(src, '<string>', include_dirs, link, host_headers, defines)
+    a dict or (name, value) pairs (value None means 1). cache=False: read the compile cache
+    but write nothing to disk (no cache entries, no directories, no intermediate files);
+    whatever is compiled, including runtime library members, is kept in memory."""
+    return _module(src, '<string>', include_dirs, link, host_headers, defines, cache)
 
 
-def load(path, include_dirs=(), link=(), host_headers=False, defines=()):
+def load(path, include_dirs=(), link=(), host_headers=False, defines=(), cache=True):
     """Compile a .c file; its directory is searched for "..." includes. Options as compile()."""
     from .resources import read_text
-    return _module(read_text(path), path, include_dirs, link, host_headers, defines)
+    return _module(read_text(path), path, include_dirs, link, host_headers, defines, cache)
 
 
-def _module(src, filename, include_dirs, link, host_headers, defines):
+def _module(src, filename, include_dirs, link, host_headers, defines, cache=True):
+    token = _link.cache_writes.set(bool(cache))
+    try:
+        return _module1(src, filename, include_dirs, link, host_headers, defines)
+    finally:
+        _link.cache_writes.reset(token)
+
+
+def _module1(src, filename, include_dirs, link, host_headers, defines):
     if isinstance(link, str):
         link = [link]
     if hasattr(defines, 'items'):
