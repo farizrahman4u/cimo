@@ -184,6 +184,10 @@ volatile = False
 # "%s =l getsp" before each VLA allocation, "setsp %s" when control leaves its scope
 IGETSP, ISETSP = 114, 115
 vlafree = False
+# cimo extension: va_arg of struct and union types, lowered here with loads and stores of the
+# va_list: 'aapcs' (Linux: register save areas, then the stack), 'slots' (Apple, Windows,
+# wasm: a pointer to 8-byte slots); None: an error, as in cproc
+vastruct = None
 
 # cimo extension: contract a*b+c into fma within one expression, like clang's
 # -ffp-contract=on; off by default (stock cproc output), set by compile(fma=True)
@@ -694,6 +698,109 @@ class GotoLabel(object):
     __slots__ = ('label', 'defined', 'vlas')
 
 
+def _hfa(t):
+    """(member size, count) if t is a homogeneous floating-point aggregate of 1 to 4 floats or
+    doubles (AAPCS64), else None. Unions are not treated as HFAs."""
+    if t.prop & PROPFLOAT:
+        return (t.size, 1) if t.size in (4, 8) else None
+    if t.kind == TYPEARRAY:
+        r = _hfa(t.base) if t.base.size else None
+        return (r[0], r[1] * (t.size // t.base.size)) if r else None
+    if t.kind != TYPESTRUCT:
+        return None
+    fs, n = 0, 0
+    m = t.members
+    while m:
+        if m.bits[0] or m.bits[1]:
+            return None
+        r = _hfa(m.type)
+        if not r or (fs and r[0] != fs):
+            return None
+        fs, n = r[0], n + r[1]
+        m = m.next
+    return (fs, n) if 1 <= n <= 4 and fs * n == t.size else None
+
+
+def _tempalloc(f, size, align):
+    """A stack slot in the start block, as for a local variable."""
+    end = f.end
+    f.end = f.start
+    v = funcinst(f, IALLOC16 if align > 8 else IALLOC8, ptrclass, mkintconst(size), None)
+    f.end = end
+    return v
+
+
+def funcvaargstruct(f, t, ap):
+    """cimo (vastruct): va_arg(ap, t) for a struct or union t: its address. ap is the
+    address of the va_list. As gcc's va_arg: an HFA in floating-point registers, one per
+    member; else over 16 bytes, a pointer to a copy; else in general registers; never split
+    between registers and the stack."""
+    size, align = t.size, t.align
+
+    def add(p, n):
+        return funcinst(f, IADD, ptrclass, p, mkintconst(n))
+
+    def load(op, cls, p):
+        return funcinst(f, op, cls, p, None)
+
+    def align16(p):
+        return funcinst(f, IAND, ptrclass, add(p, 15), mkintconst(-16))
+
+    # an HFA is never passed by reference (AAPCS64 B.3 before B.4), except to a Windows
+    # variadic function, which passes it as any other composite
+    hfa = _hfa(t) if TG.targ.name != 'aarch64-windows' else None
+    if size > 16 and not hfa:
+        if vastruct == 'slots':
+            p = load(ILOADL, 'l', ap)
+            funcinst(f, ISTOREL, 0, add(p, 8), ap)
+            return load(ILOADL, 'l', p)
+        return funcinst(f, IVAARG, 'l', ap, None)
+    n8 = (size + 7) & -8
+    if vastruct == 'slots':
+        p = load(ILOADL, 'l', ap)
+        if align > 8:
+            p = align16(p)
+        funcinst(f, ISTOREL, 0, add(p, n8), ap)
+        return p
+    if hfa:
+        offat, topat, step, nreg = 28, 16, 16, hfa[1]  # __vr_offs, __vr_top
+    else:
+        offat, topat, step, nreg = 24, 8, 8, n8 // 8  # __gr_offs, __gr_top
+    slot = _tempalloc(f, 8, 8)
+    bcheck, breg, bstk, bjoin = (mkblock("vaarg_check"), mkblock("vaarg_reg"),
+                                 mkblock("vaarg_stack"), mkblock("vaarg_join"))
+    offp = add(ap, offat)
+    offs = load(ILOADW, 'w', offp)
+    funcjnz(f, funcinst(f, ICSLTW, 'w', offs, mkintconst(0)), None, bcheck, bstk)
+    funclabel(f, bcheck)
+    if not hfa and align > 8:  # an even register pair
+        offs = funcinst(f, IAND, 'w', funcinst(f, IADD, 'w', offs, mkintconst(15)),
+                        mkintconst(-16))
+    end = funcinst(f, IADD, 'w', offs, mkintconst(step * nreg))
+    funcinst(f, ISTOREW, 0, end, offp)
+    funcjnz(f, funcinst(f, ICSGTW, 'w', end, mkintconst(0)), None, bstk, breg)
+    funclabel(f, breg)
+    p = funcinst(f, IADD, ptrclass, load(ILOADL, 'l', add(ap, topat)),
+                 funcinst(f, IEXTSW, 'l', offs, None))
+    if hfa:  # members are 16 bytes apart in the save area: gather them
+        fs = hfa[0]
+        buf = _tempalloc(f, size, align)
+        lop, sop, cls = (ILOADS, ISTORES, 's') if fs == 4 else (ILOADD, ISTORED, 'd')
+        for i in range(nreg):
+            funcinst(f, sop, 0, load(lop, cls, add(p, 16 * i)), add(buf, fs * i))
+        p = buf
+    funcinst(f, ISTOREL, 0, p, slot)
+    funcjmp(f, bjoin)
+    funclabel(f, bstk)
+    p = load(ILOADL, 'l', ap)  # __stack
+    if align > 8:
+        p = align16(p)
+    funcinst(f, ISTOREL, 0, add(p, n8), ap)
+    funcinst(f, ISTOREL, 0, p, slot)
+    funclabel(f, bjoin)
+    return load(ILOADL, 'l', slot)
+
+
 def funcvlaleave(f, n):
     """Free the VLAs allocated after the first n now in scope (cimo, vlafree)."""
     if len(f.vlas) > n:
@@ -1107,6 +1214,8 @@ def funcexpr(f, e):
                 funcexpr(f, e.toeval)
             # https://todo.sr.ht/~mcf/cproc/52
             if not (e.type.prop & PROPSCALAR):
+                if vastruct and e.type.kind in (TYPESTRUCT, TYPEUNION):
+                    return funcvaargstruct(f, e.type, funcexpr(f, e.base))
                 error(tok.loc, "va_arg with non-scalar type is not yet supported")
             l = funcexpr(f, e.base)
             return funcinst(f, IVAARG, qbetype(e.type).base, l, None)
@@ -1138,6 +1247,7 @@ _z = Value(VALUE_INTCONST)
 
 
 def zero(func, addr, align, offset, end):
+    align = min(align, 8)  # cimo: cproc indexed its store table with 16 for _Alignas(16)
     a = 1
     while offset < end:
         if ((align - (offset & (align - 1))) & M64) & a:
@@ -1276,8 +1386,19 @@ def emitclass(cls, v):
         U.fatal("type has no QBE representation")
 
 
+def _classstr(cls, v):
+    """emitclass's output as a string."""
+    n = len(out)
+    emitclass(cls, v)
+    r = ''.join(out[n:])
+    del out[n:]
+    return r
+
+
 def emittype(t):
-    """XXX: need to consider _Alignas on struct members"""
+    """cimo: padding and `align` are emitted where QBE's layout of the fields would differ from
+    C's (_Alignas, or a struct aligned beyond its members): cproc's XXX, which left such a
+    struct too small and under-aligned for QBE, so calls passed it wrong."""
     global _typeid
     if t.value or t.kind != TYPESTRUCT and t.kind != TYPEUNION:
         return
@@ -1297,10 +1418,16 @@ def emittype(t):
     if t is TG.targ.typevalist:
         w(" = align %d { %d }\n" % (t.align, t.size))
         return
-    w(" = { ")
+    out = []
     m = t.members
     off = 0
+    qoff = 0  # where QBE's layout of the fields so far ends
+    qalign = 1
+    usize = 0
     while m:
+        if t.kind == TYPESTRUCT and m.type.size == 0 and not (m.bits[0] or m.bits[1]):
+            m = m.next  # cimo: a flexible or zero-length array has no QBE field
+            continue
         if t.kind == TYPESTRUCT:
             # look for a subsequent member with a larger storage unit
             other = m.next
@@ -1312,23 +1439,38 @@ def emittype(t):
                 other = other.next
             off = m.offset + m.type.size
         else:
-            w("{ ")
+            out.append("{ ")
         sub = m.type
         while sub.kind == TYPEARRAY:
             sub = sub.base
-        emitclass(qbetype(sub).data, sub.value)
-        if m.type.size > sub.size:
-            w(" %d" % (m.type.size // sub.size))
+        qalign = max(qalign, sub.align)
         if t.kind == TYPESTRUCT:
-            w(", ")
+            if m.offset > ((qoff + sub.align - 1) & -sub.align):
+                out.append("b %d, " % (m.offset - qoff))
+            qoff = off
+        else:
+            usize = max(usize, m.type.size)
+        out.append(_classstr(qbetype(sub).data, sub.value))
+        if m.type.size > sub.size:
+            out.append(" %d" % (m.type.size // sub.size))
+        if t.kind == TYPESTRUCT:
+            out.append(", ")
             # skip subsequent members contained within the same storage unit
             while True:
                 m = m.next
                 if not (m and m.offset < off):
                     break
         else:
-            w(" } ")
+            out.append(" } ")
             m = m.next
+    if not out:
+        out.append("b 0, ")  # an empty struct (GNU C): size 0
+    end = qoff if t.kind == TYPESTRUCT else usize
+    if t.size > ((end + qalign - 1) & -qalign):  # trailing padding QBE would not add
+        out.append("b %d, " % (t.size - end) if t.kind == TYPESTRUCT
+                   else "{ b %d } " % t.size)
+    w(" = align %d { " % t.align if t.align > qalign else " = { ")
+    w("".join(out))
     w("}\n")
 
 

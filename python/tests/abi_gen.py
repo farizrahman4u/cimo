@@ -6,9 +6,11 @@
 compiled once by a reference compiler (gcc, clang) into a shared library and once by cimo.
 Calling the reference's fN from cimo's callN, and cimo's fN from the reference's callN, must give
 what the reference gives calling itself. Types: all integer widths, float, double, pointers,
-structs of 1 to 80 bytes (float/double aggregates, odd sizes, arrays, nesting), enough
-arguments to use the stack, and variadic functions (scalar variadic arguments). No `long`
-(32-bit in Windows DLLs) and no C library (Windows DLLs are built without one).
+structs of 1 to 80 bytes (float/double aggregates, odd sizes, arrays, nesting, some aligned to
+16 bytes), enough arguments to use the stack, and variadic functions (scalar and struct
+variadic arguments; no 16-byte aligned ones, and on Windows none of 9 to 16 bytes, which
+clang's Windows caller and callee disagree on: its caller puts a struct that does not fit in
+x7 on the stack, its callee expects it split between x7 and the stack, as cimo passes it). No `long` (32-bit in Windows DLLs) and no C library (Windows DLLs are built without one).
 """
 
 import random
@@ -35,10 +37,17 @@ static u64 hp(u64 h, void *v) { return hu(h, (u64)(__SIZE_TYPE__)v); }
 '''
 
 
+SIZES = {'signed char': 1, 'unsigned char': 1, 'short': 2, 'unsigned short': 2, 'int': 4,
+         'unsigned': 4, 'long long': 8, 'unsigned long long': 8, 'float': 4, 'double': 8,
+         'void *': 8, '_Bool': 1}
+
+
 class Gen:
-    def __init__(self, seed):
+    def __init__(self, seed, windows=False):
+        self.windows = windows
         self.r = random.Random(seed)
         self.structs = []  # (name, [(type, member name, array length or 0)])
+        self.aligned = set()  # structs aligned to 16 bytes (_Alignas on the first member)
 
     # --- types ---------------------------------------------------------------------------
 
@@ -60,6 +69,9 @@ class Gen:
                     t = r.choice([s for s in SCALARS if s != '_Bool'])
                     members.append((t, 'm%d' % i, r.choice([0, 0, 0, 2, 3])))
         name = 'S%d' % len(self.structs)
+        if r.random() < 0.1 or any(t.startswith('struct ') and t.split()[1] in self.aligned
+                                   for t, _, _ in members):
+            self.aligned.add(name)
         self.structs.append((name, members))
         return 'struct ' + name
 
@@ -72,6 +84,20 @@ class Gen:
 
     def members(self, t):
         return dict(self.structs)[t.split()[1]]
+
+    def layout(self, t):
+        """(size, alignment) of a type."""
+        if not t.startswith('struct '):
+            return SIZES[t], SIZES[t]
+        off, al = 0, 1
+        for k, (mt, _, n) in enumerate(self.members(t)):
+            s, a = self.layout(mt)
+            if k == 0 and t.split()[1] in self.aligned:
+                a = max(a, 16)
+            off = (off + a - 1) & -a
+            off += s * (n or 1)
+            al = max(al, a)
+        return (off + al - 1) & -al, al
 
     # --- values and hashing ---------------------------------------------------------------
 
@@ -154,9 +180,16 @@ class Gen:
         if variadic and not params:
             params = ['int']
         vargs = []
-        if variadic:  # promoted scalar types only (cimo: no struct va_arg)
-            vargs = [r.choice(['int', 'unsigned', 'long long', 'unsigned long long', 'double',
-                               'void *']) for _ in range(r.randint(0, 12))]
+        if variadic:  # promoted scalar types, and structs not aligned to 16
+            for _ in range(r.randint(0, 12)):
+                t = None
+                if r.random() < 0.3:
+                    t = self.type()
+                    if not t.startswith('struct ') or t.split()[1] in self.aligned or \
+                            self.windows and 8 < self.layout(t)[0] <= 16:
+                        t = None
+                vargs.append(t or r.choice(['int', 'unsigned', 'long long',
+                                            'unsigned long long', 'double', 'void *']))
         return ret, params, variadic, vargs
 
     def test(self, n):
@@ -171,7 +204,12 @@ class Gen:
         if variadic:
             body.append('va_list ap; va_start(ap, p%d);' % (len(params) - 1))
             for i, t in enumerate(vargs):
-                self.hash(t, 'va_arg(ap, %s)' % t, body)
+                if t.startswith('struct '):
+                    body.append('{ %s v%d = va_arg(ap, %s);' % (t, i, t))
+                    self.hash(t, 'v%d' % i, body)
+                    body.append('}')
+                else:
+                    self.hash(t, 'va_arg(ap, %s)' % t, body)
             body.append('va_end(ap);')
         body.append('%s r;' % ret)
         self.make(ret, 'h', body)
@@ -198,15 +236,17 @@ class Gen:
         return callee + caller, glue
 
 
-def sources(seed, count):
+def sources(seed, count, windows=False):
     """(reference source, cimo source) for `count` random signatures. The reference's functions
     are ref_fN and ref_callN; cimo's module has fN, callN and, calling across:
     xN = callN(ref_fN), yN = ref_callN(fN), zN = callN(fN)."""
-    g = Gen(seed)
+    g = Gen(seed, windows)
     tests = [g.test(n) for n in range(count)]
     structs = []
     for name, members in g.structs:
-        ms = ' '.join('%s %s%s;' % (t, m, '[%d]' % n if n else '') for t, m, n in members)
+        ms = ' '.join('%s%s %s%s;' % ('_Alignas(16) ' if name in g.aligned and not k else '', t,
+                                      m, '[%d]' % n if n else '')
+                      for k, (t, m, n) in enumerate(members))
         structs.append('struct %s { %s };' % (name, ms))
     common = HEADER + '\n'.join(structs) + '\n\n'
     code = '\n'.join(c for c, _ in tests)

@@ -88,6 +88,17 @@ output for these is broken, so no comparison test depends on it):
   as writing their `va_list`, so a store was forwarded across them: with Apple's and Windows'
   `char *` `va_list`, a parameter passed on after `va_arg` was passed unchanged.
 
+- `arm64/abi.typclass`/`argsclass`: a 16-byte aligned composite was refused ("alignments
+  larger than 8"); now it starts at an even register (the skipped one is set to 0 before the
+  call, so liveness holds, and is not a parameter register of the callee) or a 16-byte
+  aligned stack offset, while a pointer replacing a large one keeps 8-byte alignment. A
+  zero-size composite (GNU C) was passed by pointer; gcc passes nothing. Found with
+  `tests/test_abi.py` (structs with `_Alignas(16)`) and gcc's `va-arg-22.c`.
+- `arm64/abi.argsclass` (Windows variadic call): a composite that does not fit in the
+  remaining registers is split between them and the stack (x7 is saved right below the
+  stack arguments, so the callee sees it whole), as clang's and cimo's `va_arg` read it; it
+  was an error. A struct parameter split that way in a variadic function is still an error.
+
 ## cimo extensions (`ext.py`, off by default)
 
 - `volatile`: `vloadsb`...`vload`, `vstoreb`...`vstored` (and `vloadw`/`vloadl`/`vloads`/

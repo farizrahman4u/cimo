@@ -47,7 +47,7 @@ def _have(cmd):
 
 def check(seed, count, d):
     """Mismatches as (signature number, what, expected, got)."""
-    ref_src, cimo_src = abi_gen.sources(seed, count)
+    ref_src, cimo_src = abi_gen.sources(seed, count, sys.platform == 'win32')
     cmd, ext = reference()
     src = os.path.join(d, 'ref%d.c' % seed)
     lib = os.path.join(d, 'ref%d%s' % (seed, ext))

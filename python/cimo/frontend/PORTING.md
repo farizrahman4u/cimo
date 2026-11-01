@@ -103,6 +103,11 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   float (`(_Bool)0.5` was 0, `(_Bool)-0.5` an error); `(unsigned)-0.5` was rejected (its
   integer part, 0, is representable); folding `1 ? b.f : 0u` returned the bit-field itself,
   which then promoted to `int` again.
+- `emittype` (cproc's XXX): QBE types get `align N` and `b N` padding where QBE's layout of
+  the fields differs from C's (`_Alignas`, trailing padding of an over-aligned struct), and
+  no field for a flexible or zero-length array (`b 0` for an empty struct); cproc's types
+  were too small, so calls copied part of the struct. `zero()` indexed its store table with 16
+  for a 16-byte aligned local (crash). Found with `va_arg` of structs and `tests/test_abi.py`.
 - Target `aarch64-windows`: a call to a variadic function gets the `...` marker even when no
   variadic argument follows (cproc emits it before the first one), since Windows passes all
   arguments of a variadic call its own way. Found by `tests/test_abi.py`.
@@ -138,6 +143,12 @@ passed by `cimo.compile`:
 - `volatile=True` (`qbe.volatile`): accesses to volatile objects (loads, stores, bit-field
   read-modify-writes, aggregate copies from or to them, initializers) use the backend's
   `vload*`/`vstore*`; cproc rejects volatile stores and emits volatile loads as plain ones.
+- `vastruct='aapcs'|'slots'` (`qbe.vastruct`): `va_arg` of a struct or union, lowered to
+  loads and stores of the `va_list` (`funcvaargstruct`), following gcc's `va_arg`: an HFA from
+  the FP register save area (members 16 bytes apart, gathered into a copy), other composites
+  over 16 bytes through a pointer, else from the general register save area, never split
+  with the stack; `slots` (Apple, Windows, wasm) walks 8-byte slots, and Windows treats HFAs
+  as other composites. cproc rejects it (todo.sr.ht/~mcf/cproc/52).
 - `vlafree=True` (`qbe.vlafree`): `getsp` before each VLA allocation and `setsp` when control
   leaves its scope: end of block or `for`, `break`/`continue` (`Scope.breakvla`/`contvla`), and
   `goto` (backward: the label's VLAs are a prefix; forward: a `goto_vla` block filled in by

@@ -259,3 +259,88 @@ long sw(long n) { long t = 0; for (long i = 0; i < n; i++) { switch (i % 3) { ca
     assert m.fwd(1000000) == 1000000
     assert m.nested(400000) == 4400000
     assert m.sw(1000000) == 1666666
+
+
+VA_STRUCTS = r"""
+#include <stdarg.h>
+struct s1 { char c; }; struct s3 { char c[3]; }; struct s12 { int a, b, c; };
+struct s16 { long long a, b; }; struct s24 { long long a, b, c; };
+struct f2 { float x, y; }; struct d4 { double a, b, c, d; }; struct f3 { float x[3]; };
+struct mix { double d; long long l; }; struct a16 { _Alignas(16) long long a; };
+struct z { char x[0]; };
+double vsum(const char *fmt, ...) {
+    va_list ap; va_start(ap, fmt); double t = 0; int k = 1;
+    for (const char *p = fmt; *p; p++, k++) {
+        switch (*p) {
+        case 'i': t += k * va_arg(ap, int); break;
+        case 'd': t += k * va_arg(ap, double); break;
+        case '1': { struct s1 v = va_arg(ap, struct s1); t += k * v.c; break; }
+        case '3': { struct s3 v = va_arg(ap, struct s3); t += k * (v.c[0] + 2 * v.c[1] + 3 * v.c[2]); break; }
+        case 'c': { struct s12 v = va_arg(ap, struct s12); t += k * (v.a + 2 * v.b + 3 * v.c); break; }
+        case 'g': { struct s16 v = va_arg(ap, struct s16); t += k * (v.a + 2 * v.b); break; }
+        case 'h': { struct s24 v = va_arg(ap, struct s24); t += k * (v.a + 2 * v.b + 3 * v.c); break; }
+        case 'f': { struct f2 v = va_arg(ap, struct f2); t += k * (v.x + 2 * v.y); break; }
+        case 'D': { struct d4 v = va_arg(ap, struct d4); t += k * (v.a + 2 * v.b + 3 * v.c + 4 * v.d); break; }
+        case 'F': { struct f3 v = va_arg(ap, struct f3); t += k * (v.x[0] + 2 * v.x[1] + 3 * v.x[2]); break; }
+        case 'm': { struct mix v = va_arg(ap, struct mix); t += k * (v.d + 2 * v.l); break; }
+        case 'a': { struct a16 v = va_arg(ap, struct a16); t += k * v.a; break; }
+        case 'z': { struct z v = va_arg(ap, struct z); (void)v; break; }
+        }
+    }
+    va_end(ap);
+    return t;
+}
+static struct s1 S1 = {5}; static struct s3 S3 = {{1, 2, 3}}; static struct s12 S12 = {1, 2, 3};
+static struct s16 S16 = {100, 200}; static struct s24 S24 = {1000, 2000, 3000};
+static struct f2 F2 = {1.5f, 2.25f}; static struct d4 D4 = {0.5, 1.5, 2.5, 3.5};
+static struct f3 F3 = {{1, 2, 4}}; static struct mix MX = {0.125, 77}; static struct a16 A16 = {4242};
+double run(int which) {
+    struct z Z;
+    switch (which) {
+    case 0: return vsum("1cghfDFma", S1, S12, S16, S24, F2, D4, F3, MX, A16);
+    case 1: return vsum("iiiiiiicg", 1, 2, 3, 4, 5, 6, 7, S12, S16);
+    case 2: return vsum("ddddddfD", 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, F2, D4);
+    case 3: return vsum("ddddddddDf3", 1., 2., 3., 4., 5., 6., 7., 8., D4, F2, S3);
+    case 4: return vsum("iiiiiiahaga", 1, 2, 3, 4, 5, 6, A16, S24, A16, S16, A16);
+    case 5: return vsum("zizFz", Z, 9, Z, F3, Z);
+    }
+    return -1;
+}
+"""
+
+
+def test_va_arg_of_structs():
+    # cproc rejected va_arg with a struct type (gcc torture: 14 programs); every kind of struct,
+    # with register save areas running out mid-way (values checked against gcc)
+    m = cimo.compile(VA_STRUCTS)
+    want = [97243.0, 4752.0, 333.0, 643.0, 231625.0, 86.0]  # gcc's
+    assert [m.run(i) for i in range(6)] == want
+
+
+def test_struct_layout_and_alignment_in_calls():
+    # cproc emitted QBE types without _Alignas or padding (too small: calls copied half the
+    # struct) and with a byte for a zero-length array; QBE refused 16-byte alignment, put such
+    # a struct in an odd register, gave a pointer to one 16-byte stack alignment, and passed a
+    # zero-size struct by pointer (gcc: nothing)
+    m = cimo.compile(r"""
+struct a16 { _Alignas(16) long long a; };
+struct b16 { _Alignas(16) long long a, b; };
+struct p { char c; _Alignas(8) int x; char d; };
+struct fl { int n; double d[]; };
+struct z { char x[0]; };
+static long long g(int x, struct a16 a, int y, struct b16 b, int z, struct a16 c, struct b16 d,
+                   struct a16 e, struct b16 f, int w) {
+    return x + 2 * a.a + 3 * y + 5 * b.a + 7 * b.b + 11 * z + 13 * c.a + 17 * d.a + 19 * d.b
+           + 23 * e.a + 29 * f.a + 31 * f.b + 37 * w;
+}
+long long call(void) {
+    struct a16 A = {1}, C = {2}, E = {3}; struct b16 B = {4, 5}, D = {6, 7}, F = {8, 9};
+    return g(10, A, 20, B, 30, C, D, E, F, 40);
+}
+static int pf(struct p s, int k) { return s.c + s.x * 10 + s.d * 100 + k * 1000; }
+int callp(void) { struct p s = {1, 2, 3}; return pf(s, 4); }
+static long long flf(struct fl s, struct z q, long long k) { return s.n + k; }
+long long callfl(void) { struct fl s = {4}; struct z q; return flf(s, q, 6); }
+struct a16 zeroed(void) { struct a16 v = {0}; return v; }
+""")
+    assert m.call() == 2778 and m.callp() == 4321 and m.callfl() == 10

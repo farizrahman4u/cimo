@@ -125,7 +125,6 @@ gcc-torture/920603-1.c                              unsupported  expected declar
 gcc-torture/920604-1.c                              unsupported  no type in parameter declaration
 gcc-torture/920612-1.c                              unsupported  no type in parameter declaration
 gcc-torture/920612-2.c                              unsupported  nested functions (a GNU extension) are not supported
-gcc-torture/920625-1.c                              unsupported  va_arg with non-scalar type is not yet supported
 gcc-torture/920721-2.c                              unsupported  expected declaration or function definition
 gcc-torture/920721-3.c                              unsupported  declaration has no type specifier
 gcc-torture/920721-4.c                              unsupported  local labels ('__label__') are not supported
@@ -133,7 +132,6 @@ gcc-torture/920728-1.c                              unsupported  expected declar
 gcc-torture/920730-1.c                              unsupported  expected declaration or function definition
 gcc-torture/920731-1.c                              unsupported  expected declaration or function definition
 gcc-torture/920812-1.c                              unsupported  expected declaration or function definition
-gcc-torture/920908-1.c                              unsupported  va_arg with non-scalar type is not yet supported
 gcc-torture/920908-2.c                              unsupported  expected declaration or function definition
 gcc-torture/920909-1.c                              unsupported  expected declaration or function definition
 gcc-torture/920922-1.c                              unsupported  no type in parameter declaration
@@ -175,13 +173,6 @@ gcc-torture/930921-1.c                              unsupported  expected declar
 gcc-torture/930929-1.c                              unsupported  expected declaration or function definition
 gcc-torture/930930-1.c                              unsupported  expected declaration or function definition
 gcc-torture/931002-1.c                              unsupported  nested functions (a GNU extension) are not supported
-gcc-torture/931004-10.c                             unsupported  va_arg with non-scalar type is not yet supported
-gcc-torture/931004-12.c                             unsupported  va_arg with non-scalar type is not yet supported
-gcc-torture/931004-14.c                             unsupported  va_arg with non-scalar type is not yet supported
-gcc-torture/931004-2.c                              unsupported  va_arg with non-scalar type is not yet supported
-gcc-torture/931004-4.c                              unsupported  va_arg with non-scalar type is not yet supported
-gcc-torture/931004-6.c                              unsupported  va_arg with non-scalar type is not yet supported
-gcc-torture/931004-8.c                              unsupported  va_arg with non-scalar type is not yet supported
 gcc-torture/931005-1.c                              unsupported  no type in parameter declaration
 gcc-torture/931009-1.c                              unsupported  expected declaration or function definition
 gcc-torture/931012-1.c                              unsupported  expected declaration or function definition
@@ -411,7 +402,6 @@ gcc-torture/pr42570.c                               unsupported  object 'foo' wi
 gcc-torture/pr42833.c                               unsupported  declaration has no type specifier
 gcc-torture/pr43385.c                               unsupported  inline assembly is not supported
 gcc-torture/pr43560.c                               unsupported  inline assembly is not supported
-gcc-torture/pr44575.c                               unsupported  va_arg with non-scalar type is not yet supported
 gcc-torture/pr44852.c                               unsupported  inline assembly is not supported
 gcc-torture/pr44942.c                               unsupported  long double is not supported
 gcc-torture/pr45070.c                               unsupported  GNU attribute 'packed' is not supported here
@@ -522,7 +512,6 @@ gcc-torture/simd-5.c                                unsupported  vector types (v
 gcc-torture/simd-6.c                                unsupported  vector types (vector_size) are not supported yet
 gcc-torture/stdarg-1.c                              unsupported  long double is not supported
 gcc-torture/stdarg-2.c                              unsupported  long double is not supported
-gcc-torture/stdarg-3.c                              unsupported  va_arg with non-scalar type is not yet supported
 gcc-torture/stkalign.c                              unsupported  GNU attribute 'aligned' is not supported here
 gcc-torture/strcmp-1.c                              unsupported  long double is not supported
 gcc-torture/strcpy-1.c                              unsupported  long double is not supported
@@ -530,8 +519,6 @@ gcc-torture/strct-pack-1.c                          unsupported  GNU attribute '
 gcc-torture/strct-pack-2.c                          unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/strct-pack-3.c                          unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/strct-pack-4.c                          unsupported  GNU attribute 'packed' is not supported here
-gcc-torture/strct-stdarg-1.c                        unsupported  va_arg with non-scalar type is not yet supported
-gcc-torture/strct-varg-1.c                          unsupported  va_arg with non-scalar type is not yet supported
 gcc-torture/string-opt-18.c                         unsupported  undefined symbol 'mempcpy': cimo's runtime does not provide it
 gcc-torture/strlen-1.c                              unsupported  long double is not supported
 gcc-torture/strncmp-1.c                             unsupported  long double is not supported
@@ -540,7 +527,6 @@ gcc-torture/struct-ret-2.c                          unsupported  GNU attribute '
 gcc-torture/tstdi-1.c                               unsupported  expected declaration or function definition
 gcc-torture/user-printf.c                           unsupported  undeclared identifier: tmpnam
 gcc-torture/va-arg-2.c                              unsupported  too many arguments for function call
-gcc-torture/va-arg-22.c                             unsupported  va_arg with non-scalar type is not yet supported
 gcc-torture/va-arg-5.c                              unsupported  long double is not supported
 gcc-torture/va-arg-6.c                              unsupported  long double is not supported
 gcc-torture/va-arg-pack-1.c                         unsupported  long double is not supported

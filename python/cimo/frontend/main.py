@@ -76,7 +76,7 @@ def _tostr(s):
 
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
-            builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False):
+            builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -102,6 +102,9 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     backend then needs cimo.backend.ext.vla); cproc keeps them until the function returns, so
     a VLA in a loop grows the stack every iteration.
 
+    vastruct='aapcs' or 'slots' (cimo extension, off by default): va_arg of struct and union
+    types, for Linux's va_list or a pointer to 8-byte slots (Apple, Windows, wasm).
+
     prune=True (cimo extension, off by default): drop static functions and data that no
     exported definition references (prune.py).
 
@@ -115,6 +118,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.builtins = bool(builtins)
         _qbe.volatile = bool(volatile)
         _qbe.vlafree = bool(vlafree)
+        _qbe.vastruct = vastruct
         U.diagnostics = bool(diagnostics)
         if diagnostics:
             from . import cc as _cc, diag as _diag
@@ -132,6 +136,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.builtins = False
         _qbe.volatile = False
         _qbe.vlafree = False
+        _qbe.vastruct = None
         U.diagnostics = False
         from . import cc as _cc
         _cc.exprhook = None

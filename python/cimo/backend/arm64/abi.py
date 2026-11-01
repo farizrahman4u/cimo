@@ -33,7 +33,7 @@ Cgp = 4  # Windows variadic: a float passed in an integer register (cls holds Kw
 
 class Class:
     __slots__ = ('class_', 'ishfa', 'hfa_base', 'hfa_size', 'size', 'align', 't', 'nreg',
-                 'ngp', 'nfp', 'reg', 'cls')
+                 'ngp', 'nfp', 'reg', 'cls', 'hole', 'split')
 
     def __init__(self):
         self.class_ = 0
@@ -48,6 +48,8 @@ class Class:
         self.nfp = 0
         self.reg = [0] * 4
         self.cls = [0] * 4
+        self.hole = -1  # a register skipped to start a 16-byte aligned composite at an even one
+        self.split = 0  # Windows variadic call: bytes of the composite in registers, rest on stack
 
 
 class Params:
@@ -108,8 +110,12 @@ def typclass(c, t, gp, fp, nohfa=0):
     c.nfp = 0
     c.align = 8
 
-    if t.align > 3:
-        err("alignments larger than 8 are not supported")
+    if t.align > 4:
+        err("alignments larger than 16 are not supported")
+    if t.align == 4:
+        # fix over C QBE (which refused it): a 16-byte aligned composite starts at an even
+        # register (argsclass) or a 16-byte aligned stack offset (AAPCS64 C.8, C.14)
+        c.align = 16
 
     c.size = sz & U32
     base = [Kx]
@@ -119,7 +125,11 @@ def typclass(c, t, gp, fp, nohfa=0):
     c.ishfa &= int(not t.isdark and hfasz <= 4 and not nohfa)
     c.hfa_size = hfasz & 0xff
 
-    if c.ishfa:
+    if sz == 0 and not t.isdark:
+        # fix over C QBE (which passed a pointer): a zero-size composite (GNU C) takes no
+        # register or stack space, as with gcc
+        c.nreg = 0
+    elif c.ishfa:
         n = 0
         while n < hfasz:
             c.reg[n] = fpreg[fp]
@@ -128,12 +138,13 @@ def typclass(c, t, gp, fp, nohfa=0):
             n += 1
             c.nfp += 1
         c.nreg = n
-    elif t.isdark or sz > 16 or sz == 0:
+    elif t.isdark or sz > 16:
         # large structs are replaced by a
         # pointer to some caller-allocated
         # memory
         c.class_ |= Cptr
         c.size = 8
+        c.align = 8  # the pointer's, not the struct's
         c.ngp = 1
         c.reg[0] = gpreg[gp]
         c.cls[0] = Kl
@@ -257,9 +268,23 @@ def argsclass(ins, i0, i1, carg, winva=0):
             c.class_ |= Cstk
         elif op in (Oparc, Oargc):
             typclass(c, D.typ[rval(i.arg[0])], gp, fp, winva)
+            if c.align == 16 and c.ngp == 2 and gp & 1 and ngp:
+                c.hole = gpreg[gp]  # fix over C QBE: an even register pair (AAPCS64 C.8)
+                gp += 1
+                ngp -= 1
+                typclass(c, D.typ[rval(i.arg[0])], gp, fp, winva)
             if winva and 0 < ngp < c.ngp:
-                err("a %d-byte struct split between x7 and the stack in a variadic call "
-                    "is not supported on Windows" % c.t.size)
+                if op == Oparc:
+                    err("a %d-byte struct parameter split between x7 and the stack in a "
+                        "variadic function is not supported on Windows" % c.t.size)
+                # cimo: Windows splits it (x7 is saved right below the stack arguments)
+                c.nreg = ngp
+                c.split = 8 * ngp
+                c.size -= c.split
+                c.class_ |= Cstk
+                gp += ngp
+                ngp = 0
+                continue
             if c.ngp <= ngp:
                 if c.nfp <= nfp:
                     ngp -= c.ngp
@@ -389,6 +414,9 @@ def selcall(fn, ins, i0, i1, il):
             cty |= 1 << 2
 
     emit(Ocall, 0, R, ic.arg[0], CALL(cty))
+    for c in ca:
+        if c.hole >= 0:  # the call reads every register up to its last argument
+            emit(Ocopy, Kl, TMP(c.hole), getcon(0, fn), R)
 
     if cty & (1 << 13):
         # struct return argument
@@ -398,7 +426,7 @@ def selcall(fn, ins, i0, i1, il):
     for k in range(i0, i1):
         i = ins[k]
         c = ca[k - i0]
-        if (c.class_ & Cstk) != 0:
+        if (c.class_ & Cstk) != 0 and not c.split:
             continue
         if c.class_ & Cgp:
             r = newtmp("abi", c.cls[0], fn)
@@ -432,8 +460,13 @@ def selcall(fn, ins, i0, i1, il):
             emit(op, 0, R, i.arg[0], r)
         else:
             assert i.op == Oargc
+            src = i.arg[1]
+            if c.split:
+                src = newtmp("abi", Kl, fn)
             emit(Oblit1, 0, R, INT(c.size), R)
-            emit(Oblit0, 0, R, i.arg[1], r)
+            emit(Oblit0, 0, R, src, r)
+            if c.split:
+                emit(Oadd, Kl, src, i.arg[1], getcon(c.split, fn))
         emit(Oadd, Kl, r, TMP(SP), getcon(off, fn))
         off += c.size
     if stk:
@@ -455,6 +488,9 @@ def selpar(fn, i0, i1):
     winva = D.T.windows and fn.vararg
     cty = argsclass(ins, i0, i1, ca, winva)
     fn.reg = arm64_argregs(CALL(cty), None)
+    for c in ca:
+        if c.hole >= 0:  # skipped for an even register pair: not a parameter
+            fn.reg &= ~BIT(c.hole)
 
     il = []
     tmp = [R] * 16
