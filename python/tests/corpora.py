@@ -124,6 +124,9 @@ def fetch(name):
         os.makedirs(d, exist_ok=True)
         subprocess.check_call(git + ['init', '-q'])
         subprocess.check_call(git + ['remote', 'add', 'origin', url])
+    # keep the files byte for byte (expected outputs are compared exactly; Git for Windows
+    # converts to CRLF by default)
+    subprocess.check_call(git + ['config', 'core.autocrlf', 'false'])
     subprocess.check_call(git + ['sparse-checkout', 'set', sub])
     subprocess.check_call(git + ['fetch', '-q', '--depth', '1', '--filter=blob:none', 'origin',
                                  commit])

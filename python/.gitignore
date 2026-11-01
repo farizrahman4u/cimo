@@ -45,6 +45,7 @@ coverage.xml
 .cimo_cache/
 *.o
 *.s
+!tests/data/*.s
 *.ssa
 
 # third-party test corpora (tests/corpora.py)
