@@ -624,6 +624,33 @@ def _i_fneg(a, mn, ops):
     return _FP1[mn] | _ftype(rd) << 22 | rn[1] << 5 | rd[1]
 
 
+# integer data-processing (1 source): cimo's bit builtins; (32-bit, 64-bit) opcodes
+_DP1 = {'clz': (0x5ac01000, 0xdac01000), 'rbit': (0x5ac00000, 0xdac00000),
+        'rev16': (0x5ac00400, 0xdac00400), 'rev': (0x5ac00800, 0xdac00c00)}
+
+
+def _i_dp1(a, mn, ops):
+    if len(ops) != 2:
+        raise AssemblerError('%s needs 2 operands' % mn)
+    rd, rn = _reg(ops[0]), _reg(ops[1])
+    _same(rd, rn)
+    return _DP1[mn][rd[0] == 'x'] | rn[1] << 5 | rd[1]
+
+
+_VREG8B = re.compile(r'^v([0-9]|[12][0-9]|3[01])\.8b$')
+_BREG = re.compile(r'^b([0-9]|[12][0-9]|3[01])$')
+
+
+def _i_simd(a, mn, ops):  # cnt Vd.8B, Vn.8B / addv Bd, Vn.8B (the popcount builtin)
+    if len(ops) != 2:
+        raise AssemblerError('%s needs 2 operands' % mn)
+    d = (_VREG8B if mn == 'cnt' else _BREG).match(ops[0].lower())
+    n = _VREG8B.match(ops[1].lower())
+    if not d or not n:
+        raise AssemblerError('unsupported operands for %s' % mn)
+    return (0x0e205800 if mn == 'cnt' else 0x0e31b800) | int(n.group(1)) << 5 | int(d.group(1))
+
+
 def _i_fmov(a, mn, ops):
     if len(ops) != 2:
         raise AssemblerError('fmov needs 2 operands')
@@ -877,6 +904,8 @@ _INSNS = {
     'fadd': _i_fp3, 'fsub': _i_fp3, 'fmul': _i_fp3, 'fdiv': _i_fp3, 'fneg': _i_fneg,
     'fminnm': _i_fp3, 'fmaxnm': _i_fp3, 'fabs': _i_fneg, 'fsqrt': _i_fneg, 'frintp': _i_fneg,
     'frintm': _i_fneg, 'frintz': _i_fneg, 'frinta': _i_fneg,
+    'clz': _i_dp1, 'rbit': _i_dp1, 'rev16': _i_dp1, 'rev': _i_dp1, 'cnt': _i_simd,
+    'addv': _i_simd,
     'fmadd': _i_fp4, 'fmsub': _i_fp4, 'fnmadd': _i_fp4, 'fnmsub': _i_fp4,
     'fmov': _i_fmov, 'fcvt': _i_fcvt, 'fcvtzs': _i_fcvtz, 'fcvtzu': _i_fcvtz,
     'scvtf': _i_cvtf, 'ucvtf': _i_cvtf, 'fcmp': _i_fcmp, 'fcmpe': _i_fcmp,

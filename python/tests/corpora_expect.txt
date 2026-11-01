@@ -267,7 +267,7 @@ gcc-torture/ieee/20010226-1.c                       unsupported  long double is 
 gcc-torture/ieee/20011123-1.c                       unsupported  long double is not supported
 gcc-torture/ieee/920810-1.c                         unsupported  no type in parameter declaration
 gcc-torture/ieee/bfloat16-builtin-issignaling-1.c   unsupported  built-in function '__builtin_nansf16b' is not supported
-gcc-torture/ieee/builtin-issignaling-1.c            unsupported  built-in function '__builtin_nansf' is not supported
+gcc-torture/ieee/builtin-issignaling-1.c            unsupported  long double is not supported
 gcc-torture/ieee/builtin-nan-1.c                    unsupported  __builtin_nanf currently only supports empty string literals
 gcc-torture/ieee/cdivchkd.c                         unsupported  _Complex is not yet supported
 gcc-torture/ieee/cdivchkf.c                         unsupported  _Complex is not yet supported

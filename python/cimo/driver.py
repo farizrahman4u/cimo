@@ -288,6 +288,7 @@ def _frontend(pp, filename, target=None, **kw):
     _fq.paraminfo = {}
     kw.setdefault('volatile', True)
     kw.setdefault('vlafree', True)
+    kw.setdefault('bitops', True)
     kw.setdefault('vastruct', 'slots' if (target or TARGET) in ('arm64_apple', 'arm64_win')
                   else 'aapcs')
     try:

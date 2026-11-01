@@ -141,6 +141,13 @@ omap = [
     (D.Ofceil, Ka, "frintp %=, %0"),
     (D.Oftrunc, Ka, "frintz %=, %0"),
     (D.Ofround, Ka, "frinta %=, %0"),
+    # cimo bit builtins (ext.math); popcount through v31 (no scalar cnt before FEAT_CSSC)
+    (D.Obclz, Ki, "clz %=, %0"),
+    (D.Obctz, Ki, "rbit %=, %0\n\tclz %=, %="),
+    (D.Obswap, Ki, "rev %=, %0"),
+    (D.Obswap16, Kw, "rev16 %=, %0\n\tand %=, %=, #0xffff"),
+    (D.Obpopcnt, Kw, "fmov %S?, %0\n\tcnt v31.8b, v31.8b\n\taddv b31, v31.8b\n\tfmov %=, %S?"),
+    (D.Obpopcnt, Kl, "fmov %D?, %0\n\tcnt v31.8b, v31.8b\n\taddv b31, v31.8b\n\tfmov %W=, %S?"),
 ] + [(Oflag + _c, Ki, "cset %=, " + _s) for _c, _s, _ in _CMP] + [
     (NOp, 0, None),
 ]

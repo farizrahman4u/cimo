@@ -12,7 +12,9 @@ Flags:
   math    accept the math instructions in the IR text (`%r =d fsqrt %x`; also fabs, fmin,
           fmax, ffloor, fceil, ftrunc, fround), which cimo.frontend emits for calls to the C
           functions of those names; arm64 selects fsqrt, fabs, fminnm, fmaxnm, frintm,
-          frintp, frintz, frinta
+          frintp, frintz, frinta; and the bit builtins (`%r =w bclz %x`; also bctz, bpopcnt,
+          bswap, bswap16), emitted for __builtin_clz/ctz/popcount/bswap*: clz, rbit+clz,
+          cnt (through v31), rev, rev16
   volatile  accept the volatile loads and stores in the IR text (`vloadw`, `vstorel`, ... as
           the plain ones), which cimo.frontend emits for accesses to volatile objects; no pass
           deletes, merges, moves or forwards them, and instruction selection turns them into

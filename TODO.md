@@ -33,8 +33,6 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Performance
 
-- GNU bit builtins (`popcount`, `clz`, `ctz`, `bswap`, ...) are portable C calls; lower them to
-  `cnt`/`clz`/`rbit`/`rev` like the math builtins.
 - `edit_distance` 2.5x of gcc: needs `csel` (select) in the backend.
 - `rgb2gray` 1.3x of gcc: constant materialization / `madd`.
 - Runtime: per-module copy of what it uses (printf ~20 KB); fine for now.

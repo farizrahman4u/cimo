@@ -310,6 +310,11 @@ _OPS += [('v' + _o[0],) + _o[1:] for _o in _OPS if _o[0].startswith('store')]
 # both pinned and mark the function dynalloc
 _OPS += [('getsp', ((Kx, Kx, Kx, Kx), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('setsp', ((Kl, Kl, Kl, Kl), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)]
+# bit builtins (ext.math): count leading/trailing zeros, population count, byte swap of the
+# operand's class (bswap16: the low 16 bits of a w); pure, like the math builtins
+_OPS += [(_n, ((Kw, Kl, Ke, Ke), (Kx, Kx, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+         for _n in ('bclz', 'bctz', 'bpopcnt', 'bswap')]
+_OPS += [('bswap16', ((Kw, Ke, Ke, Ke), (Kx, Kx, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
 
 
 

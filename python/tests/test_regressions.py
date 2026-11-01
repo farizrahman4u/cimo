@@ -378,3 +378,33 @@ def test_gnu_overflow_and_float_comparison_builtins():
     m = cimo.compile(OVERFLOW)
     assert [m.run(k) for k in range(13)] == [1044, 1056, 1959, 1001, 4, 1965, 1000, 10, 11,
                                              101, 101, 110, 10]
+
+
+def test_bit_builtins_are_instructions():
+    # __builtin_clz/ctz/popcount (+l, ll) and bswap16/32/64: one instruction (or rbit+clz,
+    # cnt through v31) instead of a call to the runtime's portable C; values against Python
+    from cimo import driver
+    src = r"""
+int pc(unsigned x) { return __builtin_popcount(x); }
+int pcll(unsigned long long x) { return __builtin_popcountll(x); }
+int cz(unsigned x) { return __builtin_clz(x); }
+int czll(unsigned long long x) { return __builtin_clzll(x); }
+int tz(unsigned x) { return __builtin_ctz(x); }
+int tzl(unsigned long x) { return __builtin_ctzl(x); }
+unsigned short b16(unsigned short x) { return __builtin_bswap16(x); }
+unsigned b32(unsigned x) { return __builtin_bswap32(x); }
+unsigned long b64(unsigned long x) { return __builtin_bswap64(x); }
+"""
+    m = cimo.compile(src)
+    import random
+    r = random.Random(5)
+    for _ in range(300):
+        x = r.getrandbits(64) >> r.randrange(64) or 1
+        w = x & 0xffffffff or 1
+        assert m.pc(w) == bin(w).count('1') and m.pcll(x) == bin(x).count('1')
+        assert m.cz(w) == 32 - w.bit_length() and m.czll(x) == 64 - x.bit_length()
+        assert m.tz(w) == (w & -w).bit_length() - 1 and m.tzl(x) == (x & -x).bit_length() - 1
+        assert m.b16(x & 0xffff) == int.from_bytes((x & 0xffff).to_bytes(2, 'little'), 'big')
+        assert m.b32(w) == int.from_bytes(w.to_bytes(4, 'little'), 'big')
+        assert m.b64(x) == int.from_bytes(x.to_bytes(8, 'little'), 'big')
+    assert 'bl\t' not in driver._build(src)[0]

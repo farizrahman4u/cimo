@@ -188,6 +188,18 @@ vlafree = False
 # va_list: 'aapcs' (Linux: register save areas, then the stack), 'slots' (Apple, Windows,
 # wasm: a pointer to 8-byte slots); None: an error, as in cproc
 vastruct = None
+# cimo extension: the GNU bit builtins as instructions (cimo.backend.ext.math): name ->
+# (instruction, operand class); set by compile(bitops=True), off for wasm (the runtime's C)
+IBCLZ, IBCTZ, IBPOPCNT, IBSWAP, IBSWAP16 = range(116, 121)
+bitops = False
+_BITBUILTINS = {}
+for _n, _i in (('clz', IBCLZ), ('ctz', IBCTZ), ('popcount', IBPOPCNT)):
+    _BITBUILTINS['__builtin_' + _n] = (_i, 'w')
+    _BITBUILTINS['__builtin_' + _n + 'l'] = (_i, 'l')
+    _BITBUILTINS['__builtin_' + _n + 'll'] = (_i, 'l')
+_BITBUILTINS.update(__builtin_bswap16=(IBSWAP16, 'w'), __builtin_bswap32=(IBSWAP, 'w'),
+                    __builtin_bswap64=(IBSWAP, 'l'))
+del _n, _i
 
 # cimo extension: contract a*b+c into fma within one expression, like clang's
 # -ffp-contract=on; off by default (stock cproc output), set by compile(fma=True)
@@ -198,6 +210,7 @@ instname = [None] + [_s for _n, _s in _OPS]
 instname += [None] * (IFSQRT - len(instname)) + list(_MATHINST)
 instname += ['v' + instname[_o] for _o in range(ISTORED, ILOADUB + 1)]
 instname += ['getsp', 'setsp']
+instname += ['bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16']
 
 
 def _vol(op, tq):
@@ -1007,6 +1020,13 @@ def funcbuiltin(f, e):
     if not (b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT):
         return None
     d = b.base.decl
+    bit = bitops and not d.asmname and _BITBUILTINS.get(d.name)
+    if bit and d.kind == DECLFUNC and d.linkage == LINKEXTERN and d.type.nparam == 1 \
+            and e.args and not e.args.next and e.args.type.prop & PROPINT:
+        # the prelude's declaration (a user cannot redeclare these reserved names)
+        op, cls = bit
+        return funcinst(f, op, cls, convert(f, d.type.params.type, e.args.type,
+                                            funcexpr(f, e.args)), None)
     # by its symbol name: __builtin_sqrt is declared as sqrt's alias (the driver's prelude)
     spec = _BUILTINS.get(d.asmname.lstrip('_') if d.asmname else d.name)
     if spec is None or d.kind != DECLFUNC or d.linkage != LINKEXTERN:
