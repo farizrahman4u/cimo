@@ -241,6 +241,12 @@ The exact design is still open. Areas to cover:
 - error and debug surfaces
 - compile cache control and ahead-of-time packaging (e.g. shipping prebuilt cache entries)
 
+**First external consumer: [scramjit](https://github.com/farizrahman4u/scramjit)**, a separate
+pure-Python JIT for a numeric subset of Python that generates C and compiles it with cimo. It
+uses only the public API and needs: in-memory compilation of a C string to callables, `#line`
+honored in diagnostics and debug info, a defined convention for numpy buffers and scalars, low
+compile latency with a usable cache key, and (for loop-heavy code) auto-vectorization.
+
 ## Optimization model
 
 The compiler accepts all of the language; it reaches `-O3` quality on **analyzable** code:
