@@ -106,6 +106,14 @@ PACKED = [
     ('struct __attribute__((packed)) s { float a; float b; };', '{1, 2}', 'v.a + v.b * 10'),
     ('struct __attribute__((packed)) s { char p; float a; float b; };', '{1, 2, 3}', 'v.p + v.a * 10 + v.b * 100'),
     ('struct __attribute__((packed)) s { char p; double a; };', '{1, 2}', 'v.p + v.a * 10'),
+    # after the body, which `aligned(N)` on the struct itself doesn't change how it is passed on Linux
+    ('struct s { char a; int b; short c; } __attribute__((packed));', '{1, 2, 3}', 'v.a + v.b * 10 + v.c * 100'),
+    ('struct s { long long a; } __attribute__((aligned(16)));', '{7}', 'v.a'),
+    ('struct s { long long a; long long b; } __attribute__((aligned(16)));', '{7, 8}', 'v.a + v.b * 10'),
+    ('struct s { char a; long long b; } __attribute__((packed, aligned(16)));', '{7, 8}', 'v.a + v.b * 10'),
+    ('struct s { float a; } __attribute__((aligned(16)));', '{7}', 'v.a'),
+    ('struct s { _Alignas(16) long long a; } __attribute__((aligned(16)));', '{7}', 'v.a'),
+    ('struct s { _Alignas(8) char a; char b; } __attribute__((packed));', '{1, 2}', 'v.a + v.b * 10'),
 ]
 
 

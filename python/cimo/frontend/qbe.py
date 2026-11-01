@@ -1464,7 +1464,9 @@ def emittype(t):
     C's (_Alignas, or a struct aligned beyond its members): cproc's XXX, which left such a
     struct too small and under-aligned for QBE, so calls passed it wrong. A packed member at an
     offset QBE would not place its type at goes as bytes: QBE aligns every field, so such a
-    struct came out bigger than in C and took the wrong registers."""
+    struct came out bigger than in C and took the wrong registers. AAPCS64 (gcc, clang) picks
+    registers by the members' alignment, not an `aligned(N)` on the struct itself, so on Linux
+    QBE isn't told about that one; Apple and Windows do go by the type's alignment."""
     global _typeid
     if t.value or t.kind != TYPESTRUCT and t.kind != TYPEUNION:
         return
@@ -1542,8 +1544,11 @@ def emittype(t):
     if t.size > ((end + qalign - 1) & -qalign):  # trailing padding QBE would not add
         out.append("b %d, " % (t.size - end) if t.kind == TYPESTRUCT
                    else "{ b %d } " % t.size)
-    t.value.qalign = max(qalign, t.align)
-    w(" = align %d { " % t.align if t.align > qalign else " = { ")
+    align = t.align
+    if t.fieldalign is not None and TG.targ.name == 'aarch64':
+        align = t.fieldalign
+    t.value.qalign = max(qalign, align)
+    w(" = align %d { " % align if align > qalign else " = { ")
     w("".join(out))
     w("}\n")
 
