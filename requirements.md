@@ -278,6 +278,11 @@ the limit, 0 turns it off), so a loop calling helpers stays analyzable. The back
 unit's functions until its end for this. Recursion, aggregate arguments or returns, variadic
 functions and VLAs keep the call; the callee's own definition is always kept.
 
+Repeated work QBE leaves goes too (`backend/cse.py`, `ext.cse`): repeated loads, divisions (pure on
+arm64, where `sdiv` never traps; wasm's trap, so only a dominating one merges there), a remainder from
+its division, a repeated branch condition and a select written twice. Costs 13-27% compile time on
+`t_printf` and `t_math`. The plan for the rest of LLVM's and GCC's optimizations is in `TODO.md`.
+
 Everything else compiles at "QBE quality" (measured 1-4x behind gcc on scalar code, see below).
 `--report` explains why a loop wasn't optimized ("base of `p` depends on a runtime branch"), like
 gcc's `-fopt-info`.

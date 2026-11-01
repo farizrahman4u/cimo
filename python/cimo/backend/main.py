@@ -64,6 +64,18 @@ class _Driver:
         for fn in fns:
             self.compile(fn)
 
+    @staticmethod
+    def _cleanup(fn, cfg, ssa, gvn, gcm):
+        ssa.ssacheck(fn)
+        gvn.gvn(fn)
+        cfg.fillcfg(fn)
+        cfg.simplcfg(fn)
+        ssa.filluse(fn)
+        cfg.filldom(fn)
+        gcm.gcm(fn)
+        ssa.filluse(fn)
+        ssa.ssacheck(fn)
+
     def compile(self, fn):
         T = D.T
         err = sys.stderr
@@ -99,21 +111,28 @@ class _Driver:
         gcm.gcm(fn)
         ssa.filluse(fn)
         ssa.ssacheck(fn)
+        from . import ext, cse
+        if ext.cse:  # cimo: gvn made equal addresses one temporary: their loads can merge
+            loads = cse.nload(fn)
+            cfg.filldom(fn)
+            merged = cse.domcse(fn)
+            if T.name.startswith('arm64') and cse.divrem(fn):
+                merged = True
+            ssa.filluse(fn)
+            alias.fillalias(fn)
+            load.loadopt(fn)
+            ssa.filluse(fn)
+            ssa.ssacheck(fn)
+            if merged or cse.nload(fn) != loads:
+                cfg.filldom(fn)
+                self._cleanup(fn, cfg, ssa, gvn, gcm)
         from .. import middle
         if middle.enabled:
             # cimo's loop passes (off by default: stock QBE output otherwise), then QBE's
             # cleanup passes again over the new code
             cfg.filldom(fn)
             if middle.run(fn):
-                ssa.ssacheck(fn)
-                gvn.gvn(fn)
-                cfg.fillcfg(fn)
-                cfg.simplcfg(fn)
-                ssa.filluse(fn)
-                cfg.filldom(fn)
-                gcm.gcm(fn)
-                ssa.filluse(fn)
-                ssa.ssacheck(fn)
+                self._cleanup(fn, cfg, ssa, gvn, gcm)
         if T.name == 'wasm':  # cimo: no machine lowering; the engine allocates registers
             D.unvolatile(fn)
             T.emitfn(fn, self.outf)

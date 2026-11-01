@@ -10,7 +10,8 @@ from .defs import (R, RTmp, CON_Z, CBits, Con, Ins, KBASE, KWIDE, U32, Kx, Kw, K
 from .util import die, getcon, newcon, isconbits, argcls, addins
 from .cfg import dom, reachesnotvia, fillcfg, fillloop
 from .fold import foldint, foldref
-from .gcm import pinned
+from .gcm import pinned, isdivwl
+from . import ext as _ext
 
 con01 = [R, R]
 
@@ -41,6 +42,9 @@ def ieq(ia, ib):
 
 gvntbl = None
 gvntbln = 0
+gvndivs = {}
+gvnselects = {}
+gvnjmps = {}
 
 
 def gvndup(i, insert):
@@ -206,9 +210,24 @@ def killins(fn, i, r):
     i.set(Ins(Onop))
 
 
+def dedupdiv(fn, b, i):
+    """cimo (ext.cse): an integer division or remainder identical to one that dominates it."""
+    k = (i.op, i.cls, i.arg[0], i.arg[1])
+    seen = gvndivs.setdefault(k, [])
+    for b1, i1 in seen:
+        if dom(b1, b):
+            killins(fn, i, i1.to)
+            return
+    seen.append((b, i))
+
+
 def dedupins(fn, b, i):
     normins(fn, i)
-    if i.op == Onop or pinned(i):
+    if i.op == Onop:
+        return
+    if pinned(i):
+        if _ext.cse and isdivwl(i):
+            dedupdiv(fn, b, i)
         return
 
     # when sel instructions are inserted
@@ -319,6 +338,65 @@ def propjnz0(fn, bif, s0, snon0, r, cls):
         k += 1
 
 
+def diamond(b, p):
+    """cimo (ext.cse): which way of the branch b.idom an edge p -> b comes from: 1 (s1), 0 (s2),
+    or None if p is not the branch or one block of an arm of it."""
+    h = b.idom
+    if p is h:
+        return None if h.s1 is h.s2 else int(h.s1 is b)
+    if p.jmp.type != Jjmp or p.npred != 1 or p.pred[0] is not h:
+        return None
+    return int(h.s1 is p)
+
+
+def dedupselect(fn, b):
+    """cimo (ext.cse): a phi joining the two ways of a branch is a function of the condition and
+    the two values: `y < 0 ? y + n : y` written again gives the same temporary, so what is
+    computed and checked from it merges too (bounds checks of a repeated index)."""
+    h = b.idom
+    if h is None or h.jmp.type != Jjnz or h.s1 is h.s2:
+        return
+    prev = None
+    p = b.phi
+    while p:
+        kill = False
+        if p.narg == 2:
+            w0, w1 = diamond(b, p.blk[0]), diamond(b, p.blk[1])
+            if w0 is not None and w1 is not None and w0 != w1:
+                k = (p.cls, h.jmp.arg, p.arg[w0 ^ 1], p.arg[w0])
+                seen = gvnselects.setdefault(k, [])
+                for b1, r in seen:
+                    if dom(b1, b):
+                        replaceuses(fn, p.to, r)
+                        p.to = R
+                        kill = True
+                        break
+                else:
+                    seen.append((b, p.to))
+        if kill:
+            if prev is None:
+                b.phi = p.link
+            else:
+                prev.link = p.link
+        else:
+            prev = p
+        p = p.link
+
+
+def knownjmp(fn, b):
+    """cimo (ext.cse): the way this jnz goes (1: s1, 0: s2) if a jnz on the same temporary
+    decided it on every path here, else None."""
+    for a in gvnjmps.get(b.jmp.arg, ()):
+        if a.jmp.type != Jjnz or a.s1 is a.s2:
+            continue
+        # a successor with another predecessor says nothing about the condition
+        if a.s1.npred == 1 and branchdom(fn, a, a.s1, a.s2, b):
+            return 1
+        if a.s2.npred == 1 and branchdom(fn, a, a.s2, a.s1, b):
+            return 0
+    return None
+
+
 def dedupjmp(fn, b):
     if b.jmp.type != Jjnz:
         return
@@ -348,6 +426,15 @@ def dedupjmp(fn, b):
         if zz is not None:
             z = zz
             hit = True
+    if not hit and _ext.cse and rtype(b.jmp.arg) == RTmp:
+        known = knownjmp(fn, b)
+        if known is not None:
+            z = int(not known)
+            hit = True
+        else:
+            seen = gvnjmps.setdefault(b.jmp.arg, [])
+            if len(seen) < 8:  # each candidate walks the graph
+                seen.append(b)
     if hit:
         if v == 0 or z:
             b.s1 = b.s2
@@ -384,7 +471,7 @@ def gvn(fn):
     """requires rpo pred ssa use
     recreates rpo preds
     breaks pred use dom ssa (GCM fixes ssa)"""
-    global gvntbl, gvntbln
+    global gvntbl, gvntbln, gvndivs, gvnselects, gvnjmps
     from .ssa import filluse, ssacheck
     from .parse import printfn
 
@@ -414,9 +501,14 @@ def gvn(fn):
 
     gvntbln = nins + nins // 2
     gvntbl = [None] * gvntbln
+    gvndivs = {}
+    gvnselects = {}
+    gvnjmps = {}
     for n in range(fn.nblk):
         b = fn.rpo[n]
         dedupphi(fn, b)
+        if _ext.cse:
+            dedupselect(fn, b)
         for i in b.ins[:b.nins]:
             dedupins(fn, b, i)
         dedupjmp(fn, b)

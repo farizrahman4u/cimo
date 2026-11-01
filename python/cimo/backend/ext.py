@@ -22,6 +22,8 @@ Flags:
           plain loads and stores
   bigcopy None, or a size: a struct argument of at least that many bytes is copied by a call
           to memcpy instead of an unrolled blit (arm64)
+  cse     load elimination again after gvn, identical integer divisions merged, remainders
+          computed from the division of the same operands on arm64 (cimo.backend.cse)
   inline  0, or a size: copy functions of at most that many instructions into the callers
           that follow them in the module (cimo.backend.inline)
   vla     accept getsp/setsp in the IR text (`%s =l getsp`, `setsp %s`), which cimo.frontend
@@ -57,6 +59,7 @@ math = False
 trap = False
 volatile = False
 vla = False
+cse = False
 bigcopy = None
 inline = 0
 stkchk = None
@@ -66,7 +69,7 @@ stkchk = None
 # may, so accesses never move past accesses off another base.
 disjoint = None
 
-ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True, 'volatile': True, 'vla': True}
+ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True, 'volatile': True, 'vla': True, 'cse': True}
 _NAMES = tuple(ALL) + ('stkchk', 'bigcopy', 'inline')
 
 

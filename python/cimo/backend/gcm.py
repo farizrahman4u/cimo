@@ -8,12 +8,17 @@ from .defs import (R, RTmp, KBASE, U32, NIns, Ins, UXXX, UPhi, UIns, UJmp, Odiv,
                    Oshl, Onop, isload, isstore, isalloc, optab, rtype, rval)
 from .util import die, iscmp, igroup, addins, newtmp, emiti
 from .cfg import dom, lca, filldepth, fillloop
+from . import ext as _ext
 
 NOBID = U32
 
 
 def isdivwl(i):
+    """An integer division, pinned because it may trap. cimo (ext.cse): not on arm64, where
+    sdiv and udiv never do, so they merge and move like other pure instructions."""
     if i.op in (Odiv, Orem, Oudiv, Ourem):
+        if _ext.cse and D.T.name.startswith('arm64'):
+            return 0
         return int(KBASE(i.cls) == 0)
     return 0
 

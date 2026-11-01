@@ -31,6 +31,76 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    `__muldc3`/`__divdc3` semantics), arm64 ABI (two FP registers), musl `src/complex` in the
    runtime, numpy `complex128` binding.
 
+## Optimizations to lift from LLVM and GCC
+
+Everything in LLVM's and GCC's pipelines that applies to scalar C on arm64 and wasm, biggest payoff
+per compile time first. Sources: `../llvm-project` (`llvm/lib/Passes/PassBuilderPipelines.cpp`,
+`llvm/lib/Target/AArch64/AArch64TargetMachine.cpp`), `../gcc` (`gcc/passes.def`), both shallow
+sparse clones. **Licenses:** cimo is MIT. LLVM is Apache-2.0 with the LLVM exception: porting is
+fine, with its notice kept. GCC is GPL: read for what it does, never translate its code.
+**Rules for each:** behind `backend.ext` (stock QBE stays byte-identical), measured with
+`bench/` and scramjit's `bench/gcc.py` before and after including compile time, tests, then Csmith.
+A pass that doesn't pay for its compile time is recorded here and dropped; cimo compiles at run time
+in Python.
+
+**Tier 1, instruction selection and peepholes** (seen in today's output; no analysis needed):
+- Frame only when needed: no `stp x29, x30` in a leaf function that uses no stack.
+- Shifts by an immediate (`lsl x0, x0, #3`; today `mov w1, #3; lsl x0, x0, x1`).
+- Scaled and extended addressing: `ldr x0, [x0, x1, lsl #3]`, `ldr w0, [x0, w1, sxtw #2]`,
+  `strb`, and pre/post-index (`AArch64LoadStoreOpt`, GCC `inc_dec`).
+- Shifted and extended operands: `add x0, x0, x1, lsl #4`, `add x0, x0, w1, sxtw`.
+- `madd`, `msub`, `mneg`, `fnmul` (`MachineCombiner`, GCC `combine`).
+- `csel`, `csinc`, `csneg`, `cneg`, `csetm`: then the middle end's 4-instruction select goes.
+- `cbz`, `cbnz`, `tbz`, `tbnz` (`AArch64CondBrTuning`), `tst`, `cmp`/`cmn` dropped after a flag-setting
+  `subs`/`adds`/`ands` (`AArch64ConditionOptimizer`, GCC `compare_elim_after_reload`), `ccmp` for `a && b`
+  (`AArch64ConditionalCompares`).
+- `bic`, `orn`, `eon`, `mvn`, `ubfx`, `sbfx`, `ubfiz`, `bfi`, `bfxil`, `extr`/`ror`.
+- `xzr` and `wzr` as operands: `str xzr, [x0]`; `movi`/`fmov #imm` for FP constants (2.0, 0.0).
+- Redundant extensions (`ldrb` then `uxtb`; GCC `ree`, `ext_dce`).
+- Division by a constant: multiply by the inverse (`TargetLowering::BuildSDIV`/`BuildUDIV`, Hacker's
+  Delight), signed powers of two with shifts. `mul` by 2^n+-1 as `add`/`sub` with a shift.
+- Tail calls and sibling calls (`TailCallElim`, GCC `tail_recursion`, `tail_calls`), loops for
+  self-recursion. Jump tables for dense `switch` (`lower_switch`, `if_to_switch`).
+
+**Tier 2, scalar IR passes:**
+- Algebraic simplification: `InstCombine`, `AggressiveInstCombine`, GCC `forwprop`/`match.pd`.
+- Value ranges and known conditions: `ConstraintElimination`, `CorrelatedValuePropagation`, GCC `vrp`,
+  `dominator`; removes bounds checks from what dominating conditions prove (`top > 0` then
+  `top - 1 >= 0`). `SCCP`/GCC `ccp`, `BDCE` and known bits, `ADCE`/GCC `cd_dce`.
+- Jump threading (`JumpThreading`, GCC `thread_jumps`, `DFAJumpThreading`) and loop unswitching
+  (`SimpleLoopUnswitch`, GCC `tree_unswitch`).
+- If-conversion with a cost model: `SimplifyCFG` (speculate at most 4 cost units), `SelectOptimize`
+  (select back to a branch when predictable), `EarlyIfConversion` (trace metrics); GCC `phiopt`,
+  `cselim`, `tree_ifcombine`. Replaces the one-block-body rule in `middle/ifconv.py`.
+- `Reassociate`/GCC `reassoc`, `StraightLineStrengthReduce`/GCC `strength_reduction`, `SpeculativeExecution`.
+- Memory: `SROA`/GCC `sra`, `DSE`, `MemCpyOpt`, `MergedLoadStoreMotion`, `GVN` load PRE/GCC `pre`, GCC
+  `store_merging`, `sink_code`, `MergeICmps`, `ExpandMemCmp`.
+- GCC `cse_reciprocals`, `cse_sincos`, `expand_pow`, `optimize_bswap`, `optimize_widening_mul`, `strlen`.
+- Inlining with a real cost model (`InlineCost`), `DeadArgumentElimination`, `IPSCCP`, `GlobalOpt`,
+  `FunctionAttrs` (pure, nocapture: loads and stores survive calls), `ModRef`/GCC `ipa_modref`,
+  `PartialInliner`, `GlobalDCE`, `ConstantMerge`, `MergeFunctions`/GCC `ipa_icf`.
+
+**Tier 3, loops** (`middle/`, which has unrolling, unroll-and-jam, scalar replacement, strength reduction):
+- `LoopRotate`, `IndVarSimplify`/GCC `iv_canon`, `LoopDeletion`, `LoopSimplifyCFG`, `LICM` scalar promotion.
+- `LoopIdiomRecognize`: memset, memcpy, popcount, ctz. GCC `crc_optimization`.
+- `LoopStrengthReduce`/GCC `iv_optimize`, with `AArch64` addressing modes as its cost.
+- Store-to-load across iterations: `LoopLoadElimination`, GCC `predcom` (scramjit's `ema`).
+- `LoopInterchange`/GCC `linterchange`, `LoopDistribute`/GCC `loop_distribution`, `LoopFuse`, `LoopFlatten`,
+  `LoopVersioningLICM`/GCC `loop_versioning`, `IRCE`/GCC `loop_split`, `LoopSink`.
+- Vectorization is its own item below (`LoopVectorize`, `SLPVectorizer`, `VectorCombine`).
+
+**Tier 4, machine level:**
+- Register allocation: live-range splitting and rematerialization (`RegAllocGreedy`, GCC `ira`, `early_remat`),
+  coalescing (`RegisterCoalescer`, GCC `regrename`, `web`): QBE's allocator spills in the hot paths of
+  branchy code. `MachineCopyPropagation`/GCC `cprop_hardreg`, `AArch64RedundantCopyElimination`.
+- Shrink wrapping (GCC `thread_prologue_and_epilogue`), `MachineSink`, `MachineLICM`, `MachineCSE`.
+- Instruction scheduling (`MachineScheduler`, GCC `sched`, `sched2`, `sched_fusion`), fetch alignment of
+  loops, `MachineBlockPlacement`/GCC `reorder_blocks`, `AArch64CodeLayoutOpt`, `TailDuplication`/GCC `tracer`.
+- `AArch64LoadStoreOpt` beyond today's pairs, `AArch64PromoteConstant`, `GlobalMerge`, `AArch64CollectLOH`.
+
+**Not applicable:** coroutines, OpenMP, sanitizers, CFI and hardening, PGO and sample profiles, LTO and
+devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long double`.
+
 ## Performance
 
 - **A public way to get a module's WebAssembly** (requested by scramjit): its site demo shows the
@@ -46,9 +116,12 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   - ~~`rint` is a library call~~ **Done:** `rint`/`nearbyint` are `frintx`/`frinti` (wasm
     `nearest`): 2.5 to 0.44 ns per element, the same as `floor`.
   - The bundled `hypot` is 1.5x glibc's (10.3 vs 6.8 ns).
-  - No common subexpression elimination: an expression repeated in the source is computed each
-    time (scramjit's `x % n` macro computed `a % b` three times). scramjit now writes each
-    division once, but flood_fill (branchy, many small blocks, bounds checks) is still 1.9x.
+  - ~~No common subexpression elimination~~ **Done** (`backend/cse.py`, `ext.cse`): loads merge after
+    gvn, divisions are pure on arm64 and a remainder shares its division, a repeated condition and
+    `y < 0 ? y + n : y` merge. Generated flood_fill 3.60 to 2.78 ms against gcc's 1.82, viewshed
+    (parity off) 7.30 to 6.98 against 3.41. What's left there: the items under "Optimizations to lift".
+  - `middle/ifconv.py` only converts loops with one exit and no call, a stopgap until `csel` and a
+    cost model (see "Optimizations to lift", Tier 2).
   **When fixed, add a note to scramjit's `TODO.md`** so it can drop the workarounds listed there.
 
 - ~~**Inline small functions**~~ **Done** (`backend/inline.py`): helpers now run as fast as macros

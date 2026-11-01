@@ -6,7 +6,8 @@ The arms must hold only a few pure, non-trapping instructions (they run speculat
 the join's phis must be integers. QBE's own if-conversion (ifopt) needs a `sel` instruction,
 which the arm64 backend doesn't have; this arithmetic select (4 instructions) is used
 instead. It turns data-dependent branches, which mispredict, into straight-line code, and
-gives the loop the one-block body the loop transformations need.
+gives the loop the one-block body the loop transformations need, so only loops that can get one
+are converted.
 """
 
 from ..backend import defs as D
@@ -50,8 +51,19 @@ def _shape(ifb):
     return None
 
 
+def _can_be_one_block(lp):
+    """A loop with a side exit (a failing bounds check) or a call never gets a one-block body:
+    selects there only add instructions and registers, in code whose branches predict well
+    (scramjit's flood_fill: 3.73 ms converted, 2.75 ms not)."""
+    if len(lp.exits()) > 1:
+        return False
+    return not any(i.op == D.Ocall for b in lp.blocks for i in ir.ins(b))
+
+
 def convert_loop(fn, lp):
     """If-convert inside loop lp (needs fillcfg); returns True if something changed."""
+    if not _can_be_one_block(lp):
+        return False
     for ifb in list(lp.blocks):
         g = _shape(ifb)
         if not g:
