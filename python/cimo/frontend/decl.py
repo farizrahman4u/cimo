@@ -272,6 +272,8 @@ def tagspec(s):
             if invalid:
                 # fixed underlying type
                 error(tok.loc, "enumerator '%s' value cannot be represented in underlying type", name)
+            if U.diagnostics and s.decls.get(name):  # cimo: C11 6.7p3
+                error(tok.loc, "redefinition of '%s'", name)
             d = mkdecl(name, DECLCONST, et, QUALNONE, LINKNONE)
             d.enumconst = value
             d.value = Q.mkintconst(value)
@@ -575,7 +577,12 @@ def declaratortypes(s, result, name, align, funcscope, allowabstract):
                     break
                 d = parameter(s)
                 if d.name:
+                    if U.diagnostics and s.decls.get(d.name):  # cimo: C11 6.7p3
+                        error(tok.loc, "redefinition of parameter '%s'", d.name)
                     scopeputdecl(s, d)
+                if U.diagnostics and d.type.kind == TYPEVOID and (t.nparam or d.name or
+                                                                  tok.kind == TCOMMA):
+                    error(tok.loc, "'void' must be the only parameter")  # cimo: 6.7.6.3p10
                 if paramlast is None:
                     t.params = d
                 else:
@@ -603,8 +610,12 @@ def declaratortypes(s, result, name, align, funcscope, allowabstract):
                 next()
                 t = mkarraytype(None, QUALNONE, 0)
                 pq = Ref(t.ptrqual)
-                while consume(TSTATIC) or typequal(pq):
-                    pass
+                while True:
+                    if consume(TSTATIC):
+                        if U.diagnostics and not _inparam:  # cimo: C11 6.7.6.2p1
+                            error(tok.loc, "'static' in an array declarator outside a parameter")
+                    elif not typequal(pq):
+                        break
                 t.ptrqual = pq.v
                 if tok.kind == TMUL and peek(TRBRACK):
                     t.prop |= PROPVM
@@ -696,7 +707,11 @@ def declarator(s, base, name, align, funcscope, allowabstract):
     return QualType(btype, bqual, base.expr)
 
 
+_inparam = False  # cimo: declaring a parameter (for `static` in array declarators)
+
+
 def parameter(s):
+    global _inparam
     A.attr(None, 0)
     sc = Ref()
     t = declspecs(s, sc, None, None)
@@ -707,13 +722,18 @@ def parameter(s):
     if sc.v and sc.v != SCREGISTER:
         error(tok.loc, "parameter declaration has invalid storage-class specifier")
     name = Ref()
-    t = declarator(s, t, name, None, None, True)
+    _inparam = True
+    try:
+        t = declarator(s, t, name, None, None, True)
+    finally:
+        _inparam = False
     length = t.type.length if t.type.kind == TYPEARRAY else None
     q = Ref(t.qual)
     t.type = typeadjust(t.type, q)
     t.qual = q.v
     d = mkdecl(name.v, DECLOBJECT, t.type, t.qual, LINKNONE)
     d.storage = SDAUTO
+    d.isregister = sc.v == SCREGISTER
     # cimo: evaluated on entry to the function (C11 6.9.1p10), e.g. `int a[i++]`; cproc
     # dropped it with the array type
     if length is not None and not _pure(length):
@@ -742,9 +762,17 @@ def addmember(b, mt, name, align, width):
     t = b.type
     if t.kind == TYPESTRUCT and t.prop & PROPFLEX:
         error(tok.loc, "struct has member '%s' after flexible array member", name)
+    if U.diagnostics and name:  # cimo: C11 6.7p3, members are a name space of their own
+        m = t.members
+        while m:
+            if m.name == name:
+                error(tok.loc, "duplicate member '%s'", name)
+            m = m.next
     if mt.type.incomplete:
         if mt.type.kind != TYPEARRAY:
             error(tok.loc, "struct member '%s' has incomplete type", name)
+        if U.diagnostics and t.kind == TYPESTRUCT and not t.members:  # cimo: C11 6.7.2.1p18
+            error(tok.loc, "flexible array member '%s' in an otherwise empty struct", name)
         t.prop |= PROPFLEX
     if mt.type.prop & PROPFLEX:
         # ISO C doesn't allow structures with members containing FAMs, but allow it as
@@ -978,6 +1006,8 @@ def decl(s, f):
             error(tok.loc, "external declaration must not contain 'register'")
     if consume(TSEMICOLON):
         # XXX 6.7p2 error unless in function parameter/struct/union, or tag/enum members are declared
+        if U.diagnostics and base.type.kind not in (TYPESTRUCT, TYPEUNION, TYPEENUM):
+            error(tok.loc, "declaration does not declare anything")  # cimo: C11 6.7p2
         return True
     while True:
         namer = Ref()
@@ -1001,6 +1031,11 @@ def decl(s, f):
             asmname = None
         A.gnuattr(a, 0)  # appertains to identifier
         kind = DECLTYPE if sc & SCTYPEDEF else DECLFUNC if t.kind == TYPEFUNC else DECLOBJECT
+        if U.diagnostics and kind != DECLFUNC and fs:  # cimo: C11 6.7.4p2
+            error(tok.loc, "'%s' declared with a function specifier ('inline' or '_Noreturn') "
+                  "but is not a function", name)
+        if U.diagnostics and align and sc & SCREGISTER:  # cimo: C11 6.7.5p2
+            error(tok.loc, "'register' object '%s' declared with alignment specifier", name)
         prior = scopegetdecl(s, name, False)
         if prior and prior.kind != kind:
             error(tok.loc, "'%s' redeclared with different kind", name)
@@ -1023,6 +1058,7 @@ def decl(s, f):
             if align and align < t.align:
                 error(tok.loc, "object '%s' requires alignment %d, which is stricter than specified alignment %d", name, t.align, align)
             d = declcommon(s, kind, name, asmname, t, tq, sc, prior)
+            d.isregister = bool(sc & SCREGISTER)
             if d.align < align:
                 d.align = align
             if U.diagnostics and d.align < DG.declalign:  # __attribute__((aligned(n)))
@@ -1083,8 +1119,15 @@ def decl(s, f):
                     DG.checkfunc(t)
                 if d.defined:
                     error(tok.loc, "function '%s' redefined", name)
+                if U.diagnostics:  # cimo: C11 6.7.6.3p4
+                    p = t.params
+                    while p:
+                        if p.type.incomplete:
+                            error(tok.loc, "parameter '%s' has incomplete type", p.name or '')
+                        p = p.next
                 # re-open scope from function declarator
-                assert funcscope
+                if not funcscope:  # cimo: `typedef int t(void); t f { }` (cproc asserted)
+                    error(tok.loc, "function '%s' defined with a typedef'd function type", name)
                 s = funcscope
                 f = Q.mkfunc(d, name, t, s)
                 ST.stmt(f, s)

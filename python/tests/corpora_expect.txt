@@ -481,6 +481,7 @@ gcc-torture/pr85331.c                               unsupported  vector types (v
 gcc-torture/pr85756.c                               unsupported  inline assembly is not supported
 gcc-torture/pr86659-1.c                             unsupported  no type in parameter declaration
 gcc-torture/pr86659-2.c                             unsupported  no type in parameter declaration
+gcc-torture/pr86714.c                               unsupported  initializer string is too long for the array
 gcc-torture/pr87623.c                               unsupported  attribute 'scalar_storage_order' is not supported
 gcc-torture/pr88904.c                               unsupported  inline assembly is not supported
 gcc-torture/pr89434.c                               unsupported  built-in function '__builtin_mul_overflow' is not supported

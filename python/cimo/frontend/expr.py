@@ -17,7 +17,7 @@ from .cc import (Expr, Ref, M64, M32, EXPRIDENT, EXPRCONST, EXPRSTRING, EXPRCALL
                  TALIGNOF, T__ALIGNOF__, TLBRACE, TLOR, TLAND, TBOR, TXOR, TEQL, TNEQ, TLESS,
                  TGREATER, TLEQ, TGEQ, TSHL, TSHR, TDIV, TMOD, TQUESTION, TASSIGN, TMULASSIGN,
                  TDIVASSIGN, TMODASSIGN, TADDASSIGN, TSUBASSIGN, TSHLASSIGN, TSHRASSIGN,
-                 TBANDASSIGN, TXORASSIGN, TBORASSIGN)
+                 TBANDASSIGN, TXORASSIGN, TBORASSIGN, PROPFLOAT, DECLTYPE)
 from .token import tok, tokenstr, error
 from .pp import next, expect, consume
 from . import type as TY
@@ -234,6 +234,8 @@ def mkbinaryexpr(loc, op, l, r):
         else:
             error(loc, "invalid operands to '%s' operator", tokenstr(op))
     elif op == TBOR or op == TXOR or op == TBAND:
+        if not (lp & PROPINT) or not (rp & PROPINT):  # cimo: C11 6.5.10-12 (cproc: QBE error)
+            error(loc, "operands to '%s' operator must be integer", tokenstr(op))
         t, l, r = commonreal(l, r)
     elif op == TADD:
         if lp & PROPARITH and rp & PROPARITH:
@@ -714,6 +716,9 @@ def primaryexpr(s):
             e.u = v
             if n == 0:
                 error(tok.loc, "invalid integer constant '%s'", lit)
+            if U.diagnostics and v == M64 and int(src[:n].lower().lstrip('0x') or '0',
+                                                  base) > M64:  # cimo: C11 6.4.4p2
+                error(tok.loc, "integer constant '%s' is too large for any type", lit)
             e.type = inttype(e.u, base == 10, src[n:])
         next()
     elif k == TTRUE or k == TFALSE:
@@ -741,6 +746,8 @@ def primaryexpr(s):
                 error(tok.loc, "undeclared identifier: %s", tokenstr(tok.kind))
             if U.diagnostics:
                 DG.identifier(d)
+            if d.kind == DECLTYPE:  # cimo: cproc failed "unimplemented declaration kind"
+                error(tok.loc, "unexpected type name '%s'", tokenstr(tok.kind))
             e = Expr(EXPRIDENT, d.type, None)
             e.qual = d.qual
             e.lvalue = d.kind == DECLOBJECT
@@ -870,6 +877,8 @@ def mkincdecexpr(op, base, post):
         error(tok.loc, "operand of '%s' operator must be an lvalue", tokenstr(op))
     if base.qual & QUALCONST:
         error(tok.loc, "operand of '%s' operator is const qualified", tokenstr(op))
+    if not (base.type.prop & PROPREAL or base.type.kind == TYPEPOINTER):  # cimo: C11 6.5.2.4p1
+        error(tok.loc, "operand of '%s' operator must have real or pointer type", tokenstr(op))
     e = Expr(EXPRINCDEC, base.type, base)
     e.op = op
     e.post = post
@@ -977,7 +986,13 @@ def unaryexpr(s):
         e = mkincdecexpr(op, l, False)
     elif op == TBAND or op == TMUL:
         next()
-        return mkunaryexpr(op, castexpr(s))
+        e = castexpr(s)
+        b = e.base if e.decayed else e
+        if U.diagnostics and op == TBAND and b.kind == EXPRIDENT and b.decl.kind == DECLOBJECT \
+                and b.decl.isregister:  # cimo: C11 6.5.3.2p1 (only a written `&`: compound
+            # assignment takes the address internally)
+            error(tok.loc, "cannot take address of 'register' object")
+        return mkunaryexpr(op, e)
     elif op == TADD:
         next()
         e = castexpr(s)
@@ -1092,6 +1107,9 @@ def castexpr(s):
         e = unaryexpr(s)
 
     # done:
+    if U.diagnostics and ct and (ct.kind == TYPEPOINTER and e.type.prop & PROPFLOAT
+                                 or ct.prop & PROPFLOAT and e.type.kind == TYPEPOINTER):
+        error(tok.loc, "cast between pointer and floating type")  # cimo: C11 6.5.4p3-4
     if ct and ct is not TY.typevoid and not (e.type.prop & PROPSCALAR):
         error(tok.loc, "cast operand must have scalar type")
     if last is None:
@@ -1134,6 +1152,8 @@ def condexpr(s):
     e = binaryexpr(s, None, 0)
     if not consume(TQUESTION):
         return e
+    if not (e.type.prop & PROPSCALAR):  # cimo: C11 6.5.15p2 (cproc asserted later)
+        error(tok.loc, "controlling expression of conditional must have scalar type")
     l = e if tok.kind == TCOLON else expr(s)
     expect(TCOLON, "in conditional expression")
     r = condexpr(s)
@@ -1205,6 +1225,21 @@ _ASSIGNOPS = {TASSIGN: TNONE, TMULASSIGN: TMUL, TDIVASSIGN: TDIV, TMODASSIGN: TM
               TBANDASSIGN: TBAND, TXORASSIGN: TXOR, TBORASSIGN: TBOR}
 
 
+def _constmember(t):
+    """Whether struct or union t has a const member, at any depth."""
+    if t.kind not in (TYPESTRUCT, TYPEUNION):
+        return False
+    m = t.members
+    while m:
+        mt = m.type
+        while mt.kind == TYPEARRAY:
+            mt = mt.base
+        if m.qual & QUALCONST or mt.qual & QUALCONST or _constmember(mt):
+            return True
+        m = m.next
+    return False
+
+
 def assignexpr(s):
     l = condexpr(s)
     if l.kind == EXPRBINARY or l.kind == EXPRCOMMA or l.kind == EXPRCAST:
@@ -1214,6 +1249,8 @@ def assignexpr(s):
         return l
     if not l.lvalue:
         error(tok.loc, "left side of assignment expression is not an lvalue")
+    if U.diagnostics and _constmember(l.type):  # cimo: C11 6.3.2.1p1, 6.5.16p2
+        error(tok.loc, "cannot assign to a struct or union with a 'const' member")
     next()
     r = assignexpr(s)
     if not op:

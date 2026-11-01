@@ -247,7 +247,7 @@ class SwitchCase(object):
 
 class Func(object):
     __slots__ = ('decl', 'namedecl', 'name', 'paramtemps', 'type', 'start', 'end', 'gotos',
-                 'lastid', 'vlas', 'vlagotos')
+                 'lastid', 'vlas', 'vlagotos', 'gotochecks')
 
 
 ptrclass = 'l'
@@ -608,6 +608,7 @@ def mkfunc(decl, name, t, s):
     f.gotos = {}
     f.vlas = []  # cimo (vlafree): stack pointers saved before the VLAs now in scope
     f.vlagotos = []  # (block, VLAs in scope at the goto, GotoLabel) of forward gotos
+    f.gotochecks = []  # (VLAs in scope, GotoLabel, location) of forward gotos, for emitfunc
     emittype(t.base)
 
     # allocate space for parameters
@@ -810,9 +811,13 @@ def funcvlaleave(f, n):
 def funcvlagoto(f, g):
     """Jump to a goto label, freeing the VLAs whose scope the jump leaves (cimo, vlafree)."""
     if g.defined:  # backward: the label's VLAs are a prefix of ours
+        if tuple(f.vlas[:len(g.vlas)]) != g.vlas:  # C11 6.8.6.1p1
+            error(tok.loc, "jump into the scope of a variable length array")
         funcvlaleave(f, len(g.vlas))
         funcjmp(f, g.label)
-    elif f.vlas:  # forward: the label's VLAs are not known yet
+        return
+    f.gotochecks.append((list(f.vlas), g, tok.loc))
+    if f.vlas:  # forward: the label's VLAs are not known yet
         t = mkblock("goto_vla")
         funcjmp(f, t)
         f.vlagotos.append((t, list(f.vlas), g))
@@ -1585,6 +1590,15 @@ def emitfunc(f, glob):
         if f.name == "main" and f.type.base is TY.typeint:
             v = mkintconst(0)
         funcret(f, v)
+    for vlas, g, loc in f.gotochecks:  # cimo (vlafree): forward gotos, C11 6.8.6.1p1
+        if not g.defined and U.diagnostics:
+            error(loc, "label '%s' used but not defined", g.label.label.name)
+        if g.defined and tuple(vlas[:len(g.vlas)]) != g.vlas:
+            error(loc, "jump into the scope of a variable length array")
+    if U.diagnostics:
+        for name, g in f.gotos.items():
+            if not g.defined:
+                error(tok.loc, "label '%s' used but not defined", name)
     for t, vlas, g in f.vlagotos:  # forward gotos that leave VLA scopes (vlafree)
         funclabel(f, t)
         if len(vlas) > len(g.vlas):

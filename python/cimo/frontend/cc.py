@@ -456,7 +456,7 @@ class Decl(object):
     enumconst, builtin."""
     __slots__ = ('name', 'kind', 'linkage', 'type', 'qual', 'value', 'asmname', 'defined',
                  'tentative', 'next', 'align', 'storage', 'inlinedefn', 'isnoreturn',
-                 'enumconst', 'builtin', 'lengthexpr')
+                 'enumconst', 'builtin', 'lengthexpr', 'isregister')
 
     def __init__(self, name=None, kind=0, linkage=0, type=None, qual=0, builtin=0):
         self.name = name
@@ -471,6 +471,7 @@ class Decl(object):
         self.next = None
         self.align = 0
         self.storage = 0
+        self.isregister = False  # cimo: declared `register` (C11 6.5.3.2p1: no address)
         self.inlinedefn = False
         self.isnoreturn = False
         self.enumconst = 0
@@ -606,12 +607,13 @@ class GotoLabel(object):
 
 
 class SwitchCases(object):
-    __slots__ = ('root', 'type', 'defaultlabel')
+    __slots__ = ('root', 'type', 'defaultlabel', 'nvla')
 
     def __init__(self):
         self.root = None
         self.type = None
         self.defaultlabel = None
+        self.nvla = 0  # cimo: VLAs in scope at the switch (case labels may not enter another's)
 
 
 class Ref(object):

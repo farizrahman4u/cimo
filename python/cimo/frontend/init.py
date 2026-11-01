@@ -8,7 +8,7 @@ attribute, so stale values carry over exactly as in C.
 
 from .cc import (Init, BITS0, M64, TYPEARRAY, TYPESTRUCT, TYPEUNION, PROPSCALAR,
                  PROPINT, PROPCHAR, EXPRSTRING, TLBRACK, TPERIOD, TASSIGN, TIDENT, TRBRACK,
-                 TLBRACE, TRBRACE, TCOMMA, TELLIPSIS)
+                 TLBRACE, TRBRACE, TCOMMA, TELLIPSIS, PROPVM)
 from .token import tok, error
 from .pp import next, expect, consume
 from .type import typecompatible
@@ -181,9 +181,12 @@ def parseinit(s, t):
     p.last = None
     if t.incomplete and t.kind != TYPEARRAY:
         error(tok.loc, "initializer specified for incomplete type")
-    if t.kind == TYPEARRAY and t.base.size == 0:
+    if t.kind == TYPEARRAY and (t.base.size == 0 or t.prop & PROPVM):
+        # cimo: also a VLA of a complete element type (cproc checked the element only); C23's
+        # `= {}` for a VLA is not supported either
         error(tok.loc, "initializer specified for variable length array type")
     obj = p.obj
+    afterbrace = False
     while True:
         skip_to_next = False
         if p.cur is not None:
@@ -191,6 +194,9 @@ def parseinit(s, t):
                 designator(s, p)
             elif p.sub != p.cur:
                 advance(p)
+            elif obj[p.cur].type.prop & PROPSCALAR and not afterbrace:
+                # cimo: `int a = {1, 2}` (cproc added both and asserted when emitting)
+                error(tok.loc, "too many initializers for type")
             elif obj[p.cur].type.kind == TYPESTRUCT or obj[p.cur].type.kind == TYPEUNION:
                 focus(p)
         if consume(TLBRACE):
@@ -206,7 +212,9 @@ def parseinit(s, t):
                     focus(p)
                 p.cur = p.sub
                 obj[p.cur].iscur = True
+                afterbrace = True
                 continue
+        afterbrace = False
         if not skip_to_next:
             expr = E.assignexpr(s)
             while True:
@@ -219,6 +227,9 @@ def parseinit(s, t):
                             error(tok.loc, "cannot initialize array with string literal of different width")
                         if t.incomplete:
                             t.size = expr.type.size
+                        elif U.diagnostics and expr.type.size - base.size > t.size:
+                            # cimo: C11 6.7.9p2, 14 (only the terminating null may be dropped)
+                            error(tok.loc, "initializer string is too long for the array")
                         break
                 elif t.kind == TYPESTRUCT or t.kind == TYPEUNION:
                     if typecompatible(expr.type, t):

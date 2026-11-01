@@ -591,6 +591,9 @@ class Preprocessor(object):
                 self._warn('extra tokens at end of #undef directive', args[1])
             if args[0].text == 'defined':
                 raise self._error('"defined" cannot be used as a macro name', args[0])
+            old = self.macros.get(args[0].text)
+            if old is not None and old.builtin:  # C11 6.10.8p2, a warning as in gcc
+                self._warn('undefining "%s"' % args[0].text, args[0])
             self.macros.pop(args[0].text, None)
         elif name in ('include', 'include_next', 'import'):
             self._do_include(src, name, args, d)
@@ -725,6 +728,8 @@ class Preprocessor(object):
             body.append(t)
         if body:
             body[0].space = False
+        if not variadic and any(t.text == '__VA_ARGS__' for t in body):  # C11 6.10.3p5
+            self._warn('__VA_ARGS__ can only appear in the expansion of a variadic macro', nt)
         m = Macro(name, params, variadic, body)
         m.src = nt.src
         m.line = nt.line

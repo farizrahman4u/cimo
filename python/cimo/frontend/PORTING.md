@@ -103,6 +103,22 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   float (`(_Bool)0.5` was 0, `(_Bool)-0.5` an error); `(unsigned)-0.5` was rejected (its
   integer part, 0, is representable); folding `1 ? b.f : 0u` returned the bit-field itself,
   which then promoted to `int` again.
+- Found by `tests/test_constraints.py` (C11 constraint violations): a duplicate label linked
+  its block in twice, a cycle that made `emitfunc` produce output without end (it exhausted the
+  machine's memory); a struct as `?:`'s condition, `int a = {1, 2}` and a function defined
+  with a typedef'd type tripped assertions; `++` on a struct, `&`/`|`/`^` on floating
+  operands and a typedef name used as a value reached the backend; an initializer for a VLA
+  of complete element type was accepted (C23's `= {}` is not supported either).
+- `compile(diagnostics=True)` also diagnoses the C11 constraints cproc leaves out (a `cimo:`
+  comment names the clause): a declaration declaring nothing, `inline`/`_Noreturn` on an
+  object or typedef, `_Alignas` with `register`, duplicate members, enumerators and parameter
+  names, a flexible array member as the only member, `void` with other parameters, `static`
+  in a non-parameter array declarator, incomplete parameter types in a definition, `&` of a
+  `register` object, casts between pointers and floating types, assignment to a struct with a
+  `const` member, a string longer than its array, an integer constant too large for every
+  type, non-`auto` objects in a `for` declaration, a `goto` to an undefined label, and (with
+  `vlafree`) jumps into the scope of a VLA by `goto` or a `case` label. The preprocessor warns
+  about `__VA_ARGS__` in a non-variadic macro and `#undef` of a predefined macro, as gcc does.
 - `emittype` (cproc's XXX): QBE types get `align N` and `b N` padding where QBE's layout of
   the fields differs from C's (`_Alignas`, trailing padding of an over-aligned struct), and
   no field for a flexible or zero-length array (`b 0` for an empty struct); cproc's types

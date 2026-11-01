@@ -2,7 +2,7 @@
 
 from .cc import (SwitchCases, TCASE, TDEFAULT, TIDENT, TCOLON, TLBRACE, TRBRACE, TSEMICOLON,
                  TIF, TLPAREN, TRPAREN, TELSE, TSWITCH, TWHILE, TDO, TFOR, TGOTO, TCONTINUE,
-                 TBREAK, TRETURN, T__ASM__, PROPSCALAR, PROPINT, TELLIPSIS, TMUL)
+                 TBREAK, TRETURN, T__ASM__, PROPSCALAR, PROPINT, TELLIPSIS, TMUL, DECLOBJECT, SDAUTO)
 from .token import tok, tokenstr, error
 from .pp import next, expect, consume, peek
 from . import type as TY
@@ -23,6 +23,8 @@ def label(f, s):
         next()
         if not s.switchcases:
             error(tok.loc, "'case' label must be in switch")
+        if len(f.vlas) > s.switchcases.nvla:  # cimo: C11 6.8.4.2p2
+            error(tok.loc, "jump into the scope of a variable length array")
         b = Q.mkblock("switch_case")
         Q.funclabel(f, b)
         i = E.intconstexpr(s, True)
@@ -37,6 +39,8 @@ def label(f, s):
         if s.switchcases.defaultlabel:
             error(tok.loc, "multiple 'default' labels")
         expect(TCOLON, "after 'default'")
+        if len(f.vlas) > s.switchcases.nvla:  # cimo: C11 6.8.4.2p2
+            error(tok.loc, "jump into the scope of a variable length array")
         s.switchcases.defaultlabel = Q.mkblock("switch_default")
         Q.funclabel(f, s.switchcases.defaultlabel)
     else:
@@ -46,6 +50,8 @@ def label(f, s):
         if not peek(TCOLON):
             return False
         g = Q.funcgoto(f, name)
+        if g.defined:  # cimo: cproc linked the block in twice, a cycle (endless output)
+            error(tok.loc, "redefinition of label '%s'", name)
         g.defined = True
         g.vlas = tuple(f.vlas)
         Q.funclabel(f, g.label)
@@ -132,6 +138,7 @@ def stmt(f, s):
         swtch.root = None
         swtch.type = e.type
         swtch.defaultlabel = None
+        swtch.nvla = len(f.vlas)
 
         b0 = Q.mkblock("switch_cond")
         b1 = Q.mkblock("switch_join")
@@ -213,7 +220,13 @@ def stmt(f, s):
         expect(TLPAREN, "after 'for'")
         s = mkscope(s)
         nvla = len(f.vlas)
-        if not D.decl(s, f):
+        if D.decl(s, f):
+            if U.diagnostics:  # cimo: C11 6.8.5p3, only auto and register objects
+                for d in s.decls.values():
+                    if d.kind != DECLOBJECT or d.storage != SDAUTO:
+                        error(tok.loc, "declaration of '%s' in a 'for' loop is not an "
+                              "'auto' or 'register' object", d.name)
+        else:
             if tok.kind != TSEMICOLON:
                 e = E.expr(s)
                 Q.funcexpr(f, e)
