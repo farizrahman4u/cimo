@@ -212,3 +212,12 @@ def test_register_offsets_and_cbz():
     lines += ['cbz x3, .Lt', 'cbnz w4, .Lt', '.Lt:', 'cbz w5, .Lt', 'cbnz x6, .Lt']
     d = A.compare('\n'.join(dict.fromkeys(lines)) + '\n')
     assert not d, '\n'.join(d)
+
+
+def test_csel():
+    lines = []
+    for c in 'eq ne cs cc mi pl vs vc hi ls ge lt gt le'.split():
+        lines += ['csel x1, x2, x3, %s' % c, 'csel w4, w5, w6, %s' % c,
+                  'fcsel d1, d2, d3, %s' % c, 'fcsel s4, s5, s6, %s' % c]
+    d = A.compare('\n'.join(lines) + '\n')
+    assert not d, '\n'.join(d)

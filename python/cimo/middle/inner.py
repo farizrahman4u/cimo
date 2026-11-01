@@ -462,6 +462,11 @@ class Fast:
                         env[t] = fresh[id(ch)]
                         continue
                 args = [self.opmap(a, k, env, state, closed) if a != R else R for a in i.arg]
+                if i.op == D.Osel0:  # goes right before its sel1, after what opmap adds for it
+                    sel0 = args[0]
+                    continue
+                if i.op == D.Osel1:
+                    em.ins(Ins(D.Osel0, Kw, R, sel0, R))
                 if ir.isstore(i.op):
                     lm.store(i, args, k, closed)
                     continue

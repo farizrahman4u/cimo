@@ -521,6 +521,12 @@ def emitins(i, e):
         e.f.write("\t%s\t%s, %s, %s, %s\n" % ("madd" if op == D.Oamadd else "msub",
                                                rname(rval(i.to), k), rname(rval(m.base), k),
                                                rname(rval(m.index), k), rname(rval(i.arg[0]), k)))
+    elif op == D.Oacsel:  # cimo (ext.isel), see isel.selcsel
+        m = e.fn.mem[rval(i.arg[1])]
+        k = i.cls
+        e.f.write("\t%s\t%s, %s, %s, %s\n" % ("csel" if KBASE(k) == 0 else "fcsel",
+                                               rname(rval(i.to), k), rname(rval(i.arg[0]), k),
+                                               rname(rval(m.base), k), ctoa[m.offset.i][0]))
     elif op in _FMA:
         # cimo extension: r = a*b +- c, with b and c in a Mem (see isel.selfma)
         m = e.fn.mem[rval(i.arg[1])]

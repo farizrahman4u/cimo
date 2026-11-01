@@ -49,7 +49,8 @@ in Python.
 - Pre/post-index addressing (`AArch64LoadStoreOpt`, GCC `inc_dec`).
 - Shifted and extended operands: `add x0, x0, x1, lsl #4`, `add x0, x0, w1, sxtw`.
 - `mneg`, `fnmul` (`MachineCombiner`, GCC `combine`).
-- `csel`, `csinc`, `csneg`, `cneg`, `csetm`: then the middle end's 4-instruction select goes.
+- ~~`csel`, `fcsel`~~ **Done** (`ext.isel`; policy from `SimplifyCFG`, `EarlyIfConversion`). Then
+  `csinc`, `csneg`, `cneg`, `csetm`. wasm `select`.
 - `cbz`, `cbnz`, `tbz`, `tbnz` (`AArch64CondBrTuning`), `tst`, `cmp`/`cmn` dropped after a flag-setting
   `subs`/`adds`/`ands` (`AArch64ConditionOptimizer`, GCC `compare_elim_after_reload`), `ccmp` for `a && b`
   (`AArch64ConditionalCompares`).
@@ -119,8 +120,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
     gvn, divisions are pure on arm64 and a remainder shares its division, a repeated condition and
     `y < 0 ? y + n : y` merge. Generated flood_fill 3.60 to 2.78 ms against gcc's 1.82, viewshed
     (parity off) 7.30 to 6.98 against 3.41. What's left there: the items under "Optimizations to lift".
-  - `middle/ifconv.py` only converts loops with one exit and no call, a stopgap until `csel` and a
-    cost model (see "Optimizations to lift", Tier 2).
+  - `middle/ifconv.py` only converts loops with one exit and no call: measured, still right with
+    `csel` (viewshed 8.17 against 14.38 ms). `backend/ifopt.py` has no such rule, and scramjit's
+    flood_fill lost 2.47 to 2.72 ms from it: needs `SelectOptimize`'s model (Tier 2).
   **When fixed, add a note to scramjit's `TODO.md`** so it can drop the workarounds listed there.
 
 - ~~**Inline small functions**~~ **Done** (`backend/inline.py`): helpers now run as fast as macros
@@ -158,3 +160,5 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   (forward, backward, Adam) → cimo → WASM, trained in the page. `docs/runtime.js` shares Pyodide.
 - Website Architecture section (`docs/arch.js`): real output of each compiler stage for one kernel,
   from `docs/arch/gen.py`; rerun it when the compiler's output changes.
+
+- Investigate multiprocessing to speed up large compilations (one compile uses one core today).

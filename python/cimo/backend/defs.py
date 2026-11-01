@@ -214,7 +214,7 @@ _OPS = [
     ('blit0', ((Km, Ke, Ke, Ke), (Km, Ke, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
     ('blit1', ((Kw, Ke, Ke, Ke), (Kx, Ke, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
     ('sel0', ((Kw, Ke, Ke, Ke), (Kx, Ke, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
-    ('sel1', ((Kw, Kl, Ke, Ke), (Kw, Kl, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+    ('sel1', ((Kw, Kl, Ks, Kd), (Kw, Kl, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
     ('swap', ((Kw, Kl, Ks, Kd), (Kw, Kl, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('sign', ((Kw, Kl, Ke, Ke), (Kx, Kx, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('salloc', ((Ke, Kl, Ke, Ke), (Ke, Kx, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
@@ -321,6 +321,9 @@ _OPS += [('bswap16', ((Kw, Ke, Ke, Ke), (Kx, Kx, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 
 # afmadd, the Mem only carries the third register)
 _OPS += [(_n, ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
          for _n in ('amadd', 'amsub')]
+# r = acsel a, MEM{base=b, offset=cond}: a if the condition holds on the flags, else b. One op for
+# every combination of the result's class and the comparison's kind, unlike xsel*
+_OPS += [('acsel', ((Kw, Kl, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
 
 
 

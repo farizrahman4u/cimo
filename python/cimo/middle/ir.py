@@ -329,7 +329,8 @@ def isload(op):
 
 
 def isfma(op):
-    return op in (getattr(D, 'Ofma0', -1), getattr(D, 'Ofma1', -1))
+    # also sel0/sel1 (ext.isel): the same shape, a pair kept adjacent that is copied as it is
+    return op in (D.Ofma0, D.Ofma1, D.Osel0, D.Osel1)
 
 
 def copyable(i):
