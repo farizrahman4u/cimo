@@ -128,7 +128,7 @@ def fetch(name):
     subprocess.check_call(git + ['fetch', '-q', '--depth', '1', '--filter=blob:none', 'origin',
                                  commit])
     subprocess.check_call(git + ['checkout', '-q', commit])
-    harness(name)
+    harness(name, 'math/')  # generate it now (libc-test)
     print('%s: %d programs in %s' % (name, len(files(name)), root(name)))
 
 
