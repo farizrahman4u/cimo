@@ -1,6 +1,7 @@
 """Common subexpressions QBE leaves behind (cimo.backend.cse, ext.cse): what gets merged, and that
 merging keeps the results, on the paths where a merge would be wrong if it went too far."""
 
+import array
 import re
 
 import pytest
@@ -18,7 +19,7 @@ def body(src, name):
 
 def test_repeated_loads_merge():
     b = body('double f(double *p, long i) { return p[i] + p[i] * 3 + p[i]; }', 'f')
-    assert len(re.findall(r'\bldr\s+d\d+, \[x', b)) == 2  # p[i], and the constant 3
+    assert len(re.findall(r'\bldr\s+d\d+, \[x', b)) == 1, b  # p[i]; the constant 3 is an fmov
 
 
 def test_a_store_between_keeps_the_second_load():
@@ -291,3 +292,103 @@ def test_a_large_multiplier_with_many_loops_and_calls():
         want -= v * 0x123456789abcdef
     want = ((want + 2 ** 63) % 2 ** 64) - 2 ** 63
     assert m.f(x, 3, 0) == want and m.f(x, 3, 1) == -1
+
+
+@pytest.mark.parametrize('p,q,want', [(2, 1, 36 - 8000), (1, 2, 36 + 800)])
+def test_a_condition_only_a_select_reads(p, q, want):
+    """Its definition stayed: the select's fallback (compare with 0) counts as a use of it."""
+    m = cimo.compile('''int g;
+    long f(int *a, int n, int p, int q, int x, int y) {
+        int c = p < q; if (c) g = 1;
+        long s = 0;
+        for (int i = 0; i < n; i++) { int v = a[i]; int r; if (c) r = v + x; else r = v - y; s += r; }
+        return s; }
+    int arr[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    long t(int p, int q) { return f(arr, 8, p, q, 100, 1000); }''', cache=False)
+    assert m.t(p, q) == want
+
+
+def test_a_product_that_is_also_a_select_condition():
+    m = cimo.compile('''int f(int x, int y, int z, int a, int b) {
+        int c = x * y; int s = z + c; int r;
+        if (c) r = a + s; else r = b - s;
+        return r; }''', cache=False)
+    assert m.f(0, 5, 1, 100, 200) == 199 and m.f(2, 5, 1, 100, 200) == 111
+
+
+def test_volatile_accesses_keep_their_order():
+    b = body('long f(volatile long *a, volatile long *b) { long x = a[0]; long y = b[0]; long z = a[1]; return x + y + z; }', 'f')
+    assert 'ldp' not in b, b
+    assert re.findall(r'ldr\s+\w+, \[(x\d+)(?:, (\d+))?\]', b)[2][1] == '8', b
+    b = body('void g(volatile int *a) { a[0] = 1; a[2] = 2; a[1] = 3; }', 'g')
+    assert 'stp' not in b, b
+    assert [o or '0' for o in re.findall(r'str\s+\w+, \[x\d+(?:, (\d+))?\]', b)] == ['0', '8', '4'], b
+
+
+@pytest.mark.parametrize('src,args,want', [
+    ('float f(float *p, int n) { float s = 0; int i = 0; do { s += *p; i++; } while (i < n); return s; }',
+     (array.array('f', [1.5]), 3), 4.5),
+    ('double f(double *p, int n) { double s = 0; int i = 0; do { s += *p; i++; } while (i < n); return s; }',
+     (array.array('d', [1.5]), 3), 4.5),
+    ('struct V { float x, y; }; float f(struct V *v, int n) { float s = 0; do { s += v->x * v->y; } while (--n > 0); return s; }',
+     (array.array('f', [1.5, 2.0]), 3), 9.0),
+    ('struct V { double x; float y; }; double f(struct V *v, int n) { double s = 0; for (;;) { s += v->x + v->y; if (--n <= 0) return s; } }',
+     (array.array('d', [1.5, 0.0]), 2), 3.0),
+])
+def test_a_float_load_moved_up_a_loop(src, args, want):
+    assert cimo.compile(src, cache=False).f(*args) == want
+
+
+def test_a_float_load_moved_up_a_loop_on_wasm():
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wasm'))
+    from host import Host, available
+    if not available():
+        pytest.skip('needs node')
+    import cimo.wasm as W
+    h = Host()
+    try:
+        h.load(W.build('float f(float *p, int n) { float s = 0; int i = 0; do { s += *p; i++; } while (i < n); return s; }')[0])
+        assert h.call('f', 'l,w', h.array('f', [1.5]), 3)[0] == 4.5
+    finally:
+        h.close()
+
+
+BLIT = '''
+data $G = { w 7, w 8, w 9, w 10 }
+export
+function w $f(w %%n) {
+@start
+	%%a =l alloc8 16
+	blit $G, %%a, %d
+	storew 99, $G
+	jmp @h
+@h
+	%%i =w phi @start 0, @b %%i1
+	%%v =%s load%s %%a
+	%%c =w csltw %%i, %%n
+	jnz %%c, @b, @e
+@b
+	%%i1 =w add %%i, 1
+	jmp @h
+@e
+	ret %%i
+}
+'''
+
+
+@pytest.mark.parametrize('size,k', [(16, 'w'), (7, 'l'), (5, 'l'), (3, 'w')])
+def test_a_load_through_a_blit_in_a_loop(size, k):
+    """From IR text (the frontend emits no blit today): no load of the source below the blit, which
+    a store has changed, and no load of a size that doesn't exist."""
+    from cimo.backend import defs as D, ext, parse
+    from cimo.backend.main import _Driver, _targets
+    import io
+    D.T = next(t for t in _targets() if t.name == 'arm64')
+    out = io.StringIO()
+    with ext.options(cse=True, isel=True):
+        drv = _Driver(out, 0)
+        parse.parse((BLIT % (size, k, k)).encode(), 'x', drv.dbgfile, drv.data, drv.func)
+        drv.finish()
+    assert 'f:' in out.getvalue()

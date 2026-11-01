@@ -39,6 +39,8 @@ per compile time first. Sources: `../llvm-project` (`llvm/lib/Passes/PassBuilder
 `llvm/lib/Target/AArch64/AArch64TargetMachine.cpp`), `../gcc` (`gcc/passes.def`), both shallow
 sparse clones. **Licenses:** cimo is MIT. LLVM is Apache-2.0 with the LLVM exception: porting is
 fine, with its notice kept. GCC is GPL: read for what it does, never translate its code.
+**Follow them by default:** read what LLVM and gcc do and emit (`clang.exe` from VS and gcc are on this
+machine) before designing anything. Differ only with a measurement showing they lose, and record it.
 **Rules for each:** behind `backend.ext` (stock QBE stays byte-identical), measured with
 `bench/` and scramjit's `bench/gcc.py` before and after including compile time, tests, then Csmith.
 A pass that doesn't pay for its compile time is recorded here and dropped; cimo compiles at run time

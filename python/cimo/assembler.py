@@ -365,6 +365,18 @@ def _same(*regs):
             raise AssemblerError('operand size mismatch')
 
 
+_SHIFTOP = {'lsl': 0, 'lsr': 1, 'asr': 2, 'ror': 3}
+_EXTOP = {'uxtw': 2, 'sxtw': 6}
+
+
+def _shiftop(rest):
+    """('lsl', 3) from ['lsl #3'] or ('sxtw', 0) from ['sxtw']."""
+    m = re.fullmatch(r'(lsl|lsr|asr|ror|sxtw|uxtw)(?:\s*#?\s*(\d+))?', rest[0].strip().lower())
+    if m is None or len(rest) != 1:
+        raise AssemblerError('bad shift %r' % rest[0])
+    return m.group(1), int(m.group(2) or 0)
+
+
 _ADDSUB = {'add': (0, 0), 'adds': (0, 1), 'sub': (1, 0), 'subs': (1, 1)}
 
 
@@ -373,7 +385,19 @@ def _addsub(a, op, s, rd, rn, ops3, ops_rest):
     if _isreg(ops3):
         rm = _reg(ops3)
         if ops_rest:
-            raise AssemblerError('shifted/extended register operands are not supported')
+            how, n = _shiftop(ops_rest)
+            if how in _SHIFTOP:
+                if how == 'ror' or rd[2] or rn[2]:
+                    raise AssemblerError('bad shift %r' % ops_rest[0])
+                _same(rd, rn, rm)
+                if not 0 <= n < (64 if rd[0] == 'x' else 32):
+                    raise AssemblerError('shift amount out of range')
+                return (0x0b000000 | _sf(rd) | op << 30 | s << 29 | _SHIFTOP[how] << 22
+                        | rm[1] << 16 | n << 10 | rn[1] << 5 | rd[1])
+            if how not in _EXTOP or rm[0] != 'w' or rd[0] != 'x' or not 0 <= n <= 4:
+                raise AssemblerError('bad extended register %r' % ops_rest[0])
+            return (0x0b200000 | _sf(rd) | op << 30 | s << 29 | rm[1] << 16 | _EXTOP[how] << 13
+                    | n << 10 | rn[1] << 5 | rd[1])
         if rd[2] or rn[2]:
             # extended register form (needed when sp is involved): UXTX / UXTW
             _same(rd, rn)
@@ -449,18 +473,25 @@ def _i_neg(a, mn, ops):
 
 
 _LOGIC = {'and': (0x0a000000, 0x12000000), 'orr': (0x2a000000, 0x32000000),
-          'eor': (0x4a000000, 0x52000000), 'ands': (0x6a000000, 0x72000000)}
+          'eor': (0x4a000000, 0x52000000), 'ands': (0x6a000000, 0x72000000),
+          'bic': (0x0a200000, None), 'orn': (0x2a200000, None), 'eon': (0x4a200000, None)}
 
 
 def _i_logic(a, mn, ops):
-    if len(ops) != 3:
+    if len(ops) not in (3, 4):
         raise AssemblerError('%s needs 3 register/immediate operands' % mn)
     reg_op, imm_op = _LOGIC[mn]
     rn = _reg(ops[1])
     if _isreg(ops[2]):
         rd, rm = _reg(ops[0]), _reg(ops[2])
         _same(rd, rn, rm)
-        return reg_op | _sf(rd) | rm[1] << 16 | rn[1] << 5 | rd[1]
+        how, n = _shiftop(ops[3:]) if len(ops) == 4 else ('lsl', 0)
+        if how not in _SHIFTOP or not 0 <= n < (64 if rd[0] == 'x' else 32):
+            raise AssemblerError('bad shift %r' % ops[3])
+        return (reg_op | _sf(rd) | _SHIFTOP[how] << 22 | rm[1] << 16 | n << 10 | rn[1] << 5
+                | rd[1])
+    if imm_op is None or len(ops) != 3:
+        raise AssemblerError('%s takes registers' % mn)
     rd = _reg(ops[0], sp=mn != 'ands')
     _same(rd, rn)
     width = 64 if rd[0] == 'x' else 32
@@ -493,6 +524,34 @@ def _i_shift(a, mn, ops):
         immr, imms, base = sh, w - 1, (0x53000000 if mn == 'lsr' else 0x13000000)
     n = 1 if w == 64 else 0
     return base | _sf(rd) | n << 22 | immr << 16 | imms << 10 | rn[1] << 5 | rd[1]
+
+
+def _i_bitfield(a, mn, ops):
+    """ubfx, sbfx rd, rn, #lsb, #width."""
+    if len(ops) != 4:
+        raise AssemblerError('%s needs 4 operands' % mn)
+    rd, rn = _reg(ops[0]), _reg(ops[1])
+    _same(rd, rn)
+    w = 64 if rd[0] == 'x' else 32
+    lsb, width = _imm(ops[2], True), _imm(ops[3], True)
+    if not (0 <= lsb < w and 1 <= width <= w - lsb):
+        raise AssemblerError('bad bit field in %s' % mn)
+    base = 0x53000000 if mn == 'ubfx' else 0x13000000
+    return (base | _sf(rd) | (w == 64) << 22 | lsb << 16 | (lsb + width - 1) << 10 | rn[1] << 5
+            | rd[1])
+
+
+def _i_ror(a, mn, ops):
+    """ror rd, rn, #n: extr rd, rn, rn, #n."""
+    if len(ops) != 3:
+        raise AssemblerError('ror needs 3 operands')
+    rd, rn = _reg(ops[0]), _reg(ops[1])
+    _same(rd, rn)
+    n = _imm(ops[2], True)
+    if not 0 <= n < (64 if rd[0] == 'x' else 32):
+        raise AssemblerError('ror amount out of range')
+    return (0x13800000 | _sf(rd) | (rd[0] == 'x') << 22 | rn[1] << 16 | n << 10 | rn[1] << 5
+            | rd[1])
 
 
 def _i_dp2(a, mn, ops):
@@ -589,7 +648,7 @@ def _ftype(r):
 
 
 _FP3 = {'fadd': 0x1e202800, 'fsub': 0x1e203800, 'fmul': 0x1e200800, 'fdiv': 0x1e201800,
-        'fmaxnm': 0x1e206800, 'fminnm': 0x1e207800}
+        'fmaxnm': 0x1e206800, 'fminnm': 0x1e207800, 'fnmul': 0x1e208800}
 
 
 def _i_fp3(a, mn, ops):
@@ -652,9 +711,31 @@ def _i_simd(a, mn, ops):  # cnt Vd.8B, Vn.8B / addv Bd, Vn.8B (the popcount buil
     return (0x0e205800 if mn == 'cnt' else 0x0e31b800) | int(n.group(1)) << 5 | int(d.group(1))
 
 
+def _fpimm8(v):
+    """abcdefgh such that v is (-1)^a * (16 + efgh) / 16 * 2^n, with n from bcd: 000 is 1, 011 is
+    4, 100 is -3, 111 is 0; or None."""
+    for imm in range(256):
+        sign = -1.0 if imm & 0x80 else 1.0
+        bcd = (imm >> 4) & 7
+        n = bcd + 1 if bcd < 4 else bcd - 7
+        if sign * (16 + (imm & 15)) / 16 * 2.0 ** n == v:
+            return imm
+    return None
+
+
 def _i_fmov(a, mn, ops):
     if len(ops) != 2:
         raise AssemblerError('fmov needs 2 operands')
+    if not _isreg(ops[1]):
+        rd = _reg(ops[0], 'sd')
+        t = ops[1].strip().lstrip('#')
+        try:
+            imm = _fpimm8(float(t))
+        except ValueError:
+            imm = None
+        if imm is None:
+            raise AssemblerError('fmov immediate %r has no encoding' % t)
+        return 0x1e201000 | _ftype(rd) << 22 | imm << 13 | rd[1]
     rd, rn = _reg(ops[0], 'wxsd'), _reg(ops[1], 'wxsd')
     fd, fn = rd[0] in 'sd', rn[0] in 'sd'
     if fd and fn:
@@ -957,13 +1038,15 @@ _INSNS = {
     'add': _i_addsub, 'adds': _i_addsub, 'sub': _i_addsub, 'subs': _i_addsub,
     'cmp': _i_cmp, 'cmn': _i_cmp, 'neg': _i_neg,
     'and': _i_logic, 'orr': _i_logic, 'eor': _i_logic, 'ands': _i_logic,
+    'bic': _i_logic, 'orn': _i_logic, 'eon': _i_logic, 'ubfx': _i_bitfield, 'sbfx': _i_bitfield,
+    'ror': _i_ror,
     'lsl': _i_shift, 'lsr': _i_shift, 'asr': _i_shift,
     'mul': _i_dp2, 'sdiv': _i_dp2, 'udiv': _i_dp2, 'madd': _i_madd, 'msub': _i_madd,
     'cbz': _i_cbz, 'cbnz': _i_cbz, 'csel': _i_csel, 'fcsel': _i_csel, 'smulh': _i_mulh, 'umulh': _i_mulh,
     'sxtb': _i_ext, 'sxth': _i_ext, 'sxtw': _i_ext, 'uxtb': _i_ext, 'uxth': _i_ext,
     'mov': _i_mov, 'movk': _i_movk, 'movz': _i_movk, 'movn': _i_movk, 'cset': _i_cset,
     'fadd': _i_fp3, 'fsub': _i_fp3, 'fmul': _i_fp3, 'fdiv': _i_fp3, 'fneg': _i_fneg,
-    'fminnm': _i_fp3, 'fmaxnm': _i_fp3, 'fabs': _i_fneg, 'fsqrt': _i_fneg, 'frintp': _i_fneg,
+    'fminnm': _i_fp3, 'fmaxnm': _i_fp3, 'fnmul': _i_fp3, 'fabs': _i_fneg, 'fsqrt': _i_fneg, 'frintp': _i_fneg,
     'frintm': _i_fneg, 'frintz': _i_fneg, 'frinta': _i_fneg, 'frintx': _i_fneg,
     'frinti': _i_fneg,
     'clz': _i_dp1, 'rbit': _i_dp1, 'rev16': _i_dp1, 'rev': _i_dp1, 'cnt': _i_simd,

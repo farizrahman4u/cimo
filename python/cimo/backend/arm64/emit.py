@@ -13,6 +13,7 @@ from ..defs import (R, RTmp, RCon, RSlot, RMem, CBits, CAddr, SGlo, SThr, SExt, 
                     Ocast, Ostosi, Ostoui, Odtosi, Odtoui, Oswtof, Ouwtof, Osltof, Oultof,
                     Ocall, Oacmp, Oacmn, Oafcmp, Onop, Oaddr, Osalloc, Odbgloc, Oafmadd,
                     Oafmsub, Oafnmadd, Oafnmsub)
+from ..defs import bitsd, bitsf
 from ..util import die, isreg, str_
 from ..emit import emitfnlnk, emitdbgloc, elf_emitfnfin
 from .regs import R0, R18, IP1, FP, LR, SP, V0, V30
@@ -129,6 +130,7 @@ omap = [
     (Oultof, Ka, "ucvtf %=, %L0"),
     (Ocall, Kw, "blr %L0"),
 
+    (D.Oafnmul, Ka, "fnmul %=, %0, %1"),
     (D.Osmulh, Kl, "smulh %=, %0, %1"),
     (D.Oumulh, Kl, "umulh %=, %0, %1"),
     (Oacmp, Ki, "cmp %0, %1"),
@@ -159,6 +161,13 @@ omap = [
 V31 = 0x1fffffff  # local name for V31
 
 _FMA = {Oafmadd: "fmadd", Oafmsub: "fmsub", Oafnmadd: "fnmadd", Oafnmsub: "fnmsub"}
+
+
+def _zr(r, k):
+    """The name of a register operand, or of the zero register for the constant 0 (ext.isel)."""
+    if rtype(r) == RCon:
+        return "wzr" if k == Kw else "xzr"
+    return rname(rval(r), k)
 
 
 def rname(r, k):
@@ -271,8 +280,12 @@ def emitf(s, i, e):
                 f.write(rname(V31, k))
         elif c == '=' or c == '0':
             r = i.to if c == '=' else i.arg[0]
-            assert isreg(r) or req(r, TMP(V31))
-            f.write(rname(rval(r), k))
+            if c == '0' and rtype(r) == RCon:  # cimo (ext.isel): storing zero
+                assert e.fn.con[rval(r)].i == 0
+                f.write("wzr" if k == Kw else "xzr")
+            else:
+                assert isreg(r) or req(r, TMP(V31))
+                f.write(rname(rval(r), k))
         elif c == '1':
             r = i.arg[1]
             t = rtype(r)
@@ -522,7 +535,34 @@ def emitins(i, e):
         k = i.cls
         e.f.write("\t%s\t%s, %s, %s, %s\n" % ("madd" if op == D.Oamadd else "msub",
                                                rname(rval(i.to), k), rname(rval(m.base), k),
-                                               rname(rval(m.index), k), rname(rval(i.arg[0]), k)))
+                                               rname(rval(m.index), k), _zr(i.arg[0], k)))
+    elif op == D.Oaalu:  # cimo (ext.isel), see isel.selalu
+        m = e.fn.mem[rval(i.arg[1])]
+        k = i.cls
+        how = m.scale >> 4
+        x = rname(rval(m.base), Kw if how >= 4 else k)
+        n = m.offset.i
+        e.f.write("\t%s\t%s, %s, %s%s\n" % (
+            ("add", "sub", "and", "orr", "eor", "bic", "orn", "eon")[m.scale & 15],
+            rname(rval(i.to), k), _zr(i.arg[0], k), x,
+            (", %s #%d" % (("lsl", "lsr", "asr", "ror", "sxtw", "uxtw")[how], n)) if n or how >= 4 else ""))
+    elif op == D.Oaubfx or op == D.Oasbfx:
+        k = i.cls
+        c = e.fn.con[rval(i.arg[1])].i
+        e.f.write("\t%s\t%s, %s, #%d, #%d\n" % ("ubfx" if op == D.Oaubfx else "sbfx", rname(rval(i.to), k),
+                                                 rname(rval(i.arg[0]), k), c & 255, c >> 8))
+    elif op == D.Oaror:
+        k = i.cls
+        e.f.write("\tror\t%s, %s, #%d\n" % (rname(rval(i.to), k), rname(rval(i.arg[0]), k),
+                                             e.fn.con[rval(i.arg[1])].i))
+    elif op == D.Oafcon:
+        k = i.cls
+        bits = e.fn.con[rval(i.arg[0])].i
+        if bits == 0:
+            e.f.write("\tfmov\t%s, %s\n" % (rname(rval(i.to), k), "xzr" if k == Kd else "wzr"))
+        else:
+            v = bitsd(bits) if k == Kd else bitsf(bits)
+            e.f.write("\tfmov\t%s, #%s\n" % (rname(rval(i.to), k), repr(v)))
     elif op == D.Oacsel:  # cimo (ext.isel), see isel.selcsel
         m = e.fn.mem[rval(i.arg[1])]
         k = i.cls
@@ -610,7 +650,7 @@ def emitinsl(ins, e):
     k = 0
     n = len(ins)
     while k < n:
-        if _ext.ldp and k + 1 < n and emitpair(ins[k], ins[k + 1], e):
+        if _ext.ldp and not e.fn.hasvolatile and k + 1 < n and emitpair(ins[k], ins[k + 1], e):
             k += 2
             continue
         emitins(ins[k], e)

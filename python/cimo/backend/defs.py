@@ -324,6 +324,15 @@ _OPS += [(_n, ((Ke, Kl, Ke, Ke), (Ke, Kl, Ke, Ke)), 0, 0, 0, 1, 0, 0, 0, 0, 0, 0
 # afmadd, the Mem only carries the third register)
 _OPS += [(_n, ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
          for _n in ('amadd', 'amsub')]
+# r = aalu a, MEM{base=b, scale=alu | shift kind << 4, offset=amount}: see isel.selalu (a may be
+# the constant 0: xzr). aubfx, asbfx: r = bits of a at CON(lsb | width << 8). aror a, CON(n). fnmul
+# a, b: -(a * b). afcon CON(bits): an FP constant that fits fmov
+_OPS += [('aalu', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('aubfx', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('asbfx', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('aror', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('afnmul', ((Ke, Ke, Ks, Kd), (Ke, Ke, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('afcon', ((Kx, Kx, Kx, Kx), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
 # r = acsel a, MEM{base=b, offset=cond}: a if the condition holds on the flags, else b. One op for
 # every combination of the result's class and the comparison's kind, unlike xsel*
 _OPS += [('acsel', ((Kw, Kl, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
@@ -397,11 +406,13 @@ def unvolatile(fn, sink=None):
     while b:
         for i in b.ins:
             if Ovloadsb <= i.op <= Ovload:
+                fn.hasvolatile = True
                 i.op = Oloadsb + i.op - Ovloadsb
                 if sink is not None and rtype(i.to) == RTmp and fn.tmp[rval(i.to)].nuse == 0:
                     i.to = sink
                     i.cls = Kw if i.cls in (Kw, Ks) else Kl
             elif Ovstoreb <= i.op <= Ovstored:
+                fn.hasvolatile = True
                 i.op = Ostoreb + i.op - Ovstoreb
         b = b.link
 def isalloc(o): return Oalloc4 <= o <= Oalloc16
@@ -738,13 +749,16 @@ class Lnk:
 class Fn:
     __slots__ = ('start', 'tmp', 'con', 'mem', 'ntmp', 'ncon', 'nmem', 'nblk', 'retty',
                  'retr', 'rpo', 'reg', 'slot', 'salign', 'vararg', 'dynalloc', 'leaf',
-                 'name', 'lnk', 'concache')
+                 'name', 'lnk', 'concache', 'hasvolatile')
 
     def __init__(self):
         self.start = None
         self.tmp = []
         self.con = []
         self.concache = None  # util._concache: lookup index over con (not in C)
+        # cimo (ext.volatile): set by unvolatile: volatile accesses are plain ones from there on,
+        # so arm64 pairs (ldp/stp) no access in this function, which could reorder or merge them
+        self.hasvolatile = False
         self.mem = []
         self.ntmp = 0
         self.ncon = 0
