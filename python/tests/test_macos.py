@@ -103,6 +103,31 @@ int f(void) { return 1; };
     assert 'function w $f()' in out
 
 
+def test_packed_after_the_body_keeps_a_members_specified_alignment():
+    # gcc and clang: packed removes padding, but not what _Alignas or aligned(N) on a member ask for
+    out = ir(r'''
+struct a { _Alignas(8) char a; char b; } __attribute__((packed));
+struct b { long a; _Alignas(8) char b; char c; } __attribute__((packed));
+struct c { char a __attribute__((aligned(8))); char b; } __attribute__((packed));
+struct d { long a; char b __attribute__((aligned(4))); } __attribute__((packed));
+struct e { char a; _Alignas(8) char b; } __attribute__((packed));
+union f { _Alignas(8) char a; char b; } __attribute__((packed));
+_Static_assert(sizeof(struct a) == 8 && _Alignof(struct a) == 8, "");
+_Static_assert(sizeof(struct b) == 16 && _Alignof(struct b) == 8, "");
+_Static_assert(sizeof(struct c) == 8 && _Alignof(struct c) == 8, "");
+_Static_assert(sizeof(struct d) == 12 && _Alignof(struct d) == 4, "");
+_Static_assert(sizeof(struct e) == 16 && __builtin_offsetof(struct e, b) == 8, "");
+_Static_assert(sizeof(union f) == 8 && _Alignof(union f) == 8, "");
+int f(void) { return 1; }
+''')
+    assert 'function w $f()' in out
+
+
+def test_cli_names_the_sub_word_classes():
+    from cimo.cli.commands import _pytype
+    assert [_pytype(k) for k in ('sb', 'ub', 'sh', 'uh')] == ['int8', 'uint8', 'int16', 'uint16']
+
+
 @needs_mac
 def test_python_calls_with_packed_stack_arguments():
     # ctypes (libffi) packs the char and the short like Apple's C compilers

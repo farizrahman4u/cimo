@@ -131,8 +131,10 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   arguments at their own size and the backend can only tell from the class (`abiclass`).
 - Accepted as gcc and clang do (the macOS SDK's headers have both): a stray `;` at file scope,
   and GNU attributes after a struct or union body: `packed` lays the members out again without
-  padding (`_repack`; bit-fields and `_Alignas` members stay errors there, as with a leading
-  `packed`), `aligned(N)` raises the type's alignment and rounds its size.
+  padding but keeps a member's own specified alignment, as gcc does (`_repack`; bit-fields stay
+  errors there, as with a leading `packed`), `aligned(N)` raises the type's alignment and rounds
+  its size. On Linux that `aligned(N)` isn't passed on to QBE: AAPCS64 picks registers by the
+  members' alignment, so it doesn't change how the struct is passed. Stock cproc rejects both.
 - Target `aarch64-windows`: a call to a variadic function gets the `...` marker even when no
   variadic argument follows (cproc emits it before the first one), since Windows passes all
   arguments of a variadic call its own way. Found by `tests/test_abi.py`.
