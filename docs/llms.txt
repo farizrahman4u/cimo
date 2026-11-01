@@ -1,0 +1,37 @@
+# cimo
+
+> A C compiler written in pure Python: C source in, machine code running in your process out.
+
+## Prompt
+
+- [Prompt for coding agents](https://www.cimo.dev/agent-prompt.txt): install, API, CLI, the C it accepts and what to watch out for
+
+## Getting started
+
+- [Introduction](https://www.cimo.dev/docs/content/introduction.md): What cimo is, and where it fits
+- [Install](https://www.cimo.dev/docs/content/install.md): pip, the one-file build, and checking it works
+- [Your first kernel](https://www.cimo.dev/docs/content/first-kernel.md): A first kernel, step by step
+
+## Writing kernels
+
+- [Passing arrays](https://www.cimo.dev/docs/content/arrays.md): Passing numpy arrays and buffers to C
+- [The C you can use](https://www.cimo.dev/docs/content/c-language.md): The C you can use: language, bundled libc, what is rejected, type sizes
+- [Errors](https://www.cimo.dev/docs/content/errors.md): CompileError, KernelError and crashes
+- [Performance](https://www.cimo.dev/docs/content/performance.md): What the optimizer does, and how to write loops it can see through
+- [Measuring and profiling](https://www.cimo.dev/docs/content/profiling.md): Timing kernels and reading generated code
+- [Threads and the heap](https://www.cimo.dev/docs/content/threads.md): Parallel kernels, malloc and the module heap
+
+## Going further
+
+- [Files, includes and the cache](https://www.cimo.dev/docs/content/files-and-cache.md): Includes, .c files and the compile cache
+- [Calling host libraries](https://www.cimo.dev/docs/content/host-libraries.md): Linking libc and other host libraries
+- [In the browser](https://www.cimo.dev/docs/content/browser.md): Pyodide, JupyterLite and marimo
+- [Shipping code that uses cimo](https://www.cimo.dev/docs/content/distribution.md): Shipping code that uses cimo: dependency, vendored file, frozen apps
+
+## Reference
+
+- [Python API](https://www.cimo.dev/docs/content/api.md): Python API reference
+- [Command line](https://www.cimo.dev/docs/content/cli.md): Command line reference
+- [Environment variables](https://www.cimo.dev/docs/content/environment.md): Environment variables
+- [Platforms](https://www.cimo.dev/docs/content/platforms.md): Supported platforms and how code is loaded
+- [Troubleshooting](https://www.cimo.dev/docs/content/faq.md): Common questions

@@ -15,6 +15,9 @@ applied) and cproc at `~/code/cproc`.
 - `docs/`: the website (GitHub Pages serves `main:/docs` at www.cimo.dev). The user documentation
   lives in `docs/docs/` (www.cimo.dev/docs/): Markdown pages in `docs/docs/content/`, ordered and
   grouped by `docs/docs/nav.json`, rendered in the browser by `docs/docs/docs.js` (no build step).
+  `docs/agent-prompt.txt` is the Prompt for Agents, behind the banner's peeling corner: it reads as for the
+  released product, but agents act on it, so every instruction must work today (the GitHub install until the
+  PyPI release). Update it when the API, CLI or C support changes.
 - `examples/`: example kernels and the demos (see "Demos").
 - `scratch/`: research code and spikes (benchmarks, hand-optimized IR, loading tests). Not part of
   the package.

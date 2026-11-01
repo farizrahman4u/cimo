@@ -1,0 +1,64 @@
+# cimo
+C compiler written in pure Python, standard library only: C source in, machine code running in your process out.
+Repo: https://github.com/farizrahman4u/cimo
+Docs (raw Markdown): https://www.cimo.dev/llms.txt
+
+## What
+`cimo.compile` turns C11 into native code at runtime, in well under a second, and returns Python callables that run on numpy arrays in place. No gcc, clang, MSVC, LLVM, SDK, binary wheels or build step. Calls release the GIL, so threads run in parallel. Compiled code is cached on disk by content. MIT licensed.
+
+## Install
+pip install "cimo @ git+https://github.com/farizrahman4u/cimo#subdirectory=python"
+Or no install: put this one file on sys.path and `import cimo`: https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py
+CPython 3.9+ on arm64 Linux, macOS and Windows, or Pyodide. On x86-64, compile raises CompileError. numpy is only needed for arrays.
+
+## When
+Use: native kernels without a compiler on the target; replacing wheel matrices or C extensions with C shipped as source; generating C at runtime (formulas, codegen); browsers and locked-down machines.
+Skip: x86-64 targets; numpy already does it fast; you need SIMD intrinsics or auto-vectorization (cimo emits scalar code); untrusted C (no sandbox, full process privileges).
+
+## API
+import numpy as np, cimo
+
+k = cimo.compile(r"""
+void blur(int h, int w, const float src[h][w], float dst[h][w]) {
+    for (int i = 1; i < h - 1; i++)
+        for (int j = 1; j < w - 1; j++)
+            dst[i][j] = 0.2f * (src[i][j] + src[i-1][j] + src[i+1][j] + src[i][j-1] + src[i][j+1]);
+}
+""")
+src = np.random.rand(512, 512).astype(np.float32)
+dst = np.zeros_like(src)
+k.blur(*src.shape, src, dst)
+
+cimo.compile(src, include_dirs=(), link=(), host_headers=False, defines=(), cache=True, fma=None)
+cimo.load(path, ...same options): compile a .c file; its directory is searched for includes.
+defines: dict or (name, value) pairs. fma=False: no a*b+c contraction, for results bit-identical to Python. cache=False: write nothing to disk.
+Module: each non-static function is an attribute; module(...) calls main or the only function; dir(module); module.free(ptr); module.reset_heap(); module.heap_bytes().
+Arguments: int for integer types; float or int for float, double; for pointers a numpy array, bytearray, memoryview, bytes, ctypes array or int address. Returns int, float or None; pointers as int.
+Errors: cimo.CompileError (message starts file:line:column). cimo.KernelError from abort, exit, assert and stack overflow: .kind is 'abort', 'assert', 'exit', 'trap', 'stack overflow' or 'nesting'; also .kernel, .function, .expr, .file, .line, .status. The module stays usable.
+
+## The C
+Full C11: structs, unions, bit-fields, pointers, function pointers, recursion, variadics, VLAs, goto. Bundled libc: stdio.h (printf, snprintf; printf reaches sys.stdout), stdlib.h (malloc, qsort, strtol...), string.h, math.h, ctype.h, inttypes.h, assert.h, plus the freestanding headers.
+Compile errors: inline asm, setjmp/longjmp, _Complex, vector_size.
+Files, time, threads, sockets and other hosted libc: link=['libc'], host_headers=True (not in Pyodide). Other libraries: link=['z'], a soname or a path.
+
+## Watch out
+- Pointers are unchecked. A wrong dtype (float32 array to double *) silently reads garbage. Out of bounds can crash the process. Match dtypes and pass lengths.
+- Variadic functions and structs or unions by value can't be called from Python (TypeError); C callers can. Pass a pointer to a struct instead.
+- char's signedness varies by platform: use signed char or unsigned char when it matters. long and pointers are 64-bit on every target.
+- FMA contraction is on by default, so floats can differ in the last bit from Python or gcc -ffp-contract=off. Use fma=False to compare.
+- Fast loops: simple index, for (long i = 0; i < n; i++), and restrict on non-overlapping pointers. Small helpers in the same source are inlined.
+
+## CLI
+cimo run prog.c [args]  # compile and call main; -e NAME for another function; --time
+cimo compile k.c  # check it compiles, list callable functions; -E preprocess, --ir QBE IR, -S assembly, -o FILE
+Options for both: -I DIR, -D NAME[=VALUE], -l LIB, --host-headers, -O0, --no-fma
+cimo onefile -o cimo.py  # all of cimo as one file; --compress
+cimo cache info|clear|path  # CIMO_CACHE_DIR moves it; CIMO_FMA=0 and CIMO_MIDDLE=0 turn off FMA and the optimizer
+Every command has --help.
+
+## Workflow
+1. Write the hot loop as a C function over pointers and lengths.
+2. `cimo compile k.c` to check it; fix errors at their file:line:column.
+3. Compile with cimo.load or cimo.compile; pass arrays of the exact dtype.
+4. Test results against a Python or numpy version, with fma=False if floats must match bit for bit.
+5. Parallelize with Python threads, giving each a slice of the work. Kernels are safe to call concurrently.
