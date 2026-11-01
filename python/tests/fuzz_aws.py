@@ -33,7 +33,7 @@ shutdown -h +{hard}  # backstop: shutdown terminates the instance
 exec > /var/log/cimo-fuzz.log 2>&1
 set -x
 apt-get update -q
-DEBIAN_FRONTEND=noninteractive apt-get install -y -q git gcc g++ cmake m4 python3
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q git gcc g++ cmake m4 python3 python3-pytest
 sudo -u ubuntu bash <<'EOF'
 set -x
 cd ~
