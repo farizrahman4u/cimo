@@ -21,6 +21,7 @@ int first_byte(const char *path) {
 
 - `link`: libraries whose functions may resolve what cimo's library doesn't provide. Accepted forms: `"libc"`, `"libm"`, `"python"` (the Python C API), a soname such as `"libz.so.1"`, a short name such as `"z"`, or a path.
 - `host_headers=True`: also search the host's C headers (after your `include_dirs`, before cimo's), so the declarations of those libraries are available.
+  On macOS these are the SDK's (`xcrun --show-sdk-path`: Xcode or the Command Line Tools), and `"libc"` is libSystem.
 
 cimo's own functions still win: `printf`, `malloc`, `memcpy` and the math functions come from cimo's library even when libc is linked, so they behave the same everywhere.
 

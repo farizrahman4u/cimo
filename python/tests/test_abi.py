@@ -1,5 +1,6 @@
 """Calling convention against a reference compiler, with random signatures (abi_gen.py): gcc on
-Linux, clang (Visual Studio's, or $CIMO_WIN_CLANG) on Windows. For each signature, cimo calling
+Linux, clang (Visual Studio's, or $CIMO_WIN_CLANG) on Windows, Apple clang (Xcode or the Command
+Line Tools) on macOS. For each signature, cimo calling
 the reference, the reference calling cimo, and cimo calling itself must give what the reference
 gives calling itself.
 
@@ -34,6 +35,8 @@ def reference():
                 '-fuse-ld=lld', '-Wl,/noentry', '-w'], '.dll'
     if driver.TARGET == 'arm64' and _have('gcc'):
         return ['gcc', '-O1', '-shared', '-fPIC', '-w'], '.so'
+    if driver.TARGET == 'arm64_apple' and _have('clang'):
+        return ['clang', '-arch', 'arm64', '-O1', '-dynamiclib', '-w'], '.dylib'
     return None
 
 
@@ -70,7 +73,7 @@ def check(seed, count, d):
     return bad
 
 
-@pytest.mark.skipif(reference() is None, reason='needs gcc (Linux arm64) or clang (Windows arm64)')
+@pytest.mark.skipif(reference() is None, reason='needs gcc (Linux arm64), clang (Windows arm64) or Apple clang (macOS)')
 @pytest.mark.parametrize('seed', SEEDS)
 def test_random_signatures(seed):
     # in a child process: an ABI mismatch often crashes

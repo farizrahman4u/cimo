@@ -374,6 +374,17 @@ def qbetype(t):
     assert 0
 
 
+def abiclass(t):
+    """cimo: the QBE class of a parameter or named argument of type t. Apple arm64 packs
+    stack arguments at their own size (a char takes 1 byte, not an 8-byte slot), so there a
+    char or short goes as QBE's sub-word ABI class (sb, ub, sh, uh), which tells the backend
+    its size; elsewhere, and for everything else, as cproc: the base class."""
+    qt = qbetype(t)
+    if qt.data in ('b', 'h') and TG.targ.name == 'aarch64-apple':
+        return ('s' if t.issigned else 'u') + qt.data
+    return qt.base
+
+
 # functions
 
 def functemp(f, v):
@@ -1140,7 +1151,8 @@ def funcexpr(f, e):
             if ftype.isvararg and i == ftype.nparam:
                 funcinst(f, IVARARG, 0, None, None)
             t = arg.type
-            funcinst(f, IARG, qbetype(t).base, argvals[i], t.value)
+            funcinst(f, IARG, abiclass(t) if i < ftype.nparam else qbetype(t).base,
+                     argvals[i], t.value)
             arg = arg.next
             i += 1
         if ftype.isvararg and i <= ftype.nparam and TG.targ.name == 'aarch64-windows':
@@ -1663,7 +1675,7 @@ def emitfunc(f, glob):
     while p:
         if p is not f.type.params:
             w(", ")
-        emitclass(qbetype(p.type).base, p.type.value)
+        emitclass(abiclass(p.type), p.type.value)
         w(' ')
         emitname(f.paramtemps[vi])
         p = p.next

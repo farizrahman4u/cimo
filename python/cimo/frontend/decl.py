@@ -225,6 +225,12 @@ def tagspec(s):
         if not t.members:
             error(tok.loc, "struct/union has no members")
         next()
+        # cimo: `struct {...} __attribute__((aligned(N)))`, as in the macOS SDK's headers:
+        # raises the type's alignment (never lowers it, as in gcc)
+        ta = Attr()
+        ta.kind = 0
+        if A.gnuattr(ta, ATTRALIGNED) and ta.kind & ATTRALIGNED and ta.align > t.align:
+            t.align = ta.align
         if not b.pack:
             t.size = ALIGNUP(t.size, t.align)
     elif t.kind == TYPEENUM:

@@ -124,6 +124,11 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   no field for a flexible or zero-length array (`b 0` for an empty struct); cproc's types
   were too small, so calls copied part of the struct. `zero()` indexed its store table with 16
   for a 16-byte aligned local (crash). Found with `va_arg` of structs and `tests/test_abi.py`.
+- Target `aarch64-apple`: `char` and `short` parameters and named call arguments use QBE's
+  sub-word ABI classes (`sb`, `ub`, `sh`, `uh`; cproc emits `w`), because Apple packs stack
+  arguments at their own size and the backend can only tell from the class (`abiclass`).
+- Accepted as gcc and clang do (the macOS SDK's headers have both): a stray `;` at file scope,
+  and `__attribute__((aligned(N)))` after a struct or union body, which raises its alignment.
 - Target `aarch64-windows`: a call to a variadic function gets the `...` marker even when no
   variadic argument follows (cproc emits it before the first one), since Windows passes all
   arguments of a variadic call its own way. Found by `tests/test_abi.py`.

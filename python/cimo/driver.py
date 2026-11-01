@@ -152,7 +152,9 @@ int __cimo_overflow(int, unsigned long long, int, unsigned long long, int, void 
 #define __builtin_umull_overflow(a, b, r) __cimo_ovft(2, unsigned long, a, b, r)
 #define __builtin_umulll_overflow(a, b, r) __cimo_ovft(2, unsigned long long, a, b, r)
 '''
-_CTYPE = {'w': ctypes.c_int32, 'l': ctypes.c_int64, 's': ctypes.c_float, 'd': ctypes.c_double}
+_CTYPE = {'w': ctypes.c_int32, 'l': ctypes.c_int64, 's': ctypes.c_float, 'd': ctypes.c_double,
+          # char and short parameters on Apple arm64 (frontend.qbe.abiclass)
+          'sb': ctypes.c_int8, 'ub': ctypes.c_uint8, 'sh': ctypes.c_int16, 'uh': ctypes.c_uint16}
 _SIG = re.compile(r'^export\s*\nfunction\s+(?:([wlsd]|:[\w.]+)\s+)?\$(\w+)\(([^)]*)\)', re.M)
 
 
@@ -353,6 +355,11 @@ def _hint(msg, host_headers):
     return msg
 
 
+# The macOS SDK's byte swaps (htonl, OSSwapInt32, ...) call _OSSwapInt16/32/64, which it defines
+# for arm64 only when the compiler claims to be gcc (__GNUC__, which cimo does not define)
+_APPLE_HOST_DEFINES = [('_OSSwapInt%d(x)' % n, '__builtin_bswap%d(x)' % n) for n in (16, 32, 64)]
+
+
 def _host_include_dirs():
     """The host's C header directories (for host_headers=True)."""
     if _WINDOWS:
@@ -387,11 +394,18 @@ def _preprocess(src, filename='<string>', include_dirs=(), host_headers=False, d
     """C source -> preprocessed text, with the prelude. defines: (name, value or None) pairs.
     target: as _qbe."""
     from .preprocessor import preprocess, PreprocessError
+    warn = None
     if host_headers:
         include_dirs = tuple(include_dirs) + tuple(_host_include_dirs())
+        if (target or TARGET) == 'arm64_apple':
+            defines = _APPLE_HOST_DEFINES + list(defines)
+
+            def warn(msg):  # sys/cdefs.h warns about every compiler that isn't gcc or clang
+                if not msg.endswith('#warning "Unsupported compiler detected"'):
+                    sys.stderr.write(msg + '\n')
     try:
         return preprocess(_PRELUDE + '#line 1\n' + src, filename, include_dirs=include_dirs,
-                          defines=list(defines) or None,
+                          defines=list(defines) or None, warn=warn,
                           target=target or TARGET, keep_attributes=True)
     except PreprocessError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
