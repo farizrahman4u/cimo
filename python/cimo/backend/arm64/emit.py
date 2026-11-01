@@ -37,13 +37,14 @@ def _storesz(i):
 
 
 class E:
-    __slots__ = ('f', 'fn', 'frame', 'padding')
+    __slots__ = ('f', 'fn', 'frame', 'padding', 'tbzok')
 
     def __init__(self, f, fn):
         self.f = f
         self.fn = fn
         self.frame = 0
         self.padding = 0
+        self.tbzok = False
 
 
 _CMP = [
@@ -566,9 +567,22 @@ def emitins(i, e):
     elif op == D.Oacsel:  # cimo (ext.isel), see isel.selcsel
         m = e.fn.mem[rval(i.arg[1])]
         k = i.cls
-        e.f.write("\t%s\t%s, %s, %s, %s\n" % ("csel" if KBASE(k) == 0 else "fcsel",
-                                               rname(rval(i.to), k), rname(rval(i.arg[0]), k),
-                                               rname(rval(m.base), k), ctoa[m.offset.i][0]))
+        c = ctoa[m.offset.i][m.scale >> 4]
+        if KBASE(k):
+            mn = "fcsel"
+        else:
+            mn = ("csel", "csinc", "csinv", "csneg")[m.scale & 15]
+        e.f.write("\t%s\t%s, %s, %s, %s\n" % (mn, rname(rval(i.to), k), _zr(i.arg[0], k),
+                                               rname(rval(m.base), k), c))
+    elif op == D.Oaubfiz:
+        k = i.cls
+        c = e.fn.con[rval(i.arg[1])].i
+        e.f.write("\tubfiz\t%s, %s, #%d, #%d\n" % (rname(rval(i.to), k), rname(rval(i.arg[0]), k), c & 255, c >> 8))
+    elif op == D.Oatst:
+        k = i.cls
+        r = i.arg[1]
+        e.f.write("\ttst\t%s, %s\n" % (rname(rval(i.arg[0]), k), rname(rval(r), k) if isreg(r)
+                                        else "#%d" % (e.fn.con[rval(r)].i & (M64 if k == Kl else 0xffffffff))))
     elif op in _FMA:
         # cimo extension: r = a*b +- c, with b and c in a Mem (see isel.selfma)
         m = e.fn.mem[rval(i.arg[1])]
@@ -692,9 +706,9 @@ def emitcondjmp(b, jt, s1, s2, e, cz=None):
     def branch(n, to):
         if cz is None:
             e.f.write("\tb%s\t%s%d\n" % (ctoa[c][n], T.asloc, _id0 + to.id))
-        else:  # the block's last instruction was cmp cz, #0, not emitted (see _cbz)
-            e.f.write("\t%s\t%s, %s%d\n" % ("cbz" if (c == Cieq) != n else "cbnz", cz,
-                                             T.asloc, _id0 + to.id))
+        else:  # the block's last instruction, comparing with 0, was not emitted (see _cbz)
+            e.f.write("\t%s\t%s%s%d\n" % (cz[0] if (c == Cieq) != n else cz[1], cz[2],
+                                           T.asloc, _id0 + to.id))
     if b.link is s2:
         branch(0, s1)
         return 1
@@ -720,13 +734,64 @@ def _cbz(ins, jt, e):
     n = len(ins)
     while n > 0 and ins[n - 1].op == Onop:
         n -= 1
-    if n == 0 or ins[n - 1].op != Oacmp or rtype(ins[n - 1].arg[1]) != RCon:
+    if n == 0 or rtype(ins[n - 1].arg[1]) != RCon or not isreg(ins[n - 1].arg[0]):
         return ins, None
     i = ins[n - 1]
     pc = e.fn.con[rval(i.arg[1])]
-    if pc.type != CBits or pc.i != 0 or not isreg(i.arg[0]):
+    if pc.type != CBits:
         return ins, None
-    return ins[:n - 1], rname(rval(i.arg[0]), i.cls)
+    if i.op == Oacmp and pc.i == 0:
+        return ins[:n - 1], ("cbz", "cbnz", "%s, " % rname(rval(i.arg[0]), i.cls))
+    if i.op == D.Oatst and e.tbzok:
+        v = pc.i & (M64 if i.cls == Kl else 0xffffffff)
+        if v & (v - 1) == 0:
+            bit = 0
+            while (v >> bit) != 1:
+                bit += 1
+            return ins[:n - 1], ("tbz", "tbnz", "%s, #%d, " % (rname(rval(i.arg[0]), i.cls), bit))
+    return ins, None
+
+
+def _dropflags(e):
+    """cimo (ext.isel), GCC's compare_elim: a block's only predecessor ended in the same comparison
+    of the same registers, with nothing between: the flags are already right. cimo's switch does this
+    (cmp w0, #3; b.eq ...; cmp w0, #3; b.lo ...)."""
+    b = e.fn.start
+    while b:
+        if b.npred == 1:
+            p = b.pred[0]
+            first = next((i for i in b.ins[:b.nins] if i.op != Onop), None)
+            last = next((i for i in reversed(p.ins[:p.nins]) if i.op != Onop), None)
+            if first is not None and last is not None and first.op == Oacmp and last.op == Oacmp \
+                    and Jjf <= p.jmp.type <= Jjf + NCmp - 1 and first.cls == last.cls \
+                    and req(first.arg[0], last.arg[0]) and req(first.arg[1], last.arg[1]) \
+                    and _cbz(p.ins[:p.nins], p.jmp.type, e)[1] is None:
+                first.op = Onop
+        b = b.link
+
+
+def _siblingcall(b, e):
+    """cimo (ext.isel): the direct call a function ends with, if it can be a jump after the epilogue
+    (LLVM's and gcc's sibling calls): nothing lives in this frame by then, as it has no stack slots,
+    and arguments on the stack would be followed by an instruction that frees them."""
+    fn = e.fn
+    if not _ext.isel or fn.slot or fn.vararg or fn.dynalloc:
+        return None
+    if b.jmp.type != Jret0:  # or a jump to a block that only returns
+        s = b.s1
+        if b.jmp.type != Jjmp or s is None or s.jmp.type != Jret0 or any(
+                i.op != Onop for i in s.ins[:s.nins]):
+            return None
+    n = b.nins
+    while n > 0 and (b.ins[n - 1].op == Onop or (b.ins[n - 1].op == Ocopy
+                                                 and req(b.ins[n - 1].to, b.ins[n - 1].arg[0]))):
+        n -= 1  # a register copied to itself: the result stays in x0
+    if n == 0 or b.ins[n - 1].op != Ocall or rtype(b.ins[n - 1].arg[0]) != RCon:
+        return None
+    c = fn.con[rval(b.ins[n - 1].arg[0])]
+    if c.type != CAddr or (c.sym.type & SThr) or c.i:
+        return None
+    return n - 1
 
 
 def _frameless(e):
@@ -843,6 +908,17 @@ def arm64_emitfn(fn, out):
     emitinsl(save, e)
 
     dup, dlbl = layoutplan(e.fn) if _ext.layout else ({}, ())
+    if _ext.isel:
+        # tbz reaches 32 KB: only in a function certainly smaller, at 16 bytes per instruction at most
+        nins = 0
+        b = e.fn.start
+        while b:
+            nins += b.nins + 1
+            b = b.link
+        e.tbzok = nins < 1500
+        _dropflags(e)
+    else:
+        e.tbzok = False
     lbl = 0
     b = e.fn.start
     while b:
@@ -850,6 +926,11 @@ def arm64_emitfn(fn, out):
             e.f.write("%s%d:\n" % (T.asloc, _id0 + b.id))
         jt = b.jmp.type
         body, cz = b.ins[:b.nins], None
+        sib = _siblingcall(b, e)
+        if sib is not None:
+            sibling = body[sib]
+            body = body[:sib]
+            jt = Jret0
         if jt != Jjmp and jt != Jhlt and jt != Jret0 and _ext.layout and b not in dup:
             body, cz = _cbz(body, jt, e)
         emitinsl(body, e)
@@ -881,6 +962,10 @@ def arm64_emitfn(fn, out):
                 e.f.write("\tret\n")
                 b = b.link
                 continue
+            tailto = None
+            if sib is not None:
+                l = str_(e.fn.con[rval(sibling.arg[0])].sym.id)
+                tailto = ("" if l[0] == '"' else T.assym) + l
             if e.fn.dynalloc:
                 e.f.write("\tmov sp, x29\n")
             o = e.frame + 16
@@ -900,7 +985,7 @@ def arm64_emitfn(fn, out):
                           "\tmov\tx16, #%d\n"
                           "\tmovk\tx16, #%d, lsl #16\n"
                           "\tadd\tsp, sp, x16\n" % ((o - 16) & 0xFFFF, (o - 16) >> 16))
-            e.f.write("\tret\n")
+            e.f.write("\tb\t%s\n" % tailto if tailto else "\tret\n")
         else:
             if jt != Jjmp and _ext.layout:
                 c = jt - Jjf

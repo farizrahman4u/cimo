@@ -322,6 +322,140 @@ def expand(fn, bodies):
     return n
 
 
+def _noescape(fn):
+    """No stack slot's address can outlive a call: each is only loaded from or stored through
+    directly (before promotion, how cproc reads and writes locals). A self call that becomes a jump
+    reuses the slots, so a pointer to one must not reach the callee (LLVM's TailCallElim: AllCallsAreTailCalls)."""
+    slots = set()
+    b = fn.start
+    while b:
+        for i in b.ins:
+            if D.isalloc(i.op):
+                slots.add(i.to)
+        b = b.link
+    if not slots:
+        return True
+    b = fn.start
+    while b:
+        p = b.phi
+        while p:
+            if any(a in slots for a in p.arg[:p.narg]):
+                return False
+            p = p.link
+        if b.jmp.arg in slots:
+            return False
+        for i in b.ins:
+            if D.isalloc(i.op):
+                continue
+            if D.isload(i.op):
+                if i.arg[1] in slots:
+                    return False
+            elif D.isstore(i.op):
+                if i.arg[0] in slots:
+                    return False
+            elif i.arg[0] in slots or i.arg[1] in slots:
+                return False
+        b = b.link
+    return True
+
+
+def selftail(fn):
+    """LLVM's TailCallElim: `return f(args)` inside f is a jump to f's start, with the parameters
+    assigned, so it runs in constant stack and the loop passes see a loop. Returns True if changed."""
+    from .util import intern
+    if fn.vararg or fn.dynalloc or fn.retty != D.Kx:
+        return False
+    me = intern(fn.name)
+    st = fn.start
+    pars = []
+    for i in st.ins:
+        if not D.ispar(i.op):
+            break
+        if i.op in (D.Oparc, D.Opare):
+            return False
+        pars.append(i)
+    sites = []
+    b = fn.start
+    while b:
+        j = len(b.ins) - 1
+        while j >= 0 and b.ins[j].op == D.Odbgloc:
+            j -= 1
+        if j >= 0 and b.ins[j].op == D.Ocall and _symname(fn, b.ins[j].arg[0]) == me \
+                and b.ins[j].arg[1] == R and D.isret(b.jmp.type):
+            call = b.ins[j]
+            t = b.jmp.type
+            if (t == D.Jret0 or (D.Jretw <= t <= D.Jretd and call.to == b.jmp.arg and call.to != R
+                                 and call.cls == t - D.Jretw)):
+                k = j
+                while k > 0 and D.isarg(b.ins[k - 1].op):
+                    k -= 1
+                args = b.ins[k:j]
+                if len(args) == len(pars) and all(a.op - D.Oarg == p.op - D.Opar and a.cls == p.cls
+                                                  for a, p in zip(args, pars)):
+                    sites.append((b, k, args))
+        b = b.link
+    if not sites or not _noescape(fn):
+        return False
+    # a parameter that a phi reads stays out of ssa's reach when it has several definitions
+    ptmps = {p.to for p in pars}
+    b = fn.start
+    while b:
+        p = b.phi
+        while p:
+            if p.to in ptmps or any(a in ptmps for a in p.arg[:p.narg]):
+                return False
+            p = p.link
+        b = b.link
+    # the start block keeps the parameters and slots; the rest moves to the block jumped back to
+    keep = [i for i in st.ins if D.ispar(i.op) or D.isalloc(i.op)]
+    if any(D.isalloc(i.op) and rtype(i.arg[0]) != RCon for i in st.ins):
+        return False
+    head = cfg.newblk()
+    head.name = 'tail.%s' % fn.name
+    head.id = fn.nblk
+    fn.nblk += 1
+    head.ins = [i for i in st.ins if not (D.ispar(i.op) or D.isalloc(i.op))]
+    head.nins = len(head.ins)
+    head.jmp.type = st.jmp.type
+    head.jmp.arg = st.jmp.arg
+    head.s1 = st.s1
+    head.s2 = st.s2
+    head.link = st.link
+    for s in (st.s1, st.s2):
+        p = s.phi if s else None
+        while p:
+            p.blk = [head if x is st else x for x in p.blk]
+            p = p.link
+    st.ins = keep
+    st.nins = len(keep)
+    st.jmp.type = D.Jjmp
+    st.jmp.arg = R
+    st.s1 = head
+    st.s2 = None
+    st.link = head
+    for b, k, args in sites:
+        if b is st:
+            b = head
+            k = k - len(keep)
+        # in parallel: an argument may read a parameter assigned just before it
+        out = b.ins[:k]
+        temps = []
+        for a, p in zip(args, pars):
+            t = newtmp('tail', p.cls, fn)
+            out.append(D.Ins(_EXT.get(p.op, D.Ocopy), p.cls, t, a.arg[0], R))
+            temps.append(t)
+        for t, p in zip(temps, pars):
+            out.append(D.Ins(D.Ocopy, p.cls, p.to, t, R))
+        b.ins = out
+        b.nins = len(out)
+        b.jmp.type = D.Jjmp
+        b.jmp.arg = R
+        b.s1 = head
+        b.s2 = None
+    fn.rpo = [None] * fn.nblk
+    return True
+
+
 def _callees(fn):
     out = []
     b = fn.start
@@ -339,6 +473,8 @@ def expand_all(fns, limit):
     """Inline small functions of the module fns into their callers, callees first (a cycle of
     calls is broken at an arbitrary function: its call stays a call)."""
     from .util import intern
+    for fn in fns:
+        selftail(fn)
     byid = {intern(fn.name): fn for fn in fns}
     order = []
     state = {}

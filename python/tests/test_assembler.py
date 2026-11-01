@@ -252,3 +252,15 @@ def test_shifted_operands_and_bit_fields():
         lines += ['fmov d1, #%s' % v, 'fmov s2, #%s' % v]
     d = A.compare('\n'.join(lines) + '\n')
     assert not d, '\n'.join(d)
+
+
+def test_conditional_forms_and_bit_tests():
+    lines = []
+    for mn in ('csinc', 'csinv', 'csneg'):
+        lines += ['%s x1, x2, x3, lt' % mn, '%s w1, w2, w3, eq' % mn, '%s w1, wzr, w3, ne' % mn]
+    lines += ['csel x1, xzr, x3, lt', 'csel w1, wzr, w3, hi']
+    lines += ['tst x1, x2', 'tst w1, w2', 'tst x1, #8', 'tst w1, #1', 'tst x1, #0xff00', 'tst x1, #0x8000000000000000']
+    lines += ['ubfiz x1, x2, #4, #8', 'ubfiz w1, w2, #4, #8', 'ubfiz x1, x2, #60, #4', 'ubfiz w1, w2, #1, #31']
+    lines += ['.Lq:', 'tbz x1, #3, .Lq', 'tbnz x1, #63, .Lq', 'tbz w2, #31, .Lq', 'tbnz w2, #0, .Lr', '.Lr:']
+    d = A.compare('\n'.join(lines) + '\n')
+    assert not d, '\n'.join(d)

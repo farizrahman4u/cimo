@@ -332,7 +332,9 @@ _OPS += [('aalu', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 
          ('asbfx', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
          ('aror', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
          ('afnmul', ((Ke, Ke, Ks, Kd), (Ke, Ke, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-         ('afcon', ((Kx, Kx, Kx, Kx), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
+         ('afcon', ((Kx, Kx, Kx, Kx), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('aubfiz', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('atst', ((Kw, Kl, Ke, Ke), (Kw, Kl, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
 # r = acsel a, MEM{base=b, offset=cond}: a if the condition holds on the flags, else b. One op for
 # every combination of the result's class and the comparison's kind, unlike xsel*
 _OPS += [('acsel', ((Kw, Kl, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]

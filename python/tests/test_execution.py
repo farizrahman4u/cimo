@@ -55,8 +55,11 @@ _Noreturn void never(void) { }
 long unreach(long x) { if (x) never(); return 6; }
 long rec(long n) { return n == 0 ? 0 : 1 + rec(n - 1); }
 long even(long n);
-long odd(long n) { return n == 0 ? 0 : even(n - 1); }
-long even(long n) { return n == 0 ? 1 : odd(n - 1); }
+long odd(long n) { return n == 0 ? 0 : 1 + even(n - 1); }
+long even(long n) { return n == 0 ? 0 : 1 + odd(n - 1); }
+long tail_odd(long n);
+long tail_even(long n) { return n == 0 ? 1 : tail_odd(n - 1); }
+long tail_odd(long n) { return n == 0 ? 0 : tail_even(n - 1); }
 long callback(long (*cb)(long), long x) { long r = cb(x); assert(r != 99); return r + 1; }
 long many(long a, long b, long c, long d, long e, long f, long g, long h, long i, long j)
 { assert(a != 0); return a + b + c + d + e + f + g + h + i + j; }
@@ -117,7 +120,11 @@ def test_stack_overflow(em):
     with pytest.raises(cimo.KernelError) as ei:
         em.odd(1 << 40)  # mutual recursion
     assert ei.value.function in ('odd', 'even')
-    assert em.rec(10000) == 10000 and em.even(10) == 1
+    assert em.rec(10000) == 10000 and em.even(10) == 10
+
+
+def test_tail_calls_use_no_stack(em):
+    assert em.tail_even(3000000) == 1 and em.tail_odd(3000000) == 0
 
 
 def test_stack_overflow_in_thread(em):
