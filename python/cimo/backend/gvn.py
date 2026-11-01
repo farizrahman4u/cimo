@@ -536,6 +536,9 @@ def gvn(fn):
 
     gvntbln = nins + nins // 2
     gvntbl = [None] * gvntbln
+    if _ext.cse:
+        from .simplify import startfn
+        startfn(fn)
     gvndivs = {}
     gvnselects = {}
     gvnjmps = {}

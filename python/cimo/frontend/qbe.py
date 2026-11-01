@@ -1036,6 +1036,98 @@ def funcfma(f, e):
     return inst.res
 
 
+# LLVM's LibCallSimplifier, and its inline memcpy and memset: sizes it expands fit in 64 bytes
+_INLINEMEM = 64
+_CHUNKS = ((8, ILOADL, ISTOREL, 'l'), (4, ILOADW, ISTOREW, 'w'), (2, ILOADUH, ISTOREH, 'w'),
+           (1, ILOADUB, ISTOREB, 'w'))
+
+
+def _stripcast(x):
+    while x.kind == EXPRCAST:
+        x = x.base
+    return x
+
+
+def _argcount(e):
+    n = 0
+    a = e.args
+    while a:
+        n += 1
+        a = a.next
+    return n
+
+
+def _chunks(n):
+    off = 0
+    for size, load, store, cls in _CHUNKS:
+        while n - off >= size:
+            yield off, size, load, store, cls
+            off += size
+
+
+def _libcall(f, e, name, d):
+    """A call of a C library function with constant arguments, as simple instructions; or None. The
+    callee is the external function of that name (funcbuiltin), and these names are reserved."""
+    ft = d.type
+    nargs = _argcount(e)
+    if name in ('pow', 'powf') and nargs == 2:
+        t = TY.typedouble if name == 'pow' else TY.typefloat
+        y = _stripcast(e.args.next)
+        sign = 1.0
+        if y.kind == EXPRUNARY and y.op == TSUB:
+            y = _stripcast(y.base)
+            sign = -1.0
+        if ft.base is not t or ft.isvararg or y.kind != EXPRCONST or e.type is not t \
+                or e.args.type is not t:
+            return None
+        cls = qbetype(t).base
+        p = sign * (y.f if y.type.prop & PROPFLOAT else float(y.i))
+        if p == 2.0:
+            x = funcexpr(f, e.args)
+            return funcinst(f, IMUL, cls, x, x)
+        if p == 1.0:
+            return funcexpr(f, e.args)
+        if p == -1.0:
+            one = mkfltconst(VALUE_DBLCONST if cls == 'd' else VALUE_FLTCONST, 1.0)
+            return funcinst(f, IDIV, cls, one, funcexpr(f, e.args))
+        return None
+    if name == 'strlen' and nargs == 1:
+        s = _stripcast(e.args)
+        if s.kind == EXPRUNARY and s.op == TBAND:
+            s = s.base
+        if s.kind != EXPRSTRING or s.type.base.size != 1 or e.type.size != 8:
+            return None
+        data = bytes(s.sdata)
+        n = data.find(0)
+        return mkintconst(len(data) if n < 0 else n)
+    if name == 'memcpy' and nargs == 3 and e.type.kind == TYPEPOINTER:
+        c = _stripcast(e.args.next.next)
+        if c.kind != EXPRCONST or not c.type.prop & PROPINT or not 0 <= c.u <= _INLINEMEM:
+            return None
+        dst = funcexpr(f, e.args)
+        src = funcexpr(f, e.args.next)
+        for off, size, load, store, cls in _chunks(c.u):
+            a = funcinst(f, IADD, 'l', src, mkintconst(off)) if off else src
+            v = funcinst(f, load, cls, a, None)
+            a = funcinst(f, IADD, 'l', dst, mkintconst(off)) if off else dst
+            funcinst(f, store, 0, v, a)
+        return dst
+    if name == 'memset' and nargs == 3 and e.type.kind == TYPEPOINTER:
+        c = _stripcast(e.args.next.next)
+        v = _stripcast(e.args.next)
+        if c.kind != EXPRCONST or v.kind != EXPRCONST or not c.type.prop & PROPINT \
+                or not v.type.prop & PROPINT or not 0 <= c.u <= _INLINEMEM:
+            return None
+        dst = funcexpr(f, e.args)
+        byte = v.u & 0xff
+        for off, size, load, store, cls in _chunks(c.u):
+            a = funcinst(f, IADD, 'l', dst, mkintconst(off)) if off else dst
+            pat = int.from_bytes(bytes([byte]) * size, 'little')
+            funcinst(f, store, 0, mkintconst(pat), a)
+        return dst
+    return None
+
+
 def funcbuiltin(f, e):
     """cimo extension: a call of sqrt, fabs, fmin, fmax, floor, ceil, trunc, round, rint,
     nearbyint, fma (or
@@ -1056,9 +1148,14 @@ def funcbuiltin(f, e):
         return funcinst(f, op, cls, convert(f, d.type.params.type, e.args.type,
                                             funcexpr(f, e.args)), None)
     # by its symbol name: __builtin_sqrt is declared as sqrt's alias (the driver's prelude)
-    spec = _BUILTINS.get(d.asmname.lstrip('_') if d.asmname else d.name)
-    if spec is None or d.kind != DECLFUNC or d.linkage != LINKEXTERN:
+    name = d.asmname.lstrip('_') if d.asmname else d.name
+    spec = _BUILTINS.get(name)
+    if d.kind != DECLFUNC or d.linkage != LINKEXTERN:
         return None
+    if d.defined:  # the program's own, which beats the runtime's (one defined after this call
+        return None  # can't be seen here, as with gcc's builtins)
+    if spec is None:
+        return _libcall(f, e, name, d)
     op, nargs, size = spec
     t = TY.typedouble if size == 8 else TY.typefloat
     ft = d.type

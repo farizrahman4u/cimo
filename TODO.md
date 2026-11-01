@@ -62,7 +62,8 @@ in Python.
 - ~~`bic`, `orn`, `eon`, `mvn`, `ubfx`, `sbfx`, `ror`, storing `xzr`, `fmov` immediates~~ **Done**
   (`ext.isel`), and `csinc`/`csneg`/`csinv`, `xzr` in `csel`, `ubfiz`, `tst`/`tbz`/`tbnz`, identical compares
   dropped, `mul` by constants near powers of two, sibling calls, self tail recursion as a loop
-  (`inline.selftail`). Open: `bfi`, `bfxil`, `csetm`, `ccmp`, flags from `subs`/`ands`, pre/post-index.
+  (`inline.selftail`), `csetm`, `ccmp` (`thread._ifcombine`, `isel._ccmp`). Open: `bfi`, `bfxil`, flags from
+  `subs`/`ands`, pre/post-index, `ccmp` for values and for `&&` that went through a flag variable.
 - Redundant extensions (`ldrb` then `uxtb`; GCC `ree`, `ext_dce`).
 - ~~Division by a constant~~ **Done** (`cse.divconst`). `mul` by 2^n+-1 as `add`/`sub` with a shift.
   Multipliers are built outside loops (`cse.hoistcons`); the same for other large constants and FP
@@ -72,17 +73,21 @@ in Python.
 
 **Tier 2, scalar IR passes:**
 - Algebraic simplification: `InstCombine`, `AggressiveInstCombine`, GCC `forwprop`/`match.pd`.
-- Value ranges and known conditions: `ConstraintElimination`, `CorrelatedValuePropagation`, GCC `vrp`,
-  `dominator`; removes bounds checks from what dominating conditions prove (`top > 0` then
-  `top - 1 >= 0`). `SCCP`/GCC `ccp`, `BDCE` and known bits, `ADCE`/GCC `cd_dce`.
-- Jump threading (`JumpThreading`, GCC `thread_jumps`, `DFAJumpThreading`) and loop unswitching
-  (`SimpleLoopUnswitch`, GCC `tree_unswitch`).
+- ~~Value ranges and known conditions~~ **Done** (`simplify.srange`, `simplify.decide`, known bits): facts
+  from dominating branches, counters that only grow. Open: `SCCP`/GCC `ccp`, `ADCE`/GCC `cd_dce`; `nsw` from
+  the frontend, for `x + 1 > x` and `x * 2 == 8`, which the wrapping IR can't assume.
+- ~~Jump threading~~ **Done** (`backend/thread.py`), for joins that only branch. Open: threading through
+  blocks with other work, by copying them (`DFAJumpThreading`).
+- ~~Loop unswitching~~ **Done** (`middle/unswitch.py`), small innermost loops with one exit block.
 - If-conversion with a cost model: `SimplifyCFG` (speculate at most 4 cost units), `SelectOptimize`
   (select back to a branch when predictable), `EarlyIfConversion` (trace metrics); GCC `phiopt`,
   `cselim`, `tree_ifcombine`. Replaces the one-block-body rule in `middle/ifconv.py`.
-- `Reassociate`/GCC `reassoc`, `StraightLineStrengthReduce`/GCC `strength_reduction`, `SpeculativeExecution`.
-- Memory: `SROA`/GCC `sra`, `DSE`, `MemCpyOpt`, `MergedLoadStoreMotion`, `GVN` load PRE/GCC `pre`, GCC
-  `store_merging`, `sink_code`, `MergeICmps`, `ExpandMemCmp`.
+- ~~`Reassociate`~~ **Done** for constants and sums (`cse.reassoc`). Open: `StraightLineStrengthReduce`/GCC
+  `strength_reduction`, `SpeculativeExecution`, distributing `a * b + a * c`.
+- ~~Local `DSE`, `MergedLoadStoreMotion`, GVN hoisting, GCC `store_merging`, small `memcpy`, `memset`, `strlen`
+  of a literal, `pow(x, 2)`~~ **Done** (`backend/memopt.py`, `frontend.qbe._libcall`). Open: `SROA`/GCC `sra`
+  beyond what promotion does, `MemCpyOpt`, `GVN` load PRE/GCC `pre`, `MergeICmps`, `ExpandMemCmp`, `DSE` across
+  blocks.
 - GCC `cse_reciprocals`, `cse_sincos`, `expand_pow`, `optimize_bswap`, `optimize_widening_mul`, `strlen`.
 - Inlining with a real cost model (`InlineCost`), `DeadArgumentElimination`, `IPSCCP`, `GlobalOpt`,
   `FunctionAttrs` (pure, nocapture: loads and stores survive calls), `ModRef`/GCC `ipa_modref`,

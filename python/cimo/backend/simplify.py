@@ -319,17 +319,25 @@ def simplify(fn, b, i):
 def _compare(fn, b, i, ck, cc):
     a, c = i.arg
     v = _foldcmp(fn, i, ck, cc)
+    if v is None:
+        v = decide(fn, b, ck, cc, a, c)
     if v is not None:
         return getcon(v, fn)
     if cc in (D.Cieq, D.Cine):
         d0, d1 = _defn(fn, a), _defn(fn, c)
         n = _con(fn, c, ck)
-        if n == 0 and d0 is not None and iscmp(d0.op) is not None and KBASE(iscmp(d0.op)[0]) == 0 \
-                and d0.cls == ck:
-            if cc == D.Cine:  # (x < y) != 0
-                if i.cls == d0.cls:
+        if n == 0 and d0 is not None and d0.op in (D.Oextuw, D.Oextsw):  # a 0 or 1, widened
+            d2 = _defn(fn, d0.arg[0])
+            cm = iscmp(d2.op) if d2 is not None else None
+            if cm is not None and (cc == D.Cine or KBASE(cm[0]) == 0):
+                _set(fn, b, i, d2.op if cc == D.Cine else cmpwlneg(d2.op), d2.arg[0], d2.arg[1])
+                return R
+        if n == 0 and d0 is not None and iscmp(d0.op) is not None:
+            if cc == D.Cine:  # (x < y) != 0, in whichever class it is read
+                if i.cls == d0.cls and ck == d0.cls:
                     return a
-            else:  # (x < y) == 0
+                _set(fn, b, i, d0.op, d0.arg[0], d0.arg[1])
+            elif KBASE(iscmp(d0.op)[0]) == 0:  # (x < y) == 0
                 _set(fn, b, i, cmpwlneg(d0.op), d0.arg[0], d0.arg[1])
             return R
         if d0 is not None and d0.op in (D.Oadd, D.Osub) and d0.cls == ck:
@@ -343,3 +351,216 @@ def _compare(fn, b, i, ck, cc):
                     _set(fn, b, i, i.op, d0.arg[0], d1.arg[0])  # x + c == y + c
                     return R
     return R
+
+
+# Facts from dominating branches (LLVM's ConstraintElimination and CorrelatedValuePropagation, GCC's
+# dominator and vrp): inside an arm of `if (x < y)`, x < y holds. Every temporary has one value per
+# execution of its definition, and the arm is dominated by the branch, so that value is the one the
+# branch tested. Ranges are of the wrapping values: x > 0 gives x - 1 >= 0 because the subtraction
+# cannot wrap for x in [1, MAX], but x + 1 > 0 doesn't follow from x >= 0.
+
+_LT, _EQ, _GT = 1, 2, 4
+_SET = {D.Cieq: _EQ, D.Cine: _LT | _GT, D.Cisge: _EQ | _GT, D.Cisgt: _GT, D.Cisle: _LT | _EQ, D.Cislt: _LT,
+        D.Ciuge: _EQ | _GT, D.Ciugt: _GT, D.Ciule: _LT | _EQ, D.Ciult: _LT}
+_UNS = frozenset((D.Ciuge, D.Ciugt, D.Ciule, D.Ciult))
+_TOSIGNED = {D.Ciuge: D.Cisge, D.Ciugt: D.Cisgt, D.Ciule: D.Cisle, D.Ciult: D.Cislt}
+_MIRROR = {_LT: _GT, _GT: _LT, _EQ: _EQ, _LT | _EQ: _EQ | _GT, _EQ | _GT: _LT | _EQ, _LT | _GT: _LT | _GT}
+MAXWALK = 24  # dominators looked at per question: enough for checks close together
+
+
+def _facts(b):
+    """(temporary or condition, true or false) for each branch that decides how b is reached."""
+    cur = b
+    for _ in range(MAXWALK):
+        p = cur.idom
+        if p is None:
+            return
+        if cur.npred == 1 and p.jmp.type == D.Jjnz and p.s1 is not p.s2 and rtype(p.jmp.arg) == RTmp:
+            if p.s1 is cur:
+                yield p.jmp.arg, True
+            elif p.s2 is cur:
+                yield p.jmp.arg, False
+        cur = p
+
+
+def _fact(fn, c, sense, ck):
+    """(x, relation set, y, unsigned) of a condition with that outcome, in class ck; or None."""
+    d = _defn(fn, c)
+    if d is None:
+        return None
+    cm = iscmp(d.op)
+    if cm is None or cm[0] != ck:
+        return None
+    s = _SET[cm[1]]
+    if not sense:
+        s = (_LT | _EQ | _GT) & ~s
+    return d.arg[0], s, d.arg[1], cm[1] in _UNS
+
+
+def _sval(v, w):
+    return v - (1 << w) if v >> (w - 1) else v
+
+
+def _narrow(lo, hi, s, n, uns, w):
+    """[lo, hi] signed, for a value related to the constant n by the set s."""
+    smax = (1 << (w - 1)) - 1
+    if uns:  # x u< n, with n a nonnegative number, says 0 <= x < n; else nothing signed
+        if n > smax or not (s & (_LT | _EQ)) or s & _GT:
+            return lo, hi
+        lo = max(lo, 0)
+        hi = min(hi, n if s & _EQ else n - 1)
+        return lo, hi
+    n = _sval(n, w)
+    if s == _EQ:
+        return max(lo, n), min(hi, n)
+    if s == _LT | _GT:
+        if n == lo:
+            lo += 1
+        if n == hi:
+            hi -= 1
+        return lo, hi
+    if s & _LT and not s & _GT:
+        hi = min(hi, n if s & _EQ else n - 1)
+    if s & _GT and not s & _LT:
+        lo = max(lo, n if s & _EQ else n + 1)
+    return lo, hi
+
+
+def srange(fn, b, r, ck, depth=0):
+    """[lo, hi]: the signed values r can have in block b, in class ck."""
+    w = 64 if ck == Kl else 32
+    z, on = known(fn, r, ck)
+    lo, hi = _srange(z, on, w)
+    if rtype(r) != RTmp or depth >= 3:
+        return lo, hi
+    for c, sense in _facts(b):
+        f = _fact(fn, c, sense, ck)
+        if f is None:
+            continue
+        x, s, y, uns = f
+        if x == r and _con(fn, y, ck) is not None:
+            lo, hi = _narrow(lo, hi, s, _con(fn, y, ck), uns, w)
+        elif y == r and _con(fn, x, ck) is not None:
+            lo, hi = _narrow(lo, hi, _MIRROR[s], _con(fn, x, ck), uns, w)
+    d = _defn(fn, r)
+    if d is not None and d.cls == ck:
+        if d.op in (D.Oadd, D.Osub):
+            n = _con(fn, d.arg[1], ck)
+            if n is not None:
+                n = _sval(n, w)
+                if d.op == D.Osub:
+                    n = -n
+                lo1, hi1 = srange(fn, b, d.arg[0], ck, depth + 1)
+                lo1 += n
+                hi1 += n
+                if -(1 << (w - 1)) <= lo1 and hi1 < 1 << (w - 1):  # it doesn't wrap
+                    lo, hi = max(lo, lo1), min(hi, hi1)
+        elif d.op == D.Oextsw and ck == Kl:
+            lo1, hi1 = srange(fn, b, d.arg[0], Kw, depth + 1)
+            lo, hi = max(lo, lo1), min(hi, hi1)
+    elif d is None:
+        lo1 = _induction(fn, b, r, ck)
+        if lo1 is not None:
+            lo = max(lo, lo1)
+    return lo, hi
+
+
+def _strip(fn, r):
+    """Through copies: gvn reaches a loop's latch last, when it still reads what loadopt left."""
+    for _ in range(8):
+        d = _defn(fn, r)
+        if d is None or d.op != D.Ocopy:
+            return r
+        r = d.arg[0]
+    return r
+
+
+def _induction(fn, b, r, ck):
+    """The first value of a counter that only grows: i = phi(c, i + n), n > 0, in which a signed
+    test on i guards the addition, so it can't wrap (LLVM's IndVarSimplify, without SCEV). Else None.
+    Only for n == 1: i < x means i + 1 <= x fits."""
+    p = _PHI.get(rval(r))
+    if p is None or p.narg != 2 or p.cls != ck:
+        return None
+    for n in (0, 1):
+        init, nxt = _strip(fn, p.arg[n]), _strip(fn, p.arg[n ^ 1])
+        c = _con(fn, init, ck)
+        d = _defn(fn, nxt)
+        if c is None or d is None or d.op != D.Oadd or d.cls != ck or _strip(fn, d.arg[0]) != r \
+                or _con(fn, d.arg[1], ck) != 1:
+            continue
+        # the block with the addition is under a branch that said i < something
+        for f, sense in _facts(fn.rpo[fn.tmp[rval(nxt)].bid]):
+            q = _fact(fn, f, sense, ck)
+            if q is None or q[3]:
+                continue
+            x, s, y, _ = q
+            if (_strip(fn, x) == r and s == _LT) or (_strip(fn, y) == r and s == _GT):
+                return _sval(c, 64 if ck == Kl else 32)
+    return None
+
+
+_PHI = {}
+
+
+def startfn(fn):
+    """The phis of fn by temporary, for _induction."""
+    _PHI.clear()
+    b = fn.start
+    while b:
+        p = b.phi
+        while p:
+            _PHI[rval(p.to)] = p
+            p = p.link
+        b = b.link
+
+
+def decide(fn, b, ck, cc, a, c):
+    """0, 1 or None: what the branches dominating b, and the ranges, say about "a cc c"."""
+    q = _SET[cc]
+    uns = cc in _UNS
+    w = 64 if ck == Kl else 32
+    la, ha = srange(fn, b, a, ck)
+    lc, hc = srange(fn, b, c, ck)
+    if uns and la >= 0 and lc >= 0:
+        uns = False  # both nonnegative: unsigned and signed order agree
+    if not uns:
+        if q == _EQ or q == _LT | _GT:
+            if ha < lc or hc < la:
+                return int(q != _EQ)
+            if la == ha == lc == hc:
+                return int(q == _EQ)
+        else:
+            if q == _LT:
+                r = 1 if ha < lc else 0 if la >= hc else None
+            elif q == _LT | _EQ:
+                r = 1 if ha <= lc else 0 if la > hc else None
+            elif q == _GT:
+                r = 1 if la > hc else 0 if ha <= lc else None
+            else:
+                r = 1 if la >= hc else 0 if ha < lc else None
+            if r is not None:
+                return r
+    if rtype(a) != RTmp and rtype(c) != RTmp:
+        return None
+    equality = q == _EQ or q == _LT | _GT
+    for f, sense in _facts(b):
+        g = _fact(fn, f, sense, ck)
+        if g is None:
+            continue
+        x, s, y, fu = g
+        if x == c and y == a:
+            s = _MIRROR.get(s, s)
+        elif not (x == a and y == c):
+            continue
+        # order in one sense says nothing about the other, except when it's equality
+        if not equality and fu != uns and s not in (_EQ, _LT | _GT):
+            if cc in _UNS and fu and not uns:
+                pass  # the query became signed, on nonnegative values: same order
+            else:
+                continue
+        if s & ~q == 0:
+            return 1
+        if s & q == 0:
+            return 0
+    return None

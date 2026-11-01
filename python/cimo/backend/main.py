@@ -115,7 +115,11 @@ class _Driver:
         if ext.cse:  # cimo: gvn made equal addresses one temporary: their loads can merge
             loads = cse.nload(fn)
             cfg.filldom(fn)
+            from . import thread
+            threaded = thread.run(fn)
             merged = cse.domcse(fn)
+            merged = cse.reassoc(fn) or merged
+            ssa.filluse(fn)
             if T.name.startswith('arm64'):
                 merged = cse.divconst(fn) or merged
                 merged = cse.divrem(fn) or merged
@@ -124,7 +128,17 @@ class _Driver:
             load.loadopt(fn)
             ssa.filluse(fn)
             ssa.ssacheck(fn)
-            if merged or cse.nload(fn) != loads:
+            from . import memopt
+            cfg.fillcfg(fn)
+            ssa.filluse(fn)
+            moved = memopt.hoist(fn)
+            moved = memopt.sink(fn) or moved
+            moved = memopt.dse(fn) or moved
+            moved = memopt.merge(fn) or moved
+            if moved:
+                ssa.filluse(fn)
+                ssa.ssacheck(fn)
+            if merged or threaded or moved or cse.nload(fn) != loads:
                 cfg.filldom(fn)
                 self._cleanup(fn, cfg, ssa, gvn, gcm)
         from .. import middle

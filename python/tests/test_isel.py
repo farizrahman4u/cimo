@@ -596,3 +596,65 @@ def test_self_tail_recursion_is_a_loop():
     y = array.array('q', [7])
     assert m.esc(3, y) == 1  # the pointer to a local keeps its own frame: stays a call
     assert re.search(r'\bbl\s+_?esc', body(src, 'esc')), body(src, 'esc')
+
+
+CCMP = """
+long a1(long a, long b, long c, long d, long e) { if (a < b && c < d) return e; return e + 7; }
+long a2(long a, long b, long c, long d, long e) { if (a < b || c < d) return e; return e + 7; }
+long a3(long a, long c, long e) { if (a > 3 && c == 9) return e; return e + 7; }
+long a4(long a, long c, long e) { if (a == 0 || c >= 5) return e; return e + 7; }
+long a5(unsigned long a, unsigned long b, unsigned long c, unsigned long d) { if (a <= b && c > d) return 1; return 2; }
+long a6(unsigned long a, unsigned long b, unsigned long c, unsigned long d) { if (a >= b || c < d) return 1; return 2; }
+long a7(int a, int b, long c, long d) { if (a != b && c <= d) return 1; return 2; }
+long a8(long a, long b, long c) { if (a < b && b < c && a != c) return 1; return 2; }
+long a9(long a, long b, long c) { if (a < b || b < c || a == c) return 1; return 2; }
+long a10(double a, double b, long c, long d) { if (a < b && c < d) return 1; return 2; }
+long a11(long a, long b, double c, double d) { if (a < b && c < d) return 1; return 2; }
+long a12(long a, long c) { if (a > 1000000 && c > 1000000) return 1; return 2; }
+long a13(long *p, long a) { if (a > 0 && *p > 0) return 1; return 2; }
+long a14(long a, long b, long c, long d) { if (a < b && c > d) c = 5; else c = 6; return c + d; }
+int m1(long a, long b) { return a < b ? -1 : 0; }
+int m2(long a, long b) { return a < b ? 0 : -1; }
+long m3(long a, long b) { return a == b ? -1 : 0; }
+"""
+
+
+def test_ccmp_is_selected():
+    for name in ('a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'):
+        m = re.search(r'^_?%s:\n(.*?)^\.?(?:type|/\*)' % name, driver._build(CCMP)[0], re.S | re.M)
+        assert 'ccmp' in m.group(1), m.group(1)
+    assert re.search(r'csinv\s+w0, wzr, wzr', body(CCMP, 'm1')), body(CCMP, 'm1')
+
+
+def test_ccmp_computes_the_same():
+    import itertools
+    m = cimo.compile(CCMP, cache=False)
+    vals = [-2, 0, 1, 3, 4, 5, 9, 1000001, -2 ** 63, 2 ** 63 - 1]
+    nan = float('nan')
+    for a, b, c, d in itertools.product(vals[:7] + vals[-2:], [0, 4, -2 ** 63], [0, 9, 5], [1, -1]):
+        e = 100
+        assert m.a1(a, b, c, d, e) == (e if a < b and c < d else e + 7)
+        assert m.a2(a, b, c, d, e) == (e if a < b or c < d else e + 7)
+        assert m.a3(a, c, e) == (e if a > 3 and c == 9 else e + 7)
+        assert m.a4(a, c, e) == (e if a == 0 or c >= 5 else e + 7)
+        ua, ub, uc, ud = a & M64, b & M64, c & M64, d & M64
+        assert m.a5(ua, ub, uc, ud) == (1 if ua <= ub and uc > ud else 2)
+        assert m.a6(ua, ub, uc, ud) == (1 if ua >= ub or uc < ud else 2)
+        assert m.a8(a, b, c) == (1 if a < b and b < c and a != c else 2)
+        assert m.a9(a, b, c) == (1 if a < b or b < c or a == c else 2)
+        assert m.a12(a, c) == (1 if a > 1000000 and c > 1000000 else 2)
+        assert m.a14(a, b, c, d) == ((5 if a < b and c > d else 6) + d)
+        assert m.m1(a, b) == (-1 if a < b else 0) and m.m2(a, b) == (0 if a < b else -1)
+        assert m.m3(a, b) == (-1 if a == b else 0)
+        if -2 ** 31 <= a < 2 ** 31 and -2 ** 31 <= b < 2 ** 31:
+            assert m.a7(a, b, c, d) == (1 if a != b and c <= d else 2)
+    for x, y, c, d in itertools.product([0.5, 1.5, nan], [1.0, nan], [1, 2], [2, 1]):
+        assert m.a10(x, y, c, d) == (1 if x < y and c < d else 2)
+        assert m.a11(c, d, x, y) == (1 if c < d and x < y else 2)
+    assert m.a13(array.array('q', [5]), 1) == 1 and m.a13(array.array('q', [-5]), 1) == 2
+
+
+def test_condition_with_a_load_is_not_speculated():
+    """p may be null when a <= 0: its load must stay behind the test."""
+    m = cimo.compile('long f(long *p, long a) { if (a > 0 && *p > 0) return 1; return 2; }', cache=False)
+    assert m.f(0, 0) == 2

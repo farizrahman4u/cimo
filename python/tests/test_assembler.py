@@ -264,3 +264,11 @@ def test_conditional_forms_and_bit_tests():
     lines += ['.Lq:', 'tbz x1, #3, .Lq', 'tbnz x1, #63, .Lq', 'tbz w2, #31, .Lq', 'tbnz w2, #0, .Lr', '.Lr:']
     d = A.compare('\n'.join(lines) + '\n')
     assert not d, '\n'.join(d)
+
+
+def test_ccmp():
+    lines = []
+    for c in 'eq ne cs cc hi ls ge lt gt le mi'.split():
+        lines += ['ccmp x1, x2, #4, %s' % c, 'ccmp w1, w2, #8, %s' % c, 'ccmp x3, #17, #0, %s' % c, 'ccmp w3, #31, #2, %s' % c]
+    d = A.compare('\n'.join(lines) + '\n')
+    assert not d, '\n'.join(d)

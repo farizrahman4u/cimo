@@ -251,3 +251,90 @@ def hoistcons(fn):
     st.ins = st.ins[:st.nins] + [D.Ins(D.Ocopy, k, t, r, D.R) for (r, k), t in regs.items()]
     st.nins = len(st.ins)
     return True
+
+
+def _adddef(fn, r, k):
+    """The add or sub-of-a-constant defining r in class k, if r is only used once; or None."""
+    if D.rtype(r) != D.RTmp or (r & D.VMASK) < D.Tmp0:
+        return None
+    t = fn.tmp[r & D.VMASK]
+    d = t.def_
+    if d is None or d.cls != k or t.nuse != 1 or (d.op != D.Oadd and not (
+            d.op == D.Osub and D.rtype(d.arg[1]) == D.RCon)):
+        return None
+    return d
+
+
+def _conof(fn, r):
+    if D.rtype(r) == D.RCon and fn.con[r & D.VMASK].type == D.CBits:
+        return fn.con[r & D.VMASK].i
+    return None
+
+
+def _sum(fn, r, k, leaves, depth=0):
+    """Adds r's terms to leaves; returns its constant part."""
+    c = _conof(fn, r)
+    if c is not None:
+        return c
+    d = _adddef(fn, r, k) if depth < 8 else None
+    if d is None:
+        leaves.append(r)
+        return 0
+    if d.op == D.Osub:
+        return _sum(fn, d.arg[0], k, leaves, depth + 1) - _conof(fn, d.arg[1])
+    return _sum(fn, d.arg[0], k, leaves, depth + 1) + _sum(fn, d.arg[1], k, leaves, depth + 1)
+
+
+def reassoc(fn):
+    """LLVM's Reassociate and InstCombine's distribution, for integers, which wrap: (x + c) * k is
+    x * k + c * k, and a sum of sums is its terms in a fixed order, then the constant. So p[i + 1] and
+    p[i + 2] share p + i * 8 and differ by a constant, which gvn merges and addressing folds. Requires
+    use; breaks it. Returns True if anything changed."""
+    changed = False
+    for b in fn.rpo[:fn.nblk]:
+        if not any(i.op in (D.Oadd, D.Omul, D.Oshl) and KBASE(i.cls) == 0 for i in b.ins[:b.nins]):
+            continue
+        out = []
+        for i in b.ins[:b.nins]:
+            k = i.cls
+            if KBASE(k) == 0 and i.op in (D.Omul, D.Oshl):
+                n = _conof(fn, i.arg[1])
+                d = _adddef(fn, i.arg[0], k)
+                c = _conof(fn, d.arg[1]) if d is not None else None
+                if n is not None and c is not None:
+                    if i.op == D.Oshl:
+                        n = 1 << (n & (63 if k == D.Kl else 31))
+                    if d.op == D.Osub:
+                        c = -c
+                    t = newtmp('ra', k, fn)
+                    x = D.Ins(i.op, k, t, d.arg[0], i.arg[1])
+                    out.append(x)
+                    fn.tmp[t & D.VMASK].def_ = x
+                    fn.tmp[t & D.VMASK].nuse = 1
+                    i.op = D.Oadd
+                    i.arg[0] = t
+                    i.arg[1] = getcon(D.s64(c * n), fn)
+                    changed = True
+            elif KBASE(k) == 0 and i.op == D.Oadd:
+                nested = _adddef(fn, i.arg[0], k) or _adddef(fn, i.arg[1], k)
+                if nested is not None:
+                    leaves = []
+                    c = _sum(fn, i.arg[0], k, leaves) + _sum(fn, i.arg[1], k, leaves)
+                    leaves.sort()
+                    if len(leaves) >= 2 or c:
+                        r = leaves[0] if leaves else None
+                        for l in leaves[1:-1] if not c else leaves[1:]:
+                            t = newtmp('ra', k, fn)
+                            x = D.Ins(D.Oadd, k, t, r, l)
+                            out.append(x)
+                            fn.tmp[t & D.VMASK].def_ = x
+                            fn.tmp[t & D.VMASK].nuse = 1
+                            r = t
+                        if r is not None:
+                            i.arg[0] = r
+                            i.arg[1] = getcon(D.s64(c), fn) if c else leaves[-1]
+                            changed = True
+            out.append(i)
+        b.ins = out
+        b.nins = len(out)
+    return changed

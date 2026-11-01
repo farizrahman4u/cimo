@@ -573,7 +573,13 @@ def emitins(i, e):
         else:
             mn = ("csel", "csinc", "csinv", "csneg")[m.scale & 15]
         e.f.write("\t%s\t%s, %s, %s, %s\n" % (mn, rname(rval(i.to), k), _zr(i.arg[0], k),
-                                               rname(rval(m.base), k), c))
+                                               _zr(m.base, k), c))
+    elif op == D.Oaccmp:
+        m = e.fn.mem[rval(i.arg[1])]
+        k = i.cls
+        b = rname(rval(m.base), k) if isreg(m.base) else "#%d" % m.offset.i
+        e.f.write("\tccmp\t%s, %s, #%d, %s\n" % (rname(rval(i.arg[0]), k), b, m.scale & 15,
+                                                  ctoa[(m.scale >> 4) & 255][m.scale >> 12]))
     elif op == D.Oaubfiz:
         k = i.cls
         c = e.fn.con[rval(i.arg[1])].i
