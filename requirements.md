@@ -247,6 +247,16 @@ uses only the public API and needs: in-memory compilation of a C string to calla
 honored in diagnostics and debug info, a defined convention for numpy buffers and scalars, low
 compile latency with a usable cache key, and (for loop-heavy code) auto-vectorization.
 
+Also from scramjit's first measurements (its M0, 2026-11-01):
+- **FMA contraction per compile:** `cimo.compile(..., fma=False)` in the Python API, like the
+  CLI's `--no-fma`. Today only the process-wide `CIMO_FMA` controls it, read at import. scramjit
+  must reproduce CPython's float results bit for bit, so it needs contraction off for its
+  compiles without changing other callers in the same process.
+- **Math functions against CPython:** the bundled libm differs in the last bit from the host libm
+  CPython uses (glibc, arm64) for many inputs: `atan2` 18%, `hypot` 14%, `sin`/`cos` 3%,
+  `exp`/`pow` under 0.1%, `sqrt`/`log` none. Worth documenting; an option to link the host's libm
+  for math calls (native targets) would let generated code match CPython where that matters.
+
 ## Optimization model
 
 The compiler accepts all of the language; it reaches `-O3` quality on **analyzable** code:
