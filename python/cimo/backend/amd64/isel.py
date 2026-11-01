@@ -179,6 +179,11 @@ def seladdr(lst, idx, tn, fn):
         a = Addr()
         if not amatch(a, tn, r0, fn):
             return
+        if a.offset.type == CBits and not INT32_MIN <= a.offset.i <= INT32_MAX:
+            # fix over C QBE: a displacement is a signed 32-bit field (gcc's pr94734.c,
+            # arr[0xdeadbeefbeefdead] once inlined); the address stays an add, whose constant
+            # fixarg loads into a register
+            return
         if a.base != R:
             if a.offset.type == CAddr:
                 # apple as does not support
