@@ -124,6 +124,8 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   no field for a flexible or zero-length array (`b 0` for an empty struct); cproc's types
   were too small, so calls copied part of the struct. `zero()` indexed its store table with 16
   for a 16-byte aligned local (crash). Found with `va_arg` of structs and `tests/test_abi.py`.
+  Packed members at offsets QBE wouldn't place their type at are emitted as bytes; `{ b, w, h }`
+  for a 7-byte packed struct was 12 bytes to QBE, so it took two registers instead of one.
 - Target `aarch64-windows`: a call to a variadic function gets the `...` marker even when no
   variadic argument follows (cproc emits it before the first one), since Windows passes all
   arguments of a variadic call its own way. Found by `tests/test_abi.py`.
