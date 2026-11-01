@@ -108,14 +108,14 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 - **A faster `Kernel.__call__`** (requested by scramjit, 2026-11-01). A call costs about 1,400 ns on arm64
   Linux with ints and 2,450 ns with a numpy array, where the underlying ctypes call is about 450 ns. So
-  any caller making many small calls pays roughly 3x for the wrapper. Measured pieces: the argument list
-  comprehension and `_address` (`__array_interface__` alone is about 700 ns; a `bytearray` goes through
-  `memoryview` and `from_buffer`), `self._state.ctx()`, and the `try`/`finally` for stdout. Ideas: choose a
+  any caller making many small calls pays roughly 3x for the wrapper. Only those totals and
+  `__array_interface__` (about 700 ns) were measured; the likely pieces, from reading the code, are the
+  argument list comprehension, `_address` (a `bytearray` goes through `memoryview` and `from_buffer`),
+  `self._state.ctx()` and the `try`/`finally` for stdout. Ideas: choose a
   per-kernel call function when it's created, from its parameters (no pointer parameters means no list at
   all; no stdout means no `finally`); and for numpy arrays, `addressof(c_char.from_buffer(a))` is about half
   the cost of `__array_interface__`, falling back to it for read-only arrays. In Pyodide a call is about
-  13 us; much of it is the JavaScript wrapper converting i64 parameters to BigInt, so i32 where a value
-  fits, or a batch-free fast path for doubles, may help. Reproduce with a loop over `kernel(1, 2, buf)`.
+  13 us, not broken down; the JavaScript wrapper converting i64 parameters to BigInt is a suspect. Reproduce with a loop over `kernel(1, 2, buf)`.
   **When done, note it in scramjit's `TODO.md`.**
 - **A public way to get a module's WebAssembly** (requested by scramjit): its site demo shows the
   compiled kernel's disassembly and calls `cimo.wasm.build` for the bytes, as cimo's own demo does,
