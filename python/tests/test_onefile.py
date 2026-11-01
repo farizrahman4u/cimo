@@ -105,6 +105,25 @@ def test_one_file_deterministic(built, tmp_path):
     assert not any(k.endswith('.s') for k in files)  # sources only, nothing compiled
 
 
+def test_compressed(built, tmp_path):
+    """compress=True: each file zlib-compressed, decompressed in memory when first read; about
+    a third of the size, and the kernel runs the same."""
+    d, stats = built
+    z = tmp_path / 'z'
+    z.mkdir()
+    onefile.build(str(z / 'cimo.py'), compress=True)
+    plain = (d / 'plain' / 'cimo.py').stat().st_size
+    assert (z / 'cimo.py').stat().st_size < plain / 2
+    env = _bare_env(tmp_path, tmp_path / 'cache')
+    _run(z, env)
+    r = subprocess.run([sys.executable, '-I', '-S', '-c',
+                        'import sys; sys.path.insert(0, "."); import cimo, cimo.resources as R; '
+                        'cimo.compile("int f(void){ return 1; }", cache=False); '
+                        'print(type(R._FILES).__name__, len(dict.keys(R._FILES)) < len(R._FILES))'],
+                       cwd=str(z), env=env, capture_output=True, text=True, timeout=300)
+    assert r.stdout.split() == ['_Lazy', 'True'], r.stdout + r.stderr  # only what was used
+
+
 def test_onefile_without_cache_dir(built, tmp_path):
     """No writable cache: the runtime members the kernel needs are compiled and kept in
     memory, as is the module."""

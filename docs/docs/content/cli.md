@@ -40,8 +40,10 @@ $ cimo compile -S kernels.c -o k.s    # stop after code generation: assembly
 ## cimo onefile
 
 ```console
-$ cimo onefile [-o cimo.py] [--keep-comments]
+$ cimo onefile [-o cimo.py] [--keep-comments] [--compress]
 ```
+
+`--compress` stores the files zlib-compressed, decompressed in memory when first used: about 460 KB instead of 1.2 MB, but not readable.
 
 Writes all of cimo as one Python file (also published at `https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py`). See [Shipping code that uses cimo](distribution.md).
 

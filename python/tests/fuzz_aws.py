@@ -47,10 +47,10 @@ cmake -S code/yarpgen -B code/yarpgen/build -DCMAKE_BUILD_TYPE=Release
 cmake --build code/yarpgen/build -j$(nproc)
 git clone -q {repo} cimo
 cd cimo && git checkout -q {commit} && cd python
-day=$(( $(date +%s) / 86400 ))
-python3 tests/fuzz_csmith.py -n 1000000 --seed $(( day * 1000000 )) --minutes {csmith} \
+t=$(date +%s)  # a fresh range per run (the nightly CI job seeds from the day)
+python3 tests/fuzz_csmith.py -n 1000000 --seed $(( t * 10000 )) --minutes {csmith} \
     --timeout 600 > ~/fuzz.log 2>&1
-python3 tests/fuzz_yarpgen.py -n 1000000 --seed $(( day * 100000 )) --minutes {yarpgen} \
+python3 tests/fuzz_yarpgen.py -n 1000000 --seed $(( t * 1000 )) --minutes {yarpgen} \
     --timeout 900 >> ~/fuzz.log 2>&1
 mkdir -p tests/fuzz_failures
 cp ~/fuzz.log tests/fuzz_failures/

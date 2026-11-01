@@ -7,6 +7,9 @@ package itself. cimo.resources reads headers and runtime sources from the same t
 sources: the runtime library is compiled on demand like everywhere else (cimo.linker).
 
 The output is deterministic: files in sorted order, no timestamps.
+
+`compress=True` (`cimo onefile --compress`) stores each file zlib-compressed (base85) instead,
+decompressed in memory the first time it is read: about a third of the size, not readable.
 """
 
 import ast
@@ -60,6 +63,41 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 '''),)
+
+# With compress=True, before the table: {path: text} with each text decompressed on first read.
+_LAZY = '''
+class _Lazy(dict):
+    """{path: text} over {path: zlib-compressed UTF-8, base85}; a text is decompressed
+    the first time it is read and kept."""
+
+    def __init__(self, packed):
+        dict.__init__(self)
+        self.packed = packed
+
+    def __missing__(self, rel):
+        import base64
+        import zlib
+        text = zlib.decompress(base64.b85decode(self.packed[rel])).decode('utf-8',
+                                                                         'surrogateescape')
+        dict.__setitem__(self, rel, text)
+        return text
+
+    def __contains__(self, rel):
+        return rel in self.packed
+
+    def __iter__(self):
+        return iter(self.packed)
+
+    def __len__(self):
+        return len(self.packed)
+
+    def keys(self):
+        return self.packed.keys()
+
+    def get(self, rel, default=None):
+        return self[rel] if rel in self.packed else default
+
+'''
 
 # Runs in the onefile build after the table: installs the import hook and becomes the package.
 _BOOTSTRAP = '''
@@ -276,9 +314,9 @@ def _version():
     return getattr(cimo, '__version__', 'unknown')
 
 
-def build(path='cimo.py', progress=None, strip=True):
+def build(path='cimo.py', progress=None, strip=True, compress=False):
     """Write the single file to `path`. strip: leave out comments and docstrings
-    (license notices stay); cache keys are those of the original sources
+    (license notices stay); compress: store the files zlib-compressed (see above); cache keys are those of the original sources
     (onefile-keys.json), so a onefile build shares compiled runtime members and modules with the
     tree it was built from. progress(msg): status lines, optional.
     Returns stats: {'path', 'modules', 'resources', 'bytes', 'seconds'}."""
@@ -301,10 +339,20 @@ def build(path='cimo.py', progress=None, strip=True):
         parts.extend(('# ' + line).rstrip() + '\n' for line in text.splitlines())
         parts.append('#\n')
     parts.append('# ' + '-' * 90 + '\n\n')
-    parts.append('_FILES = {\n')
-    for rel in sorted(files):
-        parts.append('%r: %s,\n' % (rel, _literal(files[rel])))
-    parts.append('}\n')
+    if compress:
+        import base64
+        import zlib
+        parts.append(_LAZY)
+        parts.append('_FILES = _Lazy({\n')
+        for rel in sorted(files):
+            z = zlib.compress(files[rel].encode('utf-8', 'surrogateescape'), 9)
+            parts.append("%r: b'%s',\n" % (rel, base64.b85encode(z).decode('ascii')))
+        parts.append('})\n')
+    else:
+        parts.append('_FILES = {\n')
+        for rel in sorted(files):
+            parts.append('%r: %s,\n' % (rel, _literal(files[rel])))
+        parts.append('}\n')
     parts.append(_BOOTSTRAP)
     data = ''.join(parts).encode('utf-8')
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
