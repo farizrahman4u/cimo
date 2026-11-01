@@ -760,9 +760,9 @@ def _tempalloc(f, size, align):
 
 def _sysv_classes(t):
     """x86-64 SysV: the classes of the eightbytes of a struct or union ('i' INTEGER, 's'
-    SSE), or None when it is passed in memory. As QBE's amd64 classify(): an eightbyte with any
-    integer (or bit-field) in it is INTEGER, else SSE, padding only included; over 16 bytes
-    (after rounding the size up to the alignment, at least 8) is memory."""
+    SSE, 'n' all padding: no register, as gcc), or None when it is passed in memory. As QBE's
+    amd64 classify(): an eightbyte with any integer (or bit-field) in it is INTEGER, else SSE;
+    over 16 bytes (after rounding the size up to the alignment, at least 8) is memory."""
     al = max(t.align, 8)
     sz = (t.size + al - 1) & -al
     if sz > 16 or sz == 0:
@@ -789,7 +789,7 @@ def _sysv_classes(t):
             cls[off // 8] = 'i'
 
     walk(t, 0)
-    return [c or 's' for c in cls[:sz // 8]]
+    return [c or 'n' for c in cls[:sz // 8]]
 
 
 def _vaargsysv(f, t, ap, add, load, align16):
@@ -823,6 +823,8 @@ def _vaargsysv(f, t, ap, add, load, align16):
     funclabel(f, breg)
     save = load(ILOADL, 'l', add(ap, 16))
     for k, c in enumerate(cls):
+        if c == 'n':  # padding only: in no register
+            continue
         if c == 'i':
             src = funcinst(f, IADD, ptrclass, save, funcinst(f, IEXTUW, 'l', gp, None))
             gp = funcinst(f, IADD, 'w', gp, mkintconst(8))
@@ -1618,7 +1620,12 @@ def emittype(t):
     if not out:
         out.append("b 0, ")  # an empty struct (GNU C): size 0
     end = qoff if t.kind == TYPESTRUCT else usize
-    if t.size > ((end + qalign - 1) & -qalign):  # trailing padding QBE would not add
+    # QBE rounds the size up to the type's alignment, the `align` written below if larger.
+    # cimo: on x86-64 that alignment counts, since padding written as `b` fields would make an
+    # eightbyte of floats INTEGER for QBE's amd64 classify (`struct { _Alignas(16) float
+    # m[3]; }` in rdi instead of xmm1, unlike gcc); arm64 keeps the layout tested against gcc
+    qround = max(qalign, t.align) if TG.targ.name.startswith('x86_64') else qalign
+    if t.size > ((end + qround - 1) & -qround):  # trailing padding QBE would not add
         out.append("b %d, " % (t.size - end) if t.kind == TYPESTRUCT
                    else "{ b %d } " % t.size)
     w(" = align %d { " % t.align if t.align > qalign else " = { ")
