@@ -4,7 +4,7 @@ import sys
 from functools import cmp_to_key
 
 from . import defs as D
-from .defs import (R, RTmp, RCon, RInt, M64, CAddr, Con, Ins, Phi, Kw, Kl, Ks, Kd,
+from .defs import (R, RTmp, RCon, RInt, M64, KBASE, CAddr, Con, Ins, Phi, Kw, Kl, Ks, Kd,
                    ALoc, AEsc, AUnk, ACon, ASym, NoAlias, MayAlias, MustAlias,
                    Oloadsb, Oloadub, Oloadsh, Oloaduh, Oloadsw, Oloaduw, Oload,
                    Ostoreb, Ostoreh, Ostorew, Ostorel, Ostores, Ostored, Ocast, Oextuw,
@@ -161,6 +161,8 @@ def load(sl, msk, l):
         cls = sl.cls
     else:
         cls = Kl if sl.sz > 4 else Kw
+    if KBASE(cls) == 1:  # fix over C QBE: there is no loaduw of class s (dead code there too)
+        ld = Oload
     r = sl.ref
     # sl.ref might not be live here,
     # but its alias base ref will be
@@ -311,7 +313,10 @@ def def_(sl, msk, b, i, il):
             if (msk1 & msk) == 0:
                 continue
             if ins.op == Oblit0:
-                r = def_(sl1, MASK(sz), b, i, il)
+                # fix over C QBE: no load of the blit's source at il, below the blit, where it may
+                # have changed since (and sl1 may have no load of its size); il's own load is fine
+                il1 = il if il.type != LLoad else Loc(LNoLoad, il.off, il.blk)
+                r = def_(sl1, MASK(sz), b, i, il1)
                 if r == R:
                     return Load()
             if off:

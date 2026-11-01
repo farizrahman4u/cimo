@@ -224,3 +224,207 @@ def test_selects_in_unrolled_loops(n):
         if v > mx:
             mx, mi, cnt = v, i, i * 2 + 1
     assert m.f(x, n) == mi * 1000000 + mx * 1000 + cnt
+
+
+@pytest.mark.parametrize('src,want', [
+    ('long f(long a, long b) { return a + (b << 4); }', r'add\s+x\d+, x\d+, x\d+, lsl #4'),
+    ('long f(long a, long b) { return (b << 4) + a; }', r'add\s+x\d+, x\d+, x\d+, lsl #4'),
+    ('long f(long a, long b) { return a - (b >> 9); }', r'sub\s+x\d+, x\d+, x\d+, asr #9'),
+    ('unsigned f(unsigned a, unsigned b) { return a + (b >> 5); }', r'add\s+w\d+, w\d+, w\d+, lsr #5'),
+    ('long f(long a, int b) { return a + b; }', r'add\s+x\d+, x\d+, w\d+, sxtw'),
+    ('long f(long a, unsigned b) { return a + b; }', r'add\s+x\d+, x\d+, w\d+, uxtw'),
+    ('long f(long a, int b) { return a + ((long)b << 3); }', r'add\s+x\d+, x\d+, w\d+, sxtw #3'),
+    ('long f(long a, long b) { return a & (b << 2); }', r'and\s+x\d+, x\d+, x\d+, lsl #2'),
+    ('long f(long a, long b) { return a | (b >> 2); }', r'orr\s+x\d+, x\d+, x\d+, asr #2'),
+    ('long f(long a, long b) { return a ^ (b * 8); }', r'eor\s+x\d+, x\d+, x\d+, lsl #3'),
+    ('long f(long a, long b) { return a & ~b; }', r'bic\s'),
+    ('long f(long a, long b) { return a | ~b; }', r'orn\s'),
+    ('long f(long a, long b) { return a ^ ~b; }', r'eon\s'),
+    ('long f(long a) { return ~a; }', r'orn\s+x\d+, xzr, x\d+'),
+    ('int f(int a) { return ~a; }', r'orn\s+w\d+, wzr, w\d+'),
+    ('long f(long a) { return (a >> 8) & 0xff; }', r'ubfx\s+x\d+, x\d+, #8, #8'),
+    ('unsigned f(unsigned a) { return (a >> 3) & 31; }', r'ubfx\s+w\d+, w\d+, #3, #5'),
+    ('long f(long a) { return (a << 20) >> 40; }', r'sbfx\s+x\d+, x\d+, #20, #24'),
+    ('unsigned long f(unsigned long a) { return (a << 20) >> 40; }', r'ubfx\s+x\d+, x\d+, #20, #24'),
+    ('unsigned long f(unsigned long a) { return (a << 13) | (a >> 51); }', r'ror\s+x\d+, x\d+, #51'),
+    ('unsigned f(unsigned a) { return (a >> 7) | (a << 25); }', r'ror\s+w\d+, w\d+, #7'),
+    ('long f(long a, long b) { return -(a * b); }', r'msub\s+x\d+, x\d+, x\d+, xzr'),
+    ('double f(double a, double b) { return -(a * b); }', r'fnmul\s+d'),
+    ('float f(float a, float b) { return -(a * b); }', r'fnmul\s+s'),
+    ('void f(long *p) { *p = 0; }', r'str\s+xzr'),
+    ('void f(int *p, long i) { p[i] = 0; }', r'str\s+wzr, \[x\d+, x\d+, lsl #2\]'),
+    ('void f(char *p) { *p = 0; }', r'strb\s+wzr'),
+    ('void f(double *p) { *p = 0.0; }', r'str\s+xzr'),
+    ('double f(double a) { return a * 2.0; }', r'fmov\s+d\d+, #2\.0'),
+    ('float f(float a) { return a * 0.5f; }', r'fmov\s+s\d+, #0\.5'),
+    ('double f(double a) { return a + 0.0; }', r'fmov\s+d\d+, xzr'),
+])
+def test_selected_batch2(src, want):
+    b = body(src)
+    assert re.search(want, b), b
+
+
+def test_negative_zero_is_not_stored_as_zero():
+    m = cimo.compile('void f(double *p) { *p = -0.0; }\nvoid g(float *p) { *p = -0.0f; }', cache=False)
+    d = array.array('d', [1.0])
+    s = array.array('f', [1.0])
+    m.f(d)
+    m.g(s)
+    import math
+    assert math.copysign(1, d[0]) == -1 and math.copysign(1, s[0]) == -1 and d[0] == 0 and s[0] == 0
+
+
+FOLDS = '''
+long a1(long a, long b) { return a + (b << 4); }
+long a2(long a, long b) { return a - (b >> 3); }
+unsigned long a3(unsigned long a, unsigned long b) { return a - (b >> 3); }
+int a4(int a, int b) { return a + (b << 28); }
+int a5(int a, int b) { return a - (b >> 2); }
+unsigned a6(unsigned a, unsigned b) { return a + (b >> 2); }
+long a7(long a, int b) { return a + b; }
+long a8(long a, unsigned b) { return a + b; }
+long a9(long a, int b) { return a - ((long)b << 3); }
+long a10(long a, unsigned b) { return a + ((long)b << 2); }
+long b1(long a, long b) { return a & ~b; }
+long b2(long a, long b) { return a | ~b; }
+long b3(long a, long b) { return a ^ ~b; }
+int b4(int a, int b) { return a & ~b; }
+int b5(int a) { return ~a; }
+long b6(long a) { return ~a; }
+long c1(long a) { return (a >> 8) & 0xff; }
+long c2(long a) { return (a >> 56) & 0xff; }
+unsigned c3(unsigned a) { return (a >> 3) & 31; }
+int c4(int a) { return (a >> 28) & 15; }
+long c5(long a) { return (a << 20) >> 40; }
+unsigned long c6(unsigned long a) { return (a << 20) >> 40; }
+int c7(int a) { return (a << 24) >> 24; }
+unsigned c8(unsigned a) { return (a << 24) >> 24; }
+int c9(int a) { return (a << 4) >> 28; }
+unsigned long d1(unsigned long a) { return (a << 13) | (a >> 51); }
+unsigned long d2(unsigned long a) { return (a >> 13) | (a << 51); }
+unsigned d3(unsigned a) { return (a << 7) | (a >> 25); }
+unsigned long d4(unsigned long a) { return (a << 13) | (a >> 50); }
+long e1(long a, long b) { return -(a * b); }
+int e2(int a, int b) { return -(a * b); }
+double e3(double a, double b) { return -(a * b); }
+long f1(long a, long b) { long s = b << 4; return (a + s) * s; }
+long f2(long a, long b) { long n = ~b; return (a & n) + n; }
+long f3(long a) { long s = a >> 8; return (s & 0xff) + s; }
+unsigned long f4(unsigned long a) { unsigned long l = a << 13; return ((l | (a >> 51)) ^ l); }
+'''
+M64 = 2 ** 64 - 1
+
+
+def _s(v, bits=64):
+    v &= (1 << bits) - 1
+    return v - (1 << bits) if v >> (bits - 1) else v
+
+
+def _i32(v):
+    return _s(v, 32)
+
+
+def _sar(v, n, bits=64):
+    return _s(v, bits) >> n
+
+
+def test_folds_compute_the_same():
+    m = cimo.compile(FOLDS, cache=False)
+    vals = [0, 1, -1, 2, 7, 255, 256, 2 ** 31 - 1, -2 ** 31, 2 ** 32 + 5, 2 ** 63 - 1, -2 ** 63,
+            0x0123456789abcdef, -0x0123456789abcdef, 0x5a5a5a5a5a5a5a5a]
+    w = [_i32(v) for v in vals]
+    u = lambda v: v & M64
+    uw = lambda v: v & 0xffffffff
+    for x in vals:
+        assert m.b6(x) == _s(~x)
+        assert m.c1(x) == (x >> 8) & 0xff and m.c2(x) == (x >> 56) & 0xff
+        assert m.c5(x) == _sar(_s(x << 20), 40)
+        assert _s(m.d1(u(x))) == _s(u(x) << 13 | u(x) >> 51)
+        assert _s(m.d2(u(x))) == _s(u(x) >> 13 | u(x) << 51)
+        assert _s(m.d4(u(x))) == _s(u(x) << 13 | u(x) >> 50)
+        assert _s(m.c6(u(x))) == _s((u(x) << 20 & M64) >> 40)
+        assert m.f3(x) == ((x >> 8) & 0xff) + (x >> 8)
+        assert _s(m.f4(u(x))) == _s(((u(x) << 13) | (u(x) >> 51)) ^ (u(x) << 13))
+        for y in vals:
+            assert m.a1(x, y) == _s(x + (y << 4)) and m.a2(x, y) == _s(x - (y >> 3))
+            assert _s(m.a3(u(x), u(y))) == _s(u(x) - (u(y) >> 3))
+            assert m.a7(x, _i32(y)) == _s(x + _i32(y)) and m.a8(x, uw(y)) == _s(x + uw(y))
+            assert m.a9(x, _i32(y)) == _s(x - (_i32(y) << 3)) and m.a10(x, uw(y)) == _s(x + (uw(y) << 2))
+            assert m.b1(x, y) == x & ~y and m.b2(x, y) == x | ~y and m.b3(x, y) == x ^ ~y
+            assert m.e1(x, y) == _s(-(x * y))
+            assert m.f1(x, y) == _s((x + _s(y << 4)) * _s(y << 4))
+            assert m.f2(x, y) == _s((x & ~y) + ~y)
+    for x in w:
+        assert m.b5(x) == ~x and m.c4(x) == (x >> 28) & 15
+        assert m.c7(x) == _s(x, 8) and m.c9(x) == _i32(x << 4) >> 28
+        assert uw(m.c3(uw(x))) == (uw(x) >> 3) & 31 and uw(m.c8(uw(x))) == uw(x) & 0xff
+        assert uw(m.d3(uw(x))) == uw(uw(x) << 7 | uw(x) >> 25)
+        for y in w:
+            assert m.a4(x, y) == _i32(x + (y << 28)) and m.a5(x, y) == _i32(x - (y >> 2))
+            assert uw(m.a6(uw(x), uw(y))) == uw(uw(x) + (uw(y) >> 2))
+            assert m.b4(x, y) == x & ~y and m.e2(x, y) == _i32(-(x * y))
+    assert m.e3(2.0, 3.0) == -6.0
+
+
+def test_folds_under_register_pressure():
+    n = 30
+    decl = ' '.join('long v%d = (a + %d) << %d;' % (i, i, i % 7 + 1) for i in range(n))
+    use = ' + '.join('((b - (v%d >> 2)) ^ (v%d & ~b) ^ ((v%d >> 3) & 0xff))' % (i, n - 1 - i, i) for i in range(n))
+    m = cimo.compile('long f(long a, long b) { %s return %s; }' % (decl, use), cache=False)
+    a, b = 12345, 67890
+    v = [(a + i) << (i % 7 + 1) for i in range(n)]
+    want = sum((b - (v[i] >> 2)) ^ (v[n - 1 - i] & ~b) ^ ((v[i] >> 3) & 0xff) for i in range(n))
+    assert m.f(a, b) == want
+
+
+def test_no_shift_folded_on_a_loop_chain():
+    """A folded shift takes 2 cycles from every input: on an accumulator, twice the time."""
+    b = body('long f(int *x, long n) { long s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }')
+    assert not re.search(r'add\s+(x\d+), \1, w\d+, sxtw', b), b
+    b = body('long f(long *x, long n) { long s = 0; for (long i = 0; i < n; i++) s += x[i] << 3; return s; }')
+    assert not re.search(r'add\s+(x\d+), \1, x\d+, lsl', b), b
+
+
+@pytest.mark.parametrize('src,want', [
+    ('long f(int *p) { return *p; }', r'ldrsw\s+x0, \[x0\]'),
+    ('long f(int *p, long i) { return p[i]; }', r'ldrsw\s+x0, \[x0, x1, lsl #2\]'),
+    ('long f(signed char *p) { return *p; }', r'ldrsb\s+x0'),
+    ('long f(short *p) { return *p; }', r'ldrsh\s+x0'),
+    ('unsigned long f(unsigned *p) { return *p; }', r'ldr\s+w0, \[x0\]'),
+])
+def test_extension_in_the_load(src, want):
+    b = body(src)
+    assert re.search(want, b) and not re.search(r'\b(sxt|uxt)', b), b
+
+
+def test_extending_loads_compute_the_same():
+    m = cimo.compile('''long a(int *p) { return *p; }
+        unsigned long b(unsigned *p) { return *p; }
+        long c(signed char *p) { return *p; }
+        long d(short *p) { return *p; }
+        long e(unsigned char *p) { return *p; }
+        long f(unsigned short *p) { return *p; }
+        unsigned long g(int *p) { return (unsigned)*p; }
+        long h(unsigned *p) { return (int)*p; }
+        long i(int *p, int *q) { int v = *p; *q = 5; return v; }
+        long j(int *p) { int v = *p; return (long)v + (v << 1); }
+        ''', cache=False)
+    w = array.array('i', [-5])
+    u = array.array('I', [0xfffffffb])
+    assert m.a(w) == -5 and _s(m.b(u)) == 0xfffffffb and m.g(w) == 0xfffffffb and m.h(u) == -5
+    assert m.c(array.array('b', [-3])) == -3 and m.d(array.array('h', [-300])) == -300
+    assert m.e(array.array('B', [253])) == 253 and m.f(array.array('H', [65000])) == 65000
+    x = array.array('i', [7])
+    assert m.i(x, x) == 7 and x[0] == 5  # the load stays before the store through the same memory
+    assert m.j(array.array('i', [-4])) == -12
+
+
+def test_no_extension_after_a_narrow_load():
+    assert not re.search(r'\b(uxt|sxt)', body('int f(unsigned char *p, long i) { return p[i]; }'))
+    assert not re.search(r'\b(uxt|sxt)', body('int f(short *p) { return *p; }'))
+    m = cimo.compile('''int f(signed char *p) { return *p; }
+        unsigned g(unsigned char *p) { return *p; }
+        int h(short *p) { return *p + 1; }
+        long i(unsigned short *p) { return *p; }''', cache=False)
+    assert m.f(array.array('b', [-1])) == -1 and m.g(array.array('B', [255])) == 255
+    assert m.h(array.array('h', [-2])) == -1 and m.i(array.array('H', [65535])) == 65535

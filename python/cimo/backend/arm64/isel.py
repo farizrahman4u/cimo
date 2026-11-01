@@ -1,5 +1,6 @@
 """Port of QBE arm64/isel.c (with the local fcon/foldaddr/immediate patch)."""
 
+import struct
 import sys
 
 from .. import defs as D
@@ -14,7 +15,7 @@ from ..defs import (R, RTmp, RCon, NIns, M64, Ins, Con, Mem, CBits, CAddr, SExt,
 from ..util import (err, newtmp, newcon, getcon, chuse, emit, emiti, idup, intern, iscmp,
                     cmpop, salloc, argcls, vgrow)
 from ..parse import printfn
-from ..defs import Tmp0, Oextsw, Oextuw, Osar, Oshr, Cine
+from ..defs import Tmp0, Oextsw, Oextuw, Osar, Oshr, Cine, Kd
 from .regs import R0
 from .. import ext as _ext
 
@@ -114,8 +115,23 @@ def _newfpcon(s, fn):
     return fn.ncon - 1
 
 
+# the bit patterns fmov encodes (ext.isel)
+_FPIMM = {Kd: {}, D.Ks: {}}
+for _i in range(256):
+    _e = (_i >> 4) & 7
+    _v = (-1.0 if _i & 0x80 else 1.0) * (16 + (_i & 15)) / 16 * 2.0 ** (_e + 1 if _e < 4 else _e - 7)
+    _FPIMM[Kd][struct.unpack('<q', struct.pack('<d', _v))[0]] = _v
+    _FPIMM[D.Ks][struct.unpack('<I', struct.pack('<f', _v))[0]] = _v
+del _i, _e, _v
+
+
 def emitfcon(fn):
     for n in range(nfcon):
+        if _ext.isel:
+            bits = fcon[n].bits
+            if bits == 0 or bits in _FPIMM[fcon[n].k]:
+                emit(D.Oafcon, fcon[n].k, fcon[n].tmp, getcon(bits, fn), R)
+                continue
         s = _stashbits(fcon[n].bits, 8 if KWIDE(fcon[n].k) else 4)
         ci = _newfpcon(s, fn)
         r = newtmp("isel", Kl, fn)
@@ -477,6 +493,216 @@ def selmadd(i, fn):
     return False
 
 
+# aalu: the operation and the kind of shift, in Mem.scale; emit prints them
+ALU = {Oadd: 0, Osub: 1, Oand: 2, Oor: 3, Oxor: 4}
+ALU_NOT = {Oand: 5, Oor: 6, Oxor: 7}  # bic, orn, eon: the second operand complemented
+SH_LSL, SH_LSR, SH_ASR, SH_ROR, SH_SXTW, SH_UXTW = range(6)
+
+
+def _only(r, fn):
+    """(position, instruction) defining r in this block, if this is r's only use."""
+    if not _plain(r, fn) or fn.tmp[rval(r)].nuse != 1:
+        return None
+    return _defin(r, selpos)
+
+
+def _conbits(r, fn):
+    """The value of a constant ref, or None."""
+    if rtype(r) != RCon or fn.con[rval(r)].type != CBits:
+        return None
+    return fn.con[rval(r)].i
+
+
+def _shifted(r, k, wantext, fn):
+    """(value, kind, amount, instruction) if r is a shift that can be a shifted operand."""
+    found = _only(r, fn)
+    if found is None:
+        return None
+    di = found[1]
+    if di.cls != k or not _plain(di.arg[0], fn):
+        return None
+    w = 64 if k == Kl else 32
+    if wantext and k == Kl and di.op in (Oextsw, Oextuw):
+        return di.arg[0], SH_SXTW if di.op == Oextsw else SH_UXTW, 0, di
+    n = _conbits(di.arg[1], fn)
+    if n is None:
+        return None
+    if di.op == Omul:
+        l = log2p(n)
+        return (di.arg[0], SH_LSL, l, di) if l > 0 else None
+    how = {Oshl: SH_LSL, Oshr: SH_LSR, Osar: SH_ASR}.get(di.op)
+    if how is None or not 0 < n & (w - 1):
+        return None
+    if wantext and k == Kl and how == SH_LSL and n <= 4:
+        ex = _only(di.arg[0], fn)
+        if ex is not None and ex[1].op in (Oextsw, Oextuw) and _plain(ex[1].arg[0], fn):
+            e = ex[1]
+            kind = SH_SXTW if e.op == Oextsw else SH_UXTW
+            x = e.arg[0]
+            e.set(Ins(Onop))
+            chuse(x, 0, fn)
+            return x, kind, n, di
+    return di.arg[0], how, n & (w - 1), di
+
+
+def _aalu(i, a, alu, how, n, x, fn):
+    m = Mem()
+    fn.nmem += 1
+    vgrow(fn.mem, fn.nmem)
+    fn.mem[fn.nmem - 1] = m
+    m.base = x
+    m.scale = alu | how << 4
+    m.offset.type = CBits
+    m.offset.i = n
+    emit(D.Oaalu, i.cls, i.to, a, MEM(fn.nmem - 1))
+
+
+def selalu(i, fn):
+    """cimo (ext.isel): an arithmetic or logic instruction whose operand is a shift or an extension
+    only used here (`add x0, x1, x2, lsl #3`, `add x0, x1, w2, sxtw`), or the complement of a value
+    (bic, orn, eon); "xor x, -1" is mvn. Returns True if selected."""
+    k = i.cls
+    if i.op == Oxor and _conbits(i.arg[1], fn) in (-1, 0xffffffff if k == Kw else -1) \
+            and _plain(i.arg[0], fn):
+        _aalu(i, CON_Z, 6, SH_LSL, 0, i.arg[0], fn)
+        return True
+    order = ((1, 0),) if i.op == Osub else ((1, 0), (0, 1))
+    for bn, an in order:
+        a, b = i.arg[an], i.arg[bn]
+        if not _plain(a, fn):
+            continue
+        if i.op in ALU_NOT:
+            found = _only(b, fn)
+            if found is not None and found[1].op == Oxor and found[1].cls == k \
+                    and _conbits(found[1].arg[1], fn) in (-1, 0xffffffff if k == Kw else -1) \
+                    and _plain(found[1].arg[0], fn):
+                x = found[1].arg[0]
+                found[1].set(Ins(Onop))
+                _aalu(i, a, ALU_NOT[i.op], SH_LSL, 0, x, fn)
+                return True
+        # outside loops only: a folded shift or extension takes 2 cycles from every input, 1 otherwise.
+        # Measured on a dependency chain (Snapdragon X): s += x[i] << 3 at 0.72 ns folded and 0.38 not,
+        # the usual shape of a loop; through the shifted value 12% better folded; else the same
+        s = _shifted(b, k, i.op in (Oadd, Osub), fn) if selblk.loop <= 1 else None
+        if s is not None:
+            x, how, n, di = s
+            di.set(Ins(Onop))
+            _aalu(i, a, ALU[i.op], how, n, x, fn)
+            return True
+    return False
+
+
+def selbits(i, fn):
+    """cimo (ext.isel): bit fields and rotations. Returns True if selected."""
+    k = i.cls
+    w = 64 if k == Kl else 32
+    if i.op == Oand:
+        m = _conbits(i.arg[1], fn)
+        if m is None:
+            return False
+        m &= (1 << w) - 1
+        if m == 0 or m & (m + 1):
+            return False
+        width = 0
+        while m >> width:
+            width += 1
+        found = _only(i.arg[0], fn)
+        if found is None or found[1].op not in (Oshr, Osar) or found[1].cls != k \
+                or not _plain(found[1].arg[0], fn):
+            return False
+        lsb = _conbits(found[1].arg[1], fn)
+        if lsb is None or not 0 < lsb < w or lsb + width > w:
+            return False
+        x = found[1].arg[0]
+        found[1].set(Ins(Onop))
+        emit(D.Oaubfx, k, i.to, x, getcon(lsb | width << 8, fn))
+        return True
+    if i.op in (Osar, Oshr):
+        b = _conbits(i.arg[1], fn)
+        found = _only(i.arg[0], fn)
+        if b is None or found is None or found[1].op != Oshl or found[1].cls != k \
+                or not _plain(found[1].arg[0], fn):
+            return False
+        a = _conbits(found[1].arg[1], fn)
+        if a is None or not 0 < a <= b < w:
+            return False
+        x = found[1].arg[0]
+        found[1].set(Ins(Onop))
+        emit(D.Oasbfx if i.op == Osar else D.Oaubfx, k, i.to, x, getcon((b - a) | (w - b) << 8, fn))
+        return True
+    if i.op == Oor:
+        for l, r in ((i.arg[0], i.arg[1]), (i.arg[1], i.arg[0])):
+            fl, fr = _only(l, fn), _only(r, fn)
+            if fl is None or fr is None or fl[1].op != Oshl or fr[1].op != Oshr \
+                    or fl[1].cls != k or fr[1].cls != k or fl[1].arg[0] != fr[1].arg[0] \
+                    or not _plain(fl[1].arg[0], fn):
+                continue
+            a, b = _conbits(fl[1].arg[1], fn), _conbits(fr[1].arg[1], fn)
+            if a is None or b is None or not 0 < a < w or a + b != w:
+                continue
+            x = fl[1].arg[0]
+            fl[1].set(Ins(Onop))
+            fr[1].set(Ins(Onop))
+            chuse(x, -1, fn)
+            emit(D.Oaror, k, i.to, x, getcon(b, fn))
+            return True
+    return False
+
+
+# which load gives a 64-bit extension of a 32-bit load's result by itself
+_EXTLOAD = {Oextsw: {Oloadsw: Oloadsw, Oloaduw: Oloadsw, Oloadsb: Oloadsb, Oloadsh: Oloadsh,
+                     Oloadub: Oloadub, Oloaduh: Oloaduh},
+            Oextuw: {Oloadsw: Oloaduw, Oloaduw: Oloaduw, Oloadub: Oloadub, Oloaduh: Oloaduh},
+            D.Oextsb: {Oloadsb: Oloadsb}, D.Oextub: {Oloadub: Oloadub},
+            D.Oextsh: {Oloadsh: Oloadsh}, D.Oextuh: {Oloaduh: Oloaduh}}
+
+
+def selextload(i, fn):
+    """cimo (ext.isel), as gcc and LLVM: the extension of a load only used here is the load: ldrsw,
+    ldrsb, no uxtb after ldrb... The load stays where it is, so nothing crosses another access; it
+    now defines the extension's result."""
+    found = _only(i.arg[0], fn)
+    if found is None or found[1].cls != Kw:
+        return False
+    op = _EXTLOAD[i.op].get(found[1].op)
+    if op is None:
+        return False
+    di = found[1]
+    di.op = op
+    di.cls = i.cls
+    di.to = i.to
+    return True
+
+
+def selneg(i, fn):
+    """cimo (ext.isel): the negation of a product only used here: mneg, fnmul."""
+    found = _only(i.arg[0], fn)
+    if found is None or found[1].op != Omul or found[1].cls != i.cls:
+        return False
+    di = found[1]
+    if KBASE(i.cls) == 1:
+        a, b = list(di.arg)
+        di.set(Ins(Onop))
+        emit(D.Oafnmul, i.cls, i.to, a, b)
+        iarg = D.insb[D.curi].arg
+        fixarg(iarg, 0, i.cls, 0, fn)
+        fixarg(iarg, 1, i.cls, 0, fn)
+        return True
+    if any(rtype(a) == RCon and log2p(fn.con[rval(a)].i) >= 0 for a in di.arg):
+        return False
+    ab = list(di.arg)
+    di.set(Ins(Onop))
+    x = Mem()
+    fn.nmem += 1
+    vgrow(fn.mem, fn.nmem)
+    fn.mem[fn.nmem - 1] = x
+    emit(D.Oamsub, i.cls, i.to, CON_Z, MEM(fn.nmem - 1))
+    fixarg(ab, 0, i.cls, 0, fn)
+    fixarg(ab, 1, i.cls, 0, fn)
+    x.base, x.index = ab
+    return True
+
+
 def selcsel(i, fn):
     """cimo (ext.isel): "sel0 c; r = sel1 a, b" as a comparison and an acsel. A condition computed
     by a comparison in this block is compared again right here, for the flags; the comparison
@@ -506,8 +732,9 @@ def selcsel(i, fn):
             chuse(a, +1, fn)
         if selcmp(args, ck, fn):
             cc = cmpop(cc)
-    else:
+    else:  # each sel1 reads c, where sel0 counts one use for all of them
         cc = Cine
+        chuse(c, +1, fn)
         selcmp([c, CON_Z], Kw, fn)
     x.offset.i = cc
 
@@ -563,8 +790,30 @@ def sel(i, fn):
     if i.op == Ofma0:
         return  # selected with its fma1
     immarg = False
-    if _ext.isel and i.op in (Oadd, Osub) and KBASE(i.cls) == 0 and selmadd(i, fn):
-        return
+    if _ext.isel:
+        if i.op in (Oadd, Osub) and KBASE(i.cls) == 0 and selmadd(i, fn):
+            return
+        if i.op in ALU and KBASE(i.cls) == 0:
+            if selbits(i, fn) or selalu(i, fn):
+                return
+        elif i.op in (Oshr, Osar) and selbits(i, fn):
+            return
+        elif i.op == Oneg and selneg(i, fn):
+            return
+        elif i.op in _EXTLOAD and KBASE(i.cls) == 0 and (i.cls == Kl or i.op not in (Oextsw, Oextuw)) \
+                and selextload(i, fn):
+            return
+        if isstore(i.op) and _conbits(i.arg[0], fn) == 0:  # wzr, xzr; a float's zero too
+            if i.op == Ostores:
+                i.op = Ostorew
+            elif i.op == Ostored:
+                i.op = Ostorel
+            foldaddr(i.arg, 1, accsize(i), fn)
+            foldindex(i.arg, 1, accsize(i), fn)
+            emiti(i)
+            iarg = D.insb[D.curi].arg
+            fixarg(iarg, 1, Kl, 0, fn)
+            return
     if KBASE(i.cls) == 0 and rtype(i.arg[1]) == RCon \
             and fn.con[rval(i.arg[1])].type == CBits:
         c = fn.con[rval(i.arg[1])]
@@ -692,7 +941,7 @@ def arm64_isel(fn):
             break
         b = b.link
 
-    if _ext.ldp:
+    if _ext.ldp and not fn.hasvolatile:
         from .pair import schedule
         schedule(fn)
 
