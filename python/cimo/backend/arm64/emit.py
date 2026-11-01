@@ -14,7 +14,8 @@ from ..defs import (R, RTmp, RCon, RSlot, RMem, CBits, CAddr, SGlo, SThr, SExt, 
                     Ocall, Oacmp, Oacmn, Oafcmp, Onop, Oaddr, Osalloc, Odbgloc, Oafmadd,
                     Oafmsub, Oafnmadd, Oafnmsub)
 from ..defs import bitsd, bitsf
-from ..util import die, isreg, str_
+from ..util import die, isreg, str_, intern
+from ..defs import Con
 from ..emit import emitfnlnk, emitdbgloc, elf_emitfnfin
 from .regs import R0, R18, IP1, FP, LR, SP, V0, V30
 from .targ import arm64_rclob
@@ -779,6 +780,106 @@ def _dropflags(e):
         b = b.link
 
 
+# at least this many cases, each table at least 10% full, as LLVM except for the count: it says 4, but
+# measured per element, with a tree / with a table: 4 cases at random 5.0 / 6.5 ns, 8 cases 7.5 / 7.2,
+# 16 cases 9.0 / 7.6, 32 cases 11.3 / 7.8; when a few cases dominate the tree stays ahead, 4.5 / 5.6
+JT_MINCASES = 16
+JT_MINDENSITY = 0.1
+JT_MAXSIZE = 4096
+_njt = 0
+
+
+def _switchnode(fn, b, reg, k, lo, hi, cases, leaves, nodes):
+    """Add the part of a compare tree at b to cases {value: block} and leaves. A tree is what the
+    frontend writes for a switch: b.eq on a constant, then b.lo to the left, b.hi... to the right, both
+    on one register, and the other outcomes all reach one default block. False if it isn't one."""
+    if lo == hi:  # the tree leaves out the last compare: only this value gets here
+        cases[lo] = b
+        return True
+    live = [i for i in b.ins[:b.nins] if i.op not in (Onop, D.Odbgloc)]
+    i = live[-1] if live else None
+    isnode = (b.npred == 1 and len(live) == 1 and i.op == Oacmp and req(i.arg[0], reg) and i.cls == k
+              and rtype(i.arg[1]) == RCon and e_con(fn, i.arg[1]) is not None
+              and b.jmp.type in (Jjf + Cieq, Jjf + Cine))
+    if not isnode:
+        leaves.add(b)
+        return True
+    c = e_con(fn, i.arg[1])
+    if not lo <= c <= hi or c in cases:
+        return False
+    eq, ne = (b.s1, b.s2) if b.jmp.type == Jjf + Cieq else (b.s2, b.s1)
+    cases[c] = eq
+    nodes.add(b)
+    if ne.npred == 1 and not any(x.op not in (Onop, D.Odbgloc) for x in ne.ins[:ne.nins]) \
+            and ne.jmp.type == Jjf + Ciult:
+        nodes.add(ne)
+        return (_switchnode(fn, ne.s1, reg, k, lo, c - 1, cases, leaves, nodes)
+                and _switchnode(fn, ne.s2, reg, k, c + 1, hi, cases, leaves, nodes))
+    return _switchnode(fn, ne, reg, k, lo, hi, cases, leaves, nodes)
+
+
+def e_con(fn, r):
+    c = fn.con[rval(r)]
+    return c.i if c.type == CBits and c.i >= 0 else None
+
+
+def _jumptables(e):
+    """cimo (ext.isel): {root block: (position of its compare, register, class, table, default)} for
+    compare trees worth a table, and the blocks of the tree nothing else reaches. Found here, after
+    register allocation, because QBE's blocks have two successors at most."""
+    fn = e.fn
+    tables = {}
+    dead = set()
+    b = fn.start
+    while b:
+        n = b.nins
+        while n > 0 and b.ins[n - 1].op in (Onop, D.Odbgloc):
+            n -= 1
+        i = b.ins[n - 1] if n else None
+        if b not in dead and i is not None and i.op == Oacmp and isreg(i.arg[0]) and rtype(i.arg[1]) == RCon \
+                and e_con(fn, i.arg[1]) is not None and b.jmp.type in (Jjf + Cieq, Jjf + Cine):
+            cases, leaves, nodes = {}, set(), set()
+            top = (1 << (64 if i.cls == Kl else 32)) - 1
+            c = e_con(fn, i.arg[1])
+            eq, ne = (b.s1, b.s2) if b.jmp.type == Jjf + Cieq else (b.s2, b.s1)
+            cases[c] = eq
+            ok = True
+            if ne.npred == 1 and not any(x.op not in (Onop, D.Odbgloc) for x in ne.ins[:ne.nins]) \
+                    and ne.jmp.type == Jjf + Ciult:
+                nodes.add(ne)
+                ok = (_switchnode(fn, ne.s1, i.arg[0], i.cls, 0, c - 1, cases, leaves, nodes)
+                      and _switchnode(fn, ne.s2, i.arg[0], i.cls, c + 1, top, cases, leaves, nodes))
+            else:
+                ok = _switchnode(fn, ne, i.arg[0], i.cls, 0, top, cases, leaves, nodes)
+            if ok and len(leaves) == 1 and len(cases) >= JT_MINCASES:
+                size = max(cases) + 1
+                if size <= JT_MAXSIZE and len(cases) >= JT_MINDENSITY * size and size - 1 <= 4095:
+                    d = next(iter(leaves))
+                    tables[b] = (n - 1, i.arg[0], i.cls, [cases.get(v, d) for v in range(size)], d)
+                    dead |= nodes
+        b = b.link
+    return tables, dead
+
+
+def _emitjumptable(root, jt, e):
+    """Replaces the compare and branch at the end of root: bounds check, then a jump through the
+    table. x17 is never allocated. Returns the (label, table) to emit after the function."""
+    global _njt
+    T = D.T
+    _, reg, k, table, default = jt
+    _njt += 1
+    name = "\"%sjt%d\"" % (T.asloc, _njt)
+    r = rname(rval(reg), k)
+    e.f.write("\tcmp\t%s, #%d\n" % (r, len(table) - 1))
+    e.f.write("\tb.hi\t%s%d\n" % (T.asloc, _id0 + default.id))
+    c = Con(CAddr)
+    c.sym.id = intern(name)
+    loadaddr(c, "x17", e)
+    e.f.write("\tldr\tx17, [x17, %s]\n" % ("%s, uxtw #3" % r if k == Kw else "%s, lsl #3" % r))
+    e.f.write("\tbr\tx17\n")
+    return name, table
+
+
 def _siblingcall(b, e):
     """cimo (ext.isel): the direct call a function ends with, if it can be a jump after the epilogue
     (LLVM's and gcc's sibling calls): nothing lives in this frame by then, as it has no stack slots,
@@ -926,13 +1027,28 @@ def arm64_emitfn(fn, out):
             b = b.link
         e.tbzok = nins < 1500
         _dropflags(e)
+        tables, deadblocks = _jumptables(e)
+        for jt in tables.values():
+            dlbl = set(dlbl) | set(jt[3]) | {jt[4]}
     else:
         e.tbzok = False
+        tables, deadblocks = {}, ()
+    emitted = []
     lbl = 0
     b = e.fn.start
     while b:
+        if b in deadblocks:
+            lbl = 1
+            b = b.link
+            continue
         if lbl or b.npred > 1 or b in dlbl:
             e.f.write("%s%d:\n" % (T.asloc, _id0 + b.id))
+        if b in tables:
+            emitinsl(b.ins[:tables[b][0]], e)
+            emitted.append(_emitjumptable(b, tables[b], e))
+            lbl = 1
+            b = b.link
+            continue
         jt = b.jmp.type
         body, cz = b.ins[:b.nins], None
         sib = _siblingcall(b, e)
@@ -1022,6 +1138,12 @@ def arm64_emitfn(fn, out):
             else:
                 lbl = 0
         b = b.link
+    for name, table in emitted:
+        e.f.write(".section __DATA,__const\n" if T.apple else ".section .rodata\n")
+        e.f.write(".p2align 3\n%s:\n" % name)
+        for t in table:
+            e.f.write("\t.quad\t%s%d\n" % (T.asloc, _id0 + t.id))
+        e.f.write(".text\n")
     _id0 += e.fn.nblk
     if not T.apple:
         elf_emitfnfin(fn.name, out)

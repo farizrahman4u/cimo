@@ -756,3 +756,103 @@ def test_a_programs_own_sin_is_not_assumed_pure():
         double g = 10;
         double f(void) { double a = g; double s = sin(0.0); return a + g + s; }""", cache=False)
     assert m.f() == 10 + 11 + 11
+
+
+GLOBALS = """static const int tbl[4] = {1, 2, 3, 4};
+static int glob = 5;
+static int written = 5;
+static int taken = 5;
+int *keep(void) { return &taken; }
+void wr(void) { written = 9; }
+static long big[2] = {1L << 40, -2};
+static signed char sc[2] = {-1, 2};
+static unsigned short us = 65535;
+static double d = 1.5;
+static float fl = 2.5f;
+static char str[] = "hi";
+static int zeros[100];
+static int stored[3] = {1, 2, 3};
+void wr2(long i) { stored[i] = 7; }
+static int part[3] = {1, 2, 3};
+int a(void) { return tbl[2]; }
+int b(void) { return glob; }
+int c(void) { return written; }
+int e(void) { return taken; }
+long f(void) { return big[0] + big[1]; }
+int g(void) { return sc[0] * 10 + sc[1]; }
+int h(void) { return us; }
+double i(void) { return d; }
+float j(void) { return fl; }
+int k(void) { return str[1]; }
+int l(void) { return zeros[50]; }
+int n(void) { return stored[1]; }
+int o(long q) { return tbl[q]; }
+int p(void) { return *(const int *)((const char *)tbl + 4); }
+int q(void) { return part[1]; }
+int *r(void) { return &part[2]; }
+"""
+
+
+def test_constant_globals_fold():
+    for name in 'abfghijkl':
+        assert 'adrp' not in body(GLOBALS, name), body(GLOBALS, name)
+    for name in 'cenoq':
+        assert 'adrp' in body(GLOBALS, name) or 'bl' in body(GLOBALS, name), body(GLOBALS, name)
+
+
+def test_constant_globals_compute_the_same():
+    import ctypes
+    m = cimo.compile(GLOBALS, cache=False)
+    assert m.a() == 3 and m.b() == 5 and m.f() == 2 ** 40 - 2 and m.g() == -8 and m.h() == 65535
+    assert m.i() == 1.5 and m.j() == 2.5 and m.k() == ord('i') and m.l() == 0
+    assert [m.o(v) for v in range(4)] == [1, 2, 3, 4] and m.p() == 2
+    assert m.c() == 5
+    m.wr()
+    assert m.c() == 9
+    assert m.e() == 5
+    ctypes.c_int.from_address(m.keep()).value = 77
+    assert m.e() == 77
+    assert m.n() == 2
+    m.wr2(1)
+    assert m.n() == 7
+    assert m.q() == 2
+    ctypes.c_int.from_address(m.r() - 4).value = 88  # one past where r() points, in part
+    assert m.q() == 88
+
+
+MEMCMP = """#include <string.h>
+int a(char *x, char *y) { return memcmp(x, y, 8) == 0; }
+int b(char *x, char *y) { return memcmp(x, y, 4) != 0; }
+int c(char *x, char *y) { return !memcmp(x, y, 16); }
+long d(char *x, char *y, long v) { if (memcmp(x, y, 7)) return v; return v + 1; }
+long e(char *x, char *y, long v) { if (memcmp(x, y, 3) == 0) return v; return v + 1; }
+int f(char *x, char *y) { return memcmp(x, y, 8) < 0; }
+int g(char *x, char *y) { return memcmp(x, y, 8); }
+int h(char *x, char *y, long n) { return memcmp(x, y, n) == 0; }
+int i(char *x, char *y) { return memcmp(x, y, 0) == 0; }
+int j(char *x, char *y) { return memcmp(x, y, 32) == 0; }
+int k(char *x, char *y) { return memcmp(x, y, 33) == 0; }
+"""
+
+
+def test_memcmp_equality_has_no_call():
+    for name in 'abcdeij':
+        assert 'memcmp' not in body(MEMCMP, name), body(MEMCMP, name)
+    for name in 'fghk':
+        assert 'memcmp' in body(MEMCMP, name), body(MEMCMP, name)
+
+
+@pytest.mark.parametrize('n', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 31, 32])
+def test_memcmp_each_size(n):
+    import ctypes
+    m = cimo.compile('#include <string.h>\nint f(char *x, char *y) { return memcmp(x, y, %d) == 0; }\n'
+                     'int g(char *x, char *y) { return memcmp(x, y, %d) != 0; }' % (n, n), cache=False)
+    base = bytes(range(1, 41))
+    x = ctypes.create_string_buffer(base, 40)
+    assert m.f(x, ctypes.create_string_buffer(base, 40)) == 1
+    for at in range(0, 40):
+        changed = bytearray(base)
+        changed[at] ^= 0x80
+        y = ctypes.create_string_buffer(bytes(changed), 40)
+        assert m.f(x, y) == int(at >= n), (n, at)
+        assert m.g(x, y) == int(at < n), (n, at)

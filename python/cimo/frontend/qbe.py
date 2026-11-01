@@ -946,6 +946,10 @@ def funcbranch(f, e, bt, bf):
             funcexpr(f, e)
             e = e.next
         return funcbranch(f, e, bt, bf)
+    v = _memcmpzero(f, e) if k == EXPRCALL else None  # only zero or not matters here
+    if v is not None:
+        funcjnz(f, v, TY.typeint, bt, bf)
+        return v
     v = funcexpr(f, e)
     funcjnz(f, v, e.type, bt, bf)
     return v
@@ -1063,6 +1067,36 @@ def _chunks(n):
         while n - off >= size:
             yield off, size, load, store, cls
             off += size
+
+
+def _memcmpzero(f, e):
+    """cimo extension, LLVM's ExpandMemCmp: memcmp(a, b, n) of a small constant n where only zero or
+    not matters, as a word 0 or 1 for "differs" from loads and xors; or None. e is the call."""
+    if not builtins or e.kind != EXPRCALL:
+        return None
+    b = e.base
+    if not (b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT):
+        return None
+    d = b.base.decl
+    name = d.asmname.lstrip('_') if d.asmname else d.name
+    if name != 'memcmp' or d.kind != DECLFUNC or d.linkage != LINKEXTERN or d.defined or _argcount(e) != 3:
+        return None
+    c = _stripcast(e.args.next.next)
+    if c.kind != EXPRCONST or not c.type.prop & PROPINT or not 0 <= c.u <= 32:
+        return None
+    x = funcexpr(f, e.args)
+    y = funcexpr(f, e.args.next)
+    diff = None
+    for off, size, load, store, cls in _chunks(c.u):
+        p = funcinst(f, IADD, 'l', x, mkintconst(off)) if off else x
+        q = funcinst(f, IADD, 'l', y, mkintconst(off)) if off else y
+        v = funcinst(f, IXOR, cls, funcinst(f, load, cls, p, None), funcinst(f, load, cls, q, None))
+        if cls == 'w':
+            v = funcinst(f, IEXTUW, 'l', v, None)
+        diff = v if diff is None else funcinst(f, IOR, 'l', diff, v)
+    if diff is None:
+        return mkintconst(0)
+    return funcinst(f, ICNEL, 'w', diff, mkintconst(0))
 
 
 def _libcall(f, e, name, d):
@@ -1304,6 +1338,12 @@ def funcexpr(f, e):
             v = funcfma(f, e)
             if v is not None:
                 return v
+        if (e.op == TEQL or e.op == TNEQ) and e.l.kind == EXPRCALL:
+            r = _stripcast(e.r)
+            if r.kind == EXPRCONST and r.type.prop & PROPINT and r.u == 0:
+                v = _memcmpzero(f, e.l)
+                if v is not None:
+                    return v if e.op == TNEQ else funcinst(f, ICEQW, 'w', v, mkintconst(0))
         l = funcexpr(f, e.l)
         r = funcexpr(f, e.r)
         t = e.l.type
