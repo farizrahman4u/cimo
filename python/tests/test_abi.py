@@ -124,10 +124,10 @@ def check_packed(d):
         decl = re.sub(r'\b(s|i|u)\b(?= \{| b;)', lambda m: '%s%d' % (m.group(1), n), decl)
         decl = re.sub(r'\bunion u\b', 'union u%d' % n, decl)
         tests.append(decl + '''
-double @f%(n)d(int p, struct s%(n)d v, int q) { return (%(expr)s) + p * 1e6 + q * 1e7; }
-double @call%(n)d(double (*f)(int, struct s%(n)d, int)) { struct s%(n)d v = %(init)s; return f(5, v, 6); }
+API double @f%(n)d(int p, struct s%(n)d v, int q) { return (%(expr)s) + p * 1e6 + q * 1e7; }
+API double @call%(n)d(double (*f)(int, struct s%(n)d, int)) { struct s%(n)d v = %(init)s; return f(5, v, 6); }
 ''' % {'n': n, 'expr': expr, 'init': init})
-    code = '\n'.join(tests)
+    code = abi_gen.HEADER + '\n'.join(tests)
     glue = '\n'.join('''double ref_f%(n)d(int, struct s%(n)d, int);
 double ref_call%(n)d(double (*)(int, struct s%(n)d, int));
 double x%(n)d(void) { return call%(n)d(ref_f%(n)d); }
@@ -155,7 +155,7 @@ double z%(n)d(void) { return call%(n)d(f%(n)d); }''' % {'n': n} for n in range(l
     return bad
 
 
-@pytest.mark.skipif(reference() is None, reason='needs gcc (Linux arm64) or clang (Windows arm64)')
+@pytest.mark.skipif(reference() is None, reason='needs gcc (Linux arm64), clang (Windows arm64) or Apple clang (macOS)')
 def test_packed_structs_by_value():
     p = subprocess.run([sys.executable, os.path.abspath(__file__), 'packed'],
                        capture_output=True, universal_newlines=True, timeout=600)

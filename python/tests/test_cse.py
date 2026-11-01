@@ -10,9 +10,12 @@ import cimo
 from cimo import driver
 
 
+SYM = '_' if driver.TARGET == 'arm64_apple' else ''  # the target's symbol prefix
+
+
 def body(src, name):
     asm = driver._build(src)[0]
-    m = re.search(r'^%s:\n(.*?)^/\* end function' % name, asm, re.S | re.M)
+    m = re.search(r'^%s:\n(.*?)^/\* end function' % (SYM + name), asm, re.S | re.M)
     assert m, name
     return m.group(1)
 
