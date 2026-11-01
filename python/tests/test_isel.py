@@ -30,7 +30,7 @@ def body(src, name='f'):
     ('long f(long *p, long i) { return p[i]; }', r'ldr\s+x0, \[x0, x1, lsl #3\]'),
     ('int f(int *p, int i) { return p[i]; }', r'ldr\s+w0, \[x0, w1, sxtw #2\]'),
     ('int f(int *p, unsigned i) { return p[i]; }', r'ldr\s+w0, \[x0, w1, uxtw #2\]'),
-    ('int f(char *p, long i) { return p[i]; }', r'ldrb\s+w0, \[x0, x1\]'),
+    ('int f(unsigned char *p, long i) { return p[i]; }', r'ldrb\s+w0, \[x0, x1\]'),
     ('void f(long *p, long i, long v) { p[i] = v; }', r'str\s+x2, \[x0, x1, lsl #3\]'),
     ('void f(short *p, long i, short v) { p[i] = v; }', r'strh\s+w2, \[x0, x1, lsl #1\]'),
     ('double f(double *p, long i) { return p[i]; }', r'ldr\s+d0, \[x0, x1, lsl #3\]'),
