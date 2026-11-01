@@ -44,8 +44,6 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 - **Large struct copies** are unrolled (8 bytes per load/store pair, as QBE does): a 64 KB
   argument takes 4.4 s to compile and grows faster than linearly (gcc `pr28982b.c`, 256 KB,
   takes minutes). Emit a loop or a `memcpy` call above a size threshold.
-- **`volatile` stores** are rejected (cproc: "not yet supported"; QBE has no volatile
-  operations): 34 torture programs. Emit them as ordinary stores the optimizer may not remove.
 - **Backend speed on huge functions:** a Csmith function with a 125 KB initializer compiles in
   18 s (spill, liveness bitsets, `filluse`); C QBE takes well under a second.
 - **Middle end on functions with hundreds of loops** (YARPGen, `tests/fuzz_yarpgen.py`): a
