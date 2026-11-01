@@ -106,17 +106,33 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
-- **A faster `Kernel.__call__`** (requested by scramjit, 2026-11-01). A call costs about 1,400 ns on arm64
-  Linux with ints and 2,450 ns with a numpy array, where the underlying ctypes call is about 450 ns. So
-  any caller making many small calls pays roughly 3x for the wrapper. Only those totals and
-  `__array_interface__` (about 700 ns) were measured; the likely pieces, from reading the code, are the
-  argument list comprehension, `_address` (a `bytearray` goes through `memoryview` and `from_buffer`),
-  `self._state.ctx()` and the `try`/`finally` for stdout. Ideas: choose a
-  per-kernel call function when it's created, from its parameters (no pointer parameters means no list at
-  all; no stdout means no `finally`); and for numpy arrays, `addressof(c_char.from_buffer(a))` is about half
-  the cost of `__array_interface__`, falling back to it for read-only arrays. In Pyodide a call is about
-  13 us, not broken down; the JavaScript wrapper converting i64 parameters to BigInt is a suspect. Reproduce with a loop over `kernel(1, 2, buf)`.
+- **A faster `Kernel.__call__`** (requested by scramjit, 2026-11-01). On quiet arm64 Linux with ints and an
+  int address for the pointer, a call costs about 905 ns where the underlying ctypes call is about 450, so the
+  wrapper is about 450 ns, for any caller making many small calls. Passing a buffer costs more: a numpy array
+  about 1,200 ns more (`__array_interface__`; `addressof(c_char.from_buffer(a))` is much less, falling back for
+  read-only arrays), a `bytearray` more again (`memoryview` and `from_buffer`). Only those totals were measured;
+  the likely pieces, from reading the code, are the argument list comprehension, `self._state.ctx()` and the
+  `try`/`finally` for stdout. Idea: choose a per-kernel call function when it's created, from its parameters
+  (no pointers means no list; no stdout means no `finally`). In Pyodide a call is about 13 us, not broken down;
+  the JavaScript wrapper converting i64 parameters to BigInt is a suspect. Reproduce with a loop over
+  `kernel(1, 2, addr)`. **When done, note it in scramjit's `TODO.md`.**
+- **Say whether a compile came from the cache** (requested by scramjit, 2026-11-01): a public attribute on the
+  module, or a compile time. `scramjit preflight --run` wants to show `disk` instead of a time, and can't tell.
   **When done, note it in scramjit's `TODO.md`.**
+- **WebAssembly: a call through a function pointer that takes a pointer traps** (found by scramjit, 2026-11-01).
+  Calling Pyodide's libm `frexp` by address, cast to `double (*)(double, int *)`, gives "null function or
+  function signature mismatch"; doubles and ints are fine (`ldexp`, `sin`). cimo's wasm pointers don't match
+  the main module's `i32`. It affects any kernel calling into a host library by pointer, or a callback taking
+  one. scramjit worked around it by computing `frexp` from the float's bits. **When done, note it in
+  scramjit's `TODO.md`.**
+- **Make the CLI framework public, or a small package** (requested by scramjit, 2026-11-01, low priority).
+  scramjit's command line copies `cli/term.py`, `cli/parse.py` and `cli/completion.py`, because they aren't
+  public API, so a fix to one needs copying by hand.
+- **Ctrl-C can't stop a running kernel** (found by scramjit, 2026-11-01): Python's handler only runs between
+  bytecodes, so `KeyboardInterrupt` waits until the kernel returns, and an infinite loop can only be killed.
+  Every cimo user has this. scramjit is adding a check of its own to the C it generates; if cimo offers a
+  general way (an interruptible loop flag in the execution context, set from the entry path), scramjit would
+  use that instead.
 - **A public way to get a module's WebAssembly** (requested by scramjit): its site demo shows the
   compiled kernel's disassembly and calls `cimo.wasm.build` for the bytes, as cimo's own demo does,
   which isn't documented API. For example `module.wasm` (bytes, in Pyodide) and making
