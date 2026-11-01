@@ -463,6 +463,22 @@ def selfma(i, fn):
     m.base, m.index = bc
 
 
+def _widening(di, fn):
+    """(kind, x, y) if the product di, in class l, is of two extended words only used here: 1 for both
+    signed, 2 for both unsigned, with the words; else None."""
+    if di.cls != Kl:
+        return None
+    e0, e1 = _only(di.arg[0], fn), _only(di.arg[1], fn)
+    if e0 is None or e1 is None or e0[1].op != e1[1].op or e0[1].op not in (Oextsw, Oextuw) \
+            or not _plain(e0[1].arg[0], fn) or not _plain(e1[1].arg[0], fn):
+        return None
+    x, y = e0[1].arg[0], e1[1].arg[0]
+    kind = 1 if e0[1].op == Oextsw else 2
+    e0[1].set(Ins(Onop))
+    e1[1].set(Ins(Onop))
+    return kind, x, y
+
+
 def selmadd(i, fn):
     """cimo (ext.isel): "r = add c, m" or "r = sub c, m", with m a product only used here and
     defined in this block, becomes one instruction (see Oamadd in defs). Returns True if so."""
@@ -477,12 +493,14 @@ def selmadd(i, fn):
         di = found[1]
         if any(rtype(a) == RCon and log2p(fn.con[rval(a)].i) >= 0 for a in di.arg):
             continue  # a shift
-        ab = list(di.arg)
+        wide = _widening(di, fn)
+        ab = list(di.arg) if wide is None else [wide[1], wide[2]]
         di.set(Ins(Onop))
         x = Mem()
         fn.nmem += 1
         vgrow(fn.mem, fn.nmem)
         fn.mem[fn.nmem - 1] = x
+        x.scale = 0 if wide is None else wide[0]
         emit(D.Oamadd if i.op == Oadd else D.Oamsub, i.cls, i.to, c, MEM(fn.nmem - 1))
         iarg = D.insb[D.curi].arg
         fixarg(iarg, 0, i.cls, 0, fn)
@@ -962,8 +980,13 @@ def sel(i, fn):
             return
         if i.op == Oadd and KBASE(i.cls) == 0 and selcincadd(i, fn):
             return
-        if i.op == Omul and KBASE(i.cls) == 0 and selmulcon(i, fn):
-            return
+        if i.op == Omul and KBASE(i.cls) == 0:
+            if selmulcon(i, fn):
+                return
+            wide = _widening(i, fn)
+            if wide is not None:
+                emit(D.Oasmull if wide[0] == 1 else D.Oaumull, Kl, i.to, wide[1], wide[2])
+                return
         if i.op == Oshl and KBASE(i.cls) == 0 and selubfiz(i, fn):
             return
         if i.op in ALU and KBASE(i.cls) == 0:

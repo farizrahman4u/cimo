@@ -577,6 +577,25 @@ def _i_dp2(a, mn, ops):
     return base | _sf(rd) | rm[1] << 16 | rn[1] << 5 | rd[1]
 
 
+_WIDEMUL = {'smaddl': 0x9b200000, 'smsubl': 0x9b208000, 'umaddl': 0x9ba00000, 'umsubl': 0x9ba08000}
+
+
+def _i_widemul(a, mn, ops):
+    """smull, umull rd, wn, wm; smaddl, smsubl, umaddl, umsubl rd, wn, wm, xa."""
+    rd, rn, rm = _reg(ops[0], 'x'), _reg(ops[1], 'w'), _reg(ops[2], 'w')
+    if mn in ('smull', 'umull'):
+        if len(ops) != 3:
+            raise AssemblerError('%s needs 3 operands' % mn)
+        ra = 31
+        base = _WIDEMUL['smaddl' if mn == 'smull' else 'umaddl']
+    else:
+        if len(ops) != 4:
+            raise AssemblerError('%s needs 4 operands' % mn)
+        ra = _reg(ops[3], 'x')[1]
+        base = _WIDEMUL[mn]
+    return base | rm[1] << 16 | ra << 10 | rn[1] << 5 | rd[1]
+
+
 def _i_madd(a, mn, ops):
     if len(ops) != 4:
         raise AssemblerError('%s needs 4 operands' % mn)
@@ -1096,6 +1115,8 @@ _INSNS = {
     'ror': _i_ror, 'ubfiz': _i_ubfiz,
     'lsl': _i_shift, 'lsr': _i_shift, 'asr': _i_shift,
     'mul': _i_dp2, 'sdiv': _i_dp2, 'udiv': _i_dp2, 'madd': _i_madd, 'msub': _i_madd,
+    'smull': _i_widemul, 'umull': _i_widemul, 'smaddl': _i_widemul, 'smsubl': _i_widemul,
+    'umaddl': _i_widemul, 'umsubl': _i_widemul,
     'cbz': _i_cbz, 'cbnz': _i_cbz, 'csel': _i_csel, 'fcsel': _i_csel,
     'csinc': _i_csel, 'csinv': _i_csel, 'csneg': _i_csel, 'tbz': _i_tbz, 'tbnz': _i_tbz, 'tst': _i_tst, 'ccmp': _i_ccmp,
     'smulh': _i_mulh, 'umulh': _i_mulh,

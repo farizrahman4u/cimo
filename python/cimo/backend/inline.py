@@ -469,13 +469,76 @@ def _callees(fn):
     return out
 
 
-def expand_all(fns, limit):
+# the C library's math: no errno here, so they read and write no memory (requirements.md)
+_LIBM = """sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh exp exp2 expm1 log log2 log10 log1p
+    pow sqrt cbrt hypot fmod remainder floor ceil trunc round rint nearbyint fabs copysign fmin fmax fdim fma
+    erf erfc tgamma ldexp scalbn logb""".split()
+_LIBM = frozenset(_LIBM + [n + 'f' for n in _LIBM])
+ONCE_LIMIT = 800  # LLVM's last-call bonus: a static function called once goes away when inlined
+
+
+def _symrefs(fn):
+    """{symbol id: times called directly}, with every other reference counted as many."""
+    out = {}
+
+    def ref(r, n):
+        if rtype(r) == RCon:
+            c = fn.con[rval(r)]
+            if c.type == CAddr:
+                out[c.sym.id] = out.get(c.sym.id, 0) + n
+    b = fn.start
+    while b:
+        p = b.phi
+        while p:
+            for a in p.arg[:p.narg]:
+                ref(a, 1000)
+            p = p.link
+        ref(b.jmp.arg, 1000)
+        for i in b.ins:
+            if i.op == D.Ocall:
+                ref(i.arg[0], 1)
+                ref(i.arg[1], 1000)
+            else:
+                ref(i.arg[0], 1000)
+                ref(i.arg[1], 1000)
+        b = b.link
+    return out
+
+
+def _touchesmemory(fn, nomem):
+    """fn does something other than compute: LLVM's FunctionAttrs, for readnone. Its own stack slots
+    count too, as they're not promoted yet; what is left after promotion would be better."""
+    b = fn.start
+    while b:
+        for i in b.ins:
+            o = i.op
+            if D.isload(o) or D.isstore(o) or D.isvload(o) or D.isvstore(o) or D.isalloc(o) \
+                    or o in (D.Oblit0, D.Oblit1, D.Ovastart, D.Ovaarg, D.Osalloc):
+                return True
+            if o == D.Ocall:
+                r = i.arg[0]
+                c = fn.con[rval(r)] if rtype(r) == RCon else None
+                if c is None or c.type != CAddr or c.i != 0 or c.sym.id not in nomem:
+                    return True
+        b = b.link
+    return False
+
+
+def expand_all(fns, limit, datarefs=()):
     """Inline small functions of the module fns into their callers, callees first (a cycle of
-    calls is broken at an arbitrary function: its call stays a call)."""
+    calls is broken at an arbitrary function: its call stays a call), and any size of a static
+    function called once. Returns the functions still needed: exported ones and what they, or
+    data (datarefs: names), refer to."""
     from .util import intern
+    from . import load
     for fn in fns:
         selftail(fn)
     byid = {intern(fn.name): fn for fn in fns}
+    refs = {}
+    for fn in fns:
+        for s, n in _symrefs(fn).items():
+            refs[s] = refs.get(s, 0) + n
+    data = {intern(n) for n in datarefs}
     order = []
     state = {}
     for root in fns:  # post-order over the call graph, iteratively
@@ -495,8 +558,24 @@ def expand_all(fns, limit):
                 stack.pop()
                 order.append(fn)
     bodies = {}
+    nomem = {intern(n) for n in _LIBM if intern(n) not in byid}
     for fn in order:
         expand(fn, bodies)
-        body = snapshot(fn, limit)
+        s = intern(fn.name)
+        once = not fn.lnk.export and refs.get(s, 0) == 1 and s not in data
+        body = snapshot(fn, ONCE_LIMIT if once else limit)
         if body is not None:
-            bodies[intern(fn.name)] = body
+            bodies[s] = body
+        if not _touchesmemory(fn, nomem):
+            nomem.add(s)
+    load.nomemcalls = frozenset(nomem)
+    # what's still reachable (LLVM's GlobalDCE)
+    work = [fn for fn in fns if fn.lnk.export or intern(fn.name) in data]
+    live = {intern(fn.name) for fn in work}
+    while work:
+        fn = work.pop()
+        for s in _symrefs(fn):
+            if s in byid and s not in live:
+                live.add(s)
+                work.append(byid[s])
+    return [fn for fn in fns if intern(fn.name) in live]

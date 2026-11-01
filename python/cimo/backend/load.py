@@ -110,6 +110,17 @@ def storesz(s):
     die("unreachable")
 
 
+nomemcalls = frozenset()  # cimo: symbol ids of functions that touch no memory (inline.expand_all)
+
+
+def _nomem(call):
+    r = call.arg[0]
+    if not nomemcalls or rtype(r) != RCon:
+        return False
+    c = curf.con[rval(r)]
+    return c.type == CAddr and c.i == 0 and c.sym.id in nomemcalls
+
+
 def iins(cls, op, a0, a1, l):
     global inum
     ist = _newlog()
@@ -256,7 +267,7 @@ def def_(sl, msk, b, i, il):
     while i > 0:
         i -= 1
         ins = b.ins[i]
-        if killsl(ins.to, sl) or (ins.op == Ocall and escapes(sl.ref, curf)):
+        if killsl(ins.to, sl) or (ins.op == Ocall and not _nomem(ins) and escapes(sl.ref, curf)):
             return Load()
         if ins.op in (Ovaarg, Ovastart) and \
                 alias(sl.ref, sl.off, sl.sz, ins.arg[0], 32, curf)[0] != NoAlias:

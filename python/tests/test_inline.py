@@ -73,8 +73,8 @@ def test_small_helpers_are_inlined():
               't_outer', 't_ignored'):
         assert calls(asm, f) == [], (f, body(asm, f))
     assert calls(asm, 't_fact') == ['fact']  # fact's own recursive call stays a call
-    # the definitions are kept
-    assert re.search(r'^%sinner:' % SYM, asm, re.M) and re.search(r'^%swsub:' % SYM, asm, re.M)
+    # a definition stays while something still needs it: inner has its address taken
+    assert re.search(r'^%sinner:' % SYM, asm, re.M) and not re.search(r'^%swsub:' % SYM, asm, re.M)
 
 
 def test_inlined_code_computes_the_same(no_inline):
