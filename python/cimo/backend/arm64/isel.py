@@ -698,6 +698,8 @@ def selmulcon(i, fn):
     while not (n >> tz) & 1:
         tz += 1
     m = n >> tz
+    if m == 1:  # a power of two: a shift, as sel does
+        return False
     up, down = log2p(m - 1), log2p(m + 1)
     if up <= 0 and down <= 0:
         return False
@@ -843,6 +845,11 @@ def _cselform(a, b, k, fn):
             chuse(y, +1, fn)
             # csinc d, y, y, c is: y if c, else y + 1. So c must hold when y is wanted
             return y, y, kind, inv
+    m = 0xffffffff if k == Kw else M64
+    if _conbits(b, fn) == 0 and (_conbits(a, fn) or 0) & m == m:
+        return CON_Z, CON_Z, CSINV, 1  # csetm: csinv d, xzr, xzr, !cc
+    if _conbits(a, fn) == 0 and (_conbits(b, fn) or 0) & m == m:
+        return CON_Z, CON_Z, CSINV, 0
     if _conbits(b, fn) == 0:
         return CON_Z, a, CSEL, 1  # csel d, xzr, a, !cc
     return a, b, CSEL, 0
@@ -871,7 +878,8 @@ def selcsel(i, fn):
     if _conbits(a, fn) != 0 or KBASE(k) == 1:
         fixarg(iarg, 0, k, 0, fn)
     b = [b0]
-    fixarg(b, 0, k, 0, fn)
+    if _conbits(b0, fn) != 0 or KBASE(k) == 1:
+        fixarg(b, 0, k, 0, fn)
     x.base = b[0]
     if cm:
         ck, cc = cm
@@ -1013,6 +1021,75 @@ def sel(i, fn):
     fixarg(iarg, 1, argcls(i, 1), 0, fn)
 
 
+# flags that make each integer condition false, for ccmp when the first comparison fails
+_FALSEFLAGS = {D.Cieq: 0, D.Cine: 4, D.Cisge: 8, D.Cislt: 0, D.Cisgt: 4, D.Cisle: 0,
+               D.Ciuge: 0, D.Ciult: 2, D.Ciugt: 0, D.Ciule: 2}
+_NZCVTRUE = {D.Cieq: 4, D.Cine: 0, D.Cisge: 0, D.Cislt: 8, D.Cisgt: 0, D.Cisle: 4,
+             D.Ciuge: 2, D.Ciult: 0, D.Ciugt: 2, D.Ciule: 4}
+
+
+def _ccmp(b, ir, fn):
+    """cimo (ext.isel), LLVM's AArch64ConditionalCompares: a jump on (a < b) & (c < d) or
+    (a < b) | (c < d), both comparisons only used here, as cmp; ccmp; b.cond. For & the second
+    comparison runs if the first held, else the flags are set so that its condition is false; for |
+    it runs if the first failed, else the flags make it true. Returns True if selected."""
+    op = ir.op
+    def cmpdef(r):
+        if not _plain(r, fn) or fn.tmp[rval(r)].nuse != 1:
+            return None
+        for n in range(b.nins):
+            if b.ins[n].to == r:
+                return b.ins[n] if iscmp(b.ins[n].op) else None
+        return None
+    d0, d1 = cmpdef(ir.arg[0]), cmpdef(ir.arg[1])
+    if d0 is None or d1 is None:
+        return False
+    # the one selected last is emitted first; both must be next to the jump, with nothing between
+    # that changes what they read: an SSA temporary keeps its value, and flags aren't otherwise set
+    c0, c1 = iscmp(d0.op), iscmp(d1.op)
+    if KBASE(c1[0]) != 0:
+        d0, d1, c0, c1 = d1, d0, c1, c0
+    if KBASE(c1[0]) != 0:
+        return False
+    k, cc1 = c1
+    a, y = d1.arg
+    if rtype(a) == RCon:
+        a, y = y, a
+        cc1 = cmpop(cc1)
+    if not _plain(a, fn):
+        return False
+    n = _conbits(y, fn)
+    if n is not None and not 0 <= (n & M64 if k == Kl else n & 0xffffffff) <= 31:
+        n = None
+    if n is None and not _plain(y, fn):
+        return False
+    m = Mem()
+    fn.nmem += 1
+    vgrow(fn.mem, fn.nmem)
+    fn.mem[fn.nmem - 1] = m
+    m.offset.type = CBits
+    if n is not None:
+        m.base = R
+        m.offset.i = n & 31
+    else:
+        m.base = y
+    # selected bottom-up: the jump, then accmp, then the first comparison
+    args0 = list(d0.arg)
+    cc0 = c0[1]
+    emit(D.Oaccmp, k, R, a, MEM(fn.nmem - 1))
+    if selcmp(args0, c0[0], fn):
+        cc0 = cmpop(cc0)
+    # scale: the flags, the first comparison's condition, and whether ccmp runs when it fails
+    if op == Oand:
+        m.scale = _FALSEFLAGS[cc1] | cc0 << 4
+    else:
+        m.scale = _NZCVTRUE[cc1] | cc0 << 4 | 1 << 12
+    d0.set(Ins(Onop))
+    d1.set(Ins(Onop))
+    b.jmp.type = Jjf + cc1
+    return True
+
+
 def _tstjump(b, r, k, cc, fn):
     """cimo (ext.isel): a jump on (x & y) == 0 or != 0, the and (r) only used by it: tst, or tbz and
     tbnz for one bit (emit._cbz). seljmp runs before the block's instructions are selected, which is
@@ -1058,6 +1135,9 @@ def seljmp(b, fn):
             break
     cm = iscmp(ir.op) if ir is not None and use == 1 else None
     if _ext.isel and ir is not None and use == 1:
+        if ir.op in (Oand, Oor) and ir.cls == Kw and _ccmp(b, ir, fn):
+            ir.set(Ins(Onop))
+            return
         if ir.op == Oand and ir.cls == Kw and _tstjump(b, r, Kw, Cine, fn):  # jnz tests a word
             return
         if cm and cm[1] in (Cieq, Cine) and KBASE(cm[0]) == 0 and _conbits(ir.arg[1], fn) == 0 \

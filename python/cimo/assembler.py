@@ -985,6 +985,25 @@ def _i_mulh(a, mn, ops):
     return (0x9bc07c00 if mn == 'umulh' else 0x9b407c00) | rm[1] << 16 | rn[1] << 5 | rd[1]
 
 
+def _i_ccmp(a, mn, ops):
+    """ccmp rn, rm or #imm5, #nzcv, cond."""
+    if len(ops) != 4:
+        raise AssemblerError('ccmp needs 4 operands')
+    rn = _reg(ops[0])
+    nzcv = _imm(ops[2], True)
+    c = _COND.get(ops[3].strip().lower())
+    if c is None or not 0 <= nzcv <= 15:
+        raise AssemblerError('bad ccmp operands')
+    if _isreg(ops[1]):
+        rm = _reg(ops[1])
+        _same(rn, rm)
+        return 0x7a400000 | _sf(rn) | rm[1] << 16 | c << 12 | rn[1] << 5 | nzcv
+    n = _imm(ops[1], True)
+    if not 0 <= n <= 31:
+        raise AssemblerError('ccmp immediate out of range')
+    return 0x7a400800 | _sf(rn) | n << 16 | c << 12 | rn[1] << 5 | nzcv
+
+
 def _i_tbz(a, mn, ops):
     if len(ops) != 3:
         raise AssemblerError('%s needs 3 operands' % mn)
@@ -1078,7 +1097,7 @@ _INSNS = {
     'lsl': _i_shift, 'lsr': _i_shift, 'asr': _i_shift,
     'mul': _i_dp2, 'sdiv': _i_dp2, 'udiv': _i_dp2, 'madd': _i_madd, 'msub': _i_madd,
     'cbz': _i_cbz, 'cbnz': _i_cbz, 'csel': _i_csel, 'fcsel': _i_csel,
-    'csinc': _i_csel, 'csinv': _i_csel, 'csneg': _i_csel, 'tbz': _i_tbz, 'tbnz': _i_tbz, 'tst': _i_tst,
+    'csinc': _i_csel, 'csinv': _i_csel, 'csneg': _i_csel, 'tbz': _i_tbz, 'tbnz': _i_tbz, 'tst': _i_tst, 'ccmp': _i_ccmp,
     'smulh': _i_mulh, 'umulh': _i_mulh,
     'sxtb': _i_ext, 'sxth': _i_ext, 'sxtw': _i_ext, 'uxtb': _i_ext, 'uxth': _i_ext,
     'mov': _i_mov, 'movk': _i_movk, 'movz': _i_movk, 'movn': _i_movk, 'cset': _i_cset,

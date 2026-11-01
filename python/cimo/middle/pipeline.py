@@ -5,7 +5,7 @@ import sys
 from ..backend import defs as D
 from ..backend.parse import printfn
 import cimo.middle as M
-from . import ir, loops, memdep, inner, jam, ifconv
+from . import ir, loops, memdep, inner, jam, ifconv, unswitch
 
 
 def _restrict_names(fn):
@@ -59,8 +59,10 @@ def optimize(fn):
     done = set()
     innermost = lambda lp: not lp.children
     nest2 = lambda lp: len(lp.children) == 1 and not lp.children[0].children
-    changed = _phase(fn, rnames, innermost,
-                     lambda fn, lp, rts: inner.transform(fn, lp, rts, done, 'full'), set())
+    unswitch._count.pop(fn.name, None)
+    changed = _phase(fn, rnames, innermost, lambda fn, lp, rts: unswitch.transform(fn, lp), set())
+    changed |= _phase(fn, rnames, innermost,
+                      lambda fn, lp, rts: inner.transform(fn, lp, rts, done, 'full'), set())
     if M.unroll > 1:
         jdone = set()
         changed |= _phase(fn, rnames, nest2,

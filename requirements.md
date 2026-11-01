@@ -284,7 +284,11 @@ functions and VLAs keep the call; the callee's own definition is always kept.
 Repeated work QBE leaves goes too (`backend/cse.py`, `ext.cse`): repeated loads, divisions (pure on
 arm64, where `sdiv` never traps; wasm's trap, so only a dominating one merges there), a remainder from
 its division, a repeated branch condition and a select written twice. Costs 13-27% compile time on
-`t_printf` and `t_math`. **Load hoisting runs for the first time here:** C QBE's `loadopt` runs before
+`t_printf` and `t_math`. Also from LLVM and GCC, under the same flag: algebra and known bits
+(`backend/simplify.py`; IR integers wrap, so nothing assumes signed overflow can't happen), facts from
+dominating branches (same file), jump threading (`backend/thread.py`), memory (`backend/memopt.py`),
+reassociation (`backend/cse.py`), unswitching (`middle/unswitch.py`). **Load hoisting runs for the first
+time here:** C QBE's `loadopt` runs before
 any `fillloop`, so every loop depth is 0 and its insert-a-load path (`LLoad`) never executes; the
 second `loadopt` has real depths. That path had never run: it dropped `sl.off` (fixed; harmless in C
 QBE, where it is dead code, as of `e786f06`, master's tip on 2026-11-01). Treat it as new code. The plan for the rest of LLVM's and GCC's optimizations is in `TODO.md`.
