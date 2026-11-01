@@ -489,6 +489,28 @@ inbound rules needed.
 - **Tests:** `tests/test_wasm.py` runs modules under Node in a stand-in loader
   (`tests/wasm/host.mjs`); with `PYODIDE_JS` set, also in real Pyodide.
 
+## LLM inference spike (2026-11-01)
+
+karpathy's `llama2.c` (MIT, 1k lines, float32, Llama-2 architecture) compiles and generates correct
+text in Pyodide with no compiler change; only file I/O, `sscanf` and `stderr` had to go (weights arrive
+as a buffer). Compile: 4.5 s first, 0.7 s once the runtime is cached. Single thread, Node 22, aarch64
+WSL2, mains, tok/s:
+
+| Model | cimo wasm (Pyodide) | cimo arm64 | gcc -O3 scalar | gcc -O3 | gcc -Ofast |
+|---|---|---|---|---|---|
+| stories15M | 75 | 70 | 61 | 98 | 316 |
+| stories110M | 9.0 | | | 10.2 | 36.7 |
+
+- Throughput scales with parameters: about 1 G params x tok/s today, 4-4.7 with 128-bit SIMD and
+  reassociation (`-Ofast`, a ceiling: it also has `fmla`, which plain wasm SIMD lacks).
+- `-O3` gets little because strict FP blocks vectorizing the dot-product reductions, so these loops
+  need explicit SIMD, not only an auto-vectorizer.
+- wasm beats our arm64 backend on this workload; unexplained.
+- ggml is not an option without C++ (`gguf.cpp`, `ggml-cpu/ops.cpp`, `ggml-backend.cpp`).
+- Blockers for a real chat model: wasm SIMD, threads (Pyodide has none and its memory isn't shared,
+  so a standalone module on shared memory), quantized kernels (a 1B float32 model doesn't fit in
+  wasm32's 4 GB).
+
 ## Windows arm64 (2026-10-31)
 
 Target `arm64_win` (preprocessor/backend/linker; frontend `aarch64-windows`), picked by
