@@ -137,7 +137,7 @@ class _Driver:
             D.unvolatile(fn)
             T.emitfn(fn, self.outf)
             return
-        if T.cansel:
+        if T.cansel or (ext.isel and T.name.startswith('arm64')):
             ifopt.ifconvert(fn)
             cfg.fillcfg(fn)
             ssa.filluse(fn)

@@ -13,6 +13,7 @@ are converted.
 from ..backend import defs as D
 from ..backend.defs import R, Kw, Kl, Ins, rval
 from ..backend.util import newtmp, iscmp
+from ..backend import ext as _ext
 from . import ir
 import cimo.middle as M
 
@@ -53,8 +54,8 @@ def _shape(ifb):
 
 def _can_be_one_block(lp):
     """A loop with a side exit (a failing bounds check) or a call never gets a one-block body:
-    selects there only add instructions and registers, in code whose branches predict well
-    (scramjit's flood_fill: 3.73 ms converted, 2.75 ms not)."""
+    selects there only add instructions and registers, in code whose branches predict well.
+    Measured, also with csel: scramjit's viewshed 8.17 ms kept to this rule, 14.38 ms not."""
     if len(lp.exits()) > 1:
         return False
     return not any(i.op == D.Ocall for b in lp.blocks for i in ir.ins(b))
@@ -73,13 +74,22 @@ def convert_loop(fn, lp):
             continue
         if joinb.npred != 2 or joinb is lp.header or joinb.phi is None:
             continue
-        if any(p.cls not in (Kw, Kl) for p in ir.phis(joinb)):
+        if any(p.cls not in (Kw, Kl) for p in ir.phis(joinb)) and not _ext.isel:
             continue
         out = ir.ins(ifb)
         for b in (tb, fb):
             if b is not ifb:
                 out = out + ir.ins(b)
         c = ifb.jmp.arg
+        if _ext.isel and D.T.name.startswith('arm64'):  # csel: one instruction per value
+            for p in ir.phis(joinb):  # a sel0 each: the loop passes copy them as pairs
+                out.append(Ins(D.Osel0, Kw, R, c, R))
+                out.append(Ins(D.Osel1, p.cls, p.to, ir.phiargof(p, tb), ir.phiargof(p, fb)))
+            ir.setins(ifb, out)
+            joinb.phi = None
+            ir.setjmp(ifb, joinb)
+            M.count('ifconv')
+            return True
         if not any(i.to == c and iscmp(i.op) is not None for i in out):
             c2 = newtmp('m', Kw, fn)
             out.append(Ins(D.Ocnew, Kw, c2, c, ir.getcon(0, fn)))

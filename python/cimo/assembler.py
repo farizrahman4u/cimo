@@ -869,6 +869,19 @@ def _i_b(a, mn, ops):
     return 0x54000000 | c
 
 
+def _i_csel(a, mn, ops):
+    if len(ops) != 4:
+        raise AssemblerError('%s needs 4 operands' % mn)
+    rd, rn, rm = [_reg(o, 'sd' if mn == 'fcsel' else 'wx') for o in ops[:3]]
+    _same(rd, rn, rm)
+    c = _COND.get(ops[3].strip().lower())
+    if c is None:
+        raise AssemblerError('bad condition %r' % ops[3])
+    if mn == 'fcsel':
+        return 0x1e200c00 | _ftype(rd) << 22 | rm[1] << 16 | c << 12 | rn[1] << 5 | rd[1]
+    return 0x1a800000 | _sf(rd) | rm[1] << 16 | c << 12 | rn[1] << 5 | rd[1]
+
+
 def _i_cbz(a, mn, ops):
     if len(ops) != 2:
         raise AssemblerError('%s needs 2 operands' % mn)
@@ -939,7 +952,7 @@ _INSNS = {
     'and': _i_logic, 'orr': _i_logic, 'eor': _i_logic, 'ands': _i_logic,
     'lsl': _i_shift, 'lsr': _i_shift, 'asr': _i_shift,
     'mul': _i_dp2, 'sdiv': _i_dp2, 'udiv': _i_dp2, 'madd': _i_madd, 'msub': _i_madd,
-    'cbz': _i_cbz, 'cbnz': _i_cbz,
+    'cbz': _i_cbz, 'cbnz': _i_cbz, 'csel': _i_csel, 'fcsel': _i_csel,
     'sxtb': _i_ext, 'sxth': _i_ext, 'sxtw': _i_ext, 'uxtb': _i_ext, 'uxth': _i_ext,
     'mov': _i_mov, 'movk': _i_movk, 'movz': _i_movk, 'movn': _i_movk, 'cset': _i_cset,
     'fadd': _i_fp3, 'fsub': _i_fp3, 'fmul': _i_fp3, 'fdiv': _i_fp3, 'fneg': _i_fneg,

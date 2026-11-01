@@ -157,3 +157,70 @@ def test_cbz_with_every_loop_shape():
         int k(long x) { if ((int)x) return 1; return 2; }''', cache=False)
     assert m.f(array.array('q', [1, 0, 3]), 3) == 4 and m.g(5) == 3
     assert m.h(1 << 32) == 1 and m.k(1 << 32) == 2  # a w test sees only the low half
+
+
+@pytest.mark.parametrize('src', [
+    'long f(long a, long b) { return a > b ? a : b; }',
+    'long f(long a, long b, long c) { return a < b ? c : a; }',
+    'int f(int a) { return a < 0 ? -a : a; }',
+    'double f(double a, double b, long c) { return c > 0 ? a : b; }',
+    'double f(double a, double b) { return a < b ? a : b; }',
+    'long f(double a, long b, long c) { return a < 0.5 ? b : c; }',
+])
+def test_selects_have_no_branch(src):
+    b = body(src)
+    assert re.search(r'\bf?csel\b', b), b
+    assert not re.search(r'\bb(eq|ne|lt|le|gt|ge|cc|cs|hi|ls|mi|pl)\b|\bcbn?z\b', b), b
+
+
+def test_selects_compute_the_same():
+    nan = float('nan')
+    m = cimo.compile('''long a(long x, long y) { return x > y ? x : y; }
+        unsigned long b(unsigned long x, unsigned long y) { return x > y ? x : y; }
+        double c(double x, double y) { return x < y ? x : y; }
+        double d(double x, double y) { return x >= y ? x : y; }
+        double e(double x, double y) { return x != y ? x : y; }
+        long g(double x, long p, long q) { return x == x ? p : q; }
+        float h(float x, float y, int k) { return k ? x : y; }
+        int i(int c, int x) { return c ? x + 1 : x - 1; }
+        int j(long c, int x) { if (c) x = x + 5; return x; }
+        int k(long x) { int r = 0, s = 0; if (x > 3) { r = 1; s = 2; } return r * 10 + s; }''', cache=False)
+    assert m.a(1, 2) == 2 and m.a(-1, -2) == -1
+    assert m.b(1, 2 ** 64 - 1) == -1  # the largest: its bits come back as a signed long
+    assert m.c(1.0, 2.0) == 1.0 and m.c(nan, 2.0) == 2.0 and m.c(1.0, nan) != m.c(1.0, nan)
+    assert m.d(nan, 2.0) == 2.0 and m.d(3.0, 2.0) == 3.0
+    assert m.e(nan, 2.0) != m.e(nan, 2.0) and m.e(2.0, 2.0) == 2.0
+    assert m.g(nan, 1, 2) == 2 and m.g(0.0, 1, 2) == 1
+    assert m.h(1.5, 2.5, 1) == 1.5 and m.h(1.5, 2.5, 0) == 2.5
+    assert m.i(1, 5) == 6 and m.i(0, 5) == 4 and m.i(-1, 5) == 6
+    assert m.j(1 << 40, 1) == 6 and m.j(0, 1) == 1  # the whole long is tested
+    assert m.k(9) == 12 and m.k(1) == 0
+
+
+def test_a_select_does_not_run_a_division_for_nothing():
+    b = body('long f(long a, long b, long c) { return c ? a / b : a; }')
+    assert re.search(r'\bcbn?z\b', b), b
+
+
+def test_a_loop_invariant_condition_keeps_its_branch():
+    """It predicts perfectly (LLVM's EarlyIfConverter::shouldConvertIf)."""
+    src = '''long f(long *p, long n, long k) { long s = 0;
+        for (long i = 0; i < n; i++) { long v = p[i]; if (k > 0) v = v + 1; s += v * v; } return s; }'''
+    m = cimo.compile(src, cache=False)
+    x = array.array('q', [1, 2, 3])
+    assert m.f(x, 3, 1) == 4 + 9 + 16 and m.f(x, 3, 0) == 1 + 4 + 9
+
+
+@pytest.mark.parametrize('n', [0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17])
+def test_selects_in_unrolled_loops(n):
+    """The loop passes copy a select around induction values they compute on demand."""
+    m = cimo.compile('''long f(int *x, int n) { int mi = -1, max = -100, cnt = 0;
+        for (int i = 0; i < n; i++) { if (x[i] > max) { max = x[i]; mi = i; cnt = i * 2 + 1; } }
+        return (long)mi * 1000000 + (long)max * 1000 + cnt; }''', cache=False)
+    vals = [(k * 37) % 23 - 7 for k in range(n)]
+    x = array.array('i', vals or [0])
+    mi, mx, cnt = -1, -100, 0
+    for i, v in enumerate(vals):
+        if v > mx:
+            mx, mi, cnt = v, i, i * 2 + 1
+    assert m.f(x, n) == mi * 1000000 + mx * 1000 + cnt

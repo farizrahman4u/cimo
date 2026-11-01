@@ -14,7 +14,7 @@ from ..defs import (R, RTmp, RCon, NIns, M64, Ins, Con, Mem, CBits, CAddr, SExt,
 from ..util import (err, newtmp, newcon, getcon, chuse, emit, emiti, idup, intern, iscmp,
                     cmpop, salloc, argcls, vgrow)
 from ..parse import printfn
-from ..defs import Tmp0, Oextsw, Oextuw, Osar, Oshr
+from ..defs import Tmp0, Oextsw, Oextuw, Osar, Oshr, Cine
 from .regs import R0
 from .. import ext as _ext
 
@@ -477,6 +477,41 @@ def selmadd(i, fn):
     return False
 
 
+def selcsel(i, fn):
+    """cimo (ext.isel): "sel0 c; r = sel1 a, b" as a comparison and an acsel. A condition computed
+    by a comparison in this block is compared again right here, for the flags; the comparison
+    itself goes with sel0, once it has no other use. a and b come from before the comparison."""
+    d = selpos
+    while selblk.ins[d].op != D.Osel0:
+        d -= 1
+    c = selblk.ins[d].arg[0]
+    cd = _defin(c, d) if rtype(c) == RTmp else None
+    cm = iscmp(cd[1].op) if cd is not None else None
+    k = i.cls
+    x = Mem()
+    fn.nmem += 1
+    vgrow(fn.mem, fn.nmem)
+    fn.mem[fn.nmem - 1] = x
+    x.offset.type = CBits
+    emit(D.Oacsel, k, i.to, i.arg[0], MEM(fn.nmem - 1))
+    iarg = D.insb[D.curi].arg
+    fixarg(iarg, 0, k, 0, fn)
+    b = [i.arg[1]]
+    fixarg(b, 0, k, 0, fn)
+    x.base = b[0]
+    if cm:
+        ck, cc = cm
+        args = list(cd[1].arg)
+        for a in args:
+            chuse(a, +1, fn)
+        if selcmp(args, ck, fn):
+            cc = cmpop(cc)
+    else:
+        cc = Cine
+        selcmp([c, CON_Z], Kw, fn)
+    x.offset.i = cc
+
+
 def callable(r, fn):
     if rtype(r) == RTmp:
         return 1
@@ -513,6 +548,17 @@ def sel(i, fn):
         return
     if i.op == Ofma1:
         selfma(i, fn)
+        return
+    if i.op == D.Osel1:
+        selcsel(i, fn)
+        return
+    if i.op == D.Osel0:  # selected with its sel1s
+        c = i.arg[0]
+        if rtype(c) == RTmp:
+            chuse(c, -1, fn)
+            found = _defin(c, selpos)
+            if found is not None and iscmp(found[1].op):
+                _sweep(c, found[0], fn)
         return
     if i.op == Ofma0:
         return  # selected with its fma1
