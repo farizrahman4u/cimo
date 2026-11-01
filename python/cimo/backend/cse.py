@@ -11,6 +11,7 @@ gcm's sink copies them again). With this flag:
   b == 0 and INT_MIN / -1;
 - on arm64, a division by a constant is a multiplication by its inverse (divconst; wasm engines
   do this themselves);
+- on arm64, a large multiplier used in a loop is built once, out of it (hoistcons);
 - on wasm, where they trap, gvn merges a division with an identical one that dominates it (if the
   first did not trap, neither does the second);
 - gvn merges phis that join the two ways of the same condition with the same values, and removes
@@ -28,6 +29,7 @@ from .util import newtmp, getcon
 
 
 _DIVOPS = (D.Odiv, D.Orem, D.Oudiv, D.Ourem)
+_MULS = (D.Omul, D.Osmulh, D.Oumulh)
 
 
 def nload(fn):
@@ -209,3 +211,43 @@ def divconst(fn):
         b.ins = out
         b.nins = len(out)
     return changed
+
+
+def _bigcon(c):
+    """A 64-bit constant that takes more than one mov to build (arm64: nonzero 16-bit parts,
+    counted on the value and on its complement for movn)."""
+    n = c.i & D.M64
+    parts = sum(1 for k in range(0, 64, 16) if (n >> k) & 0xffff)
+    inv = sum(1 for k in range(0, 64, 16) if (~n >> k) & 0xffff)
+    return min(parts, inv) > 1
+
+
+def hoistcons(fn):
+    """arm64: a multiplier that takes several instructions to build, used in a loop, is built once
+    at the end of the start block, which dominates every loop (MachineLICM). isel would build it
+    at each use, once per unrolled copy, since gvn folds copies of constants: so this runs after
+    the last gvn. Requires rpo and loop depths; breaks use. Returns True if anything changed."""
+    regs = {}
+    for b in fn.rpo[1:fn.nblk]:
+        if b.loop <= 1:
+            continue
+        for i in b.ins[:b.nins]:
+            if i.op not in _MULS or KBASE(i.cls) != 0:
+                continue
+            for n in range(2):
+                r = i.arg[n]
+                if D.rtype(r) != D.RCon:
+                    continue
+                c = fn.con[r & D.VMASK]
+                if c.type != D.CBits or not _bigcon(c):
+                    continue
+                k = (r, i.cls)
+                if k not in regs:
+                    regs[k] = newtmp('con', i.cls, fn)
+                i.arg[n] = regs[k]
+    if not regs:
+        return False
+    st = fn.start
+    st.ins = st.ins[:st.nins] + [D.Ins(D.Ocopy, k, t, r, D.R) for (r, k), t in regs.items()]
+    st.nins = len(st.ins)
+    return True

@@ -166,7 +166,8 @@ def load(sl, msk, l):
     # but its alias base ref will be
     # (see killsl() below)
     # fix over C QBE: the slice's own offset (rebase moves the address's offset there, and a blit's
-    # source has one) was dropped: a load moved up a loop read the start of the object
+    # source has one) was dropped: a load moved up a loop read the start of the object. Dead code
+    # in C QBE, where loadopt runs before fillloop, so no load is ever inserted (ext.cse runs it after)
     if rtype(r) == RTmp:
         a = curf.tmp[rval(r)].alias
         if a.type in (ALoc, AEsc, AUnk):
