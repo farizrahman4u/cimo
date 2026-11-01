@@ -1,0 +1,48 @@
+# Nightly differential fuzzing: new Csmith and YARPGen programs (seeds from the date), run by
+# gcc -O0 and by cimo. Failures are uploaded as an artifact; shrink one with
+# python/tests/reduce.py and add a test to python/tests/test_regressions.py.
+name: fuzz
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: fuzzing time in minutes (Csmith 2/3, YARPGen 1/3)
+        default: "180"
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pytest
+      - name: build Csmith and YARPGen
+        run: |
+          git clone -q https://github.com/csmith-project/csmith ~/code/csmith
+          cmake -S ~/code/csmith -B ~/code/csmith/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build ~/code/csmith/build -j4
+          git clone -q https://github.com/intel/yarpgen ~/code/yarpgen
+          cmake -S ~/code/yarpgen -B ~/code/yarpgen/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build ~/code/yarpgen/build -j4
+      - name: fuzz
+        working-directory: python
+        run: |
+          m=${{ inputs.minutes || 180 }}
+          day=$(( $(date +%s) / 86400 ))
+          rc=0
+          python tests/fuzz_csmith.py -n 1000000 --seed $(( day * 1000000 )) \
+              --minutes $(( m * 2 / 3 )) --timeout 600 || rc=1
+          python tests/fuzz_yarpgen.py -n 1000000 --seed $(( day * 100000 )) \
+              --minutes $(( m / 3 )) --timeout 900 || rc=1
+          exit $rc
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failures
+          path: python/tests/fuzz_failures/

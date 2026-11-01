@@ -1,0 +1,36 @@
+# Keeps the `onefile` pre-release current: on every push to main, rebuild cimo.py and replace
+# the release asset, so this stays a stable one-line download:
+#   wget https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py
+name: onefile
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  onefile:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: build and check
+        working-directory: python
+        run: |
+          python -m cimo onefile -o ../dist/cimo.py
+          cd ../dist && python -I -c "import sys; sys.path.insert(0, '.'); import cimo; \
+            assert cimo.compile('int f(int a){return a+1;}', cache=False).f(41) == 42"
+      - name: move the tag and replace the asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -f onefile && git push -f origin onefile
+          gh release upload onefile dist/cimo.py --clobber
+          gh release view onefile --json body -q .body \
+            | sed "s/^Built from [0-9a-f]*\./Built from ${GITHUB_SHA}./" > notes.md
+          gh release edit onefile --notes-file notes.md
