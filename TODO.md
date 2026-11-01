@@ -33,6 +33,18 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Performance
 
+- **Inline small static functions** (requested by scramjit). `static inline` helpers are
+  compiled as real calls: a loop calling a one-line wrapping-subtract helper ran at 5.15 ns per
+  element against 3.07 ns for the same loop with a macro (arm64). Every C user writing helpers
+  pays this. **When done, add a note to scramjit's `TODO.md`** ("cimo inlines: remove the macro
+  workaround") so its prelude can go back to functions.
+- **FMA contraction per compile** (requested by scramjit): `cimo.compile(..., fma=False)`, like the
+  CLI's `--no-fma`; today only the process-wide `CIMO_FMA`, read at import. **When done, note it
+  in scramjit's `TODO.md`** so it can drop setting `CIMO_FMA` and its warning.
+- **Linking the host libm for math calls** (requested by scramjit; see the scramjit paragraph in
+  `requirements.md`): needed for results bit-identical to CPython's on native targets, on Linux,
+  macOS and Windows. **When done, note it in scramjit's `TODO.md`.**
+
 - `edit_distance` 2.5x of gcc: needs `csel` (select) in the backend.
 - `rgb2gray` 1.3x of gcc: constant materialization / `madd`.
 - Runtime: per-module copy of what it uses (printf ~20 KB); fine for now.
