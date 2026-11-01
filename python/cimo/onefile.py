@@ -307,6 +307,7 @@ def build(path='cimo.py', progress=None, strip=True):
     parts.append('}\n')
     parts.append(_BOOTSTRAP)
     data = ''.join(parts).encode('utf-8')
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp = path + '.tmp%d' % os.getpid()
     with open(tmp, 'wb') as f:
         f.write(data)
