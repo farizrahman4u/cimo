@@ -55,12 +55,14 @@ in Python.
   better; off any chain the same). Measure on other CPUs: LLVM always folds single uses.
 - ~~`mneg`, `fnmul`~~ **Done** (`ext.isel`).
 - ~~`csel`, `fcsel`~~ **Done** (`ext.isel`; policy from `SimplifyCFG`, `EarlyIfConversion`). Then
-  `csinc`, `csneg`, `cneg`, `csetm`. wasm `select`.
+  wasm `select`.
 - `cbz`, `cbnz`, `tbz`, `tbnz` (`AArch64CondBrTuning`), `tst`, `cmp`/`cmn` dropped after a flag-setting
   `subs`/`adds`/`ands` (`AArch64ConditionOptimizer`, GCC `compare_elim_after_reload`), `ccmp` for `a && b`
   (`AArch64ConditionalCompares`).
 - ~~`bic`, `orn`, `eon`, `mvn`, `ubfx`, `sbfx`, `ror`, storing `xzr`, `fmov` immediates~~ **Done**
-  (`ext.isel`). Open: `ubfiz`, `bfi`, `bfxil`, `xzr` in `csel`.
+  (`ext.isel`), and `csinc`/`csneg`/`csinv`, `xzr` in `csel`, `ubfiz`, `tst`/`tbz`/`tbnz`, identical compares
+  dropped, `mul` by constants near powers of two, sibling calls, self tail recursion as a loop
+  (`inline.selftail`). Open: `bfi`, `bfxil`, `csetm`, `ccmp`, flags from `subs`/`ands`, pre/post-index.
 - Redundant extensions (`ldrb` then `uxtb`; GCC `ree`, `ext_dce`).
 - ~~Division by a constant~~ **Done** (`cse.divconst`). `mul` by 2^n+-1 as `add`/`sub` with a shift.
   Multipliers are built outside loops (`cse.hoistcons`); the same for other large constants and FP

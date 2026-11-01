@@ -15,7 +15,7 @@ from ..defs import (R, RTmp, RCon, NIns, M64, Ins, Con, Mem, CBits, CAddr, SExt,
 from ..util import (err, newtmp, newcon, getcon, chuse, emit, emiti, idup, intern, iscmp,
                     cmpop, salloc, argcls, vgrow)
 from ..parse import printfn
-from ..defs import Tmp0, Oextsw, Oextuw, Osar, Oshr, Cine, Kd
+from ..defs import Tmp0, Oextsw, Oextuw, Osar, Oshr, Cieq, Cine, Kd
 from .regs import R0
 from .. import ext as _ext
 
@@ -546,6 +546,7 @@ def _shifted(r, k, wantext, fn):
 
 
 def _aalu(i, a, alu, how, n, x, fn):
+    """Emit i.to = a <alu> (x <how> n)."""
     m = Mem()
     fn.nmem += 1
     vgrow(fn.mem, fn.nmem)
@@ -674,6 +675,119 @@ def selextload(i, fn):
     return True
 
 
+def selmulcon(i, fn):
+    """cimo (ext.isel), as LLVM: a product with a constant near a power of two, in shifts: 9 * x is
+    add x, x, lsl #3, 7 * x is (x << 3) - x, -8 * x is neg lsl #3, 10 * x is 5 * x << 1. A mul takes 3-4
+    cycles and a register for the constant. Returns True if selected."""
+    x = i.arg[0]
+    n = _conbits(i.arg[1], fn)
+    if n is None or not _plain(x, fn):
+        return False
+    k = i.cls
+    w = 64 if k == Kl else 32
+    n &= (1 << w) - 1
+    if n >> (w - 1):
+        n -= 1 << w
+        if n < 0 and log2p(-n) > 0:  # sub d, xzr, x, lsl #k
+            _aalu(i, CON_Z, 1, SH_LSL, log2p(-n), x, fn)
+            return True
+        return False
+    if n < 3:
+        return False
+    tz = 0
+    while not (n >> tz) & 1:
+        tz += 1
+    m = n >> tz
+    up, down = log2p(m - 1), log2p(m + 1)
+    if up <= 0 and down <= 0:
+        return False
+    to = i.to
+    if tz:
+        t = newtmp('isel', k, fn)
+        emit(Oshl, k, to, t, getcon(tz, fn))
+        to = t
+    i1 = i.copy()
+    i1.to = to
+    if up > 0:
+        chuse(x, +1, fn)
+        _aalu(i1, x, 0, SH_LSL, up, x, fn)
+    else:
+        chuse(x, +1, fn)
+        t = newtmp('isel', k, fn)
+        emit(Osub, k, to, t, x)
+        emit(Oshl, k, t, x, getcon(down, fn))
+    return True
+
+
+def selubfiz(i, fn):
+    """cimo (ext.isel): (x & mask) << n as one instruction."""
+    n = _conbits(i.arg[1], fn)
+    found = _only(i.arg[0], fn)
+    if n is None or found is None or found[1].op != Oand or found[1].cls != i.cls \
+            or not _plain(found[1].arg[0], fn):
+        return False
+    w = 64 if i.cls == Kl else 32
+    m = _conbits(found[1].arg[1], fn)
+    if m is None:
+        return False
+    m &= (1 << w) - 1
+    if m == 0 or m & (m + 1):
+        return False
+    width = 0
+    while m >> width:
+        width += 1
+    n &= w - 1
+    if not 0 < n or n + width > w:
+        return False
+    x = found[1].arg[0]
+    found[1].set(Ins(Onop))
+    emit(D.Oaubfiz, i.cls, i.to, x, getcon(n | width << 8, fn))
+    return True
+
+
+def selcincadd(i, fn):
+    """cimo (ext.isel): a + (b < c), as cinc. The comparison, or its 64-bit extension, is only used
+    here. Returns True if selected."""
+    k = i.cls
+    for an, bn in ((0, 1), (1, 0)):
+        a, c = i.arg[an], i.arg[bn]
+        if not _plain(a, fn):
+            continue
+        found = _only(c, fn)
+        if found is None:
+            continue
+        dc = found[1]
+        if dc.op in (Oextuw, Oextsw) and k == Kl:  # of a 0 or 1, so either extension
+            inner = _only(dc.arg[0], fn)
+            if inner is None:
+                continue
+            outer, dc = dc, inner[1]
+        else:
+            outer = None
+        cm = iscmp(dc.op)
+        if not cm or (outer is None and dc.cls != k):
+            continue
+        ck, cc = cm
+        args = list(dc.arg)
+        if outer is not None:
+            outer.set(Ins(Onop))
+        dc.set(Ins(Onop))
+        x = Mem()
+        fn.nmem += 1
+        vgrow(fn.mem, fn.nmem)
+        fn.mem[fn.nmem - 1] = x
+        x.offset.type = CBits
+        x.base = a
+        x.scale = CSINC | 1 << 4
+        chuse(a, +1, fn)
+        emit(D.Oacsel, k, i.to, a, MEM(fn.nmem - 1))
+        if selcmp(args, ck, fn):
+            cc = cmpop(cc)
+        x.offset.i = cc
+        return True
+    return False
+
+
 def selneg(i, fn):
     """cimo (ext.isel): the negation of a product only used here: mneg, fnmul."""
     found = _only(i.arg[0], fn)
@@ -703,6 +817,37 @@ def selneg(i, fn):
     return True
 
 
+# acsel's kinds, in Mem.scale, which also holds whether the condition is inverted (<< 4)
+CSEL, CSINC, CSINV, CSNEG = range(4)
+
+
+def _cselform(a, b, k, fn):
+    """(first operand, second operand, kind, invert) for "a if cc else b": cinc, cneg, cinv when an
+    arm is the other plus one, negated or complemented, as clang selects; xzr for a zero."""
+    if KBASE(k) == 1:
+        return a, b, CSEL, 0
+    for x, y, inv in ((a, b, 1), (b, a, 0)):  # x is the changed value, y the plain one
+        found = _only(x, fn)
+        if found is None or found[1].cls != k or found[1].arg[0] != y or not _plain(y, fn):
+            continue
+        di = found[1]
+        kind = None
+        if di.op == Oadd and _conbits(di.arg[1], fn) == 1:
+            kind = CSINC
+        elif di.op == Oneg:
+            kind = CSNEG
+        elif di.op == Oxor and _conbits(di.arg[1], fn) in (-1, 0xffffffff if k == Kw else -1):
+            kind = CSINV
+        if kind is not None:
+            di.set(Ins(Onop))
+            chuse(y, +1, fn)
+            # csinc d, y, y, c is: y if c, else y + 1. So c must hold when y is wanted
+            return y, y, kind, inv
+    if _conbits(b, fn) == 0:
+        return CON_Z, a, CSEL, 1  # csel d, xzr, a, !cc
+    return a, b, CSEL, 0
+
+
 def selcsel(i, fn):
     """cimo (ext.isel): "sel0 c; r = sel1 a, b" as a comparison and an acsel. A condition computed
     by a comparison in this block is compared again right here, for the flags; the comparison
@@ -719,10 +864,13 @@ def selcsel(i, fn):
     vgrow(fn.mem, fn.nmem)
     fn.mem[fn.nmem - 1] = x
     x.offset.type = CBits
-    emit(D.Oacsel, k, i.to, i.arg[0], MEM(fn.nmem - 1))
+    a, b0, kind, inv = _cselform(i.arg[0], i.arg[1], k, fn)
+    x.scale = kind | inv << 4
+    emit(D.Oacsel, k, i.to, a, MEM(fn.nmem - 1))
     iarg = D.insb[D.curi].arg
-    fixarg(iarg, 0, k, 0, fn)
-    b = [i.arg[1]]
+    if _conbits(a, fn) != 0 or KBASE(k) == 1:
+        fixarg(iarg, 0, k, 0, fn)
+    b = [b0]
     fixarg(b, 0, k, 0, fn)
     x.base = b[0]
     if cm:
@@ -793,6 +941,12 @@ def sel(i, fn):
     if _ext.isel:
         if i.op in (Oadd, Osub) and KBASE(i.cls) == 0 and selmadd(i, fn):
             return
+        if i.op == Oadd and KBASE(i.cls) == 0 and selcincadd(i, fn):
+            return
+        if i.op == Omul and KBASE(i.cls) == 0 and selmulcon(i, fn):
+            return
+        if i.op == Oshl and KBASE(i.cls) == 0 and selubfiz(i, fn):
+            return
         if i.op in ALU and KBASE(i.cls) == 0:
             if selbits(i, fn) or selalu(i, fn):
                 return
@@ -859,6 +1013,34 @@ def sel(i, fn):
     fixarg(iarg, 1, argcls(i, 1), 0, fn)
 
 
+def _tstjump(b, r, k, cc, fn):
+    """cimo (ext.isel): a jump on (x & y) == 0 or != 0, the and (r) only used by it: tst, or tbz and
+    tbnz for one bit (emit._cbz). seljmp runs before the block's instructions are selected, which is
+    why the and is simply deleted. Returns True if selected."""
+    if not _plain(r, fn) or fn.tmp[rval(r)].nuse != 1:
+        return False
+    d = None
+    for n in range(b.nins):
+        if b.ins[n].to == r:
+            d = b.ins[n]
+    if d is None or d.op != Oand or d.cls != k or not _plain(d.arg[0], fn):
+        return False
+    y = d.arg[1]
+    n = _conbits(y, fn)
+    if n is not None:
+        n &= (1 << (64 if k == Kl else 32)) - 1
+        if n == 0 or not arm64_logimm(n, k):
+            return False
+        y = getcon(s64(n), fn)
+    elif not _plain(y, fn):
+        return False
+    x = d.arg[0]
+    d.set(Ins(Onop))
+    emit(D.Oatst, k, R, x, y)
+    b.jmp.type = Jjf + cc
+    return True
+
+
 def seljmp(b, fn):
     if b.jmp.type in (Jret0, Jjmp, Jhlt):
         return
@@ -875,6 +1057,13 @@ def seljmp(b, fn):
             ir = b.ins[i]
             break
     cm = iscmp(ir.op) if ir is not None and use == 1 else None
+    if _ext.isel and ir is not None and use == 1:
+        if ir.op == Oand and ir.cls == Kw and _tstjump(b, r, Kw, Cine, fn):  # jnz tests a word
+            return
+        if cm and cm[1] in (Cieq, Cine) and KBASE(cm[0]) == 0 and _conbits(ir.arg[1], fn) == 0 \
+                and _tstjump(b, ir.arg[0], cm[0], cm[1], fn):
+            ir.set(Ins(Onop))
+            return
     if cm:
         ck, cc = cm
         if selcmp(ir.arg, ck, fn):

@@ -541,6 +541,20 @@ def _i_bitfield(a, mn, ops):
             | rd[1])
 
 
+def _i_ubfiz(a, mn, ops):
+    """ubfiz rd, rn, #lsb, #width."""
+    if len(ops) != 4:
+        raise AssemblerError('ubfiz needs 4 operands')
+    rd, rn = _reg(ops[0]), _reg(ops[1])
+    _same(rd, rn)
+    w = 64 if rd[0] == 'x' else 32
+    lsb, width = _imm(ops[2], True), _imm(ops[3], True)
+    if not (0 <= lsb < w and 1 <= width <= w - lsb):
+        raise AssemblerError('bad bit field in ubfiz')
+    return (0x53000000 | _sf(rd) | (w == 64) << 22 | ((-lsb) % w) << 16 | (width - 1) << 10
+            | rn[1] << 5 | rd[1])
+
+
 def _i_ror(a, mn, ops):
     """ror rd, rn, #n: extr rd, rn, rn, #n."""
     if len(ops) != 3:
@@ -960,7 +974,8 @@ def _i_csel(a, mn, ops):
         raise AssemblerError('bad condition %r' % ops[3])
     if mn == 'fcsel':
         return 0x1e200c00 | _ftype(rd) << 22 | rm[1] << 16 | c << 12 | rn[1] << 5 | rd[1]
-    return 0x1a800000 | _sf(rd) | rm[1] << 16 | c << 12 | rn[1] << 5 | rd[1]
+    base = {'csel': 0x1a800000, 'csinc': 0x1a800400, 'csinv': 0x5a800000, 'csneg': 0x5a800400}[mn]
+    return base | _sf(rd) | rm[1] << 16 | c << 12 | rn[1] << 5 | rd[1]
 
 
 def _i_mulh(a, mn, ops):
@@ -968,6 +983,26 @@ def _i_mulh(a, mn, ops):
         raise AssemblerError('%s needs 3 operands' % mn)
     rd, rn, rm = [_reg(o, 'x') for o in ops]
     return (0x9bc07c00 if mn == 'umulh' else 0x9b407c00) | rm[1] << 16 | rn[1] << 5 | rd[1]
+
+
+def _i_tbz(a, mn, ops):
+    if len(ops) != 3:
+        raise AssemblerError('%s needs 3 operands' % mn)
+    rt = _reg(ops[0])
+    n = _imm(ops[1], True)
+    if not 0 <= n < (64 if rt[0] == 'x' else 32):
+        raise AssemblerError('bit number out of range')
+    sym, add, mod = _expr(ops[2])
+    if sym is None or mod is not None:
+        raise AssemblerError('bad branch target %r' % ops[2])
+    a.fixup('TSTBR14', sym, add)
+    return ((0x37000000 if mn == 'tbnz' else 0x36000000) | (n >> 5) << 31 | (n & 31) << 19 | rt[1])
+
+
+def _i_tst(a, mn, ops):
+    """tst rn, rm or #imm: ands zr, rn, ..."""
+    rn = _reg(ops[0])
+    return _i_logic(a, 'ands', ['wzr' if rn[0] == 'w' else 'xzr'] + list(ops))
 
 
 def _i_cbz(a, mn, ops):
@@ -1039,10 +1074,12 @@ _INSNS = {
     'cmp': _i_cmp, 'cmn': _i_cmp, 'neg': _i_neg,
     'and': _i_logic, 'orr': _i_logic, 'eor': _i_logic, 'ands': _i_logic,
     'bic': _i_logic, 'orn': _i_logic, 'eon': _i_logic, 'ubfx': _i_bitfield, 'sbfx': _i_bitfield,
-    'ror': _i_ror,
+    'ror': _i_ror, 'ubfiz': _i_ubfiz,
     'lsl': _i_shift, 'lsr': _i_shift, 'asr': _i_shift,
     'mul': _i_dp2, 'sdiv': _i_dp2, 'udiv': _i_dp2, 'madd': _i_madd, 'msub': _i_madd,
-    'cbz': _i_cbz, 'cbnz': _i_cbz, 'csel': _i_csel, 'fcsel': _i_csel, 'smulh': _i_mulh, 'umulh': _i_mulh,
+    'cbz': _i_cbz, 'cbnz': _i_cbz, 'csel': _i_csel, 'fcsel': _i_csel,
+    'csinc': _i_csel, 'csinv': _i_csel, 'csneg': _i_csel, 'tbz': _i_tbz, 'tbnz': _i_tbz, 'tst': _i_tst,
+    'smulh': _i_mulh, 'umulh': _i_mulh,
     'sxtb': _i_ext, 'sxth': _i_ext, 'sxtw': _i_ext, 'uxtb': _i_ext, 'uxth': _i_ext,
     'mov': _i_mov, 'movk': _i_movk, 'movz': _i_movk, 'movn': _i_movk, 'cset': _i_cset,
     'fadd': _i_fp3, 'fsub': _i_fp3, 'fmul': _i_fp3, 'fdiv': _i_fp3, 'fneg': _i_fneg,
@@ -1419,18 +1456,18 @@ class _Asm:
             s = syms.get(name)
             if s is None:
                 s = syms[name] = Symbol(name)
-            if kind in ('JUMP26', 'CALL26', 'CONDBR19') and s.section is sec and not s.globl:
+            if kind in ('JUMP26', 'CALL26', 'CONDBR19', 'TSTBR14') and s.section is sec and not s.globl:
                 d = s.value + add - off
                 if d & 3:
                     raise AssemblerError('line %d: misaligned branch target %s' % (lineno, name))
-                bits = 26 if kind != 'CONDBR19' else 19
+                bits = {'CONDBR19': 19, 'TSTBR14': 14}.get(kind, 26)  # tbz: 32 KB either way
                 if not -(1 << (bits + 1)) <= d < 1 << (bits + 1):
                     raise AssemblerError('line %d: branch out of range: %s' % (lineno, name))
                 w = struct.unpack_from('<I', sec.data, off)[0]
                 if bits == 26:
                     w |= (d >> 2) & 0x3ffffff
                 else:
-                    w |= ((d >> 2) & 0x7ffff) << 5
+                    w |= ((d >> 2) & ((1 << bits) - 1)) << 5
                 struct.pack_into('<I', sec.data, off, w)
             else:
                 sec.relocs.append(Reloc(off, kind, name, add))

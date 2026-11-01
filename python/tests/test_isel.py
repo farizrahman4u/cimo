@@ -172,7 +172,7 @@ def test_cbz_with_every_loop_shape():
 ])
 def test_selects_have_no_branch(src):
     b = body(src)
-    assert re.search(r'\bf?csel\b', b), b
+    assert re.search(r'\bf?cs(el|inc|inv|neg)\b', b), b
     assert not re.search(r'\bb(eq|ne|lt|le|gt|ge|cc|cs|hi|ls|mi|pl)\b|\bcbn?z\b', b), b
 
 
@@ -431,3 +431,168 @@ def test_no_extension_after_a_narrow_load():
         long i(unsigned short *p) { return *p; }''', cache=False)
     assert m.f(array.array('b', [-1])) == -1 and m.g(array.array('B', [255])) == 255
     assert m.h(array.array('h', [-2])) == -1 and m.i(array.array('H', [65535])) == 65535
+
+
+CONDFORMS = '''
+long a1(long a, long b, long c) { return a < b ? c + 1 : c; }
+long a2(long a, long b, long c) { return a < b ? c : c + 1; }
+long a3(long a, long b, long c) { return a < b ? -c : c; }
+long a4(long a, long b, long c) { return a < b ? c : -c; }
+long a5(long a, long b, long c) { return a < b ? ~c : c; }
+long a6(long a, long b, long c) { return a < b ? c : ~c; }
+long a7(long a, long b, long c) { return a < b ? c : 0; }
+long a8(long a, long b, long c) { return a < b ? 0 : c; }
+int a9(long a, long b) { return a < b ? -1 : 0; }
+long a10(long a) { return a < 0 ? -a : a; }
+int a11(int a, int b, int c) { return a < b ? c + 1 : c; }
+int a12(int a, int b, int c) { return a == b ? ~c : c; }
+long b1(long a, long b, long c) { return c + (a < b); }
+long b2(long a, long b, long c) { return (a == b) + c; }
+int b3(int a, int b, int c) { return c + (a > b); }
+long b4(unsigned long a, unsigned long b, long c) { return c + (a < b); }
+long c1(long a, long b) { if (a & 8) return b; return b + 7; }
+long c2(long a, long b) { if (a & (1L << 63)) return b; return b + 7; }
+long c3(long a, long b) { if ((a & 0xff0) == 0) return b; return b + 7; }
+long c4(long a, long b, long c) { if (a & c) return b; return b + 7; }
+int c5(int a, int b) { if (a & (1 << 31)) return b; return b + 7; }
+long c6(long a) { long m = a & 12; if (m) return m; return 5; }
+long d1(long a) { return a * 3; }
+long d2(long a) { return a * 7; }
+long d3(long a) { return a * 9; }
+long d4(long a) { return a * 10; }
+long d5(long a) { return a * 14; }
+long d6(long a) { return a * -8; }
+long d7(long a) { return a * 11; }
+int d8(int a) { return a * 15; }
+int d9(int a) { return a * -2; }
+long d10(long a) { return a * 1025; }
+long e1(long a) { return (a & 0xff) << 4; }
+int e2(int a) { return (a & 0xf) << 28; }
+long e3(long a) { long m = a & 0xff; return (m << 4) + m; }
+'''
+
+
+@pytest.mark.parametrize('name,want', [
+    ('a1', r'csinc'), ('a2', r'csinc'), ('a3', r'csneg'), ('a4', r'csneg'), ('a5', r'csinv'), ('a6', r'csinv'),
+    ('a7', r'csel\s+x\d+, xzr'), ('a8', r'csel\s+x\d+, xzr'), ('a10', r'csneg'), ('a11', r'csinc\s+w'),
+    ('b1', r'csinc'), ('b2', r'csinc'), ('b3', r'csinc\s+w'), ('b4', r'csinc'),
+    ('c1', r'tbn?z\s+x\d+, #3'), ('c2', r'tbn?z\s+x\d+, #63'), ('c3', r'tst\s'), ('c4', r'tst\s'), ('c5', r'tbn?z\s+w\d+, #31'),
+    ('d1', r'add\s+x0, x0, x0, lsl #1'), ('d3', r'add\s+x0, x0, x0, lsl #3'), ('d6', r'sub\s+x0, xzr, x0, lsl #3'),
+    ('e1', r'ubfiz\s+x0, x0, #4, #8'), ('e2', r'ubfiz\s+w0, w0, #28, #4'),
+])
+def test_selected_batch3(name, want):
+    asm = driver._build(CONDFORMS)[0]
+    m = re.search(r'^_?%s:\n(.*?)^\.?(?:type|/\*)' % name, asm, re.S | re.M)
+    assert re.search(want, m.group(1)), m.group(1)
+
+
+def test_batch3_computes_the_same():
+    m = cimo.compile(CONDFORMS, cache=False)
+    vals = [0, 1, -1, 2, 3, 7, 8, 9, 12, 255, 256, 0xff0, 2 ** 31 - 1, -2 ** 31, 2 ** 32, 2 ** 62, 2 ** 63 - 1, -2 ** 63]
+    ws = [v for v in vals if -2 ** 31 <= v < 2 ** 31]
+    for a in vals:
+        for mul, f in ((3, m.d1), (7, m.d2), (9, m.d3), (10, m.d4), (14, m.d5), (-8, m.d6), (11, m.d7), (1025, m.d10)):
+            assert f(a) == _s(a * mul), (a, mul)
+        assert m.a10(a) == _s(-a if a < 0 else a)
+        assert m.e1(a) == (a & 0xff) << 4 and m.e3(a) == ((a & 0xff) << 4) + (a & 0xff)
+        assert m.c6(a) == (a & 12 or 5)
+        for b in vals:
+            assert m.c1(a, b) == (b if a & 8 else _s(b + 7)) and m.c2(a, b) == (b if a < 0 else _s(b + 7))
+            assert m.c3(a, b) == (b if a & 0xff0 == 0 else _s(b + 7))
+            assert m.a9(a, b) == (-1 if a < b else 0)
+            for c in (0, 1, -1, 5, 2 ** 63 - 1, -2 ** 63):
+                t = a < b
+                assert m.a1(a, b, c) == _s(c + 1 if t else c) and m.a2(a, b, c) == _s(c if t else c + 1)
+                assert m.a3(a, b, c) == _s(-c if t else c) and m.a4(a, b, c) == _s(c if t else -c)
+                assert m.a5(a, b, c) == (~c if t else c) and m.a6(a, b, c) == (c if t else ~c)
+                assert m.a7(a, b, c) == (c if t else 0) and m.a8(a, b, c) == (0 if t else c)
+                assert m.b1(a, b, c) == _s(c + t) and m.b2(a, b, c) == _s(c + (a == b))
+                assert m.b4(a & M64, b & M64, c) == _s(c + ((a & M64) < (b & M64)))
+                assert m.c4(a, b, c) == (b if a & c else _s(b + 7))
+    for a in ws:
+        for mul, f in ((15, m.d8), (-2, m.d9)):
+            assert f(a) == _i32(a * mul)
+        assert m.e2(a) == _i32((a & 0xf) << 28) and m.c5(a, 3) == (3 if a < 0 else 10)
+        for b in ws:
+            for c in (0, 1, -1, 2 ** 31 - 1, -2 ** 31):
+                assert m.a11(a, b, c) == _i32(c + 1 if a < b else c)
+                assert m.a12(a, b, c) == (~c if a == b else c)
+                assert m.b3(a, b, c) == _i32(c + (a > b))
+
+
+def test_identical_compares_in_a_switch_go():
+    src = 'int f(int k) { switch (k) { case 0: return 11; case 1: return 22; case 3: return 41; case 5: return 61; case 6: return 71; default: return 0; } }'
+    m = cimo.compile(src, cache=False)
+    assert [m.f(i) for i in (-1, 0, 1, 2, 3, 4, 5, 6, 7)] == [0, 11, 22, 0, 41, 0, 61, 71, 0]
+    b = body(src)
+    cmps = re.findall(r'cmp\s+(w\d+, #\d+)', b)
+    assert len(cmps) == len(set(cmps)), b
+
+
+def test_sibling_calls():
+    src = '''long g(long a);
+    long f(long a) { return g(a + 1); }
+    void h(long a);
+    void i(long a) { h(a); }
+    long j(long a) { return g(a) + 1; }
+    long k(long a) { long b[2]; long *volatile p = b; p[0] = a; return g(p[0]); }
+    long g(long a) { static volatile long n; BIG return n; }
+    void h(long a) { g(a); BIG2 }
+    int callsmall(long a); long l(long a) { return callsmall(a); }
+    int callsmall(long a) { static volatile int n; BIG ++n; return n; }'''.replace('BIG2', 'static volatile long q; ' + 'q += a; ' * 45).replace('BIG', 'n += 0; ' * 45)
+    asm = driver._build(src)[0]
+    assert re.search(r'\bb\s+_?g\b', body(src, 'f')), body(src, 'f')
+    assert re.search(r'\bb\s+_?h\b', body(src, 'i')), body(src, 'i')
+    assert re.search(r'\bbl\s+_?g\b', body(src, 'j')), body(src, 'j')  # work after it
+    assert re.search(r'\bbl\s+_?g\b', body(src, 'k')), body(src, 'k')  # a stack slot
+    assert re.search(r'\bbl\s+_?callsmall\b', body(src, 'l')), body(src, 'l')  # extends the result
+    src = src.replace('n += 0;', 'n += a;', 45)  # g adds a 45 times
+    m = cimo.compile(src, cache=False)
+    first = m.f(1)
+    assert m.f(1) == first + 2 * 45 and m.j(0) == first + 2 * 45 + 1
+
+
+def test_sibling_call_with_saved_registers():
+    src = '''long g(long a, long b) { return a + b * 3; }
+    long f(long a, long b, long c) {
+        long t = g(a, b); long u = g(t, c); long v = g(u, a);
+        return g(t + u + v, c);
+    }
+    long h(long a, long b, long c, long d, long e, long i, long j, long k, long l, long m) { return a + b + c + d + e + i + j + k + l * m; }
+    long n(long a) { return h(a, 1, 2, 3, 4, 5, 6, 7, 8, 9); }
+    '''
+    m = cimo.compile(src, cache=False)
+    g = lambda a, b: a + b * 3
+    t = g(5, 6); u = g(t, 7); v = g(u, 5)
+    assert m.f(5, 6, 7) == g(t + u + v, 7)
+    assert m.n(10) == 10 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 * 9
+
+
+def test_self_tail_recursion_is_a_loop():
+    src = '''long fact(long n, long r) { if (n < 2) return r; return fact(n - 1, r * n); }
+    long deep(long n, long a) { if (n == 0) return a; return deep(n - 1, a + n); }
+    int sw(int a, int b, int n) { if (n <= 0) return a * 10 + b; return sw(b, a, n - 1); }
+    long vs(long n, long a) { long v = a * 2; if (n == 0) return v; return vs(n - 1, v + 1); }
+    void cnt(long *p, long n) { if (n == 0) return; *p += n; cnt(p, n - 1); }
+    double dd(double x, int n) { if (n == 0) return x; return dd(x * 2.0, n - 1); }
+    signed char sc(signed char c, int n) { if (n == 0) return c; return sc(c + 100, n - 1); }
+    long notail(long n) { if (n == 0) return 0; return n + notail(n - 1); }
+    long esc(long n, long *p) { long x = n; if (n == 0) return *p; return esc(n - 1, &x); }'''
+    assert 'bl' not in re.findall(r'\b(bl)\s+_?fact', body(src, 'fact'))
+    m = cimo.compile(src, cache=False)
+    assert m.fact(10, 1) == 3628800
+    assert m.deep(3000000, 0) == 3000000 * 3000001 // 2  # no stack
+    assert m.sw(1, 2, 3) == 21 and m.sw(1, 2, 4) == 12  # the assignments are parallel
+    v, a = 0, 3
+    for n in range(4, -1, -1):
+        v = a * 2
+        a = v + 1
+    assert m.vs(4, 3) == v
+    import array
+    x = array.array('q', [0])
+    m.cnt(x, 4)
+    assert x[0] == 10
+    assert m.dd(1.5, 3) == 12.0 and m.sc(100, 1) == -56 and m.notail(4) == 10
+    y = array.array('q', [7])
+    assert m.esc(3, y) == 1  # the pointer to a local keeps its own frame: stays a call
+    assert re.search(r'\bbl\s+_?esc', body(src, 'esc')), body(src, 'esc')
