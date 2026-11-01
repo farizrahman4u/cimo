@@ -162,6 +162,17 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   (`ema` 5.12 to 3.33 ns, a wrapping-add sum 2.05 to 0.34 ns). Costs 13-38% compile time and about
   25-30% more code on `t_printf` and `t_math`. Open: drop a static function once every call is
   inlined (its definition is still compiled and emitted); honor `noinline`.
+- **Inlining stops by position in a large function** (from scramjit): `inline.CALLER_LIMIT` (4000 IR
+  instructions) is spent in source order, so later code keeps its calls however hot it is and however
+  small the callee. A llama2.c forward pass as one function (scramjit's `bench/llm.py`) called
+  one-instruction helpers three times per element in its matrix loops: 28 tok/s, against 89 with the
+  limit lifted (compile 0.8 to 1.4 s). Exempt callees no bigger than the call they replace, which
+  shrinks the caller, and spend the rest of the budget on the deepest loops first. scramjit made its
+  four wrapping helpers macros because of this; its other helpers still hit the limit.
+- **FMA contraction slows reductions on arm64**: `s += a[i] * b[i]` runs 2.15 ns per element with `fmadd`,
+  1.81 with `fmul` and `fadd` (`-ffp-contract` shows the same in gcc: `bench/llm.py`'s C at `-O3`, 63 tok/s
+  with, 82 without), probably the latency on the sum (not measured on other cores). Contraction is on
+  by default. Measure on other arm64 cores, then consider not contracting when `c` is carried round the loop.
 - **Linking the host libm for math calls** (requested by scramjit; see the scramjit paragraph in
   `requirements.md`): needed for results bit-identical to CPython's on native targets, on Linux,
   macOS and Windows. **When done, note it in scramjit's `TODO.md`.**
