@@ -10,13 +10,14 @@ import pytest
 
 import cimo
 from cimo.frontend import compile as frontend_compile
+import hosts
 
-pytestmark = pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aarch64'),
-                                reason='cimo.compile generates arm64 code')
+pytestmark = pytest.mark.skipif(not hosts.RUNS,
+                                reason='cimo does not run here')
 
 LOC = re.compile(r'^<string>:\d+:\d+: error: ')
 # long double is 128-bit (rejected) on Linux; binary64, a plain double, on Apple and Windows
-QUAD = cimo.driver.TARGET == 'arm64'
+QUAD = cimo.driver.TARGET in ('arm64', 'amd64_sysv')  # long double is 16 bytes (Linux)
 needs_quad = pytest.mark.skipif(not QUAD, reason='long double is double on this target')
 
 REJECTED = [

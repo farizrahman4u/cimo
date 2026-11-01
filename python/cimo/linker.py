@@ -169,7 +169,10 @@ def compile_runtime_source(path, target):
     from . import execution as _exe
     from .preprocessor import preprocess
     src = _res.read_text(path)
-    fast = {} if target.startswith('amd64') else {'__FP_FAST_FMA': '1', '__FP_FAST_FMAF': '1'}
+    # arm64 has a fused multiply-add and single instructions for floor, ceil, trunc, round,
+    # fmin and fmax; x86-64's baseline has neither: musl's portable code (runtime/math)
+    fast = ({'__CIMO_SOFT_MATH': '1'} if target.startswith('amd64')
+            else {'__FP_FAST_FMA': '1', '__FP_FAST_FMAF': '1'})
     pp = preprocess(src, path, include_dirs=(RUNTIME_INCLUDE,), defines=fast, target=target,
                     warn=lambda *a, **k: None)
     ssa, params = driver._frontend(pp, path, target, fma=False, builtins=True, prune=True)

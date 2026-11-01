@@ -11,9 +11,10 @@ import pytest
 
 import cimo
 from cimo import execution
+import hosts
 
-pytestmark = pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aarch64'),
-                                reason='arm64 only')
+pytestmark = pytest.mark.skipif(not hosts.RUNS,
+                                reason='cimo does not run here')
 
 RUNTIME = os.path.join(os.path.dirname(cimo.__file__), 'runtime')
 

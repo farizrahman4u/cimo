@@ -31,6 +31,7 @@ import pytest
 
 import cimo
 from cimo import linker
+import hosts
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RT = os.path.join(HERE, 'runtime')
@@ -38,9 +39,9 @@ CIMO_PKG = os.path.dirname(os.path.abspath(cimo.__file__))
 # the reference compiler: on Windows a cc on PATH is MinGW for x86-64 (GitHub's arm64 image),
 # whose libraries an arm64 Python cannot load, so none there
 CC = os.environ.get('CC', 'cc') if sys.platform != 'win32' else '<none on Windows>'
-LINUX_ARM64 = sys.platform.startswith('linux') and platform.machine().lower() in ('aarch64', 'arm64')
+LINUX_ARM64 = sys.platform.startswith('linux') and hosts.RUNS  # Linux, any architecture
 
-pytestmark = pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aarch64'),
+pytestmark = pytest.mark.skipif(not hosts.RUNS,
                                 reason='arm64 only')
 need_cc = pytest.mark.skipif(not (shutil.which(CC) and LINUX_ARM64),
                              reason='needs a C compiler on Linux arm64 for the references')
@@ -493,6 +494,13 @@ def test_math_builtins_are_instructions():
     from cimo import driver
     text, _ = driver._build(BUILTIN_SRC)
     body = {}
+    if driver.TARGET.startswith('amd64'):
+        # x86-64's baseline (SSE2) has sqrt and fabs (andpd with a mask); the others, fma, the
+        # SSE4.1 roundings and C's fmin/fmax, are calls to the runtime
+        for name, insn in (('b_sqrt', 'sqrtsd'), ('b_fabs', 'andpd'), ('b_sqrtf', 'sqrtss')):
+            m = re.search(r'^%s:\n(.*?)\n\s*ret\n' % name, text, re.S | re.M)
+            assert m and insn in m.group(1) and 'call' not in m.group(1), (name, m and m.group(1))
+        return
     for name in ('b_sqrt', 'b_fabs', 'b_floor', 'b_ceil', 'b_trunc', 'b_round', 'b_fmin',
                  'b_fmax', 'b_fma', 'b_sqrtf', 'b_roundf', 'b_fminf', 'b_floorf', 'b_rint',
                  'b_nearbyint', 'b_rintf', 'b_nearbyintf'):
@@ -559,8 +567,12 @@ def test_math_in_loops_is_optimized():
 void f(int n, const double *restrict x, double *restrict y) {
     for (int i = 0; i < n; i++) y[i] = 1.0 / sqrt(x[i] * x[i] + 1.0);
 }''')
+    body = re.split(r'^f:$', text, flags=re.M)[1]
+    if driver.TARGET.startswith('amd64'):
+        assert body.count('sqrtsd') >= 4 and 'call' not in body  # unrolled by 4
+        return
     assert text.count('fsqrt') >= 4  # unrolled by 4
-    assert '\tbl\t' not in re.split(r'^f:$', text, flags=re.M)[1]
+    assert '\tbl\t' not in body
 
 
 # ---------------------------------------------------------------------------------------------
@@ -894,13 +906,20 @@ FMA_SRC = 'double f(double a, double b, double c) { return a * b + c; }\n' \
 FUSED, SPLIT = 5.551115123125783e-17, 0.0  # 0.1 * 10 - 1, rounded once or twice
 
 
+def _contracted():
+    """What compile(fma=True) gives for a*b + c: fused, except on x86-64, whose baseline has no
+    fused multiply-add, so cimo never contracts there (fma() itself is still exact)."""
+    from cimo import driver
+    return SPLIT if driver.TARGET.startswith('amd64') else FUSED
+
+
 def test_fma_per_compile():
     """compile(fma=) decides for that call alone: in either order, with the cache on (each
     gets its own entry), without touching the process default. fma() itself stays fused."""
     from cimo import driver
     default = driver.FMA
     src = FMA_SRC + '/* %s */\n' % os.urandom(8).hex()
-    for fma, want in ((False, SPLIT), (True, FUSED), (False, SPLIT), (True, FUSED)):
+    for fma, want in ((False, SPLIT), (True, _contracted()), (False, SPLIT), (True, _contracted())):
         m = cimo.compile(src, fma=fma)
         assert m.f(0.1, 10.0, -1.0) == want, fma
         assert m.g(0.1, 10.0, -1.0) == FUSED
@@ -909,18 +928,18 @@ def test_fma_per_compile():
 
 def test_fma_none_follows_the_process_default(monkeypatch):
     from cimo import driver
-    for flag, want in ((False, SPLIT), (True, FUSED)):
+    for flag, want in ((False, SPLIT), (True, _contracted())):
         monkeypatch.setattr(driver, 'FMA', flag)
         assert cimo.compile(FMA_SRC, cache=False).f(0.1, 10.0, -1.0) == want
     monkeypatch.setattr(driver, 'FMA', False)
-    assert cimo.compile(FMA_SRC, cache=False, fma=True).f(0.1, 10.0, -1.0) == FUSED
+    assert cimo.compile(FMA_SRC, cache=False, fma=True).f(0.1, 10.0, -1.0) == _contracted()
 
 
 def test_fma_on_load(tmp_path):
     p = tmp_path / 'k.c'
     p.write_text(FMA_SRC)
     assert cimo.load(p, fma=False).f(0.1, 10.0, -1.0) == SPLIT
-    assert cimo.load(p, fma=True).f(0.1, 10.0, -1.0) == FUSED
+    assert cimo.load(p, fma=True).f(0.1, 10.0, -1.0) == _contracted()
 
 
 def test_compiling_in_threads():
@@ -935,7 +954,7 @@ def test_compiling_in_threads():
         fma = bool(k % 2)
         src = FMA_SRC + helpers + '\nint id(void) { return %d; }\n/* %s */\n' % (k, os.urandom(4).hex())
         m = cimo.compile(src, cache=False, fma=fma)
-        return m.id() == k and m.f(0.1, 10.0, -1.0) == (FUSED if fma else SPLIT)
+        return m.id() == k and m.f(0.1, 10.0, -1.0) == (_contracted() if fma else SPLIT)
     old = sys.getswitchinterval()
     sys.setswitchinterval(1e-5)
     try:
