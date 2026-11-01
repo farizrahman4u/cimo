@@ -22,7 +22,7 @@ from pyodide.ffi import create_proxy, to_js
 from ..execution import (KernelError, E_ABORT, E_ASSERT, E_TRAP, E_EXIT)
 
 _ids = itertools.count()
-_PY = {'w': int, 'l': int, 's': float, 'd': float}
+_PY = {'w': int, 'l': int, 's': float, 'd': float, 'W': int, 'L': int}
 
 
 _wrapper = None
@@ -201,6 +201,10 @@ class WasmKernel:
                 m._flush()
         if self._ret == 'l':
             return int(r)
+        if self._ret == 'W':  # wasm results are signed
+            return int(r) & 0xffffffff
+        if self._ret == 'L':
+            return int(r) & 0xffffffffffffffff
         return r
 
     def __repr__(self):

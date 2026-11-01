@@ -1655,6 +1655,11 @@ def _recordparams(f):
         p = p.next
         vi += 1
     paraminfo[f.decl.value.name] = out
+    # for the Python bindings: QBE's classes don't say that a w or l result is unsigned. A narrower
+    # unsigned type is zero extended into its w, so it reads the same either way
+    r = f.type.base
+    if r.prop & PROPINT and not r.issigned and r.size >= 4:
+        paraminfo.setdefault('#unsigned', set()).add(f.decl.value.name)
 
 
 def emitfunc(f, glob):

@@ -179,7 +179,7 @@ def test_division_by_constants(bits, signed):
     rnd = random.Random(bits * 2 + signed)
     edge = _EDGE64 if bits == 64 else _EDGE32
     lo, hi = (-2 ** (bits - 1), 2 ** (bits - 1) - 1) if signed else (0, 2 ** bits - 1)
-    wrap = lambda v: ((v + 2 ** (bits - 1)) % 2 ** bits) - 2 ** (bits - 1)  # as the binding returns
+    wrap = lambda v: ((v + 2 ** (bits - 1)) % 2 ** bits) - 2 ** (bits - 1)  # compared modulo 2**bits
     for d in ds:
         xs = set(edge + [hi, hi - 1, lo, lo + 1])
         for _ in range(30):
