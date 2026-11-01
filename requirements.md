@@ -563,6 +563,14 @@ Targets `amd64_sysv` (Linux; frontend `x86_64-sysv`) and `amd64_windows` (fronte
   `lock cmpxchg`.
 - **Faults:** besides SIGSEGV/access violations, integer division traps on x86 (#DE: `x / 0`,
   `INT_MIN / -1`), killing the process; on arm64 these return a value. Same fix as TODO 8.
+- **Measured** (2026-11-02, Windows 11 x64 / WSL Ubuntu 24.04 on the same Intel machine): the
+  corpora pass in full on both (2267 programs: gcc torture, c-testsuite, musl libc-test math;
+  `20101011-1.c` needs `signal.h` on x86 only); `tests/test_abi.py` 2400 random signatures on
+  Linux (gcc's convention, via `zig cc`) and 1800 on Windows (MinGW-w64 gcc), 0 mismatches. The
+  corpora found three wrong-code bugs: a load elimination bug of QBE's own, reachable on every
+  target through `ext.cse` (backend/PORTING.md), 64-bit displacements, and the sign of a zero
+  `fma` result after underflow (wasm too). The bundled headers declared Linux's `wchar_t`
+  unsigned, aarch64's: on x86-64 it is `int` (`wint_t` stays unsigned).
 - **Testing:** the suite runs on both (`tests/hosts.py` says what a host can run; arm64
   code-generation tests skip). References: gcc on Linux, MinGW-w64 gcc on Windows x64 (the
   Windows x64 convention, LLP64). Developed on Windows 11 x64 with WSL Ubuntu 24.04 without
