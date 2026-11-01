@@ -19,7 +19,7 @@ slots and calls of functions that return twice (setjmp) keep the call.
 """
 
 from . import defs as D
-from .defs import R, Kw, RTmp, RCon, Tmp0, CAddr, CON_Z, rtype, rval
+from .defs import R, Kw, Kl, RTmp, RCon, Tmp0, CAddr, CON_Z, rtype, rval
 from .util import newtmp, newcon, str_
 from . import cfg
 
@@ -522,6 +522,120 @@ def _touchesmemory(fn, nomem):
                     return True
         b = b.link
     return False
+
+
+def _unquote(s):
+    """The bytes of a string as the IR text has it, in quotes with octal escapes; or None."""
+    if isinstance(s, (bytes, bytearray)):
+        s = bytes(s).decode('latin-1')
+    if len(s) < 2 or s[0] != '"' or s[-1] != '"':
+        return None
+    out = bytearray()
+    i = 1
+    n = len(s) - 1
+    while i < n:
+        c = s[i]
+        if c != '\\':
+            out.append(ord(c))
+            i += 1
+            continue
+        i += 1
+        if i < n and s[i] in '01234567':
+            j = i
+            while j < n and j < i + 3 and s[j] in '01234567':
+                j += 1
+            out.append(int(s[i:j], 8) & 255)
+            i = j
+        elif i < n and s[i] in '\\"':
+            out.append(ord(s[i]))
+            i += 1
+        else:
+            return None  # an escape this doesn't know: leave the data alone
+    return out
+
+
+def recorddata(items, d):
+    """Collect d, an item of the data stream: static data of plain numbers, as bytes, by name. None for
+    what can't be read back that way."""
+    if d.type == D.DStart:
+        bad = d.lnk.export or d.lnk.thread or d.lnk.common or d.lnk.sec
+        items[d.name] = None if bad else bytearray()
+        items['#cur'] = d.name
+        return
+    if d.type == D.DEnd:
+        return
+    cur = items.get('#cur')
+    b = items.get(cur)
+    if b is None:
+        return
+    if d.isref:
+        items[cur] = None
+    elif d.type == D.DZ:
+        b += bytes(d.num)
+    elif d.isstr:
+        v = _unquote(d.str)
+        if v is None:
+            items[cur] = None
+        else:
+            b += v
+    else:
+        n = {D.DB: 1, D.DH: 2, D.DW: 4, D.DL: 8}[d.type]
+        b += (d.num & ((1 << (8 * n)) - 1)).to_bytes(n, 'little')
+
+
+def constglobals(fns, items, datarefs):
+    """LLVM's GlobalOpt: static data only ever loaded from keeps its initial value. Each use must be the
+    address of a load, directly or through an add whose only uses are loads' addresses; anything else
+    might store or lets the address go. Leaves {symbol id: bytes} for simplify, which folds the loads."""
+    from . import simplify
+    from .util import intern
+    names = {n: b for n, b in items.items() if b is not None and n != '#cur' and n not in datarefs}
+    bad = set()
+    for fn in fns:
+        addtmp = {}
+        useful = {}
+
+        def sym(r):
+            if rtype(r) != RCon:
+                return None
+            c = fn.con[rval(r)]
+            return c.sym.id if c.type == CAddr else None
+        b = fn.start
+        while b:
+            p = b.phi
+            while p:
+                for a in p.arg[:p.narg]:
+                    if sym(a) is not None:
+                        bad.add(sym(a))
+                    if a in addtmp or rtype(a) == RTmp:
+                        useful.setdefault(a, []).append(None)
+                p = p.link
+            if sym(b.jmp.arg) is not None:
+                bad.add(sym(b.jmp.arg))
+            if rtype(b.jmp.arg) == RTmp:
+                useful.setdefault(b.jmp.arg, []).append(None)
+            for i in b.ins:
+                for n in (0, 1):
+                    a = i.arg[n]
+                    s = sym(a)
+                    if s is not None:
+                        if D.isload(i.op) and n == 0:
+                            continue
+                        if i.op == D.Oadd and i.cls == Kl:
+                            addtmp[i.to] = s
+                            continue
+                        if i.op == D.Ocall and n == 0:
+                            continue  # calling it: code, not data
+                        bad.add(s)
+                    elif rtype(a) == RTmp:
+                        useful.setdefault(a, []).append(n == 0 and D.isload(i.op))
+                if i.to in addtmp and i.op != D.Oadd:
+                    bad.add(addtmp[i.to])
+            b = b.link
+        for t, s in addtmp.items():
+            if not all(useful.get(t, [])):
+                bad.add(s)
+    simplify.CONSTANTS = {intern(n): bytes(b) for n, b in names.items() if intern(n) not in bad}
 
 
 def expand_all(fns, limit, datarefs=()):

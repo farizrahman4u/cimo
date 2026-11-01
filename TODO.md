@@ -69,7 +69,9 @@ in Python.
   Multipliers are built outside loops (`cse.hoistcons`); the same for other large constants and FP
   constants (`MachineLICM`, GCC `rtl_move_loop_invariants`), rematerializing when out of registers.
 - Tail calls and sibling calls (`TailCallElim`, GCC `tail_recursion`, `tail_calls`), loops for
-  self-recursion. Jump tables for dense `switch` (`lower_switch`, `if_to_switch`).
+  self-recursion. ~~Jump tables for dense `switch`~~ **Done**, from 16 cases, not LLVM's 4: per element, tree /
+  table, random cases: 4 cases 5.0 / 6.5 ns, 8 cases 7.5 / 7.2, 16 cases 9.0 / 7.6, 32 cases 11.3 / 7.8; a few
+  dominant cases 4.5 / 5.6. Measure on other CPUs. Open: value tables (`switch.table`).
 
 **Tier 2, scalar IR passes:**
 - Algebraic simplification: `InstCombine`, `AggressiveInstCombine`, GCC `forwprop`/`match.pd`.
@@ -85,9 +87,9 @@ in Python.
 - ~~`Reassociate`~~ **Done** for constants and sums (`cse.reassoc`). Open: `StraightLineStrengthReduce`/GCC
   `strength_reduction`, `SpeculativeExecution`, distributing `a * b + a * c`.
 - ~~Local `DSE`, `MergedLoadStoreMotion`, GVN hoisting, GCC `store_merging`, small `memcpy`, `memset`, `strlen`
-  of a literal, `pow(x, 2)`~~ **Done** (`backend/memopt.py`, `frontend.qbe._libcall`). Open: `SROA`/GCC `sra`
-  beyond what promotion does, `MemCpyOpt`, `GVN` load PRE/GCC `pre`, `MergeICmps`, `ExpandMemCmp`, `DSE` across
-  blocks.
+  of a literal, `pow(x, 2)`, `ExpandMemCmp` for `== 0`, loads of constant globals~~ **Done** (`backend/memopt.py`,
+  `frontend.qbe`, `inline.constglobals`). Open: `SROA`/GCC `sra` beyond what promotion does, `MemCpyOpt`, `GVN` load
+  PRE/GCC `pre`, `MergeICmps`, `DSE` across blocks.
 - GCC `cse_reciprocals`, `cse_sincos`, `expand_pow`, `optimize_bswap`, `optimize_widening_mul`, `strlen`.
 - Inlining with a real cost model (`InlineCost`), `DeadArgumentElimination`, `IPSCCP`, `GlobalOpt`,
   `FunctionAttrs` (pure, nocapture: loads and stores survive calls), `ModRef`/GCC `ipa_modref`,

@@ -680,3 +680,83 @@ def test_ccmp_for_a_select():
     for a, b, c, d in ((1, 2, 4, 3), (2, 1, 4, 3), (1, 2, 3, 4), (2, 1, 3, 4), (1, 2, 3, 3), (2, 1, 3, 3)):
         assert m.f(a, b, c, d, 10) == (10 if a < b and c > d else 11)
         assert m.g(a, b, c, d, 1, 2) == (201 if a < b or c == d else 102)
+
+
+SW = """int s7(int k) { switch (k) { case 0: return 11; case 1: return 22; case 2: return 37; case 3: return 41;
+    case 4: return 59; case 5: return 61; case 6: return 71; default: return 0; } }
+int a7(int k, int a) { switch (k) { case 0: a += 3; break; case 1: a *= 22; break; case 2: a -= 37; break;
+    case 3: a ^= 41; break; case 4: a |= 59; break; case 5: a <<= 2; break; case 6: a >>= 1; break; default: a = 0; } return a; }
+long l6(long k, long a) { switch (k) { case 1: return a + 1; case 2: return a * 2; case 3: return a - 3; case 5: return a ^ 5;
+    case 7: return a | 7; case 8: return a & 8; } return -1; }
+int fall(int k) { int s = 0; switch (k) { case 0: s += 1; case 1: s += 2; case 2: s += 4; break; case 3: s += 8; case 4: s += 16; case 5: s += 32; break; default: s = -1; } return s; }
+int holes(int k) { switch (k) { case 1: return 1; case 3: return 3; case 5: return 5; case 20: return 20; case 25: return 25; default: return -7; } }
+int neg(int k) { switch (k) { case -2: return 1; case -1: return 2; case 0: return 3; case 1: return 4; case 2: return 5; case 3: return 6; default: return 0; } }
+int sparse(int k) { switch (k) { case 1: return 1; case 1000: return 2; case 100000: return 3; case 10000000: return 4; default: return 0; } }
+int uns(unsigned k) { switch (k) { case 0: return 1; case 1: return 2; case 2: return 3; case 3: return 4; case 4000000000u: return 5; default: return 0; } }
+long loop(long *p, long n) { long s = 0; for (long i = 0; i < n; i++) { switch (p[i] & 7) { case 0: s += 1; break; case 1: s -= 2; break; case 2: s *= 3; break; case 3: s ^= 4; break; case 4: s |= 5; break; case 5: s += p[i]; break; case 6: s -= p[i]; break; default: s = s >> 1; } } return s; }
+int nest(int a, int b) { switch (a) { case 0: case 1: case 2: case 3: case 4: switch (b) { case 0: return 1; case 1: return 2; case 2: return 3; case 3: return 4; case 4: return 5; default: return 6; } default: return 7; } }
+char sc(char c) { switch (c) { case 'a': return 'A'; case 'b': return 'B'; case 'c': return 'C'; case 'd': return 'D'; case 'e': return 'E'; default: return c; } }
+"""
+
+
+def test_jump_tables(monkeypatch):
+    big = 'int f(int k) { switch (k) { %s default: return -1; } }' % ' '.join(
+        'case %d: return %d;' % (i, i * 7 + 1) for i in range(20))
+    assert re.search(r'\bbr\s+x17', body(big)), body(big)
+    assert not re.search(r'\bbr\s', body(SW, 's7')), body(SW, 's7')  # few cases: the tree is faster
+    m = cimo.compile(big + '\nstatic int mark_big;', cache=False)
+    assert [m.f(k) for k in (-1, 0, 7, 19, 20, 2 ** 31 - 1)] == [-1, 1, 50, 134, -1, -1]
+    from cimo.backend.arm64 import emit
+    monkeypatch.setattr(emit, 'JT_MINCASES', 4)
+    src = SW + 'static int mark_small;'
+    assert re.search(r'\bbr\s+x17', body(src, 's7')), body(src, 's7')
+    assert re.search(r'\bbr\s+x17', body(src, 'l6')), body(src, 'l6')
+    assert not re.search(r'\bbr\s', body(src, 'sparse')), body(src, 'sparse')
+
+
+@pytest.mark.parametrize('cached', [False, True])
+def test_jump_tables_compute_the_same(cached, monkeypatch, tmp_path):
+    from cimo.backend.arm64 import emit
+    monkeypatch.setattr(emit, 'JT_MINCASES', 4)  # every switch here that can have a table gets one
+    src = SW + '/* %s */ static int mark%s;' % (tmp_path.name, tmp_path.name.replace('-', '_'))
+    m = cimo.compile(src, cache=cached)
+    if cached:  # again, from the rebased image
+        m = cimo.compile(src)
+    t7 = {0: 11, 1: 22, 2: 37, 3: 41, 4: 59, 5: 61, 6: 71}
+    for k in list(range(-3, 12)) + [2 ** 31 - 1, -2 ** 31, 1000]:
+        assert m.s7(k) == t7.get(k, 0), k
+        assert m.holes(k) == ({1: 1, 3: 3, 5: 5, 20: 20, 25: 25}.get(k, -7))
+        assert m.neg(k) == ({-2: 1, -1: 2, 0: 3, 1: 4, 2: 5, 3: 6}.get(k, 0)), k
+        assert m.sparse(k) == {1: 1, 1000: 2}.get(k, 0)
+        for a in (0, 1, 5):
+            want = {0: a + 3, 1: a * 22, 2: a - 37, 3: a ^ 41, 4: a | 59, 5: a << 2, 6: a >> 1}.get(k, 0)
+            assert m.a7(k, a) == want
+            assert m.l6(k, a) == {1: a + 1, 2: a * 2, 3: a - 3, 5: a ^ 5, 7: a | 7, 8: a & 8}.get(k, -1)
+        want = {0: 7, 1: 6, 2: 4, 3: 56, 4: 48, 5: 32}.get(k, -1)
+        assert m.fall(k) == want
+    assert m.l6(2 ** 40 + 1, 5) == -1 and m.l6(-1, 5) == -1  # the whole long is compared
+    assert m.uns(4000000000) == 5 and m.uns(3) == 4 and m.uns(5) == 0
+    for a, b in ((0, 0), (0, 4), (0, 5), (4, 2), (5, 0), (-1, 0)):
+        assert m.nest(a, b) == (7 if not 0 <= a <= 4 else {0: 1, 1: 2, 2: 3, 3: 4, 4: 5}.get(b, 6))
+    assert m.sc(ord('c')) == ord('C') and m.sc(ord('z')) == ord('z')
+    p = array.array('q', [(i * 13) % 37 for i in range(50)])
+    s = 0
+    for v in p:
+        k = v & 7
+        if k == 0:
+            s += 1
+        elif k == 1:
+            s -= 2
+        elif k == 2:
+            s *= 3
+        elif k == 3:
+            s ^= 4
+        elif k == 4:
+            s |= 5
+        elif k == 5:
+            s += v
+        elif k == 6:
+            s -= v
+        else:
+            s >>= 1
+    assert m.loop(p, 50) == s

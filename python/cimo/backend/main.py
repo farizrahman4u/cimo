@@ -32,11 +32,16 @@ class _Driver:
         self.dbg = dbg
         self.pending = []  # cimo (ext.inline): the module's functions, compiled by finish()
         self.datarefs = set()  # cimo (ext.inline): symbols the module's data refers to
+        self.dataitems = {}  # cimo (ext.inline): static data's initial bytes, by name (inline.recorddata)
 
     def data(self, d):
         from .emit import emitdat
         if d.isref:
             self.datarefs.add(d.ref_name)
+        from . import ext as _x
+        if _x.inline:
+            from . import inline
+            inline.recorddata(self.dataitems, d)
         if self.dbg:
             return
         if D.T.name == 'wasm':  # cimo: the wasm target collects an object, not assembly
@@ -63,6 +68,7 @@ class _Driver:
         fns, self.pending = self.pending, []
         if not fns:
             return
+        inline.constglobals(fns, self.dataitems, self.datarefs)
         for fn in inline.expand_all(fns, ext.inline, self.datarefs):
             self.compile(fn)
 

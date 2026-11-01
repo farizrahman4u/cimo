@@ -217,10 +217,32 @@ def _float(fn, b, i):
     return R
 
 
+CONSTANTS = {}  # symbol id -> bytes of static data nothing writes (inline.constglobals)
+_LOADS = {D.Oloadsb: (1, True), D.Oloadub: (1, False), D.Oloadsh: (2, True), D.Oloaduh: (2, False),
+          D.Oloadsw: (4, True), D.Oloaduw: (4, False)}
+
+
+def _constload(fn, i):
+    r = i.arg[0]
+    if not CONSTANTS or rtype(r) != RCon:
+        return R
+    c = fn.con[rval(r)]
+    data = CONSTANTS.get(c.sym.id) if c.type == D.CAddr else None
+    if data is None:
+        return R
+    n, signed = _LOADS.get(i.op, (8 if i.cls in (Kl, Kd) else 4, False))
+    if c.i < 0 or c.i + n > len(data):
+        return R
+    v = int.from_bytes(data[c.i:c.i + n], 'little', signed=signed)
+    return getcon(D.s64(v & _mask(Kl if i.cls in (Kl, Kd) else Kw)), fn)
+
+
 def simplify(fn, b, i):
     """A value i is equal to, or R; i may be rewritten to something simpler. Runs on every
     instruction, on the operands before their uses."""
     o = i.op
+    if D.isload(o):
+        return _constload(fn, i)
     if o not in _SIMPLE:
         return R
     k = i.cls
