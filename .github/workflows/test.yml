@@ -1,5 +1,6 @@
 # The test suite on every push and pull request: Linux arm64 (gcc as the reference compiler,
-# with the corpora) and Windows arm64 (clang from Visual Studio as the reference).
+# with the corpora), macOS on Apple silicon (Apple clang as the reference) and Windows arm64
+# (clang from Visual Studio as the reference).
 name: test
 
 on:
@@ -23,6 +24,26 @@ jobs:
       - name: fetch the corpora (gcc torture, c-testsuite, libc-test)
         run: python tests/corpora.py
       - run: python -m pytest -q
+      - name: run the examples
+        run: for e in ../examples/*.py; do echo "== $e"; PYTHONPATH=. python "$e" || exit 1; done
+
+  macos-arm64:
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pytest numpy
+      - name: fetch the corpora
+        run: python tests/corpora.py
+      - run: python -m pytest -q
+      - name: run the examples
+        run: for e in ../examples/*.py; do echo "== $e"; PYTHONPATH=. python "$e" || exit 1; done
 
   windows-arm64:
     runs-on: windows-11-arm

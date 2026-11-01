@@ -8,15 +8,17 @@ import pytest
 import cimo
 from cimo import driver
 
+SYM = '_' if driver.TARGET == 'arm64_apple' else ''  # the target's symbol prefix
+
 
 def body(asm, name):
-    m = re.search(r'^%s:\n(.*?)(?=^\S+:\n|\Z)' % re.escape(name), asm, re.S | re.M)
+    m = re.search(r'^%s:\n(.*?)(?=^\S+:\n|\Z)' % re.escape(SYM + name), asm, re.S | re.M)
     assert m, name
     return m.group(1)
 
 
 def calls(asm, name):
-    return re.findall(r'\bbl\s+(\w+)', body(asm, name))
+    return re.findall(r'\bbl\s+%s(\w+)' % SYM, body(asm, name))
 
 
 @pytest.fixture
@@ -72,7 +74,7 @@ def test_small_helpers_are_inlined():
         assert calls(asm, f) == [], (f, body(asm, f))
     assert calls(asm, 't_fact') == ['fact']  # fact's own recursive call stays a call
     # the definitions are kept
-    assert re.search(r'^inner:', asm, re.M) and re.search(r'^wsub:', asm, re.M)
+    assert re.search(r'^%sinner:' % SYM, asm, re.M) and re.search(r'^%swsub:' % SYM, asm, re.M)
 
 
 def test_inlined_code_computes_the_same(no_inline):

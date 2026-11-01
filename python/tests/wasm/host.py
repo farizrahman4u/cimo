@@ -11,7 +11,15 @@ HOST = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'host.mjs')
 
 
 def available():
-    return shutil.which('node') is not None
+    """node is on PATH and runs (a broken install, e.g. a missing shared library, fails
+    --version)."""
+    if shutil.which('node') is None:
+        return False
+    try:
+        return subprocess.run(['node', '--version'], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode == 0
+    except OSError:
+        return False
 
 
 class Host:

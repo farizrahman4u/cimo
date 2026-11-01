@@ -22,10 +22,24 @@ from cimo import preprocessor  # noqa: E402
 from cimo.preprocessor import PreprocessError, preprocess  # noqa: E402
 
 QBE = os.environ.get('CIMO_QBE', os.path.expanduser('~/code/qbe/qbe'))
+
+
+def _gnu(cmd):
+    """Is cmd GNU's? (On macOS, cpp and gcc are Apple clang, whose cpp is a traditional one.)"""
+    if shutil.which(cmd) is None or sys.platform == 'win32':
+        return False
+    try:
+        v = subprocess.run([cmd, '--version'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           universal_newlines=True).stdout
+    except OSError:
+        return False
+    return 'Free Software Foundation' in v
+
+
 # GNU cpp/gcc as references, not on Windows (MinGW there: x86-64 headers only)
-HAVE_CPP = shutil.which('cpp') is not None and sys.platform != 'win32'
+HAVE_CPP = _gnu('cpp')
 HAVE_CPROC = preprocessor_compare.cproc_available()
-HAVE_GCC = shutil.which('gcc') is not None and sys.platform != 'win32'
+HAVE_GCC = _gnu('gcc')
 HAVE_QBE = os.path.exists(QBE)
 IS_ARM64_LINUX = sys.platform.startswith('linux') and os.uname().machine == 'aarch64'
 

@@ -108,6 +108,10 @@ output for these is broken, so no comparison test depends on it):
   remaining registers is split between them and the stack (x7 is saved right below the
   stack arguments, so the callee sees it whole), as clang's and cimo's `va_arg` read it; it
   was an error. A struct parameter split that way in a variadic function is still an error.
+- `arm64/abi.argsclass` (Apple, as C QBE's `arm64_apple` had it): a struct argument after the
+  `...` of a call went in registers; Apple passes every variadic argument on the stack. And a
+  16-byte aligned composite skipped to an even register pair (the AAPCS64 fix above), which
+  Apple does not do. Found by `tests/test_abi.py` against Apple clang and `va_arg` of structs.
 
 ## cimo extensions (`ext.py`, off by default)
 
