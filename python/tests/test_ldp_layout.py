@@ -16,6 +16,8 @@ from cimo.backend import ext
 
 ARM64 = platform.machine().lower() in ('arm64', 'aarch64')
 run_only = pytest.mark.skipif(not ARM64, reason='arm64 only')
+# ldp/stp pairing and loop layout are arm64 code generation (ext.ldp, ext.layout)
+pytestmark = pytest.mark.skipif(not ARM64, reason='arm64 code generation')
 
 
 def body(text, name='f'):

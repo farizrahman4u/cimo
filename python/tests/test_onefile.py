@@ -11,9 +11,11 @@ import pytest
 
 from cimo import onefile, linker
 
+import hosts
+
 pytestmark = pytest.mark.skipif(
-    __import__('platform').machine().lower() not in ('arm64', 'aarch64'),
-    reason='cimo generates arm64 code only')
+    not hosts.RUNS,
+    reason='cimo does not run here')
 
 KERNEL = r'''
 #include <math.h>

@@ -109,6 +109,29 @@ output for these is broken, so no comparison test depends on it):
   stack arguments, so the callee sees it whole), as clang's and cimo's `va_arg` read it; it
   was an error. A struct parameter split that way in a variadic function is still an error.
 
+## amd64 (`amd64/`, 2026-11-01)
+
+Ported from the same QBE `e786f06` (`amd64/{targ,sysv,winabi,isel,emit}.c`; `runmatch` from
+`util.c` is in `amd64/isel.py`, the X(nmem, zflag, lflag) column of `ops.h` in
+`amd64/targ.py`). Every `-d` dump and the assembly match C QBE on its 76 tests for
+`amd64_sysv` and `amd64_apple`; for `amd64_win` too, except the fix below (and `tls.ssa`, which
+both refuse, C QBE losing its buffered output when it aborts). Conventions as above; `Num.nl`
+and `Num.nr` are `uchar` in C, so `refn`'s INT_MIN is stored as 0 (`& 0xff`). The diff needs a
+C QBE built with glibc (WSL); the arm64 targets need it built with the arm64 patch, the amd64
+ones are the same either way.
+
+- `winabi.lower_func_parameters` (fix over C QBE): a float parameter passed on the stack (the
+  fifth or later) was a `Kl` copy into the float temporary (`%d2 =l copy S-12`), so it could
+  land in an integer register (`addss %ecx, %xmm0`); it is now a load of its own class, as in
+  `sysv.c`. Changes the `amd64_win` dumps of QBE's `abi6`, `abi8` and `vararg2`.
+
+cimo's own Windows x64 target is `amd64_windows` (`targ.T_amd64_windows`), not QBE's
+`amd64_win`, which stays as in C for the diffs: xmm6-xmm15 are callee-saved (QBE uses them as
+scratch, which corrupts a Windows caller's registers: Python's), saved by the prologue below the
+pushes (`E.xsave`, `E.xarea`; xmm15 when the emitter uses it as scratch); frames and allocas over
+a page are probed (`emit._probe`) through r11, which is in `rglob` (never allocated); extern
+data goes through the GOT; ELF syntax with `.L` labels.
+
 ## cimo extensions (`ext.py`, off by default)
 
 - `volatile`: `vloadsb`...`vload`, `vstoreb`...`vstored` (and `vloadw`/`vloadl`/`vloads`/

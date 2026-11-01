@@ -15,9 +15,12 @@ import subprocess
 import pytest
 
 import extcompile as X
+import hosts
 import test_m2 as M
 
-pytestmark = M.pytestmark
+# and the arm64 selection extensions (fma, ldp, layout) are arm64 code generation
+pytestmark = list(M.pytestmark) + [pytest.mark.skipif(not hosts.ARM64,
+                                                      reason='arm64 code generation')]
 
 FLAGSETS = {'ldp+layout': ('ldp', 'layout'), 'all': ('fma', 'ldp', 'layout'),
             'gen_opt+ldp+layout': ('ldp', 'layout')}

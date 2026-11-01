@@ -293,7 +293,9 @@ def lower_call(func, block, call_idx, pextra_alloc):
         if arg.style == APS_InlineOnStack:
             if arg.align > 4:
                 err("win abi cannot pass alignments > 16")
-            stack_usage += arg.size
+            # fix over C QBE (arg.size, 1 to 8 for a small struct): every argument on the
+            # stack takes an 8-byte slot
+            stack_usage += 8
         elif arg.style == APS_CopyAndPointerOnStack:
             stack_usage += 8
     stack_usage = ALIGN_UP(stack_usage, 16) & 0xffffffff
@@ -384,7 +386,7 @@ def lower_call(func, block, call_idx, pextra_alloc):
                 # Stash the value into the stack slot.
                 emit(Ostorel, 0, R, instr.arg[0], slot)
             emit(Oadd, Kl, slot, arg_stack_slots, getcon(slot_offset, func))
-            slot_offset += arg.size
+            slot_offset += 8  # fix over C QBE (arg.size), as above
         elif st in (APS_CopyAndPointerInRegister, APS_CopyAndPointerOnStack):
             # Alloca a space to copy into, and blit the value from the instr to the
             # copied location.

@@ -31,6 +31,9 @@ from cimo.backend.main import main as qbe_main
 # whose libraries an arm64 Python cannot load, so none there
 CC = os.environ.get('CC', 'cc') if sys.platform != 'win32' else '<none on Windows>'
 ARM64 = platform.machine().lower() in ('arm64', 'aarch64')
+# fmadd selection is arm64's (x86-64's baseline has no FMA: cimo neither contracts nor selects
+# fma there, and fma() is software)
+pytestmark = pytest.mark.skipif(not ARM64, reason='arm64 code generation')
 
 
 def fns(ssa):

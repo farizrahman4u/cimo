@@ -22,7 +22,7 @@ Pass a pointer to the struct instead. Struct values from Python are [planned](ar
 
 ### "cimo generates arm64 code only"
 
-See [Platforms](platforms.md): x86-64 is planned.
+See [Platforms](platforms.md): arm64 and x86-64 Linux and Windows are supported.
 
 ### My process crashed
 

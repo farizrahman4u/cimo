@@ -6,10 +6,10 @@
 | Pyodide, JupyterLite, marimo | WebAssembly | supported: Pyodide 0.27 |
 | Windows, arm64 | arm64 | supported: arm64 builds of CPython |
 | macOS, Apple silicon | arm64 | planned: loading is prototyped; needs testing on M-series Macs |
-| Linux, x86-64 | x86-64 | planned |
-| Windows, x64 | x86-64 | planned: loading is prototyped |
+| Linux, x86-64 | x86-64 | supported: baseline x86-64 (SSE2); no FMA contraction |
+| Windows, x64 | x86-64 | supported: x64 builds of CPython |
 
-On an unsupported machine, `cimo.compile` raises `CompileError: cimo generates arm64 code only; this machine is x86_64`.
+On an unsupported machine (for example an Intel Mac), `cimo.compile` raises `CompileError`.
 
 ## How code is loaded
 
