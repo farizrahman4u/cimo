@@ -113,6 +113,11 @@ def run(generate, a, include=()):
                 with open(os.path.join(a.out, '%s%d.txt' % (a.prefix, seed)), 'w') as f:
                     f.write(res + '\n')
                 print('seed %d: %s' % (seed, res[:200]), flush=True)
+            done = counts['pass'] + counts['fail'] + counts['skip']
+            if done % 200 == 0:
+                print('%s%d programs: %d pass, %d fail, %d skipped, %.0f min' % (
+                    a.prefix, done, counts['pass'], counts['fail'], counts['skip'],
+                    (time.time() - t0) / 60), flush=True)
         if src:
             for ext in ('.c', '.c.expected'):
                 os.remove(src[:-2] + ext)
