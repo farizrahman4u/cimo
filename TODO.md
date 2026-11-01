@@ -47,15 +47,17 @@ in Python.
 - ~~Frame only when needed, shifts by an immediate, register-offset addressing, `madd`, `msub`,
   `cbz`, `cbnz`~~ **Done** (`ext.isel`).
 - Pre/post-index addressing (`AArch64LoadStoreOpt`, GCC `inc_dec`).
-- Shifted and extended operands: `add x0, x0, x1, lsl #4`, `add x0, x0, w1, sxtw`.
-- `mneg`, `fnmul` (`MachineCombiner`, GCC `combine`).
+- ~~Shifted and extended operands~~ **Done, outside loops only:** folded, `add`/`sub`/`eor` take 2 cycles
+  from every input here (`s += x[i] << 3`: 0.72 ns folded, 0.38 not; through the shifted value 12%
+  better; off any chain the same). Measure on other CPUs: LLVM always folds single uses.
+- ~~`mneg`, `fnmul`~~ **Done** (`ext.isel`).
 - ~~`csel`, `fcsel`~~ **Done** (`ext.isel`; policy from `SimplifyCFG`, `EarlyIfConversion`). Then
   `csinc`, `csneg`, `cneg`, `csetm`. wasm `select`.
 - `cbz`, `cbnz`, `tbz`, `tbnz` (`AArch64CondBrTuning`), `tst`, `cmp`/`cmn` dropped after a flag-setting
   `subs`/`adds`/`ands` (`AArch64ConditionOptimizer`, GCC `compare_elim_after_reload`), `ccmp` for `a && b`
   (`AArch64ConditionalCompares`).
-- `bic`, `orn`, `eon`, `mvn`, `ubfx`, `sbfx`, `ubfiz`, `bfi`, `bfxil`, `extr`/`ror`.
-- `xzr` and `wzr` as operands: `str xzr, [x0]`; `movi`/`fmov #imm` for FP constants (2.0, 0.0).
+- ~~`bic`, `orn`, `eon`, `mvn`, `ubfx`, `sbfx`, `ror`, storing `xzr`, `fmov` immediates~~ **Done**
+  (`ext.isel`). Open: `ubfiz`, `bfi`, `bfxil`, `xzr` in `csel`.
 - Redundant extensions (`ldrb` then `uxtb`; GCC `ree`, `ext_dce`).
 - ~~Division by a constant~~ **Done** (`cse.divconst`). `mul` by 2^n+-1 as `add`/`sub` with a shift.
   Multipliers are built outside loops (`cse.hoistcons`); the same for other large constants and FP
@@ -104,6 +106,17 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
+- **A faster `Kernel.__call__`** (requested by scramjit, 2026-11-01). A call costs about 1,400 ns on arm64
+  Linux with ints and 2,450 ns with a numpy array, where the underlying ctypes call is about 450 ns. So
+  any caller making many small calls pays roughly 3x for the wrapper. Measured pieces: the argument list
+  comprehension and `_address` (`__array_interface__` alone is about 700 ns; a `bytearray` goes through
+  `memoryview` and `from_buffer`), `self._state.ctx()`, and the `try`/`finally` for stdout. Ideas: choose a
+  per-kernel call function when it's created, from its parameters (no pointer parameters means no list at
+  all; no stdout means no `finally`); and for numpy arrays, `addressof(c_char.from_buffer(a))` is about half
+  the cost of `__array_interface__`, falling back to it for read-only arrays. In Pyodide a call is about
+  13 us; much of it is the JavaScript wrapper converting i64 parameters to BigInt, so i32 where a value
+  fits, or a batch-free fast path for doubles, may help. Reproduce with a loop over `kernel(1, 2, buf)`.
+  **When done, note it in scramjit's `TODO.md`.**
 - **A public way to get a module's WebAssembly** (requested by scramjit): its site demo shows the
   compiled kernel's disassembly and calls `cimo.wasm.build` for the bytes, as cimo's own demo does,
   which isn't documented API. For example `module.wasm` (bytes, in Pyodide) and making
