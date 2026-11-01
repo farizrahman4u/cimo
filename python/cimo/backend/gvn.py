@@ -7,7 +7,7 @@ from . import copy as C
 from .defs import (R, RTmp, CON_Z, CBits, Con, Ins, KBASE, KWIDE, U32, Kx, Kw, Kl, UXXX,
                    UPhi, UIns, UJmp, Jjmp, Jjnz, Onop, Osub, Oadd, Osel0, optab, rtype,
                    rval, rkind, s32)
-from .util import die, getcon, newcon, isconbits, argcls, addins
+from .util import die, getcon, newcon, isconbits, argcls, addins, iscmp
 from .cfg import dom, reachesnotvia, fillcfg, fillloop
 from .fold import foldint, foldref
 from .gcm import pinned, isdivwl
@@ -225,6 +225,12 @@ def dedupins(fn, b, i):
     normins(fn, i)
     if i.op == Onop:
         return
+    if _ext.cse:
+        from .simplify import simplify
+        r = simplify(fn, b, i)
+        if r != R:
+            killins(fn, i, r)
+            return
     if pinned(i):
         if _ext.cse and isdivwl(i):
             dedupdiv(fn, b, i)
@@ -349,6 +355,25 @@ def diamond(b, p):
     return int(h.s1 is p)
 
 
+def _selectself(fn, h, t, f, k):
+    """The value of "h's condition ? t : f" when it doesn't depend on it: x == y ? y : x is x, and
+    x != y ? x : y is x (LLVM's InstSimplify). Only for integers: floats have -0 and NaN."""
+    d = fn.tmp[rval(h.jmp.arg)].def_ if rtype(h.jmp.arg) == RTmp else None
+    if d is None or KBASE(k) != 0 or iscmp(d.op) is None or iscmp(d.op)[0] != k:
+        return R
+    x, y = d.arg[0], d.arg[1]
+    c = iscmp(d.op)[1]
+    if c == D.Cieq:
+        t, f = f, t
+    elif c != D.Cine:
+        return R
+    if (t, f) == (x, y):
+        return x
+    if (t, f) == (y, x):
+        return y
+    return R
+
+
 def dedupselect(fn, b):
     """cimo (ext.cse): a phi joining the two ways of a branch is a function of the condition and
     the two values: `y < 0 ? y + n : y` written again gives the same temporary, so what is
@@ -363,6 +388,16 @@ def dedupselect(fn, b):
         if p.narg == 2:
             w0, w1 = diamond(b, p.blk[0]), diamond(b, p.blk[1])
             if w0 is not None and w1 is not None and w0 != w1:
+                r = _selectself(fn, h, p.arg[w0 ^ 1], p.arg[w0], p.cls)
+                if r != R:
+                    replaceuses(fn, p.to, r)
+                    p.to = R
+                    if prev is None:
+                        b.phi = p.link
+                    else:
+                        prev.link = p.link
+                    p = p.link
+                    continue
                 k = (p.cls, h.jmp.arg, p.arg[w0 ^ 1], p.arg[w0])
                 seen = gvnselects.setdefault(k, [])
                 for b1, r in seen:
