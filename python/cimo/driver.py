@@ -11,6 +11,8 @@ The linked image is cached by a hash of the preprocessed source (cimo.loader.Ima
 loading it takes milliseconds.
 """
 
+from __future__ import annotations
+
 import ctypes
 import hashlib
 import io
@@ -28,6 +30,15 @@ from . import linker as _link
 from . import loader as _jit
 from .execution import KernelError
 from .frontend.main import _Recursion
+
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional, Tuple, Union
+
+if TYPE_CHECKING:
+    from os import PathLike
+
+    # what compile() and load() accept
+    PathArg = Union[str, 'PathLike[str]']
+    Defines = Union[Mapping[str, Optional[object]], Iterable[Tuple[str, Optional[object]]]]
 
 __all__ = ['compile', 'load', 'Module', 'CompileError', 'KernelError']
 
@@ -152,7 +163,7 @@ def _cache_dir():
     return _link.user_cache('CIMO_CACHE_DIR')
 
 
-_memory_cache = {}  # key -> (assembly, signatures), when there is no writable cache directory
+_memory_cache: dict = {}  # key -> (assembly, signatures), when there is no writable cache directory
 
 
 def _cache_get(key):
@@ -467,19 +478,25 @@ class Kernel:
             self._f = ctypes.CFUNCTYPE(_CTYPE.get(ret), *[_CTYPE[k] for k in params])(
                 image.address('__cimo_entry_' + name))
 
-    def __call__(self, *args):
+    address: int
+    __name__: str
+
+    def __call__(self, *args: Any) -> Union[int, float, None]:
+        """Calls the C function: ints and floats as C scalars; for pointer parameters, a
+        buffer (bytes, bytearray, memoryview, numpy array: anything exposing its memory)
+        or an int address. Returns an int, a float or None (void)."""
         if self._f is None:
             raise TypeError('%s() cannot be called from Python: %s (C callers in the module '
                             'can still use it)' % (self.__name__, self._unsupported))
         if len(args) != len(self._params):
             raise TypeError('%s() takes %d arguments (%d given)'
                             % (self.__name__, len(self._params), len(args)))
-        keep = []  # read-only buffers passed by pointer: alive until the call returns
-        args = [_address(a, keep) if k == 'l' and not isinstance(a, int) else a
-                for a, k in zip(args, self._params)]
+        keep: list = []  # read-only buffers passed by pointer: alive until the call returns
+        cargs = [_address(a, keep) if k == 'l' and not isinstance(a, int) else a
+                 for a, k in zip(args, self._params)]
         ctx = self._state.ctx()
         try:
-            r = self._f(*args)
+            r = self._f(*cargs)
             if ctx.err:
                 self._state.error(ctx, self.__name__)
             return r
@@ -487,7 +504,7 @@ class Kernel:
             if self._out is not None:
                 self._out.flush(ctx)  # C output reaches sys.stdout before Python's next print
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<cimo kernel %s>' % self.__name__
 
 
@@ -551,30 +568,30 @@ class Module:
                                          params.split(',') if params else [], self._state,
                                          self._out)
 
-    def reset_heap(self):
+    def reset_heap(self) -> None:
         """Free every heap block of the module (all threads' heaps) at once, e.g. between calls
         that use the heap as a scratch arena. Pointers into the heap become invalid. Must not
         be called while a kernel of the module is running."""
         self._state.reset_heap()
 
-    def free(self, ptr):
+    def free(self, ptr: int) -> None:
         """free() a pointer that a kernel returned from malloc/calloc/realloc/aligned_alloc."""
         self._state.free(ptr)
 
-    def heap_bytes(self):
+    def heap_bytes(self) -> int:
         """Bytes of memory currently mapped for the module's heap."""
         return self._state.heap_bytes()
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Kernel:
         try:
             return self.__dict__['_kernels'][name]
         except KeyError:
             raise AttributeError(name) from None
 
-    def __dir__(self):
+    def __dir__(self) -> list:
         return list(self._kernels)
 
-    def __call__(self, *args):
+    def __call__(self, *args: Any) -> Union[int, float, None]:
         if 'main' in self._kernels:
             return self._kernels['main'](*args)
         if len(self._kernels) == 1:
@@ -582,7 +599,8 @@ class Module:
         raise TypeError('module has no main(); call one of: %s' % ', '.join(self._kernels))
 
 
-def compile(src, include_dirs=(), link=(), host_headers=False, defines=(), cache=True):
+def compile(src: str, include_dirs: Iterable[PathArg] = (), link: Union[str, Iterable[str]] = (),
+            host_headers: bool = False, defines: Defines = (), cache: bool = True) -> Module:
     """Compile C source and return a Module of callables.
 
     The module is linked with cimo's runtime library (string.h, math.h, printf, malloc, ...)
@@ -596,7 +614,8 @@ def compile(src, include_dirs=(), link=(), host_headers=False, defines=(), cache
     return _module(src, '<string>', include_dirs, link, host_headers, defines, cache)
 
 
-def load(path, include_dirs=(), link=(), host_headers=False, defines=(), cache=True):
+def load(path: PathArg, include_dirs: Iterable[PathArg] = (), link: Union[str, Iterable[str]] = (),
+         host_headers: bool = False, defines: Defines = (), cache: bool = True) -> Module:
     """Compile a .c file; its directory is searched for "..." includes. Options as compile()."""
     from .resources import read_text
     return _module(read_text(path), path, include_dirs, link, host_headers, defines, cache)

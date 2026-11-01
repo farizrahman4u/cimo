@@ -41,6 +41,8 @@ Design (requirements.md, "Execution model"):
   compare-and-swap (`__cimo_cas`, an ldaxr/stlxr loop: ARMv8.0, so no CPU feature check).
 """
 
+from __future__ import annotations
+
 import bisect
 import ctypes
 import sys
@@ -68,8 +70,18 @@ class KernelError(Exception):
     (the entry point Python called), function (where it happened, if known), for assert:
     expr, file, line, and for exit: status."""
 
-    def __init__(self, message, kind=None, kernel=None, function=None, expr=None, file=None,
-                 line=None, status=None):
+    kind: str | None
+    kernel: str | None
+    function: str | None
+    expr: str | None
+    file: str | None
+    line: int | None
+    status: int | None
+
+    def __init__(self, message: str, kind: str | None = None, kernel: str | None = None,
+                 function: str | None = None, expr: str | None = None,
+                 file: str | None = None, line: int | None = None,
+                 status: int | None = None) -> None:
         Exception.__init__(self, message)
         self.kind, self.kernel, self.function = kind, kernel, function
         self.expr, self.file, self.line, self.status = expr, file, line, status

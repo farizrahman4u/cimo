@@ -22,7 +22,7 @@ classifiers = [
 cimo = "cimo.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest", "black", "isort", "numpy"]
+dev = ["pytest", "black", "isort", "numpy", "mypy"]
 
 [project.urls]
 Homepage = "https://github.com/farizrahman4u/cimo"
@@ -31,7 +31,7 @@ Homepage = "https://github.com/farizrahman4u/cimo"
 include = ["cimo*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.md", "include/*.h", "runtime/COPYRIGHT", "runtime/symbols.txt", "frontend/LICENSE", "backend/LICENSE", "runtime/*.c", "runtime/*/*.c",
+"*" = ["*.md", "py.typed", "include/*.h", "runtime/COPYRIGHT", "runtime/symbols.txt", "frontend/LICENSE", "backend/LICENSE", "runtime/*.c", "runtime/*/*.c",
        "runtime/*/*.h"]
 
 [tool.black]
@@ -44,3 +44,11 @@ line_length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+# the user-facing API is typed (compile, load, Module, kernels, the errors); the ported
+# compiler internals are not yet, so imports into them are followed silently
+files = ["cimo/__init__.py", "cimo/driver.py", "cimo/execution.py"]
+python_version = "3.10"  # the oldest mypy checks; the code also runs on 3.9
+follow_imports = "silent"
+warn_unused_ignores = true
