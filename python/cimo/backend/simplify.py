@@ -15,7 +15,8 @@ _SIMPLE = frozenset((D.Oadd, D.Osub, D.Oneg, D.Omul, D.Odiv, D.Oudiv, D.Orem, D.
                      D.Oxor, D.Oshl, D.Oshr, D.Osar, D.Oextsb, D.Oextub, D.Oextsh, D.Oextuh, D.Oextsw,
                      D.Oextuw)) | frozenset(range(D.Ocmpw, D.Ocmpl1 + 1))
 _ONE = {Ks: 0x3f800000, Kd: 0x3ff0000000000000}
-_ZEXT = {D.Oextub: 8, D.Oextuh: 16, D.Oextuw: 32, D.Oloadub: 8, D.Oloaduh: 16, D.Oloaduw: 32}
+_ZEXT = {D.Oextub: 8, D.Oextuh: 16, D.Oextuw: 32, D.Oloadub: 8, D.Oloaduh: 16, D.Oloaduw: 32,
+         D.Oparub: 8, D.Oparuh: 16}  # the last two: Apple's ABI, where the caller extends
 _SEXT = {D.Oextsb: 8, D.Oextsh: 16, D.Oextsw: 32, D.Oloadsb: 8, D.Oloadsh: 16}
 MAXDEPTH = 6
 
