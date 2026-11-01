@@ -153,6 +153,8 @@ int __cimo_overflow(int, unsigned long long, int, unsigned long long, int, void 
 #define __builtin_umulll_overflow(a, b, r) __cimo_ovft(2, unsigned long long, a, b, r)
 '''
 _CTYPE = {'w': ctypes.c_int32, 'l': ctypes.c_int64, 's': ctypes.c_float, 'd': ctypes.c_double,
+          # a result of class w or l of an unsigned C type (see _sigs)
+          'W': ctypes.c_uint32, 'L': ctypes.c_uint64,
           # char and short parameters on Apple arm64 (frontend.qbe.abiclass)
           'sb': ctypes.c_int8, 'ub': ctypes.c_uint8, 'sh': ctypes.c_int16, 'uh': ctypes.c_uint16}
 _SIG = re.compile(r'^export\s*\nfunction\s+(?:([wlsd]|:[\w.]+)\s+)?\$(\w+)\(([^)]*)\)', re.M)
@@ -447,7 +449,7 @@ def _compile(pp, filename, host_headers):
     with _compile_lock:  # longexterns() reads what this compilation's frontend left
         ssa, params = _ir(pp, filename, host_headers)
         text = _qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
-        sigs = _sigs(ssa)
+        sigs = _sigs(ssa, params)
         if _WINDOWS:
             from .frontend.diag import longexterns
             names = longexterns()
@@ -456,9 +458,12 @@ def _compile(pp, filename, host_headers):
     return text, sigs
 
 
-def _sigs(ssa):
-    """'name ret params' lines for the exported functions of IR text."""
-    return '\n'.join('%s %s %s' % (m.group(2), m.group(1) or '-',
+def _sigs(ssa, params=None):
+    """'name ret params' lines for the exported functions of IR text. params: the frontend's
+    parameter info, which says whose w or l result is unsigned (ret W, L)."""
+    unsigned = (params or {}).get('#unsigned', ())
+    return '\n'.join('%s %s %s' % (m.group(2), (m.group(1) or '-').upper() if m.group(2) in unsigned
+                                   else m.group(1) or '-',
                                    ','.join(a.split()[0] for a in m.group(3).split(',')
                                             if a.strip()))
                      for m in _SIG.finditer(ssa))

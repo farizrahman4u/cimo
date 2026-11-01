@@ -68,6 +68,13 @@ int fact(int n) { return n < 2 ? 1 : n * fact(n - 1); }
         assert host.call('rnd', 'd', x)[0] == want and host.call('rndf', 's', x)[0] == want
 
 
+def test_unsigned_results_in_the_signatures(host):
+    sigs = build(host, 'unsigned a(void) { return 1; }\nunsigned long b(void) { return 2; }\n'
+                       'int c(void) { return 3; }\nunsigned char d(void) { return 4; }\n')
+    assert sigs['a'].startswith('W') and sigs['b'].startswith('L')
+    assert sigs['c'].startswith('w') and sigs['d'].startswith('w')
+
+
 def test_control_flow_structs_and_pointers(host):
     build(host, r'''
 #include <stdlib.h>

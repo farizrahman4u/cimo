@@ -186,7 +186,7 @@ def test_selects_compute_the_same():
         int j(long c, int x) { if (c) x = x + 5; return x; }
         int k(long x) { int r = 0, s = 0; if (x > 3) { r = 1; s = 2; } return r * 10 + s; }''', cache=False)
     assert m.a(1, 2) == 2 and m.a(-1, -2) == -1
-    assert m.b(1, 2 ** 64 - 1) == -1  # the largest: its bits come back as a signed long
+    assert m.b(1, 2 ** 64 - 1) == 2 ** 64 - 1
     assert m.c(1.0, 2.0) == 1.0 and m.c(nan, 2.0) == 2.0 and m.c(1.0, nan) != m.c(1.0, nan)
     assert m.d(nan, 2.0) == 2.0 and m.d(3.0, 2.0) == 3.0
     assert m.e(nan, 2.0) != m.e(nan, 2.0) and m.e(2.0, 2.0) == 2.0

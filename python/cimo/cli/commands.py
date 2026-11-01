@@ -11,6 +11,7 @@ from . import report
 
 # IR classes as Python sees them: 'l' is a C long or any pointer (an int or a buffer)
 _PY = {'w': 'int32', 'l': 'int64|pointer', 's': 'float32', 'd': 'float64', '...': '...',
+       'W': 'uint32', 'L': 'uint64',
        'sb': 'int8', 'ub': 'uint8', 'sh': 'int16', 'uh': 'uint16'}  # Apple arm64's sub-word classes
 
 

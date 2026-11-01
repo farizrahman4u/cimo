@@ -948,3 +948,33 @@ def test_compiling_in_threads():
             assert all(ex.map(one, range(16)))
     finally:
         sys.setswitchinterval(old)
+
+
+def test_unsigned_results_are_not_negative():
+    m = cimo.compile('''#include <stdint.h>
+    #include <stddef.h>
+    unsigned a(void) { return 0xffffffffu; }
+    unsigned long b(void) { return 0xffffffffffffffffUL; }
+    unsigned long long c(void) { return 0x8000000000000000ULL; }
+    uint32_t d(uint32_t x) { return x; }
+    uint64_t e(uint64_t x) { return x * 3; }
+    size_t g(void) { return (size_t)-2; }
+    unsigned char h(void) { return 255; }
+    unsigned short i(void) { return 65535; }
+    int j(void) { return -1; }
+    long k(void) { return -1; }
+    signed char l(void) { return -1; }
+    short n(void) { return -1; }
+    _Bool o(void) { return 1; }
+    unsigned q(void) { return 5; }''', cache=False)
+    assert m.a() == 2 ** 32 - 1 and m.b() == 2 ** 64 - 1 and m.c() == 2 ** 63
+    assert m.d(4000000000) == 4000000000 and m.e(2 ** 63) == 2 ** 63
+    assert m.g() == 2 ** 64 - 2 and m.h() == 255 and m.i() == 65535 and m.q() == 5
+    assert m.j() == -1 and m.k() == -1 and m.l() == -1 and m.n() == -1 and m.o() == 1
+
+
+def test_unsigned_results_from_the_cache():
+    src = 'unsigned long z(void) { return 0xffffffffffffffffUL; } /* %s */ static int s%s;' % (
+        (os.urandom(4).hex(),) * 2)
+    assert cimo.compile(src).z() == 2 ** 64 - 1
+    assert cimo.compile(src).z() == 2 ** 64 - 1  # the same entry, from memory or disk
