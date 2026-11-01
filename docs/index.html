@@ -55,10 +55,12 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .hero h1{font-size:clamp(32px,3.4vw,46px);letter-spacing:-.03em;line-height:1.08}
 .hero h1 em{font-style:normal;color:var(--brand)}
 .hero .lede{margin-top:18px}
-.hero-alt{margin:14px 0 0;font-size:14px;color:#8b949e}.hero-alt a{color:#e6edf3;text-decoration:underline;text-underline-offset:3px}
 .hero-cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}
 .pip{display:inline-flex;align-items:center;gap:10px;background:var(--code);color:#e6edf3;border-radius:8px;padding:0 6px 0 14px;height:44px;font-family:var(--mono);font-size:14px;border:1px solid var(--codeline)}
-.pip span::before{content:"$ ";color:#6e7681}
+.pip .pip-cmd{min-width:23ch}.pip .pip-cmd::before{content:"$ ";color:#6e7681}
+.pip .pip-tabs{display:inline-flex;gap:2px;padding:2px;margin-left:-8px;background:#0b1020;border-radius:6px}
+.pip .pip-tab{width:auto;height:26px;padding:0 8px;font:inherit;font-size:12px;background:transparent;color:#8b949e;border-radius:4px}
+.pip .pip-tab:hover{background:#1e2640;color:#e6edf3}.pip .pip-tab[aria-pressed="true"]{background:#1e2640;color:#e6edf3}
 .pip button{display:grid;place-items:center;width:32px;height:32px;background:#1e2640;border:0;color:#c9d1d9;padding:0;border-radius:6px;cursor:pointer}
 .pip button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .pip button .i-done,.pip button.done .i-copy{display:none}.pip button.done .i-done{display:block}.pip button.done{color:#7ee2b8}
@@ -170,10 +172,9 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 @media(max-width:600px){
 .banner-copy{padding:28px 16px 8px}
 .banner .lede{font-size:15.5px}
-.banner .hero-cta{margin-top:20px;flex-wrap:nowrap}
+.banner .hero-cta{margin-top:20px;flex-wrap:wrap}
 .banner .pip{padding-left:12px;font-size:13px;flex:none}
 .banner .hero-docs{padding-left:14px;padding-right:14px;white-space:nowrap}
-.hero-alt{font-size:13.5px}
 .demo-view{height:320px}
 .demo-side{height:400px}
 .demo-foot{flex-wrap:wrap}
@@ -557,10 +558,9 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
       <h1>A C compiler written in <em>pure Python</em>.</h1>
       <p class="lede">cimo compiles C to native code at runtime and calls it on numpy arrays. No compiler, SDK or LLVM needed: it runs wherever CPython or Pyodide does, including this page.</p>
     <div class="hero-cta">
-      <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo" aria-label="Copy" title="Copy"><svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
+      <div class="pip"><span class="pip-tabs" role="group" aria-label="Install with"><button type="button" class="pip-tab" data-cmd="pip install cimo" aria-pressed="true">pip</button><button type="button" class="pip-tab" data-cmd="wget cimo.dev/cimo.py" aria-pressed="false" title="All of cimo as one file">wget</button></span><span class="pip-cmd">pip install cimo</span><button type="button" data-copy="pip install cimo" aria-label="Copy" title="Copy"><svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
       <a class="btn btn-d hero-docs" href="docs/">Read the docs</a>
     </div>
-    <p class="hero-alt">Or download <a href="https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py">cimo.py</a>: all of cimo as one file.</p>
     </div>
     <div class="demo-side">
       <div class="demo-bar"><span>attractor.c</span><select class="demo-preset" aria-label="Preset"></select><button type="button" class="demo-reseed">Reseed</button></div>
@@ -867,7 +867,7 @@ with ThreadPoolExecutor() as pool:
   <h2>Contributing</h2>
   <p class="lede" style="margin:12px auto 0">cimo is developed in the open. Bug reports, benchmarks and pull requests are welcome.</p>
   <div class="hero-cta">
-    <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo" aria-label="Copy" title="Copy"><svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
+    <div class="pip"><span class="pip-tabs" role="group" aria-label="Install with"><button type="button" class="pip-tab" data-cmd="pip install cimo" aria-pressed="true">pip</button><button type="button" class="pip-tab" data-cmd="wget cimo.dev/cimo.py" aria-pressed="false" title="All of cimo as one file">wget</button></span><span class="pip-cmd">pip install cimo</span><button type="button" data-copy="pip install cimo" aria-label="Copy" title="Copy"><svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
     <a class="btn btn-p" href="https://github.com/farizrahman4u/cimo">GitHub</a>
     <a class="btn btn-s" href="docs/">Docs</a>
   </div>
@@ -885,6 +885,17 @@ document.querySelectorAll("[data-copy]").forEach(function (b) {
   b.addEventListener("click", function () {
     var done = function () { b.classList.add("done"); b.setAttribute("aria-label", "Copied"); setTimeout(function () { b.classList.remove("done"); b.setAttribute("aria-label", "Copy"); }, 1400); };
     if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.copy).then(done, function () {});
+  });
+});
+// Install boxes: pip or wget (one file), the same choice in every box
+document.querySelectorAll(".pip-tab").forEach(function (t) {
+  t.addEventListener("click", function () {
+    var cmd = t.dataset.cmd;
+    document.querySelectorAll(".pip").forEach(function (box) {
+      box.querySelectorAll(".pip-tab").forEach(function (u) { u.setAttribute("aria-pressed", String(u.dataset.cmd === cmd)); });
+      box.querySelector(".pip-cmd").textContent = cmd;
+      box.querySelector("[data-copy]").dataset.copy = cmd;
+    });
   });
 });
 // Hero carousel: auto-advances while in view, pauses on hover or focus; arrows, buttons and swipe move it.
