@@ -199,7 +199,6 @@ _COMMON_DEFINES = [
     ('__BYTE_ORDER__', '__STDC_ENDIAN_NATIVE__'),
     ('__FLT_EVAL_METHOD__', '0'),  # cproc's config.h says 1, but cproc + QBE compute float in float
     ('__BITINT_MAXWIDTH__', '64'),
-    ('__aarch64__', None),
     ('__LP64__', None),
     ('__SIZEOF_LONG__', '8'),
     ('__SIZEOF_POINTER__', '8'),
@@ -284,6 +283,11 @@ _APPLE_OVERRIDE = {
     '__WINT_TYPE__': 'int', '__WINT_MAX__': '2147483647', '__WINT_MIN__': '(-2147483647-1)',
 }
 _APPLE_TYPES = [(k, _APPLE_OVERRIDE.get(k, v)) for k, v in _GCC_TYPES]
+# Linux x86-64 (gcc's values for x86_64-linux-gnu): plain char and wchar_t are signed
+_X86_LINUX_OVERRIDE = {
+    '__WCHAR_TYPE__': 'int', '__WCHAR_MAX__': '0x7fffffff', '__WCHAR_MIN__': '(-0x7fffffff - 1)',
+}
+_X86_LINUX_TYPES = [(k, _X86_LINUX_OVERRIDE.get(k, v)) for k, v in _GCC_TYPES]
 # Windows arm64: as Apple, but wchar_t is a 16-bit unsigned short (Windows' own C is LLP64;
 # cimo keeps long 64-bit on every target)
 _WIN_OVERRIDE = dict(_APPLE_OVERRIDE, **{
@@ -297,21 +301,34 @@ _WIN_TYPES = [(k, _WIN_OVERRIDE.get(k, v)) for k, v in _GCC_TYPES]
 
 #: Predefined macros per target: cproc's config.h list (aarch64-linux-gnu), macOS and Windows
 #: variants, plus gcc's type macros.
+_ARM64 = [('__aarch64__', None)]
+# no __SSE__/__SSE2__: like __ARM_NEON on arm64, they would promise intrinsics headers cimo
+# does not have
+_AMD64 = [('__x86_64__', None), ('__x86_64', None), ('__amd64__', None), ('__amd64', None)]
 TARGETS = {
-    'arm64': (_COMMON_DEFINES + [('__linux__', None), ('__unix__', None),
+    'arm64': (_COMMON_DEFINES + _ARM64 + [('__linux__', None), ('__unix__', None),
                                  ('__USER_LABEL_PREFIX__', '')] + _TAIL_DEFINES
               + _LINUX_TYPES),
-    'arm64_apple': (_COMMON_DEFINES + [('__APPLE__', None), ('__MACH__', None),
+    'arm64_apple': (_COMMON_DEFINES + _ARM64 + [('__APPLE__', None), ('__MACH__', None),
                                        ('__USER_LABEL_PREFIX__', '_')] + _TAIL_DEFINES
                     + _APPLE_TYPES),
-    'arm64_win': (_COMMON_DEFINES + [('_WIN32', '1'), ('_WIN64', '1'), ('_M_ARM64', '1'),
-                                     ('__USER_LABEL_PREFIX__', '')]
+    'arm64_win': (_COMMON_DEFINES + _ARM64 + [('_WIN32', '1'), ('_WIN64', '1'),
+                                              ('_M_ARM64', '1'), ('__USER_LABEL_PREFIX__', '')]
                   + _TAIL_DEFINES + _WIN_TYPES),
+    'amd64_sysv': (_COMMON_DEFINES + _AMD64 + [('__linux__', None), ('__unix__', None),
+                                              ('__USER_LABEL_PREFIX__', '')] + _TAIL_DEFINES
+                   + _X86_LINUX_TYPES),
+    'amd64_windows': (_COMMON_DEFINES + _AMD64 + [('_WIN32', '1'), ('_WIN64', '1'),
+                                                  ('_M_X64', '100'), ('_M_AMD64', '100'),
+                                                  ('__USER_LABEL_PREFIX__', '')]
+                      + _TAIL_DEFINES + _WIN_TYPES),
 }
 # Whether plain char is signed, for character constants in #if.
-_CHAR_SIGNED = {'arm64': False, 'arm64_apple': True, 'arm64_win': True}
+_CHAR_SIGNED = {'arm64': False, 'arm64_apple': True, 'arm64_win': True, 'amd64_sysv': True,
+                'amd64_windows': True}
 # wchar_t: (bits, signed), for L'x' in #if
-_WCHAR = {'arm64': (32, False), 'arm64_apple': (32, True), 'arm64_win': (16, False)}
+_WCHAR = {'arm64': (32, False), 'arm64_apple': (32, True), 'arm64_win': (16, False),
+          'amd64_sysv': (32, True), 'amd64_windows': (16, False)}
 
 BUNDLED_INCLUDE = _res.path('include')
 
@@ -1719,8 +1736,8 @@ def preprocess(src, filename='<string>', include_dirs=(), defines=None, target='
 
     include_dirs: searched (after the including file's directory for "...") before the bundled
     headers in cimo/include. defines: dict name -> value (None means 1); a name may carry a
-    parameter list, e.g. {'SQ(x)': '((x)*(x))'}. target: 'arm64' (Linux), 'arm64_apple' or
-    'arm64_win'.
+    parameter list, e.g. {'SQ(x)': '((x)*(x))'}. target: 'arm64' (Linux), 'arm64_apple',
+    'arm64_win', 'amd64_sysv' (Linux x86-64) or 'amd64_windows'.
     warn: callable receiving warning strings (default: print to stderr).
     keep_attributes: ignore `#define __attribute__` (glibc defines it away for compilers other
     than gcc and clang), so that the frontend sees every attribute.

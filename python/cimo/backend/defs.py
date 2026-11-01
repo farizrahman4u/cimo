@@ -389,17 +389,34 @@ def unvolatile(fn, sink=None):
     """Turn the volatile loads and stores of fn into plain ones (ext.volatile), once the
     optimizations are done (uses filled in). sink: a register that register allocation never
     treats as dead (arm64: x17); a volatile load whose result is unused loads into it as an
-    integer of the same size, since rega deletes instructions that define dead temporaries."""
+    integer of the same size, since rega deletes instructions that define dead temporaries.
+    sink='use' (amd64, which has no such register): the result is kept, and a `copy` to
+    nothing after the load uses it (as amd64 isel keeps a flag result live)."""
     b = fn.start
     while b:
-        for i in b.ins:
+        extra = None
+        for k, i in enumerate(b.ins[:b.nins]):
             if Ovloadsb <= i.op <= Ovload:
                 i.op = Oloadsb + i.op - Ovloadsb
                 if sink is not None and rtype(i.to) == RTmp and fn.tmp[rval(i.to)].nuse == 0:
-                    i.to = sink
-                    i.cls = Kw if i.cls in (Kw, Ks) else Kl
+                    if sink == 'use':
+                        fn.tmp[rval(i.to)].nuse = 1
+                        extra = extra or []
+                        extra.append(k)
+                    else:
+                        i.to = sink
+                        i.cls = Kw if i.cls in (Kw, Ks) else Kl
             elif Ovstoreb <= i.op <= Ovstored:
                 i.op = Ostoreb + i.op - Ovstoreb
+        if extra:
+            ins = []
+            for k, i in enumerate(b.ins[:b.nins]):
+                ins.append(i)
+                if extra and k == extra[0]:
+                    extra.pop(0)
+                    ins.append(Ins(Ocopy, i.cls, R, i.to))
+            b.ins = ins
+            b.nins = len(ins)
         b = b.link
 def isalloc(o): return Oalloc4 <= o <= Oalloc16
 def isext(o): return Oextsb <= o <= Oextuw

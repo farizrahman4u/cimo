@@ -758,11 +758,99 @@ def _tempalloc(f, size, align):
     return v
 
 
+def _sysv_classes(t):
+    """x86-64 SysV: the classes of the eightbytes of a struct or union ('i' INTEGER, 's'
+    SSE), or None when it is passed in memory. As QBE's amd64 classify(): an eightbyte with any
+    integer (or bit-field) in it is INTEGER, else SSE, padding only included; over 16 bytes
+    (after rounding the size up to the alignment, at least 8) is memory."""
+    al = max(t.align, 8)
+    sz = (t.size + al - 1) & -al
+    if sz > 16 or sz == 0:
+        return None
+    cls = [None, None]
+
+    def walk(ty, off):
+        if ty.kind == TYPEARRAY:
+            if ty.base.size:
+                for k in range(ty.size // ty.base.size):
+                    walk(ty.base, off + k * ty.base.size)
+        elif ty.kind in (TYPESTRUCT, TYPEUNION):
+            m = ty.members
+            while m:
+                if m.bits[0] or m.bits[1]:
+                    cls[(off + m.offset) // 8] = 'i'
+                else:
+                    walk(m.type, off + m.offset)
+                m = m.next
+        elif ty.prop & PROPFLOAT:
+            if cls[off // 8] is None:
+                cls[off // 8] = 's'
+        elif ty.size:
+            cls[off // 8] = 'i'
+
+    walk(t, 0)
+    return [c or 's' for c in cls[:sz // 8]]
+
+
+def _vaargsysv(f, t, ap, add, load, align16):
+    """va_arg of a struct or union with the x86-64 SysV va_list {gp_offset, fp_offset,
+    overflow_arg_area, reg_save_area}, as gcc: all of its eightbytes from the register save
+    area (gathered into a temporary) if enough registers of each class are left, else the
+    whole value from the stack (memory-class values always)."""
+    size, align = t.size, t.align
+    n8 = (size + 7) & -8
+    cls = _sysv_classes(t)
+    if cls is None:
+        p = load(ILOADL, 'l', add(ap, 8))
+        if align > 8:
+            p = align16(p)
+        funcinst(f, ISTOREL, 0, add(p, n8), add(ap, 8))
+        return p
+    ni, ns = cls.count('i'), cls.count('s')
+    slot = _tempalloc(f, 8, 8)
+    buf = _tempalloc(f, 8 * len(cls), max(align, 8))
+    breg, bstk, bjoin = mkblock("vaarg_reg"), mkblock("vaarg_stack"), mkblock("vaarg_join")
+    gp = load(ILOADW, 'w', ap)
+    fpp = add(ap, 4)
+    fp = load(ILOADW, 'w', fpp)
+    ok = None
+    if ni:
+        ok = funcinst(f, ICULEW, 'w', gp, mkintconst(48 - 8 * ni))
+    if ns:
+        c = funcinst(f, ICULEW, 'w', fp, mkintconst(176 - 16 * ns))
+        ok = c if ok is None else funcinst(f, IAND, 'w', ok, c)
+    funcjnz(f, ok, None, breg, bstk)
+    funclabel(f, breg)
+    save = load(ILOADL, 'l', add(ap, 16))
+    for k, c in enumerate(cls):
+        if c == 'i':
+            src = funcinst(f, IADD, ptrclass, save, funcinst(f, IEXTUW, 'l', gp, None))
+            gp = funcinst(f, IADD, 'w', gp, mkintconst(8))
+        else:
+            src = funcinst(f, IADD, ptrclass, save, funcinst(f, IEXTUW, 'l', fp, None))
+            fp = funcinst(f, IADD, 'w', fp, mkintconst(16))
+        funcinst(f, ISTOREL, 0, load(ILOADL, 'l', src), add(buf, 8 * k))
+    if ni:
+        funcinst(f, ISTOREW, 0, gp, ap)
+    if ns:
+        funcinst(f, ISTOREW, 0, fp, fpp)
+    funcinst(f, ISTOREL, 0, buf, slot)
+    funcjmp(f, bjoin)
+    funclabel(f, bstk)
+    p = load(ILOADL, 'l', add(ap, 8))
+    if align > 8:
+        p = align16(p)
+    funcinst(f, ISTOREL, 0, add(p, n8), add(ap, 8))
+    funcinst(f, ISTOREL, 0, p, slot)
+    funclabel(f, bjoin)
+    return load(ILOADL, 'l', slot)
+
+
 def funcvaargstruct(f, t, ap):
     """cimo (vastruct): va_arg(ap, t) for a struct or union t: its address. ap is the
     address of the va_list. As gcc's va_arg: an HFA in floating-point registers, one per
     member; else over 16 bytes, a pointer to a copy; else in general registers; never split
-    between registers and the stack."""
+    between registers and the stack. vastruct 'sysv' and 'win64' follow those ABIs instead."""
     size, align = t.size, t.align
 
     def add(p, n):
@@ -773,6 +861,14 @@ def funcvaargstruct(f, t, ap):
 
     def align16(p):
         return funcinst(f, IAND, ptrclass, add(p, 15), mkintconst(-16))
+
+    if vastruct == 'sysv':
+        return _vaargsysv(f, t, ap, add, load, align16)
+    if vastruct == 'win64':
+        # an 8-byte slot holds the value if it is 1, 2, 4 or 8 bytes, else a pointer to a copy
+        p = load(ILOADL, 'l', ap)
+        funcinst(f, ISTOREL, 0, add(p, 8), ap)
+        return p if size in (1, 2, 4, 8) else load(ILOADL, 'l', p)
 
     # an HFA is never passed by reference (AAPCS64 B.3 before B.4), except to a Windows
     # variadic function, which passes it as any other composite
@@ -1037,6 +1133,8 @@ def funcbuiltin(f, e):
         return None
     d = b.base.decl
     bit = bitops and not d.asmname and _BITBUILTINS.get(d.name)
+    if bit and bitops is not True and instname[bit[0]] not in bitops:
+        bit = None  # cimo: not one the target's backend selects (a runtime call instead)
     if bit and d.kind == DECLFUNC and d.linkage == LINKEXTERN and d.type.nparam == 1 \
             and e.args and not e.args.next and e.args.type.prop & PROPINT:
         # the prelude's declaration (a user cannot redeclare these reserved names)
@@ -1047,6 +1145,9 @@ def funcbuiltin(f, e):
     spec = _BUILTINS.get(d.asmname.lstrip('_') if d.asmname else d.name)
     if spec is None or d.kind != DECLFUNC or d.linkage != LINKEXTERN:
         return None
+    if builtins is not True and (spec[0] == IFMA and 'fma' not in builtins
+                                 or spec[0] != IFMA and instname[spec[0]] not in builtins):
+        return None  # cimo: not one the target's backend selects (a library call instead)
     op, nargs, size = spec
     t = TY.typedouble if size == 8 else TY.typefloat
     ft = d.type

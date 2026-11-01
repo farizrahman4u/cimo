@@ -386,6 +386,18 @@ def sel(i, tn, fn):
         _emit_fix(i, fn)
     elif op in _EMIT or isext(op) or isxsel(op):
         _emit_fix(i, fn)
+    elif op in _EXTOPS:
+        # cimo extensions (ext.vla, ext.math): getsp, setsp, fsqrt, fabs and the bit
+        # builtins; integer operands must be in registers (bsr, bsf and bswap take no
+        # immediate)
+        emiti(i)
+        i1 = D.insb[D.curi]
+        if op in _EXTINT and rtype(i1.arg[0]) == RCon:
+            r = newtmp("isel", k, fn)
+            i1.arg[0] = r
+            emit(Ocopy, k, r, i.arg[0], R)
+        else:
+            fixarg(i1.arg, 0, argcls(i, 0), i1, fn)
     elif op in (Oalloc4, Oalloc8, Oalloc16):
         salloc(i.to, i.arg[0], fn)
     else:
@@ -423,6 +435,10 @@ def sel(i, tn, fn):
 
 _EMIT = frozenset((Odbgloc, Ocall, Osalloc, Ocopy, Oadd, Osub, Oneg, Omul, Oand, Oor, Oxor,
                    Oxtest, Ostosi, Odtosi, Oswtof, Osltof, Oexts, Otruncd, Ocast))
+
+
+_EXTINT = frozenset((D.Obclz, D.Obctz, D.Obswap, D.Obswap16))
+_EXTOPS = _EXTINT | frozenset((D.Ogetsp, D.Osetsp, D.Ofsqrt, D.Ofabs))
 
 
 def _emit_fix(i, fn):

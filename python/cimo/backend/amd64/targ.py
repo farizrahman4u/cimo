@@ -3,7 +3,7 @@
 from .. import defs as D
 from ..defs import Target, BIT, NOp
 from .regs import *  # noqa: F401,F403
-from .regs import RAX, XMM0, NGPR, NFPR, NGPS_SYSV, NGPS_WIN, NFPS, RBP, RSP
+from .regs import RAX, XMM0, NGPR, NFPR, NGPS_SYSV, NGPS_WIN, NFPS, RBP, RSP, R11
 
 
 class Amd64Op:
@@ -116,6 +116,26 @@ T_amd64_apple = _sysv_common(
     assym="_",
 )
 
+def _common_windows(**kw):
+    kw.setdefault('rglob', BIT(RBP) | BIT(RSP))
+    kw.setdefault('nrglob', 2)
+    return Target(
+        gpr0=RAX,
+        ngpr=NGPR,
+        fpr0=XMM0,
+        nfpr=NFPR,
+        memargs=amd64_memargs,
+        abi0=_elimsb,
+        isel=lambda fn: _isel().amd64_isel(fn),
+        cansel=1,
+        windows=1,
+        abi1=lambda fn: _winabi().amd64_winabi_abi(fn),
+        retregs=lambda r, p: _winabi().amd64_winabi_retregs(r, p),
+        argregs=lambda r, p: _winabi().amd64_winabi_argregs(r, p),
+        emitfn=lambda fn, f: _emit().amd64_winabi_emitfn(fn, f),
+        **kw)
+
+
 T_amd64_win = _common(
     name="amd64_win",
     windows=1,
@@ -127,4 +147,19 @@ T_amd64_win = _common(
     retregs=lambda r, p: _winabi().amd64_winabi_retregs(r, p),
     argregs=lambda r, p: _winabi().amd64_winabi_argregs(r, p),
     emitfn=lambda fn, f: _emit().amd64_winabi_emitfn(fn, f),
+)
+
+# cimo extension: Windows x64 as cimo runs it (not in QBE). QBE's amd64_win ABI lowering, with
+# the fixes the Windows convention needs: xmm6-xmm15 callee-saved (winabi.WIN_XCLOB), stack
+# probes for frames and allocas over a page (r11, reserved for them, is never allocated),
+# extern data through the GOT; ELF syntax and .L labels, since cimo assembles and links in
+# memory (as arm64_win).
+T_amd64_windows = _common_windows(
+    name="amd64_windows",
+    rglob=BIT(RBP) | BIT(RSP) | BIT(R11),
+    nrglob=3,
+    rsave=_winabi().amd64_windows_rsave,
+    nrsave=[NGPS_WIN, _winabi().NFPS_WINDOWS],
+    emitfin=lambda f: _gemit().elf_emitfin(f),
+    asloc=".L",
 )

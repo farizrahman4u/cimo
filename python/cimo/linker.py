@@ -82,7 +82,15 @@ def _compiler_paths():
 
 
 _compiler_key = None
-_TARGETS = ('arm64', 'arm64_apple', 'arm64_win')
+_TARGETS = ('arm64', 'arm64_apple', 'arm64_win', 'amd64_sysv', 'amd64_windows')
+
+
+def assemble(text, target):
+    """Assembly text the backend emitted for target -> an object (cimo.assembler.Object)."""
+    if target.startswith('amd64'):
+        from . import assembler_amd64
+        return assembler_amd64.assemble(text, 'elf')
+    return _asm.assemble(text, 'macho' if target == 'arm64_apple' else 'elf')
 
 
 def _onefile_keys():
@@ -155,13 +163,14 @@ def compile_runtime_source(path, target):
     """One runtime source file to assembly text, with the options the runtime is built with:
     the driver's optimizations and math builtins, but no FMA contraction (musl's algorithms
     are written for -ffp-contract=off, which is how musl itself is built). __FP_FAST_FMA(F) as gcc defines them
-    on arm64: musl's pow, log, exp2f, ... then use fma() (one instruction) for exact products."""
+    on arm64: musl's pow, log, exp2f, ... then use fma() (one instruction) for exact products.
+    Not on x86-64 (no FMA in the baseline): musl's non-FMA paths, and fma() is software."""
     from . import driver
     from . import execution as _exe
     from .preprocessor import preprocess
     src = _res.read_text(path)
-    pp = preprocess(src, path, include_dirs=(RUNTIME_INCLUDE,),
-                    defines={'__FP_FAST_FMA': '1', '__FP_FAST_FMAF': '1'}, target=target,
+    fast = {} if target.startswith('amd64') else {'__FP_FAST_FMA': '1', '__FP_FAST_FMAF': '1'}
+    pp = preprocess(src, path, include_dirs=(RUNTIME_INCLUDE,), defines=fast, target=target,
                     warn=lambda *a, **k: None)
     ssa, params = driver._frontend(pp, path, target, fma=False, builtins=True, prune=True)
     return driver._qbe(ssa, params, stkchk=_exe.stack_checked(ssa), target=target)
@@ -188,8 +197,7 @@ def symbol_table(target=None):
              '# source defines, so a link compiles only the members it needs. Checked by',
              '# tests/test_runtime.py.']
     for rel in runtime_sources():
-        obj = _asm.assemble(compile_runtime_source(os.path.join(RUNTIME_DIR, rel), target),
-                            syntax)
+        obj = assemble(compile_runtime_source(os.path.join(RUNTIME_DIR, rel), target), target)
         defs = sorted(d[len(pre):] if d.startswith(pre) else d for d in _globals(obj)[0])
         lines.append('%s: %s' % (rel.replace(os.sep, '/'), ' '.join(defs)))
     return '\n'.join(lines) + '\n'
@@ -252,7 +260,7 @@ class Runtime:
         with self._lock:
             o = self._objs.get(member)
             if o is None:
-                obj = _asm.assemble(self.text(member), self.syntax)
+                obj = assemble(self.text(member), self.target)
                 defs, undefs = _globals(obj)
                 pre = '_' if self.syntax == 'macho' else ''
                 if sorted(d[len(pre):] if d.startswith(pre) else d for d in defs) != \
