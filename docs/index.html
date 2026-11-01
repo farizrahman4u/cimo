@@ -55,6 +55,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .hero h1{font-size:clamp(32px,3.4vw,46px);letter-spacing:-.03em;line-height:1.08}
 .hero h1 em{font-style:normal;color:var(--brand)}
 .hero .lede{margin-top:18px}
+.hero-alt{margin:14px 0 0;font-size:14px;color:#8b949e}.hero-alt a{color:#e6edf3;text-decoration:underline;text-underline-offset:3px}
 .hero-cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}
 .pip{display:inline-flex;align-items:center;gap:10px;background:var(--code);color:#e6edf3;border-radius:8px;padding:0 6px 0 14px;height:44px;font-family:var(--mono);font-size:14px;border:1px solid var(--codeline)}
 .pip span::before{content:"$ ";color:#6e7681}
@@ -172,6 +173,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--brand);outline-offs
 .banner .hero-cta{margin-top:20px;flex-wrap:nowrap}
 .banner .pip{padding-left:12px;font-size:13px;flex:none}
 .banner .hero-docs{padding-left:14px;padding-right:14px;white-space:nowrap}
+.hero-alt{font-size:13.5px}
 .demo-view{height:320px}
 .demo-side{height:400px}
 .demo-foot{flex-wrap:wrap}
@@ -558,6 +560,7 @@ footer.site{padding:28px 0 40px;font-size:13px;color:var(--ink3)}
       <div class="pip"><span>pip install cimo</span><button type="button" data-copy="pip install cimo" aria-label="Copy" title="Copy"><svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg><svg class="i-done" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
       <a class="btn btn-d hero-docs" href="docs/">Read the docs</a>
     </div>
+    <p class="hero-alt">Or download <a href="https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py">cimo.py</a>: all of cimo as one file.</p>
     </div>
     <div class="demo-side">
       <div class="demo-bar"><span>attractor.c</span><select class="demo-preset" aria-label="Preset"></select><button type="button" class="demo-reseed">Reseed</button></div>

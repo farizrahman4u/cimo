@@ -19,10 +19,10 @@ Users get native speed on first import (after a short compile), and from the cac
 Where you can't add dependencies (a QGIS plugin, a script that must run on a locked-down machine, an embedded interpreter), vendor cimo as a single file:
 
 ```console
-$ cimo bundle -o mypkg/_vendor/cimo.py
+$ cimo onefile -o mypkg/_vendor/cimo.py
 ```
 
-The file holds all of cimo, including its headers and C library sources, and imports as `cimo`. It works in any Python 3.9+ and in Pyodide. The licenses of the code it includes (cimo: MIT; the ported cproc: ISC; QBE and musl: MIT) are kept at the top of the file.
+or download the current build from `https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py`. The file holds all of cimo, including its headers and C library sources, and imports as `cimo`. It works in any Python 3.9+ and in Pyodide. The licenses of the code it includes (cimo: MIT; the ported cproc: ISC; QBE and musl: MIT) are kept at the top of the file.
 
 ## In desktop applications
 

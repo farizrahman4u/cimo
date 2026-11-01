@@ -37,13 +37,13 @@ $ cimo compile -S kernels.c -o k.s    # stop after code generation: assembly
 | `-O0`, `--no-opt` | turn off the loop optimizer |
 | `--no-fma` | no fused multiply-add contraction |
 
-## cimo bundle
+## cimo onefile
 
 ```console
-$ cimo bundle [-o cimo.py] [--keep-comments]
+$ cimo onefile [-o cimo.py] [--keep-comments]
 ```
 
-Writes all of cimo as one Python file. See [Shipping code that uses cimo](distribution.md).
+Writes all of cimo as one Python file (also published at `https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py`). See [Shipping code that uses cimo](distribution.md).
 
 ## cimo cache
 

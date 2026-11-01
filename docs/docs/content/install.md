@@ -28,13 +28,20 @@ The first compile also builds the parts of cimo's C library that the program use
 
 ## Without pip
 
-cimo can be written out as a single Python file that works like the installed package:
+All of cimo also comes as a single Python file that works like the installed package:
 
 ```console
-$ cimo bundle -o cimo.py
+$ wget https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py
 ```
 
-Put `cimo.py` next to your code, or anywhere on `sys.path`, and `import cimo`. See [Shipping code that uses cimo](distribution.md).
+Put `cimo.py` next to your code, or anywhere on `sys.path`, and `import cimo`. In a notebook:
+
+```python
+!wget -q https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py
+import cimo
+```
+
+The file is rebuilt from `main` on every change. To write one from an installed cimo, run `cimo onefile -o cimo.py`. See [Shipping code that uses cimo](distribution.md).
 
 ## In Pyodide, JupyterLite or marimo
 

@@ -10,6 +10,8 @@ No compiler, no SDK, no wheels, no build step. In the browser too.
 pip install cimo
 ```
 
+or as one file: `wget https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py`
+
 </div>
 
 ---
