@@ -97,10 +97,13 @@ def cleanup(instance=None, group=None, key=None):
     else:
         groups = [group] if group else []
         keys = [key] if key else []
-    for g in groups:
-        aws('ec2', 'delete-security-group', '--group-id', g)
-    for k in keys:
-        aws('ec2', 'delete-key-pair', '--key-name', k)
+    for args in [('delete-security-group', '--group-id', g) for g in groups] + \
+            [('delete-key-pair', '--key-name', k) for k in keys]:
+        try:
+            aws('ec2', *args)
+        except RuntimeError as e:  # already gone (a retried cleanup)
+            if 'NotFound' not in str(e):
+                raise
     if groups or keys:
         print('deleted', ' '.join(groups + keys))
 
