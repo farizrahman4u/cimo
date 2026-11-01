@@ -11,6 +11,8 @@ Not supported: a composite split between x7 and the stack (MSVC allows it).
 
 import sys
 
+from .. import ext as _ext
+
 from .. import defs as D
 from ..defs import (R, RTmp, RCall, NIns, U32, Ins, Phi, Jmp_, Kx, Kw, Kl, Ks, Kd,
                     KWIDE, KBASE, BIT, TMP, INT, CALL, SLOT, CON_Z, rtype, rval,
@@ -195,8 +197,17 @@ def selret(b, fn):
         typclass(cr, D.typ[fn.retty], 0, 0)
         if cr.class_ & Cptr:
             assert rtype(fn.retr) == RTmp
-            emit(Oblit1, 0, R, INT(cr.t.size), R)
-            emit(Oblit0, 0, R, r, fn.retr)
+            if _ext.bigcopy is not None and cr.t.size >= _ext.bigcopy:
+                # cimo: memcpy(result area, value, size) instead of an unrolled blit
+                fn.leaf = 0
+                emit(Ocopy, Kw, R, TMP(R0), R)  # spill & rega expect copies after calls
+                emit(Ocall, 0, R, _memcpy(fn), CALL(3 << 5 | 1))
+                emit(Ocopy, Kl, TMP(R2), getcon(cr.t.size, fn), R)
+                emit(Ocopy, Kl, TMP(R1), r, R)
+                emit(Ocopy, Kl, TMP(R0), fn.retr, R)
+            else:
+                emit(Oblit1, 0, R, INT(cr.t.size), R)
+                emit(Oblit0, 0, R, r, fn.retr)
             cty = 0
         else:
             ldregs(cr.reg, cr.cls, cr.nreg, r, fn)
@@ -476,8 +487,25 @@ def selcall(fn, ins, i0, i1, il):
         i = ins[k]
         c = ca[k - i0]
         if c.class_ & Cptr:
+            if _ext.bigcopy is not None and c.t.size >= _ext.bigcopy:
+                # cimo: memcpy(copy, struct, size), a call already lowered (no argument
+                # register is set yet), instead of an unrolled blit
+                emit(Ocopy, Kw, R, TMP(R0), R)  # spill & rega expect copies after calls
+                emit(Ocall, 0, R, _memcpy(fn), CALL(3 << 5 | 1))
+                emit(Ocopy, Kl, TMP(R2), getcon(c.t.size, fn), R)
+                emit(Ocopy, Kl, TMP(R1), i.arg[1], R)
+                emit(Ocopy, Kl, TMP(R0), i.arg[0], R)
+                continue
             emit(Oblit1, 0, R, INT(c.t.size), R)
             emit(Oblit0, 0, R, i.arg[1], i.arg[0])
+
+
+def _memcpy(fn):
+    from ..util import newcon, intern
+    c = D.Con(D.CAddr)
+    c.sym.type = D.SExt
+    c.sym.id = intern('memcpy')
+    return newcon(c, fn)
 
 
 def selpar(fn, i0, i1):

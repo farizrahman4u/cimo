@@ -19,6 +19,8 @@ Flags:
           the plain ones), which cimo.frontend emits for accesses to volatile objects; no pass
           deletes, merges, moves or forwards them, and instruction selection turns them into
           plain loads and stores
+  bigcopy None, or a size: a struct argument of at least that many bytes is copied by a call
+          to memcpy instead of an unrolled blit (arm64)
   vla     accept getsp/setsp in the IR text (`%s =l getsp`, `setsp %s`), which cimo.frontend
           emits to free variable-length arrays when their scope ends
   trap    arm64: unreachable code (QBE's `hlt`) calls __cimo_trap instead of `brk #1000`,
@@ -52,6 +54,7 @@ math = False
 trap = False
 volatile = False
 vla = False
+bigcopy = None
 stkchk = None
 
 # alias hook for ldp scheduling: disjoint(fn, base1, base2) -> True if accesses off the two
@@ -60,7 +63,7 @@ stkchk = None
 disjoint = None
 
 ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True, 'volatile': True, 'vla': True}
-_NAMES = tuple(ALL) + ('stkchk',)
+_NAMES = tuple(ALL) + ('stkchk', 'bigcopy')
 
 
 def configure(**kw):
@@ -70,7 +73,8 @@ def configure(**kw):
     for k, v in kw.items():
         if k not in _NAMES:
             raise TypeError('unknown backend extension %r' % k)
-        g[k] = (frozenset(v) if v is not None else None) if k == 'stkchk' else bool(v)
+        g[k] = ((frozenset(v) if v is not None else None) if k == 'stkchk'
+                else v if k == 'bigcopy' else bool(v))
     return old
 
 

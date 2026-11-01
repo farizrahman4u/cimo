@@ -192,6 +192,9 @@ vastruct = None
 # (instruction, operand class); set by compile(bitops=True), off for wasm (the runtime's C)
 IBCLZ, IBCTZ, IBPOPCNT, IBSWAP, IBSWAP16 = range(116, 121)
 bitops = False
+# cimo extension: an aggregate copy of at least this many bytes calls memcpy (None: always
+# unrolled, as cproc does; the backend's time grows faster than linearly with the unrolled code)
+bigcopy = None
 _BITBUILTINS = {}
 for _n, _i in (('clz', IBCLZ), ('ctz', IBCTZ), ('popcount', IBPOPCNT)):
     _BITBUILTINS['__builtin_' + _n] = (_i, 'w')
@@ -549,6 +552,14 @@ def funcalloc(f, d):
 
 def funccopy(f, dst, src, size, align, tq=QUALNONE):
     assert (align & (align - 1)) == 0
+    if bigcopy is not None and size >= bigcopy and not tq & QUALVOLATILE:
+        fn = Value(VALUE_GLOBAL | VALUE_EXTERN)
+        fn.name = 'memcpy'
+        fn.id = 0
+        funcinst(f, ICALL, ptrclass, fn, None)
+        for v in (dst, src, mkintconst(size)):
+            funcinst(f, IARG, ptrclass, v, None)
+        return
     cls = 'w'
     if align == 1:
         load, store = ILOADUB, ISTOREB
@@ -1271,7 +1282,17 @@ _zstore = {1: ISTOREB, 2: ISTOREH, 4: ISTOREW, 8: ISTOREL}
 _z = Value(VALUE_INTCONST)
 
 
-def zero(func, addr, align, offset, end):
+def zero(func, addr, align, offset, end, tq=QUALNONE):
+    if bigcopy is not None and end - offset >= bigcopy and not tq & QUALVOLATILE:
+        # cimo: memset(addr + offset, 0, end - offset) instead of a store per 8 bytes
+        fn = Value(VALUE_GLOBAL | VALUE_EXTERN)
+        fn.name = 'memset'
+        fn.id = 0
+        p = funcinst(func, IADD, ptrclass, addr, mkintconst(offset)) if offset else addr
+        funcinst(func, ICALL, ptrclass, fn, None)
+        for c, v in ((ptrclass, p), ('w', mkintconst(0)), (ptrclass, mkintconst(end - offset))):
+            funcinst(func, IARG, c, v, None)
+        return
     align = min(align, 8)  # cimo: cproc indexed its store table with 16 for _Alignas(16)
     a = 1
     while offset < end:
@@ -1297,7 +1318,7 @@ def funcinit(func, d, init, hasinit):
         return
     dst = LValue()
     while init:
-        zero(func, d.value, d.type.align, offset, init.start)
+        zero(func, d.value, d.type.align, offset, init.start, d.qual)
         dst.bits = init.bits
         ex = init.expr
         if ex.kind == EXPRSTRING:
@@ -1312,7 +1333,7 @@ def funcinit(func, d, init, hasinit):
             offset = init.start + i * ew
         else:
             if offset < init.end and (dst.bits[0] or dst.bits[1]):
-                zero(func, d.value, d.type.align, offset, init.end)
+                zero(func, d.value, d.type.align, offset, init.end, d.qual)
             dst.addr = d.value
             # QBE's memopt does not eliminate the store for ptr + 0, so only emit the
             # add if the offset is non-zero
@@ -1325,7 +1346,7 @@ def funcinit(func, d, init, hasinit):
         if mx < offset:
             mx = offset
         init = init.next
-    zero(func, d.value, d.type.align, mx, d.type.size)
+    zero(func, d.value, d.type.align, mx, d.type.size, d.qual)
 
 
 def casesearch(f, cls, v, c, defaultlabel, mn, mx):

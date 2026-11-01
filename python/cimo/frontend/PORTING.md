@@ -159,6 +159,11 @@ passed by `cimo.compile`:
 - `volatile=True` (`qbe.volatile`): accesses to volatile objects (loads, stores, bit-field
   read-modify-writes, aggregate copies from or to them, initializers) use the backend's
   `vload*`/`vstore*`; cproc rejects volatile stores and emits volatile loads as plain ones.
+- `bitops=True` (`qbe.bitops`): `__builtin_clz`/`ctz`/`popcount` (and `l`, `ll`) and
+  `bswap16/32/64`, as declared by the prelude, become the backend's bit instructions.
+- `bigcopy=N` (`qbe.bigcopy`): aggregate copies and zero-fills of N bytes or more call
+  `memcpy`/`memset` (not for volatile objects) instead of a load/store pair per 8 bytes, whose
+  backend time grows faster than linearly (a 256 KB `= {}` took a minute).
 - `vastruct='aapcs'|'slots'` (`qbe.vastruct`): `va_arg` of a struct or union, lowered to
   loads and stores of the `va_list` (`funcvaargstruct`), following gcc's `va_arg`: an HFA from
   the FP register save area (members 16 bytes apart, gathered into a copy), other composites

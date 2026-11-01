@@ -76,7 +76,7 @@ def _tostr(s):
 
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
-            builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False):
+            builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False, bigcopy=None):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -105,6 +105,9 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     bitops=True (cimo extension, off by default): __builtin_clz, ctz, popcount (and the l, ll
     versions), bswap16/32/64 become single instructions (cimo.backend.ext.math).
 
+    bigcopy=N (cimo extension, off by default): struct, union and array copies of N bytes or
+    more call memcpy instead of being unrolled (not volatile ones).
+
     vastruct='aapcs' or 'slots' (cimo extension, off by default): va_arg of struct and union
     types, for Linux's va_list or a pointer to 8-byte slots (Apple, Windows, wasm).
 
@@ -123,6 +126,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.vlafree = bool(vlafree)
         _qbe.vastruct = vastruct
         _qbe.bitops = bool(bitops)
+        _qbe.bigcopy = bigcopy
         U.diagnostics = bool(diagnostics)
         if diagnostics:
             from . import cc as _cc, diag as _diag
@@ -142,6 +146,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.vlafree = False
         _qbe.vastruct = None
         _qbe.bitops = False
+        _qbe.bigcopy = None
         U.diagnostics = False
         from . import cc as _cc
         _cc.exprhook = None

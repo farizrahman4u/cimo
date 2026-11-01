@@ -250,7 +250,7 @@ def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
     try:
         with _middle.options(enabled=MIDDLE if middle is None else middle,
                              params=params or {}), \
-                _ext.options(fma=True, ldp=True, layout=True, math=True, trap=True, volatile=True, vla=True,
+                _ext.options(fma=True, ldp=True, layout=True, math=True, trap=True, volatile=True, vla=True, bigcopy=256,
                              stkchk=stkchk):
             parse(ssa.encode('latin-1'), '<cimo>', _Driver(out, 0).dbgfile,
                   _Driver(out, 0).data, _Driver(out, 0).func)
@@ -289,6 +289,7 @@ def _frontend(pp, filename, target=None, **kw):
     kw.setdefault('volatile', True)
     kw.setdefault('vlafree', True)
     kw.setdefault('bitops', True)
+    kw.setdefault('bigcopy', 256)
     kw.setdefault('vastruct', 'slots' if (target or TARGET) in ('arm64_apple', 'arm64_win')
                   else 'aapcs')
     try:

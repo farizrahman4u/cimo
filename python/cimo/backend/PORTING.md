@@ -108,6 +108,11 @@ output for these is broken, so no comparison test depends on it):
   (IP1, in `rglob`, never treated as dead), for which `spill` skips the "dead reg" check.
 - `vla`: `getsp` / `setsp` read and reset the stack pointer (arm64 `mov`, wasm `__stack_pointer`),
   pinned, mark the function `dynalloc`, and are scheduling barriers for `ldp` pairing.
+- `math` also covers the bit builtins: `bclz`, `bctz`, `bpopcnt` (through v31: `fmov`,
+  `cnt`, `addv`), `bswap`, `bswap16`.
+- `bigcopy`: a struct argument or return value passed by reference and at least that large is
+  copied by a call to `memcpy`, emitted already lowered (before any argument register is set),
+  instead of an unrolled blit.
 - `fma`, `math`, `ldp`, `layout`, `trap`, `stkchk`: see `ext.py`.
 
 ## Checking

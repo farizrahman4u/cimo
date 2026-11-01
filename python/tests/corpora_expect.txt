@@ -370,7 +370,6 @@ gcc-torture/pr23467.c                               unsupported  GNU attribute '
 gcc-torture/pr24135.c                               unsupported  local labels ('__label__') are not supported
 gcc-torture/pr28289.c                               unsupported  too many arguments for function call
 gcc-torture/pr28865.c                               unsupported  initializer specified for incomplete type
-gcc-torture/pr28982b.c                              skip         minutes to compile: struct copies are unrolled (256 KB argument)
 gcc-torture/pr30314.c                               unsupported  ../../gcc.dg/tree-ssa/pr30314.c: No such file or directory
 gcc-torture/pr32244-1.c                             skip         gcc computes in a bit-field's width when it is wider than int (clang and cimo: in its declared type)
 gcc-torture/pr33382.c                               unsupported  initializer specified for incomplete type
