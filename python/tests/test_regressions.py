@@ -449,3 +449,25 @@ def test_spill_to_a_far_slot_keeps_64_bits():
         ssa, params = driver._ir(driver._preprocess(SPILL_FAR), '<s>', False)
         m = driver.Module(driver._qbe(ssa, params, target='arm64_win'), driver._sigs(ssa))
         assert m.check() == 0
+
+
+def test_long_programs_do_not_hit_the_recursion_limit():
+    # the ported passes recurse as deep as the program is long: a 3000-statement dependency
+    # chain overflowed Python's recursion limit in gcm, and a long chain of blocks in
+    # cfg.reachrec (YARPGen seed 2075800198)
+    n = 3000
+    m = cimo.compile('long f(long x) {\n' + '    x = x * 3 + 1;\n' * n + '    return x;\n}\n')
+    v = 5
+    for _ in range(n):
+        v = (v * 3 + 1) & (2 ** 64 - 1)
+    assert m.f(5) & (2 ** 64 - 1) == v
+    from cimo.backend import cfg
+
+    class B:
+        def __init__(self):
+            self.s1 = self.s2 = None
+            self.visit = 0
+    blocks = [B() for _ in range(5000)]
+    for a, b in zip(blocks, blocks[1:]):
+        a.s1 = b
+    assert cfg.reachrec(blocks[0], blocks[-1]) == 1

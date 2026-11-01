@@ -94,6 +94,12 @@ output for these is broken, so no comparison test depends on it):
   aligned stack offset, while a pointer replacing a large one keeps 8-byte alignment. A
   zero-size composite (GNU C) was passed by pointer; gcc passes nothing. Found with
   `tests/test_abi.py` (structs with `_Alignas(16)`) and gcc's `va-arg-22.c`.
+- Recursion: the passes recurse as deep as the program is long (gcm's `schedearly`/`earlyins`
+  along a dependency chain, `cfg.reachrec` along a chain of blocks), so a 3000-statement
+  chain overflowed Python's recursion limit. `cimo.driver` runs the backend under the
+  frontend's raised limit (1,000,000 from Python 3.11, whose Python calls do not use the C
+  stack; 20,000 before), and `reachrec` is iterative, as `porec` already was. Found by
+  YARPGen.
 - `arm64/emit` (Apple in C QBE; Windows in cimo, both without x18): a store to a stack slot
   beyond the immediate offset range, whose value is in x17, goes through s31/d31; the width
   came from `i.cls`, which is `Kw` for the `storel` of a spill, so 4 of the 8 bytes were

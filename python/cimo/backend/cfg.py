@@ -321,15 +321,19 @@ def simpljmp(fn):
 
 
 def reachrec(b, to):
-    if b is to:
-        return 1
-    if not b or b.visit:
-        return 0
-    b.visit = 1
-    if reachrec(b.s1, to):
-        return 1
-    if reachrec(b.s2, to):
-        return 1
+    # iterative version of the recursive C reachrec() (a long chain of blocks exceeded
+    # Python's recursion limit: YARPGen); callers clear the visit marks, so the order of
+    # the search does not matter
+    stack = [b]
+    while stack:
+        b = stack.pop()
+        if b is to:
+            return 1
+        if not b or b.visit:
+            continue
+        b.visit = 1
+        stack.append(b.s2)
+        stack.append(b.s1)
     return 0
 
 

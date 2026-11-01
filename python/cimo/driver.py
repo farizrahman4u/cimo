@@ -27,6 +27,7 @@ from . import execution as _exe
 from . import linker as _link
 from . import loader as _jit
 from .execution import KernelError
+from .frontend.main import _Recursion
 
 __all__ = ['compile', 'load', 'Module', 'CompileError', 'KernelError']
 
@@ -251,7 +252,7 @@ def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
         with _middle.options(enabled=MIDDLE if middle is None else middle,
                              params=params or {}), \
                 _ext.options(fma=True, ldp=True, layout=True, math=True, trap=True, volatile=True, vla=True, bigcopy=256,
-                             stkchk=stkchk):
+                             stkchk=stkchk), _Recursion():
             parse(ssa.encode('latin-1'), '<cimo>', _Driver(out, 0).dbgfile,
                   _Driver(out, 0).data, _Driver(out, 0).func)
         D.T.emitfin(out)
@@ -273,7 +274,8 @@ def _qbe_wasm(ssa, params=None, middle=None):
     obj = Object()
     try:
         with _middle.options(enabled=MIDDLE if middle is None else middle,
-                             params=params or {}), _ext.options(math=True, fma=True, volatile=True, vla=True):
+                             params=params or {}), _ext.options(math=True, fma=True, volatile=True, vla=True), \
+                _Recursion():
             drv = _Driver(obj, 0)
             parse(ssa.encode('latin-1'), '<cimo>', drv.dbgfile, drv.data, drv.func)
     except D.BackendError as e:

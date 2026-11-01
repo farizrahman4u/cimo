@@ -62,10 +62,16 @@ def _run(inputs, target, pponly):
 
 
 class _Recursion(object):
+    """A raised recursion limit: the ported passes recurse as deep as the program is long
+    (expression nesting, dependency chains, block chains). Python 3.11+ does not use the C
+    stack for Python calls, so the limit can be high; before, a deep enough recursion
+    overflows the C stack, so stay at 20000."""
+    LIMIT = 1000000 if sys.version_info >= (3, 11) else 20000
+
     def __enter__(self):
         self.old = sys.getrecursionlimit()
-        if self.old < 20000:
-            sys.setrecursionlimit(20000)
+        if self.old < self.LIMIT:
+            sys.setrecursionlimit(self.LIMIT)
 
     def __exit__(self, *a):
         sys.setrecursionlimit(self.old)
