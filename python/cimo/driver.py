@@ -355,11 +355,6 @@ def _hint(msg, host_headers):
     return msg
 
 
-# The macOS SDK's byte swaps (htonl, OSSwapInt32, ...) call _OSSwapInt16/32/64, which it defines
-# for arm64 only when the compiler claims to be gcc (__GNUC__, which cimo does not define)
-_APPLE_HOST_DEFINES = [('_OSSwapInt%d(x)' % n, '__builtin_bswap%d(x)' % n) for n in (16, 32, 64)]
-
-
 def _host_include_dirs():
     """The host's C header directories (for host_headers=True)."""
     if _WINDOWS:
@@ -397,12 +392,10 @@ def _preprocess(src, filename='<string>', include_dirs=(), host_headers=False, d
     warn = None
     if host_headers:
         include_dirs = tuple(include_dirs) + tuple(_host_include_dirs())
-        if (target or TARGET) == 'arm64_apple':
-            defines = _APPLE_HOST_DEFINES + list(defines)
-
-            def warn(msg):  # sys/cdefs.h warns about every compiler that isn't gcc or clang
-                if not msg.endswith('#warning "Unsupported compiler detected"'):
-                    sys.stderr.write(msg + '\n')
+    if (target or TARGET) == 'arm64_apple':
+        def warn(msg):  # the SDK's sys/cdefs.h warns about every compiler but gcc and clang
+            if not msg.endswith('#warning "Unsupported compiler detected"'):
+                sys.stderr.write(msg + '\n')
     try:
         return preprocess(_PRELUDE + '#line 1\n' + src, filename, include_dirs=include_dirs,
                           defines=list(defines) or None, warn=warn,

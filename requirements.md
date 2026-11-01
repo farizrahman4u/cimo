@@ -544,14 +544,20 @@ directions against Apple clang (`-dynamiclib`), and `tests/test_macos.py` holds 
 - **`host_headers=True` with the SDK** (`xcrun --show-sdk-path`): `sys/cdefs.h` needs
   `__arm64__` (clang's names `__arm64__`, `__arm64`, `__AARCH64EL__`, `__LITTLE_ENDIAN__` are
   predefined on Apple); `_OSSwapInt16/32/64` (htonl & co.) are defined for arm64 only under
-  `__GNUC__`, which cimo doesn't claim, so they map to `__builtin_bswap*`; the SDK has
-  `struct {...} __attribute__((aligned(N)))` and stray `;` at file scope, both now accepted (as
-  gcc/clang do); its "Unsupported compiler detected" `#warning` is dropped.
+  `__GNUC__`, which cimo doesn't claim, so the `arm64_apple` target predefines them as
+  `__builtin_bswap*`; the SDK has `struct {...} __attribute__((packed))` (112 times) and
+  `aligned(N)` after struct bodies and stray `;` at file scope, all now accepted (as gcc/clang
+  do); its "Unsupported compiler detected" `#warning` is dropped on that target. Claiming
+  `__GNUC__` instead was rejected: the SDK would then use statement expressions, `__asm` and
+  builtins cimo doesn't have.
 - **Test references:** macOS `cc`/`cpp`/`gcc` are Apple clang (`cpp` is a traditional one, not
   GNU: the GNU cpp comparisons skip). clang vectorizes reductions such as `s += x[i] * y[i]`
   into a multiply and a separate add even with `-ffp-contract=fast`, so the fused reference is
   built with `-fno-vectorize -fno-slp-vectorize`. Asm checks use the `_` symbol prefix and `L`
   local labels.
+- `corpora_expect.txt` is generated on Linux: on macOS `long double` is `double`, so 29 more
+  torture programs pass there and `--update` would list different reasons. The two frontend fixes
+  above made 7 Linux entries pass too (regenerated).
 - macOS's bash is 3.2: `source <(...)` doesn't work (use `eval "$(cimo completion bash)"`), and a
   quoted array slice joins into one word when IFS has no space (the completion script slices
   before setting IFS).

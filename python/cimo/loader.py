@@ -16,8 +16,8 @@ Executable memory ("Platform loading findings" in requirements.md):
 - macOS: code in an `mmap(MAP_JIT)` region written between `pthread_jit_write_protect_np(0)`
   and `(1)`, data in a separate RW mapping placed right after it (mapped MAP_FIXED over the
   tail of a JIT mapping of both sizes; MAP_JIT pages are RX for a thread while it runs
-  kernels, so data can't share them); then `sys_icache_invalidate`. If MAP_JIT fails, or the data mapping lands out
-  of range, fall back to the Linux W^X scheme (RW, then mprotect RX). Plain RWX is refused on
+  kernels, so data can't share them); then `sys_icache_invalidate`. If MAP_JIT fails, fall back
+  to the Linux W^X scheme (RW, then mprotect RX). Plain RWX is refused on
   macOS and never used.
 
 External symbols (interim: `printf`, `memcpy`, libm, ...) are looked up with dlsym on the
@@ -466,7 +466,7 @@ class Image:
                         if dsize else 0
                 else:
                     code = 0
-                    data = _map(dsize, PROT_READ | PROT_WRITE)
+                    data = _map(dsize, PROT_READ | PROT_WRITE) if dsize else 0
                     self._maps.append((data, dsize))
                 cimg, dimg = build(code, data)
                 jw = _libc.pthread_jit_write_protect_np

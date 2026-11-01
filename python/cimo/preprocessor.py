@@ -306,7 +306,11 @@ TARGETS = {
                                        # out without __arm64__)
                                        ('__arm64__', None), ('__arm64', None),
                                        ('__AARCH64EL__', None), ('__LITTLE_ENDIAN__', None),
-                                       ('__USER_LABEL_PREFIX__', '_')] + _TAIL_DEFINES
+                                       ('__USER_LABEL_PREFIX__', '_')]
+                    # the SDK's byte swaps (htonl, OSSwapInt32) call these, which it defines for
+                    # arm64 only when the compiler claims __GNUC__ (cimo does not)
+                    + [('_OSSwapInt%d(x)' % n, '__builtin_bswap%d(x)' % n) for n in (16, 32, 64)]
+                    + _TAIL_DEFINES
                     + _APPLE_TYPES),
     'arm64_win': (_COMMON_DEFINES + [('_WIN32', '1'), ('_WIN64', '1'), ('_M_ARM64', '1'),
                                      ('__USER_LABEL_PREFIX__', '')]

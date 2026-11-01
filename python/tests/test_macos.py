@@ -6,6 +6,7 @@ both directions with clang-built code are in test_abi.py."""
 
 import os
 import platform
+import re
 import sys
 import threading
 
@@ -74,11 +75,12 @@ long f(int a, int b, int c, int d, int e, int f, int g, int h, unsigned char p, 
 def test_char_and_short_stack_arguments_are_packed():
     # Apple packs stack arguments at their own size: a char at [sp], the short at [sp, 2]; they
     # took 8-byte slots as on Linux. The frontend says so with QBE's sub-word classes.
-    assert 'ub 200, sh %' in ir(SUBWORD) and 'ub %.17, sh %.19)' in ir(SUBWORD)
-    assert 'w 200, w %' in ir(SUBWORD, 'arm64')  # cproc's IR elsewhere
+    out = ir(SUBWORD)
+    assert re.search(r'ub 200, sh %\S+\)', out) and re.search(r'ub %\S+, sh %\S+\) \{', out)
+    assert re.search(r'w 200, w %\S+\)', ir(SUBWORD, 'arm64'))  # cproc's IR elsewhere
     s = asm(SUBWORD)
-    assert 'strb\tw0, [sp]' in s and 'strh\tw0, [sp, 2]' in s
-    assert 'ldrb\tw9, [x29, 16]' in s and 'ldrsh\tw8, [x29, 18]' in s
+    assert re.search(r'strb\tw\d+, \[sp\]', s) and re.search(r'strh\tw\d+, \[sp, 2\]', s)
+    assert re.search(r'ldrb\tw\d+, \[x29, 16\]', s) and re.search(r'ldrsh\tw\d+, \[x29, 18\]', s)
 
 
 def test_sdk_style_declarations():
@@ -87,8 +89,15 @@ def test_sdk_style_declarations():
     out = ir(r'''
 struct z { char z[16][256]; } __attribute__((aligned(4)));
 struct w { char c; } __attribute__((__aligned__(16)));
+struct ip { unsigned char v; unsigned short len; unsigned int src; } __attribute__((__packed__));
+union u { char c; int i; } __attribute__ ((packed));
+struct pa { char c; short h; } __attribute__((packed, aligned(4)));
+struct __attribute__((packed)) pb { char c; short h; } __attribute__((aligned(4)));
 ;
 _Static_assert(_Alignof(struct z) == 4 && _Alignof(struct w) == 16 && sizeof(struct w) == 16, "");
+_Static_assert(sizeof(struct ip) == 7 && _Alignof(struct ip) == 1 && sizeof(union u) == 4, "");
+_Static_assert(sizeof(struct pa) == 4 && _Alignof(struct pa) == 4 && sizeof(struct pb) == 4, "");
+_Static_assert(__builtin_offsetof(struct ip, src) == 3 && __builtin_offsetof(struct pa, h) == 1, "");
 int f(void) { return 1; };
 ''')
     assert 'function w $f()' in out

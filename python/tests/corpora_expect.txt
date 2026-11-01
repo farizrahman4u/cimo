@@ -24,8 +24,6 @@ gcc-torture/20010209-1.c                            unsupported  nested function
 gcc-torture/20010518-2.c                            unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/20010605-1.c                            unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/20010605-2.c                            unsupported  undeclared identifier: __complex__
-gcc-torture/20010904-1.c                            unsupported  GNU attribute 'aligned' is not supported here
-gcc-torture/20010904-2.c                            unsupported  GNU attribute 'aligned' is not supported here
 gcc-torture/20010924-1.c                            unsupported  initializer specified for incomplete type
 gcc-torture/20020107-1.c                            unsupported  inline assembly is not supported
 gcc-torture/20020108-1.c                            unsupported  attribute 'mode' is not supported
@@ -65,7 +63,6 @@ gcc-torture/20041201-1.c                            unsupported  _Complex is not
 gcc-torture/20041212-1.c                            unsupported  pointer operands to '!=' operator are to incompatible types
 gcc-torture/20041214-1.c                            unsupported  labels as values ('&&label', a GNU extension) are not supported
 gcc-torture/20041218-2.c                            unsupported  struct member 'b' has variably modified type
-gcc-torture/20050106-1.c                            unsupported  unexpected '
 gcc-torture/20050107-1.c                            unsupported  attribute 'mode' is not supported
 gcc-torture/20050119-1.c                            unsupported  attribute 'mode' is not supported
 gcc-torture/20050119-2.c                            unsupported  attribute 'mode' is not supported
@@ -100,7 +97,6 @@ gcc-torture/20120427-2.c                            unsupported  expected declar
 gcc-torture/20121108-1.c                            unsupported  assignment to pointer discards qualifiers
 gcc-torture/20170401-1.c                            unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/20170401-2.c                            unsupported  no type in parameter declaration
-gcc-torture/20171008-1.c                            unsupported  GNU attribute 'aligned' is not supported here
 gcc-torture/20190820-1.c                            unsupported  multiple types in declaration specifiers
 gcc-torture/20210505-1.c                            unsupported  setjmp.h: No such file or directory
 gcc-torture/20230630-2.c                            unsupported  attribute 'scalar_storage_order' is not supported
@@ -223,7 +219,6 @@ gcc-torture/981130-1.c                              unsupported  no type in para
 gcc-torture/990106-1.c                              unsupported  expected declaration or function definition
 gcc-torture/990130-1.c                              unsupported  inline assembly is not supported
 gcc-torture/990208-1.c                              unsupported  labels as values ('&&label', a GNU extension) are not supported
-gcc-torture/990326-1.c                              unsupported  GNU attribute 'aligned' is not supported here
 gcc-torture/990413-2.c                              unsupported  long double is not supported
 gcc-torture/991228-1.c                              unsupported  undeclared identifier: d
 gcc-torture/alias-2.c                               unsupported  attribute 'alias' is not supported
@@ -238,7 +233,6 @@ gcc-torture/bf-pack-1.c                             unsupported  expected ',' or
 gcc-torture/bitfld-3.c                              skip         gcc computes in a bit-field's width when it is wider than int (clang and cimo: in its declared type)
 gcc-torture/bitfld-5.c                              unsupported  inline assembly is not supported
 gcc-torture/built-in-setjmp.c                       unsupported  built-in function '__builtin_longjmp' is not supported
-gcc-torture/builtin-bitops-1.c                      unsupported  unexpected '
 gcc-torture/cbrt.c                                  unsupported  attribute 'mode' is not supported
 gcc-torture/ccmp-tree-1.c                           unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/cmpdi-1.c                               unsupported  expected declaration or function definition
@@ -376,7 +370,6 @@ gcc-torture/pr33382.c                               unsupported  initializer spe
 gcc-torture/pr34154.c                               unsupported  case ranges ('case a ... b', a GNU extension) are not supported
 gcc-torture/pr34971.c                               skip         gcc computes in a bit-field's width when it is wider than int (clang and cimo: in its declared type)
 gcc-torture/pr34982.c                               unsupported  too many arguments for function call
-gcc-torture/pr37573.c                               unsupported  unexpected '
 gcc-torture/pr38151.c                               unsupported  _Complex is not yet supported
 gcc-torture/pr38533.c                               unsupported  inline assembly is not supported
 gcc-torture/pr38969.c                               unsupported  expected declaration or function definition
