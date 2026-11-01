@@ -88,6 +88,17 @@ output for these is broken, so no comparison test depends on it):
   as writing their `va_list`, so a store was forwarded across them: with Apple's and Windows'
   `char *` `va_list`, a parameter passed on after `va_arg` was passed unchanged.
 
+## cimo extensions (`ext.py`, off by default)
+
+- `volatile`: `vloadsb`...`vload`, `vstoreb`...`vstored` (and `vloadw`/`vloadl`/`vloads`/
+  `vloadd`), pinned and unknown to `mem`, `load`, `gvn` and `gcm`, so nothing deletes, merges,
+  moves, promotes or forwards them; `load.def` stops at a volatile store that may alias.
+  `defs.unvolatile` makes them plain before isel; an unused volatile load's result goes to x17
+  (IP1, in `rglob`, never treated as dead), for which `spill` skips the "dead reg" check.
+- `vla`: `getsp` / `setsp` read and reset the stack pointer (arm64 `mov`, wasm `__stack_pointer`),
+  pinned, mark the function `dynalloc`, and are scheduling barriers for `ldp` pairing.
+- `fma`, `math`, `ldp`, `layout`, `trap`, `stkchk`: see `ext.py`.
+
 ## Checking
 
 `python tests/backend_diff.py -f <flags>` (from `python/`) runs C QBE and the port on QBE's tests

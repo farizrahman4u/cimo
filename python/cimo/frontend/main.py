@@ -76,7 +76,7 @@ def _tostr(s):
 
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
-            builtins=False, diagnostics=False, prune=False):
+            builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -92,6 +92,16 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     unknown type names), GNU keyword spellings (asm, __restrict, __const, ...), and C99 inline
     definitions emitted as local functions when referenced; see diag.py.
 
+    volatile=True (cimo extension, off by default): accesses to volatile objects use the
+    volatile loads and stores (`vloadw`, `vstorew`, ...; the backend then needs
+    cimo.backend.ext.volatile); otherwise volatile loads are plain loads and volatile stores
+    an error, as in cproc.
+
+    vlafree=True (cimo extension, off by default): free each variable-length array when
+    control leaves its scope (end of block, break, continue, goto), with getsp/setsp (the
+    backend then needs cimo.backend.ext.vla); cproc keeps them until the function returns, so
+    a VLA in a loop grows the stack every iteration.
+
     prune=True (cimo extension, off by default): drop static functions and data that no
     exported definition references (prune.py).
 
@@ -103,6 +113,8 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     try:
         _qbe.contract = bool(fma)
         _qbe.builtins = bool(builtins)
+        _qbe.volatile = bool(volatile)
+        _qbe.vlafree = bool(vlafree)
         U.diagnostics = bool(diagnostics)
         if diagnostics:
             from . import cc as _cc, diag as _diag
@@ -118,6 +130,8 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     finally:
         _qbe.contract = False
         _qbe.builtins = False
+        _qbe.volatile = False
+        _qbe.vlafree = False
         U.diagnostics = False
         from . import cc as _cc
         _cc.exprhook = None

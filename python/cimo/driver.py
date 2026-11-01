@@ -199,7 +199,7 @@ def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
     try:
         with _middle.options(enabled=MIDDLE if middle is None else middle,
                              params=params or {}), \
-                _ext.options(fma=True, ldp=True, layout=True, math=True, trap=True,
+                _ext.options(fma=True, ldp=True, layout=True, math=True, trap=True, volatile=True, vla=True,
                              stkchk=stkchk):
             parse(ssa.encode('latin-1'), '<cimo>', _Driver(out, 0).dbgfile,
                   _Driver(out, 0).data, _Driver(out, 0).func)
@@ -222,7 +222,7 @@ def _qbe_wasm(ssa, params=None, middle=None):
     obj = Object()
     try:
         with _middle.options(enabled=MIDDLE if middle is None else middle,
-                             params=params or {}), _ext.options(math=True, fma=True):
+                             params=params or {}), _ext.options(math=True, fma=True, volatile=True, vla=True):
             drv = _Driver(obj, 0)
             parse(ssa.encode('latin-1'), '<cimo>', drv.dbgfile, drv.data, drv.func)
     except D.BackendError as e:
@@ -235,6 +235,8 @@ def _frontend(pp, filename, target=None, **kw):
     from .frontend import compile as cproc_compile
     from .frontend import qbe as _fq
     _fq.paraminfo = {}
+    kw.setdefault('volatile', True)
+    kw.setdefault('vlafree', True)
     try:
         ssa = cproc_compile(pp, filename, target=_FRONTEND[target or TARGET], **kw)
         return ssa, _fq.paraminfo

@@ -13,6 +13,12 @@ Flags:
           fmax, ffloor, fceil, ftrunc, fround), which cimo.frontend emits for calls to the C
           functions of those names; arm64 selects fsqrt, fabs, fminnm, fmaxnm, frintm,
           frintp, frintz, frinta
+  volatile  accept the volatile loads and stores in the IR text (`vloadw`, `vstorel`, ... as
+          the plain ones), which cimo.frontend emits for accesses to volatile objects; no pass
+          deletes, merges, moves or forwards them, and instruction selection turns them into
+          plain loads and stores
+  vla     accept getsp/setsp in the IR text (`%s =l getsp`, `setsp %s`), which cimo.frontend
+          emits to free variable-length arrays when their scope ends
   trap    arm64: unreachable code (QBE's `hlt`) calls __cimo_trap instead of `brk #1000`,
           so it unwinds to Python (cimo.execution) instead of killing the process
   stkchk  None, or a set of function names whose prologue calls __cimo_stkchk (the stack
@@ -42,6 +48,8 @@ ldp = False
 layout = False
 math = False
 trap = False
+volatile = False
+vla = False
 stkchk = None
 
 # alias hook for ldp scheduling: disjoint(fn, base1, base2) -> True if accesses off the two
@@ -49,7 +57,7 @@ stkchk = None
 # may, so accesses never move past accesses off another base.
 disjoint = None
 
-ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True}
+ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True, 'volatile': True, 'vla': True}
 _NAMES = tuple(ALL) + ('stkchk',)
 
 

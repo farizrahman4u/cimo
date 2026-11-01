@@ -81,7 +81,7 @@ def access(i, fn):
     return ld, a[0], a[1], sz, k[1] if k else None
 
 
-_BARRIER = (Ocall, Ovastart, Ovaarg, Oblit0, Oblit1, Osalloc)
+_BARRIER = (Ocall, Ovastart, Ovaarg, Oblit0, Oblit1, Osalloc, D.Ogetsp, D.Osetsp)
 
 
 def _disjoint(fn, a, b):

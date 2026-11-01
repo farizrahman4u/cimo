@@ -208,3 +208,54 @@ def test_jnz_on_a_narrowed_constant():
                      'int h(int x) { if ((int)2251799813685248LL) return 1; return 0; }\n'
                      'int n(int x) { return x && (int)4294967297LL; }\n')
     assert (m.c(1), m.h(1), m.n(1)) == (0, 0, 1)
+
+
+VOLATILE = r"""
+volatile int flag;
+int spin(volatile int *p, int n) { int c = 0; for (int i = 0; i < n; i++) c += *p; return c; }
+void three(volatile int *p) { *p = 1; *p = 2; *p = 3; }
+int local(void) { volatile int x = 5; x = x + 1; return x; }
+struct S { int a : 3; volatile int b : 5; } s;
+int bits(void) { s.b = 7; s.b++; return s.b; }
+struct T { int x, y; };
+volatile struct T vt;
+int copy(void) { struct T t = {1, 2}; vt = t; struct T u = vt; return u.x + u.y; }
+int discard(volatile int *p) { *p; return 0; }
+"""
+
+
+def test_volatile_accesses():
+    # cproc rejected volatile stores (gcc torture: 31 programs) and treated volatile loads as
+    # plain ones; every access is now performed, in order
+    m = cimo.compile(VOLATILE)
+    import ctypes
+    a = (ctypes.c_int * 1)(4)
+    assert m.spin(a, 3) == 12 and m.local() == 6 and m.bits() == 8 and m.copy() == 3
+    m.three(a)
+    assert a[0] == 3 and m.discard(a) == 0
+    from cimo import driver
+    asm = driver._build(VOLATILE)[0]
+    three = asm.split('three:')[1].split('ret')[0]
+    assert three.count('str\tw') == 3  # no store merged away
+    discard = asm.split('discard:')[1].split('ret')[0]
+    assert discard.count('ldr\tw17') == 1  # the unused volatile read happens
+
+
+def test_vlas_are_freed_when_their_scope_ends():
+    # cproc kept every VLA until the function returned, so one in a loop, or before a
+    # backward goto, overflowed the stack (gcc 20040811-1.c, pr43220.c, vla-dealloc-1.c)
+    m = cimo.compile(r"""
+void *volatile p;
+long loop(long n) { long s = 0; for (long i = 0; i < n; i++) { int x[i % 1000 + 1]; x[0] = i; p = x; s += x[0]; } return s; }
+long back(void) { int n = 0; lab:; int x[n % 1000 + 1]; x[0] = 1; x[n % 1000] = 2; p = x; n++; if (n < 1000000) goto lab; return n; }
+long brk(long n) { long c = 0; while (1) { int a[n]; a[0] = 1; for (int j = 0; j < 3; j++) { int b[n + j]; b[0] = j; if (j == 1) continue; c += b[0]; } if (++c > 300000) break; } return c; }
+long fwd(long n) { long c = 0; for (long i = 0; i < n; i++) { { int a[i % 100 + 1]; a[0] = 1; p = a; if (i & 1) goto out; } out: c++; } return c; }
+long nested(long n) { long t = 0; for (long i = 0; i < n; i++) { int a[i % 50 + 1]; a[0] = 3; { int b[i % 70 + 1]; b[0] = 4; t += a[0] + b[0]; } int c[5]; c[0] = 1; t += c[0] + a[0]; } return t; }
+long sw(long n) { long t = 0; for (long i = 0; i < n; i++) { switch (i % 3) { case 0: { int a[i % 64 + 1]; a[0] = 1; t += a[0]; break; } default: t += 2; } } return t; }
+""")
+    assert m.loop(2000000) == 1999999000000
+    assert m.back() == 1000000
+    assert m.brk(10) == 300003
+    assert m.fwd(1000000) == 1000000
+    assert m.nested(400000) == 4400000
+    assert m.sw(1000000) == 1666666

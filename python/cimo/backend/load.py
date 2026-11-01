@@ -10,7 +10,7 @@ from .defs import (R, RTmp, RCon, RInt, M64, CAddr, Con, Ins, Phi, Kw, Kl, Ks, K
                    Ostoreb, Ostoreh, Ostorew, Ostorel, Ostores, Ostored, Ocast, Oextuw,
                    Oand, Oadd, Oor, Oshl, Oshr, Ocall, Oblit0, Oblit1, Ocopy, Oextsb,
                    Ovaarg, Ovastart,
-                   BIT, KWIDE, TMP, isload, isstore, rtype, rval, rsval)
+                   BIT, KWIDE, TMP, isload, isstore, isvstore, rtype, rval, rsval)
 from .util import die, newtmp, getcon, newcon, idup
 from .alias import alias, escapes
 from .cfg import dom
@@ -255,6 +255,9 @@ def def_(sl, msk, b, i, il):
             # was forwarded across them, so a char * va_list parameter (Apple, Windows) lost
             # its va_arg updates
             return Load()
+        if isvstore(ins.op) and \
+                alias(sl.ref, sl.off, sl.sz, ins.arg[1], 8, curf)[0] != NoAlias:
+            return Load()  # cimo: a volatile store (ext.volatile) is never forwarded from
         ld = isload(ins.op)
         if ld:
             sz = loadsz(ins)

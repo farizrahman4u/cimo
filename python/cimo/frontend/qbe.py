@@ -176,6 +176,14 @@ IFMA = 91  # cimo extension: "fma a, b, c" = a*b + c rounded once (arg2 is c)
 # cimo extension: the math instructions (cimo.backend.ext.math), see funcbuiltin
 _MATHINST = ('fsqrt', 'fabs', 'fmin', 'fmax', 'ffloor', 'fceil', 'ftrunc', 'fround')
 IFSQRT, IFABS, IFMIN, IFMAX, IFFLOOR, IFCEIL, IFTRUNC, IFROUND = range(92, 100)
+# cimo extension: volatile loads and stores (cimo.backend.ext.volatile), IVOL + (op - ISTORED)
+# for ISTORED..ILOADUB
+IVOL = 100
+volatile = False
+# cimo extension: free variable-length arrays when their scope ends (cimo.backend.ext.vla):
+# "%s =l getsp" before each VLA allocation, "setsp %s" when control leaves its scope
+IGETSP, ISETSP = 114, 115
+vlafree = False
 
 # cimo extension: contract a*b+c into fma within one expression, like clang's
 # -ffp-contract=on; off by default (stock cproc output), set by compile(fma=True)
@@ -184,6 +192,13 @@ contract = False
 instname = [None] + [_s for _n, _s in _OPS]
 # IARG, IVARARG and IFMA are printed by emitinst itself
 instname += [None] * (IFSQRT - len(instname)) + list(_MATHINST)
+instname += ['v' + instname[_o] for _o in range(ISTORED, ILOADUB + 1)]
+instname += ['getsp', 'setsp']
+
+
+def _vol(op, tq):
+    """The volatile version of a load or store op for an object with qualifiers tq."""
+    return IVOL + op - ISTORED if volatile and tq & QUALVOLATILE else op
 
 # cimo extension: calls to these C library functions become one IR instruction (and
 # fma/fmaf the fma instruction), when the callee is the external function of that name with
@@ -228,7 +243,7 @@ class SwitchCase(object):
 
 class Func(object):
     __slots__ = ('decl', 'namedecl', 'name', 'paramtemps', 'type', 'start', 'end', 'gotos',
-                 'lastid')
+                 'lastid', 'vlas', 'vlagotos')
 
 
 ptrclass = 'l'
@@ -494,6 +509,8 @@ def funcalloc(f, d):
         assert d.type.kind == TYPEARRAY
         assert d.type.asize
         v = d.type.asize
+        if vlafree:
+            f.vlas.append(funcinst(f, IGETSP, ptrclass, None, None))
     align = d.align
     if align in (1, 2, 4):
         op = IALLOC4
@@ -513,7 +530,7 @@ def funcalloc(f, d):
     f.end = end
 
 
-def funccopy(f, dst, src, size, align):
+def funccopy(f, dst, src, size, align, tq=QUALNONE):
     assert (align & (align - 1)) == 0
     cls = 'w'
     if align == 1:
@@ -524,6 +541,7 @@ def funccopy(f, dst, src, size, align):
         load, store = ILOADW, ISTOREW
     else:
         load, store, align, cls = ILOADL, ISTOREL, 8, 'l'
+    load, store = _vol(load, tq), _vol(store, tq)
     inc = mkintconst(align)
     off = 0
     while True:
@@ -536,8 +554,9 @@ def funccopy(f, dst, src, size, align):
         dst = funcinst(f, IADD, ptrclass, dst, inc)
 
 
-def funcstore(f, t, tq, lval, v):
-    if tq & QUALVOLATILE:
+def funcstore(f, t, tq, lval, v, srcq=QUALNONE):
+    """srcq: qualifiers of the object an aggregate v is copied from."""
+    if tq & QUALVOLATILE and not volatile:
         error(tok.loc, "volatile store is not yet supported")
     if tq & QUALCONST:
         error(tok.loc, "cannot store to 'const' object")
@@ -546,7 +565,7 @@ def funcstore(f, t, tq, lval, v):
     r = v
     k = t.kind
     if k == TYPESTRUCT or k == TYPEUNION or k == TYPEARRAY:
-        funccopy(f, lval.addr, v, t.size, t.align)
+        funccopy(f, lval.addr, v, t.size, t.align, tq | srcq)
     else:
         if k == TYPEPOINTER or _isnullptr(t):
             t = TY.typeulong
@@ -560,18 +579,18 @@ def funcstore(f, t, tq, lval, v):
             v = funcinst(f, IAND, qt.base, v, mkintconst(mask))
             v = funcinst(f, IOR, qt.base, v,
                          funcinst(f, IAND, qt.base,
-                                  funcinst(f, qt.load, qt.base, lval.addr, None),
+                                  funcinst(f, _vol(qt.load, tq), qt.base, lval.addr, None),
                                   mkintconst(~mask & M64)))
-        funcinst(f, qt.store, 0, v, lval.addr)
+        funcinst(f, _vol(qt.store, tq), 0, v, lval.addr)
     return r
 
 
-def funcload(f, t, lval):
+def funcload(f, t, lval, tq=QUALNONE):
     k = t.kind
     if k == TYPESTRUCT or k == TYPEUNION or k == TYPEARRAY:
         return lval.addr
     qt = qbetype(t)
-    v = funcinst(f, qt.load, qt.base, lval.addr, None)
+    v = funcinst(f, _vol(qt.load, tq), qt.base, lval.addr, None)
     return funcbits(f, t, v, lval.bits)
 
 
@@ -583,6 +602,8 @@ def mkfunc(decl, name, t, s):
     f.start = f.end = mkblock("start")
     f.lastid = 0
     f.gotos = {}
+    f.vlas = []  # cimo (vlafree): stack pointers saved before the VLAs now in scope
+    f.vlagotos = []  # (block, VLAs in scope at the goto, GotoLabel) of forward gotos
     emittype(t.base)
 
     # allocate space for parameters
@@ -670,7 +691,26 @@ def funchlt(f):
 
 
 class GotoLabel(object):
-    __slots__ = ('label', 'defined')
+    __slots__ = ('label', 'defined', 'vlas')
+
+
+def funcvlaleave(f, n):
+    """Free the VLAs allocated after the first n now in scope (cimo, vlafree)."""
+    if len(f.vlas) > n:
+        funcinst(f, ISETSP, 0, f.vlas[n], None)
+
+
+def funcvlagoto(f, g):
+    """Jump to a goto label, freeing the VLAs whose scope the jump leaves (cimo, vlafree)."""
+    if g.defined:  # backward: the label's VLAs are a prefix of ours
+        funcvlaleave(f, len(g.vlas))
+        funcjmp(f, g.label)
+    elif f.vlas:  # forward: the label's VLAs are not known yet
+        t = mkblock("goto_vla")
+        funcjmp(f, t)
+        f.vlagotos.append((t, list(f.vlas), g))
+    else:
+        funcjmp(f, g.label)
 
 
 def funcgoto(f, name):
@@ -678,6 +718,7 @@ def funcgoto(f, name):
     if g is None:
         g = GotoLabel()
         g.defined = False
+        g.vlas = ()
         g.label = mkblock(name)
         f.gotos[name] = g
     return g
@@ -894,7 +935,7 @@ def funcexpr(f, e):
     if k == EXPRIDENT:
         d = e.decl
         if d.kind == DECLOBJECT:
-            return funcload(f, e.type, LValue(d.value))
+            return funcload(f, e.type, LValue(d.value), e.qual)
         if d.kind == DECLCONST:
             return d.value
         U.fatal("unimplemented declaration kind %d", d.kind)
@@ -906,10 +947,10 @@ def funcexpr(f, e):
         return mkfltconst(VALUE_FLTCONST if t.size == 4 else VALUE_DBLCONST, e.f)
     elif k == EXPRBITFIELD or k == EXPRCOMPOUND:
         lval = funclval(f, e)
-        return funcload(f, e.type, lval)
+        return funcload(f, e.type, lval, e.qual)
     elif k == EXPRINCDEC:
         lval = funclval(f, e.base)
-        l = funcload(f, e.base.type, lval)
+        l = funcload(f, e.base.type, lval, e.base.qual)
         t = e.type
         if t.kind == TYPEPOINTER:
             if t.base.kind == TYPEARRAY and t.base.size == 0:
@@ -971,7 +1012,7 @@ def funcexpr(f, e):
             return lval.addr
         if op == TMUL:
             r = funcexpr(f, e.base)
-            return funcload(f, e.type, LValue(r))
+            return funcload(f, e.type, LValue(r), e.qual)
         if op == TSUB:
             r = funcexpr(f, e.base)
             return funcinst(f, INEG, qbetype(e.type).base, r, None)
@@ -1048,7 +1089,7 @@ def funcexpr(f, e):
             e.l.temp = r
         else:
             lval = funclval(f, e.l)
-            r = funcstore(f, e.l.type, e.l.qual, lval, r)
+            r = funcstore(f, e.l.type, e.l.qual, lval, r, e.r.qual)
         return r
     elif k == EXPRCOMMA:
         e = e.base
@@ -1143,7 +1184,8 @@ def funcinit(func, d, init, hasinit):
             if init.start > 0:
                 dst.addr = funcinst(func, IADD, ptrclass, dst.addr, mkintconst(init.start))
             src = funcexpr(func, ex)
-            funcstore(func, ex.type, QUALNONE, dst, src)
+            # cimo: volatile objects are initialized with volatile stores
+            funcstore(func, ex.type, d.qual & QUALVOLATILE, dst, src, ex.qual)
             offset = init.end
         if mx < offset:
             mx = offset
@@ -1312,6 +1354,9 @@ def emitinst(insts, i, n):
         emitclass(inst.cls, inst.arg1)
         w(' ')
     w(instname[inst.kind])
+    if inst.kind == IGETSP:
+        w('\n')
+        return i + 1
     w(' ')
     emitvalue(inst.arg0)
     i += 1
@@ -1398,6 +1443,11 @@ def emitfunc(f, glob):
         if f.name == "main" and f.type.base is TY.typeint:
             v = mkintconst(0)
         funcret(f, v)
+    for t, vlas, g in f.vlagotos:  # forward gotos that leave VLA scopes (vlafree)
+        funclabel(f, t)
+        if len(vlas) > len(g.vlas):
+            funcinst(f, ISETSP, 0, vlas[len(g.vlas)], None)
+        funcjmp(f, g.label)
     if glob:
         w("export\n")
     w("function ")

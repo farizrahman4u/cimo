@@ -485,6 +485,10 @@ def emitins(i, e):
                   "\tmov\tsp, x17\n" % (_nprobe, _nprobe, _nprobe, _nprobe))
         if not req(i.to, R):
             emitf("mov %=, sp", i, e)
+    elif op == D.Ogetsp:  # cimo extension (ext.vla)
+        emitf("mov %=, sp", i, e)
+    elif op == D.Osetsp:
+        emitf("mov sp, %0", i, e)
     elif op == Osalloc:
         emitf("sub sp, sp, %0", i, e)
         if not req(i.to, R):

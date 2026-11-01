@@ -264,6 +264,8 @@ class _Gen:
         for b in fn.rpo:
             args = []
             for i in b.ins[:b.nins]:
+                if i.op in (D.Ogetsp, D.Osetsp):
+                    self.dyn = True
                 if D.isalloc(i.op):
                     a = 4 << (i.op - D.Oalloc4)
                     if b is fn.start and rtype(i.arg[0]) == RCon and \
@@ -533,6 +535,13 @@ class _Gen:
             src = {Ks: Kw, Kd: Kl, Kw: Ks, Kl: Kd}[k]
             self.push(a0, src)
             self.op({Ks: 0xBE, Kd: 0xBF, Kw: 0xBC, Kl: 0xBD}[k])
+        elif o == D.Ogetsp:  # cimo extension (ext.vla)
+            self.gget(G_SP)
+            self.op(0xAD)
+        elif o == D.Osetsp:
+            self.paddr(a0)
+            self.gset(G_SP)
+            return
         elif D.isalloc(o):
             off = self.slots.get(id(i))
             if off is not None:

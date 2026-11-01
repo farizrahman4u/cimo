@@ -367,7 +367,9 @@ def spill(fn):
             if ins.to != R:
                 assert rtype(ins.to) == RTmp
                 t = rval(ins.to)
-                if bshas(v, t):
+                if t < Tmp0 and BIT(t) & T.rglob:
+                    pass  # cimo: a global register (always live) written for effect: unvolatile
+                elif bshas(v, t):
                     bsclr(v, t)
                 else:
                     # make sure we have a reg

@@ -94,6 +94,25 @@ long test(int sel) {
         assert host.call('test', 'w', sel)[0] == w, sel
 
 
+def test_vlas_freed_and_volatile(host):
+    # a VLA per iteration (freed at the end of each, else the shadow stack overflows) and
+    # volatile accesses (getsp/setsp and vload/vstore in the wasm emitter)
+    build(host, r'''
+void *volatile p;
+long loops(long n) {
+    long s = 0;
+    for (long i = 0; i < n; i++) { int x[i % 1000 + 1]; x[i % 1000] = 2; p = x; s += x[i % 1000]; }
+    int k = 0;
+again:;
+    int y[k % 500 + 1];
+    y[0] = 1; p = y;
+    if (++k < 100000) goto again;
+    return s + k;
+}
+''')
+    assert host.call('loops', 'l', 200000)[0] == 400000 + 100000
+
+
 def test_printf_and_errors(host):
     build(host, r'''
 #include <stdio.h>

@@ -34,6 +34,10 @@ del _i, _t
 Tfma = Ntok  # cimo extension: only a keyword when ext.fma is on
 Tmath = Ntok + 1  # cimo extension: the math instructions, keywords when ext.math is on
 _MATHOPS = ('fsqrt', 'fabs', 'fmin', 'fmax', 'ffloor', 'fceil', 'ftrunc', 'fround')
+Tvol = Ntok + 2  # cimo extension: the volatile loads and stores, keywords when ext.volatile is on
+_VOLOPS = {optab[o].name: o for o in range(D.Ovloadsb, D.Ovstored + 1)}
+_VOLOPS.update(vloadw=D.Ovloadsw, vloadl=D.Ovload, vloads=D.Ovload, vloadd=D.Ovload)
+Tsp = Ntok + 3  # cimo extension: getsp and setsp, keywords when ext.vla is on
 
 kwmap = {
     Tloadw: "loadw", Tloadl: "loadl", Tloads: "loads", Tloadd: "loadd",
@@ -225,6 +229,12 @@ def lex():
         if _ext.math and S.tokval_str in _MATHOPS:
             S.mathop = getattr(D, 'O' + S.tokval_str)
             return Tmath
+        if _ext.vla and S.tokval_str in ('getsp', 'setsp'):
+            S.mathop = D.Ogetsp if S.tokval_str == 'getsp' else D.Osetsp
+            return Tsp
+        if _ext.volatile and S.tokval_str in _VOLOPS:
+            S.mathop = _VOLOPS[S.tokval_str]
+            return Tvol
         err("unknown keyword %s", S.tokval_str)
     return t
 
@@ -523,6 +533,14 @@ def parseline(ps):
         r = R
         k = Kw
         op = t
+    elif t == Tvol and D.isvstore(S.mathop):
+        r = R
+        k = Kw
+        op = Tvol
+    elif t == Tsp and S.mathop == D.Osetsp:
+        r = R
+        k = Kl
+        op = Tsp
     else:
         err("label, instruction or jump expected")
 
@@ -587,6 +605,13 @@ def parseline(ps):
         _put(Ins(D.Ofma0, k, R, arg[2], R))
         _put(Ins(D.Ofma1, k, r, arg[0], arg[1]))
         return PIns
+    elif op == Tvol:
+        return _ins(S.mathop, k, r, arg)
+    elif op == Tsp:
+        if i != (0 if S.mathop == D.Ogetsp else 1) or (S.mathop == D.Ogetsp and k != Kl):
+            err("getsp needs class l and no argument, setsp one argument")
+        curf.dynalloc = 1
+        return _ins(S.mathop, k, r, arg)
     elif op == Tmath:
         mop = S.mathop
         if i != (2 if mop in (D.Ofmin, D.Ofmax) else 1) or KBASE(k) != 1:

@@ -6,6 +6,7 @@ python -m cimo.backend [-d flags] [-o file] [-t target] {file.ssa, -}
 import sys
 
 from . import defs as D
+from .arm64.regs import IP1 as _IP1
 from .parse import parse, printfn
 
 
@@ -95,6 +96,7 @@ class _Driver:
                 ssa.filluse(fn)
                 ssa.ssacheck(fn)
         if T.name == 'wasm':  # cimo: no machine lowering; the engine allocates registers
+            D.unvolatile(fn)
             T.emitfn(fn, self.outf)
             return
         if T.cansel:
@@ -107,6 +109,8 @@ class _Driver:
         simpl.simpl(fn)
         cfg.fillcfg(fn)
         ssa.filluse(fn)
+        # cimo: volatile accesses are plain ones from here on (ext.volatile)
+        D.unvolatile(fn, D.TMP(_IP1) if T.name.startswith('arm64') else None)
         T.isel(fn)
         cfg.fillcfg(fn)
         live.filllive(fn)

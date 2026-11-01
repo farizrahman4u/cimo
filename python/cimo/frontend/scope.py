@@ -38,6 +38,8 @@ def mkscope(parent):
     s = Scope()
     s.breaklabel = parent.breaklabel
     s.continuelabel = parent.continuelabel
+    s.breakvla = parent.breakvla
+    s.contvla = parent.contvla
     s.switchcases = parent.switchcases
     s.parent = parent
     return s

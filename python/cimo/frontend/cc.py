@@ -480,13 +480,17 @@ class Decl(object):
 
 class Scope(object):
     """struct scope. The maps are dicts (empty dict == len 0)."""
-    __slots__ = ('tags', 'decls', 'breaklabel', 'continuelabel', 'switchcases', 'parent')
+    __slots__ = ('tags', 'decls', 'breaklabel', 'continuelabel', 'switchcases', 'parent',
+                 'breakvla', 'contvla')
 
     def __init__(self):
         self.tags = {}
         self.decls = {}
         self.breaklabel = None
         self.continuelabel = None
+        # cimo (vlafree): VLAs in scope where break/continue jump to (len of Func.vlas)
+        self.breakvla = 0
+        self.contvla = 0
         self.switchcases = None
         self.parent = None
 

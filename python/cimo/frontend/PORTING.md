@@ -135,6 +135,14 @@ passed by `cimo.compile`:
   `__alignof`, `__PRETTY_FUNCTION__`); keywords as attribute names; `aligned` after any
   declarator; `nullptr` as `(void *)0`; C99 inline definitions emitted as local functions
   when referenced (or exported when a later declaration makes them external).
+- `volatile=True` (`qbe.volatile`): accesses to volatile objects (loads, stores, bit-field
+  read-modify-writes, aggregate copies from or to them, initializers) use the backend's
+  `vload*`/`vstore*`; cproc rejects volatile stores and emits volatile loads as plain ones.
+- `vlafree=True` (`qbe.vlafree`): `getsp` before each VLA allocation and `setsp` when control
+  leaves its scope: end of block or `for`, `break`/`continue` (`Scope.breakvla`/`contvla`), and
+  `goto` (backward: the label's VLAs are a prefix; forward: a `goto_vla` block filled in by
+  `emitfunc` once the label is known). cproc frees VLAs only on return, so one in a loop grows
+  the stack each iteration.
 
 ## Quirks kept (match C)
 

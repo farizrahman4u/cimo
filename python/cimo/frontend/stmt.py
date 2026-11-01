@@ -47,8 +47,15 @@ def label(f, s):
             return False
         g = Q.funcgoto(f, name)
         g.defined = True
+        g.vlas = tuple(f.vlas)
         Q.funclabel(f, g.label)
     return True
+
+
+def _vlaleave(f, n):
+    """cimo (vlafree): control leaves the scope of the VLAs after the first n: free them."""
+    if Q.vlafree and not f.end.jump_kind:  # else unreachable (after a return, break, ...)
+        Q.funcvlaleave(f, n)
 
 
 def labelstmt(f, s):
@@ -65,9 +72,12 @@ def stmt(f, s):
     if k == TLBRACE:
         next()
         s = mkscope(s)
+        nvla = len(f.vlas)
         while tok.kind != TRBRACE:
             if not label(f, s) and not D.decl(s, f):
                 stmt(f, s)
+        _vlaleave(f, nvla)
+        del f.vlas[nvla:]
         s = delscope(s)
         next()
 
@@ -130,6 +140,7 @@ def stmt(f, s):
         Q.funcjmp(f, b0)
         s = mkscope(s)
         s.breaklabel = b1
+        s.breakvla = len(f.vlas)
         s.switchcases = swtch
         labelstmt(f, s)
         Q.funcjmp(f, b1)
@@ -162,6 +173,7 @@ def stmt(f, s):
         s = mkscope(s)
         s.continuelabel = b0
         s.breaklabel = b2
+        s.breakvla = s.contvla = len(f.vlas)
         labelstmt(f, s)
         s = delscope(s)
         Q.funcjmp(f, b0)
@@ -178,6 +190,7 @@ def stmt(f, s):
         s = mkscope(s)
         s.continuelabel = b1
         s.breaklabel = b2
+        s.breakvla = s.contvla = len(f.vlas)
         Q.funclabel(f, b0)
         labelstmt(f, s)
         s = delscope(s)
@@ -199,6 +212,7 @@ def stmt(f, s):
         next()
         expect(TLPAREN, "after 'for'")
         s = mkscope(s)
+        nvla = len(f.vlas)
         if not D.decl(s, f):
             if tok.kind != TSEMICOLON:
                 e = E.expr(s)
@@ -227,6 +241,7 @@ def stmt(f, s):
         s = mkscope(s)
         s.breaklabel = b3
         s.continuelabel = b2
+        s.breakvla = s.contvla = len(f.vlas)
         labelstmt(f, s)
         s = delscope(s)
 
@@ -236,6 +251,8 @@ def stmt(f, s):
             E.delexpr(e)
         Q.funcjmp(f, b0)
         Q.funclabel(f, b3)
+        _vlaleave(f, nvla)
+        del f.vlas[nvla:]
         s = delscope(s)
 
     # 6.8.6 Jump statements
@@ -244,18 +261,23 @@ def stmt(f, s):
         if U.diagnostics and tok.kind == TMUL:
             error(tok.loc, "computed goto ('goto *p', a GNU extension) is not supported")
         name = expect(TIDENT, "after 'goto'")
-        Q.funcjmp(f, Q.funcgoto(f, name).label)
+        if Q.vlafree:
+            Q.funcvlagoto(f, Q.funcgoto(f, name))
+        else:
+            Q.funcjmp(f, Q.funcgoto(f, name).label)
         expect(TSEMICOLON, "after 'goto' statement")
     elif k == TCONTINUE:
         next()
         if not s.continuelabel:
             error(tok.loc, "'continue' statement must be in loop")
+        _vlaleave(f, s.contvla)
         Q.funcjmp(f, s.continuelabel)
         expect(TSEMICOLON, "after 'continue' statement")
     elif k == TBREAK:
         next()
         if not s.breaklabel:
             error(tok.loc, "'break' statement must be in loop or switch")
+        _vlaleave(f, s.breakvla)
         Q.funcjmp(f, s.breaklabel)
         expect(TSEMICOLON, "after 'break' statement")
     elif k == TRETURN:

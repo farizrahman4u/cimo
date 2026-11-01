@@ -16,11 +16,9 @@ gcc-torture/20000822-1.c                            unsupported  nested function
 gcc-torture/20000914-1.c                            unsupported  no type in parameter declaration
 gcc-torture/20000917-1.c                            unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/20001009-2.c                            unsupported  inline assembly is not supported
-gcc-torture/20001017-2.c                            unsupported  base types of pointer assignment must be compatible or void
 gcc-torture/20001026-1.c                            unsupported  no type in parameter declaration
 gcc-torture/20001101.c                              unsupported  no type in parameter declaration
 gcc-torture/20001203-2.c                            unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
-gcc-torture/20001228-1.c                            unsupported  volatile store is not yet supported
 gcc-torture/20010122-1.c                            unsupported  built-in function '__builtin_return_address' is not supported
 gcc-torture/20010209-1.c                            unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/20010518-2.c                            unsupported  GNU attribute 'packed' is not supported here
@@ -31,7 +29,6 @@ gcc-torture/20010904-2.c                            unsupported  GNU attribute '
 gcc-torture/20010924-1.c                            unsupported  initializer specified for incomplete type
 gcc-torture/20020107-1.c                            unsupported  inline assembly is not supported
 gcc-torture/20020108-1.c                            unsupported  attribute 'mode' is not supported
-gcc-torture/20020118-1.c                            unsupported  volatile store is not yet supported
 gcc-torture/20020206-1.c                            unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/20020227-1.c                            unsupported  declaration has no type specifier
 gcc-torture/20020314-1.c                            unsupported  undeclared identifier: alloca
@@ -41,7 +38,6 @@ gcc-torture/20020411-1.c                            unsupported  expected declar
 gcc-torture/20020412-1.c                            unsupported  struct member 'x' has variably modified type
 gcc-torture/20020413-1.c                            unsupported  long double is not supported
 gcc-torture/20020819-1.c                            unsupported  expected declaration or function definition
-gcc-torture/20021120-1.c                            unsupported  volatile store is not yet supported
 gcc-torture/20021127-1.c                            skip         defines its own llabs and expects gcc's builtin llabs to be used instead
 gcc-torture/20030109-1.c                            unsupported  initializer specified for incomplete type
 gcc-torture/20030222-1.c                            unsupported  inline assembly is not supported
@@ -56,15 +52,13 @@ gcc-torture/20030914-1.c                            unsupported  long double is 
 gcc-torture/20031211-2.c                            unsupported  undeclared identifier: foo
 gcc-torture/20040208-1.c                            unsupported  long double is not supported
 gcc-torture/20040223-1.c                            unsupported  undeclared identifier: abort
-gcc-torture/20040302-1.c                            unsupported  volatile store is not yet supported
+gcc-torture/20040302-1.c                            unsupported  labels as values ('&&label', a GNU extension) are not supported
 gcc-torture/20040308-1.c                            unsupported  struct member 'i' has variably modified type
 gcc-torture/20040423-1.c                            unsupported  struct member 'c' has variably modified type
 gcc-torture/20040520-1.c                            unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/20040709-1.c                            unsupported  built-in function '__builtin_classify_type' is not supported
 gcc-torture/20040709-2.c                            unsupported  bit-field 'i' in packed struct is not supported
 gcc-torture/20040709-3.c                            unsupported  bit-field 'i' in packed struct is not supported
-gcc-torture/20040811-1.c                            unsupported  volatile store is not yet supported
-gcc-torture/20041011-1.c                            unsupported  volatile store is not yet supported
 gcc-torture/20041019-1.c                            unsupported  expected declaration or function definition
 gcc-torture/20041124-1.c                            unsupported  _Complex is not yet supported
 gcc-torture/20041201-1.c                            unsupported  _Complex is not yet supported
@@ -101,10 +95,8 @@ gcc-torture/20090113-3.c                            unsupported  empty structs a
 gcc-torture/20090219-1.c                            unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/20100430-1.c                            unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/20111212-1.c                            unsupported  GNU attribute 'packed' is not supported here
-gcc-torture/20120105-1.c                            unsupported  volatile store is not yet supported
 gcc-torture/20120427-1.c                            unsupported  expected declaration or function definition
 gcc-torture/20120427-2.c                            unsupported  expected declaration or function definition
-gcc-torture/20120808-1.c                            unsupported  volatile store is not yet supported
 gcc-torture/20121108-1.c                            unsupported  assignment to pointer discards qualifiers
 gcc-torture/20170401-1.c                            unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/20170401-2.c                            unsupported  no type in parameter declaration
@@ -113,7 +105,6 @@ gcc-torture/20190820-1.c                            unsupported  multiple types 
 gcc-torture/20210505-1.c                            unsupported  setjmp.h: No such file or directory
 gcc-torture/20230630-2.c                            unsupported  attribute 'scalar_storage_order' is not supported
 gcc-torture/20230630-4.c                            unsupported  attribute 'scalar_storage_order' is not supported
-gcc-torture/20230802-1.c                            unsupported  volatile store is not yet supported
 gcc-torture/920302-1.c                              unsupported  no type in parameter declaration
 gcc-torture/920409-1.c                              unsupported  expected declaration or function definition
 gcc-torture/920411-1.c                              unsupported  no type in parameter declaration
@@ -183,7 +174,6 @@ gcc-torture/930916-1.c                              unsupported  expected declar
 gcc-torture/930921-1.c                              unsupported  expected declaration or function definition
 gcc-torture/930929-1.c                              unsupported  expected declaration or function definition
 gcc-torture/930930-1.c                              unsupported  expected declaration or function definition
-gcc-torture/930930-2.c                              unsupported  volatile store is not yet supported
 gcc-torture/931002-1.c                              unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/931004-10.c                             unsupported  va_arg with non-scalar type is not yet supported
 gcc-torture/931004-12.c                             unsupported  va_arg with non-scalar type is not yet supported
@@ -204,7 +194,6 @@ gcc-torture/931208-1.c                              unsupported  expected declar
 gcc-torture/931228-1.c                              unsupported  expected declaration or function definition
 gcc-torture/940115-1.c                              unsupported  expected declaration or function definition
 gcc-torture/940122-1.c                              unsupported  expected declaration or function definition
-gcc-torture/941014-2.c                              unsupported  volatile store is not yet supported
 gcc-torture/941015-1.c                              unsupported  no type in parameter declaration
 gcc-torture/941021-1.c                              unsupported  no type in parameter declaration
 gcc-torture/941025-1.c                              unsupported  no type in parameter declaration
@@ -239,8 +228,6 @@ gcc-torture/980506-1.c                              unsupported  no type in para
 gcc-torture/980506-3.c                              unsupported  no type in parameter declaration
 gcc-torture/980526-1.c                              unsupported  local labels ('__label__') are not supported
 gcc-torture/980526-3.c                              unsupported  no type in parameter declaration
-gcc-torture/980617-1.c                              unsupported  base types of pointer assignment must be compatible or void
-gcc-torture/980709-1.c                              unsupported  volatile store is not yet supported
 gcc-torture/981130-1.c                              unsupported  no type in parameter declaration
 gcc-torture/990106-1.c                              unsupported  expected declaration or function definition
 gcc-torture/990130-1.c                              unsupported  inline assembly is not supported
@@ -261,7 +248,6 @@ gcc-torture/bitfld-3.c                              skip         gcc computes in
 gcc-torture/bitfld-5.c                              unsupported  inline assembly is not supported
 gcc-torture/built-in-setjmp.c                       unsupported  built-in function '__builtin_longjmp' is not supported
 gcc-torture/builtin-bitops-1.c                      unsupported  unexpected '
-gcc-torture/builtin-prefetch-3.c                    unsupported  volatile store is not yet supported
 gcc-torture/cbrt.c                                  unsupported  attribute 'mode' is not supported
 gcc-torture/ccmp-tree-1.c                           unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/cmpdi-1.c                               unsupported  expected declaration or function definition
@@ -281,13 +267,11 @@ gcc-torture/conversion.c                            unsupported  no type in para
 gcc-torture/dbra-1.c                                unsupported  expected declaration or function definition
 gcc-torture/divmod-1.c                              unsupported  expected declaration or function definition
 gcc-torture/eeprof-1.c                              skip         -finstrument-functions
-gcc-torture/floatunsisf-1.c                         unsupported  volatile store is not yet supported
 gcc-torture/fprintf-1.c                             unsupported  undeclared identifier: fprintf
 gcc-torture/fprintf-2.c                             unsupported  undeclared identifier: tmpnam
 gcc-torture/fprintf-chk-1.c                         unsupported  unknown type name 'FILE'
 gcc-torture/frame-address.c                         unsupported  built-in function '__builtin_frame_address' is not supported
 gcc-torture/gofast.c                                unsupported  undeclared identifier: fprintf
-gcc-torture/ieee/20001122-1.c                       unsupported  volatile store is not yet supported
 gcc-torture/ieee/20010226-1.c                       unsupported  long double is not supported
 gcc-torture/ieee/20011123-1.c                       unsupported  long double is not supported
 gcc-torture/ieee/920810-1.c                         unsupported  no type in parameter declaration
@@ -363,8 +347,6 @@ gcc-torture/packed-1.c                              unsupported  GNU attribute '
 gcc-torture/packed-2.c                              unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/packed-aligned.c                        unsupported  no type in parameter declaration
 gcc-torture/pending-4.c                             unsupported  no type in parameter declaration
-gcc-torture/postmod-1.c                             unsupported  volatile store is not yet supported
-gcc-torture/pr101188.c                              unsupported  volatile store is not yet supported
 gcc-torture/pr103209.c                              unsupported  too many arguments for function call
 gcc-torture/pr103376.c                              unsupported  inline assembly is not supported
 gcc-torture/pr103405.c                              unsupported  nested functions (a GNU extension) are not supported
@@ -388,13 +370,12 @@ gcc-torture/pr121957.c                              unsupported  vector types (v
 gcc-torture/pr122000.c                              unsupported  GNU attribute 'aligned' is not supported here
 gcc-torture/pr123625-2.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr123625-3.c                            unsupported  vector types (vector_size) are not supported yet
-gcc-torture/pr123625.c                              unsupported  base types of pointer assignment must be compatible or void
+gcc-torture/pr123625.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr123753.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr123864.c                              unsupported  built-in function '__builtin_mul_overflow_p' is not supported
 gcc-torture/pr126405-2.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr126405-3.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr126405.c                              unsupported  vector types (vector_size) are not supported yet
-gcc-torture/pr126747.c                              unsupported  volatile store is not yet supported
 gcc-torture/pr17133.c                               unsupported  pointer operand to '+' must be to complete object type
 gcc-torture/pr17377.c                               unsupported  built-in function '__builtin_return_address' is not supported
 gcc-torture/pr19449.c                               unsupported  '__builtin_choose_expr' is not supported
@@ -412,14 +393,12 @@ gcc-torture/pr28982b.c                              skip         minutes to comp
 gcc-torture/pr30314.c                               unsupported  ../../gcc.dg/tree-ssa/pr30314.c: No such file or directory
 gcc-torture/pr32244-1.c                             skip         gcc computes in a bit-field's width when it is wider than int (clang and cimo: in its declared type)
 gcc-torture/pr33382.c                               unsupported  initializer specified for incomplete type
-gcc-torture/pr33870-1.c                             unsupported  volatile store is not yet supported
 gcc-torture/pr34154.c                               unsupported  case ranges ('case a ... b', a GNU extension) are not supported
 gcc-torture/pr34971.c                               skip         gcc computes in a bit-field's width when it is wider than int (clang and cimo: in its declared type)
 gcc-torture/pr34982.c                               unsupported  too many arguments for function call
 gcc-torture/pr37573.c                               unsupported  unexpected '
 gcc-torture/pr38151.c                               unsupported  _Complex is not yet supported
 gcc-torture/pr38533.c                               unsupported  inline assembly is not supported
-gcc-torture/pr38819.c                               unsupported  volatile store is not yet supported
 gcc-torture/pr38969.c                               unsupported  expected declaration or function definition
 gcc-torture/pr39120.c                               unsupported  no type in parameter declaration
 gcc-torture/pr39228.c                               unsupported  built-in function '__builtin_isinff' is not supported
@@ -430,7 +409,6 @@ gcc-torture/pr41935.c                               unsupported  struct member '
 gcc-torture/pr42248.c                               unsupported  _Complex is not yet supported
 gcc-torture/pr42570.c                               unsupported  object 'foo' with static storage duration cannot have variably modified type
 gcc-torture/pr42833.c                               unsupported  declaration has no type specifier
-gcc-torture/pr43220.c                               unsupported  volatile store is not yet supported
 gcc-torture/pr43385.c                               unsupported  inline assembly is not supported
 gcc-torture/pr43560.c                               unsupported  inline assembly is not supported
 gcc-torture/pr44575.c                               unsupported  va_arg with non-scalar type is not yet supported
@@ -444,10 +422,9 @@ gcc-torture/pr47925.c                               unsupported  inline assembly
 gcc-torture/pr48571-1.c                             unsupported  pointer operand to '+' must be to complete object type
 gcc-torture/pr49218.c                               unsupported  inline assembly is not supported
 gcc-torture/pr49279.c                               unsupported  inline assembly is not supported
-gcc-torture/pr49390.c                               unsupported  volatile store is not yet supported
+gcc-torture/pr49390.c                               unsupported  inline assembly is not supported
 gcc-torture/pr49644.c                               unsupported  _Complex is not yet supported
 gcc-torture/pr51447.c                               unsupported  local labels ('__label__') are not supported
-gcc-torture/pr51466.c                               unsupported  volatile store is not yet supported
 gcc-torture/pr51581-1.c                             unsupported  inline assembly is not supported
 gcc-torture/pr51581-2.c                             unsupported  inline assembly is not supported
 gcc-torture/pr51877.c                               unsupported  inline assembly is not supported
@@ -468,18 +445,14 @@ gcc-torture/pr57344-3.c                             unsupported  bit-field 'a' i
 gcc-torture/pr57344-4.c                             unsupported  bit-field 'a' in packed struct is not supported
 gcc-torture/pr58277-1.c                             unsupported  inline assembly is not supported
 gcc-torture/pr58419.c                               unsupported  inline assembly is not supported
-gcc-torture/pr58662.c                               unsupported  volatile store is not yet supported
 gcc-torture/pr58943.c                               skip         unspecified order: x[0] |= f() where f writes x[0]; checks gcc's choice
 gcc-torture/pr60003.c                               unsupported  built-in function '__builtin_longjmp' is not supported
 gcc-torture/pr60960.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr63641.c                               unsupported  inline assembly is not supported
 gcc-torture/pr64006.c                               unsupported  built-in function '__builtin_mul_overflow' is not supported
 gcc-torture/pr64242.c                               unsupported  expected declaration or function definition
-gcc-torture/pr64756.c                               unsupported  volatile store is not yet supported
 gcc-torture/pr65053-1.c                             unsupported  inline assembly is not supported
 gcc-torture/pr65053-2.c                             unsupported  inline assembly is not supported
-gcc-torture/pr65418-1.c                             unsupported  volatile store is not yet supported
-gcc-torture/pr65418-2.c                             unsupported  volatile store is not yet supported
 gcc-torture/pr65427.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr65648.c                               unsupported  inline assembly is not supported
 gcc-torture/pr65956.c                               unsupported  inline assembly is not supported
@@ -496,11 +469,9 @@ gcc-torture/pr71494.c                               unsupported  labels as value
 gcc-torture/pr71554.c                               unsupported  built-in function '__builtin_mul_overflow' is not supported
 gcc-torture/pr71626-1.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr71626-2.c                             unsupported  vector types (vector_size) are not supported yet
-gcc-torture/pr71631.c                               unsupported  volatile store is not yet supported
 gcc-torture/pr78438.c                               unsupported  inline assembly is not supported
 gcc-torture/pr78726.c                               unsupported  inline assembly is not supported
 gcc-torture/pr79286.c                               unsupported  array of unknown size has empty initializer
-gcc-torture/pr79327.c                               unsupported  volatile store is not yet supported
 gcc-torture/pr79354.c                               unsupported  inline assembly is not supported
 gcc-torture/pr79737-2.c                             unsupported  inline assembly is not supported
 gcc-torture/pr80421.c                               unsupported  inline assembly is not supported
@@ -522,7 +493,6 @@ gcc-torture/pr86659-1.c                             unsupported  no type in para
 gcc-torture/pr86659-2.c                             unsupported  no type in parameter declaration
 gcc-torture/pr87623.c                               unsupported  attribute 'scalar_storage_order' is not supported
 gcc-torture/pr88904.c                               unsupported  inline assembly is not supported
-gcc-torture/pr89195.c                               unsupported  volatile store is not yet supported
 gcc-torture/pr89434.c                               unsupported  built-in function '__builtin_mul_overflow' is not supported
 gcc-torture/pr90311.c                               unsupported  built-in function '__builtin_add_overflow' is not supported
 gcc-torture/pr91450-1.c                             unsupported  built-in function '__builtin_mul_overflow' is not supported
@@ -538,11 +508,9 @@ gcc-torture/pr94130.c                               unsupported  inline assembly
 gcc-torture/pr94412.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr94524-1.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr94524-2.c                             unsupported  vector types (vector_size) are not supported yet
-gcc-torture/pr94567.c                               unsupported  volatile store is not yet supported
 gcc-torture/pr94591.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr98304-2.c                             unsupported  ../../gcc.dg/pr98304-1.c: No such file or directory
 gcc-torture/printf-2.c                              unsupported  undeclared identifier: tmpnam
-gcc-torture/printf-chk-1.c                          unsupported  volatile store is not yet supported
 gcc-torture/regstack-1.c                            unsupported  long double is not supported
 gcc-torture/scal-to-vec1.c                          unsupported  vector types (vector_size) are not supported yet
 gcc-torture/scal-to-vec2.c                          unsupported  vector types (vector_size) are not supported yet
@@ -579,8 +547,6 @@ gcc-torture/va-arg-pack-1.c                         unsupported  long double is 
 gcc-torture/vector-div-neg-pow2.c                   unsupported  vector types (vector_size) are not supported yet
 gcc-torture/vfprintf-1.c                            unsupported  undeclared identifier: vfprintf
 gcc-torture/vfprintf-chk-1.c                        unsupported  unknown type name 'FILE'
-gcc-torture/vla-dealloc-1.c                         unsupported  volatile store is not yet supported
-gcc-torture/vprintf-chk-1.c                         unsupported  volatile store is not yet supported
 gcc-torture/zero-struct-1.c                         unsupported  empty structs and unions (a GNU extension) are not supported
 gcc-torture/zero-struct-2.c                         unsupported  empty structs and unions (a GNU extension) are not supported
 gcc-torture/zerolen-2.c                             unsupported  attribute 'mode' is not supported

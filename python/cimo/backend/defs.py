@@ -299,7 +299,17 @@ _OPS = [
     ('fceil', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('ftrunc', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     ('fround', ((Ke, Ke, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    # volatile accesses (ext.volatile): loads and stores that no pass may delete, merge, move,
+    # forward or promote; pinned, and unknown to the memory passes (so their address escapes).
+    # arm64 isel and the wasm emitter turn them into plain loads and stores.
 ]
+_OPS += [('v' + _o[0],) + _o[1:] for _o in _OPS if _o[0].startswith('load')]
+_OPS += [('v' + _o[0],) + _o[1:] for _o in _OPS if _o[0].startswith('store')]
+# the stack pointer (ext.vla): "r =l getsp" reads it, "setsp r" sets it back to a value getsp
+# returned earlier in the function, which frees the variable-length arrays allocated since;
+# both pinned and mark the function dynalloc
+_OPS += [('getsp', ((Kx, Kx, Kx, Kx), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('setsp', ((Kl, Kl, Kl, Kl), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)]
 
 
 
@@ -357,6 +367,26 @@ def INRANGE(x, l, u):
 
 def isstore(o): return Ostoreb <= o <= Ostored
 def isload(o): return Oloadsb <= o <= Oload
+def isvload(o): return Ovloadsb <= o <= Ovload
+def isvstore(o): return Ovstoreb <= o <= Ovstored
+
+
+def unvolatile(fn, sink=None):
+    """Turn the volatile loads and stores of fn into plain ones (ext.volatile), once the
+    optimizations are done (uses filled in). sink: a register that register allocation never
+    treats as dead (arm64: x17); a volatile load whose result is unused loads into it as an
+    integer of the same size, since rega deletes instructions that define dead temporaries."""
+    b = fn.start
+    while b:
+        for i in b.ins:
+            if Ovloadsb <= i.op <= Ovload:
+                i.op = Oloadsb + i.op - Ovloadsb
+                if sink is not None and rtype(i.to) == RTmp and fn.tmp[rval(i.to)].nuse == 0:
+                    i.to = sink
+                    i.cls = Kw if i.cls in (Kw, Ks) else Kl
+            elif Ovstoreb <= i.op <= Ovstored:
+                i.op = Ostoreb + i.op - Ovstoreb
+        b = b.link
 def isalloc(o): return Oalloc4 <= o <= Oalloc16
 def isext(o): return Oextsb <= o <= Oextuw
 def ispar(o): return Opar <= o <= Opare
