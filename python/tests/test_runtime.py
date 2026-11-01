@@ -35,7 +35,9 @@ from cimo import linker
 HERE = os.path.dirname(os.path.abspath(__file__))
 RT = os.path.join(HERE, 'runtime')
 CIMO_PKG = os.path.dirname(os.path.abspath(cimo.__file__))
-CC = os.environ.get('CC', 'cc')
+# the reference compiler: on Windows a cc on PATH is MinGW for x86-64 (GitHub's arm64 image),
+# whose libraries an arm64 Python cannot load, so none there
+CC = os.environ.get('CC', 'cc') if sys.platform != 'win32' else '<none on Windows>'
 LINUX_ARM64 = sys.platform.startswith('linux') and platform.machine().lower() in ('aarch64', 'arm64')
 
 pytestmark = pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aarch64'),

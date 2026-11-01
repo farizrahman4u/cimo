@@ -13,6 +13,7 @@
 import ctypes
 import math
 import os
+import sys
 import platform
 import random
 import re
@@ -26,7 +27,9 @@ import extcompile as X
 from cimo.backend import ext
 from cimo.backend.main import main as qbe_main
 
-CC = os.environ.get('CC', 'cc')
+# the reference compiler: on Windows a cc on PATH is MinGW for x86-64 (GitHub's arm64 image),
+# whose libraries an arm64 Python cannot load, so none there
+CC = os.environ.get('CC', 'cc') if sys.platform != 'win32' else '<none on Windows>'
 ARM64 = platform.machine().lower() in ('arm64', 'aarch64')
 
 

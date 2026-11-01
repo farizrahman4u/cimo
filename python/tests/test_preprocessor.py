@@ -22,9 +22,10 @@ from cimo import preprocessor  # noqa: E402
 from cimo.preprocessor import PreprocessError, preprocess  # noqa: E402
 
 QBE = os.environ.get('CIMO_QBE', os.path.expanduser('~/code/qbe/qbe'))
-HAVE_CPP = shutil.which('cpp') is not None
+# GNU cpp/gcc as references, not on Windows (MinGW there: x86-64 headers only)
+HAVE_CPP = shutil.which('cpp') is not None and sys.platform != 'win32'
 HAVE_CPROC = preprocessor_compare.cproc_available()
-HAVE_GCC = shutil.which('gcc') is not None
+HAVE_GCC = shutil.which('gcc') is not None and sys.platform != 'win32'
 HAVE_QBE = os.path.exists(QBE)
 IS_ARM64_LINUX = sys.platform.startswith('linux') and os.uname().machine == 'aarch64'
 

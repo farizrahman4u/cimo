@@ -9,6 +9,7 @@ three ways on identical inputs: cimo with the middle end, cimo without it, and g
 
 import ctypes
 import os
+import sys
 import platform
 import shutil
 import struct
@@ -35,7 +36,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 LOOPS = os.path.join(HERE, 'middle', 'loops.c')
 KERNELS = os.path.join(REPO, 'scratch', 'qbe_eval', 'kernels.c')
-CC = os.environ.get('CC', 'cc')
+# the reference compiler: on Windows a cc on PATH is MinGW for x86-64 (GitHub's arm64 image),
+# whose libraries an arm64 Python cannot load, so none there
+CC = os.environ.get('CC', 'cc') if sys.platform != 'win32' else '<none on Windows>'
 
 pytestmark = [
     pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aarch64'),
