@@ -508,10 +508,12 @@ WSL2, mains, tok/s:
 - wasm beats our arm64 backend on this workload; unexplained.
 - ggml is not an option without C++ (`gguf.cpp`, `ggml-cpu/ops.cpp`, `ggml-backend.cpp`).
 - **Through scramjit:** the same forward pass as ~100 lines of plain Python (no helpers or slices, since
-  neither compiles yet) runs in Pyodide at 64.5 tok/s with `boundscheck=False, parity=False`,
-  13.5 with defaults, against 0.117 undecorated: about 550x, and 86% of the C build's 75. A
+  neither compiles yet) runs in Pyodide at 70 tok/s with `boundscheck=False, parity=False`,
+  68 with defaults, against 0.117 undecorated: about 600x, and 94% of the C build's 75. A
   one-line edit recompiles in 1.75 s there. It runs as float64 because scramjit rejects float32
-  arithmetic. Native arm64 gets only 27 tok/s on this code, 2.4x below wasm; unexplained.
+  arithmetic. Native arm64 gets 89 (77 with defaults). It got 28 until scramjit's one-line wrapping
+  helpers became macros: `CALLER_LIMIT` stopped inlining them partway through this function (see
+  `TODO.md`), and wasm's defaults dropped to 13.5 the same way.
 - Blockers for a real chat model: wasm SIMD, threads (Pyodide has none and its memory isn't shared,
   so a standalone module on shared memory), quantized kernels (a 1B float32 model doesn't fit in
   wasm32's 4 GB).
