@@ -9,7 +9,7 @@ typedef unsigned long size_t;
 #endif
 #ifndef __CIMO_WCHAR_T
 #define __CIMO_WCHAR_T
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(__x86_64__) && !defined(_WIN32)
 typedef int wchar_t;
 #elif defined(_WIN32)
 typedef unsigned short wchar_t;

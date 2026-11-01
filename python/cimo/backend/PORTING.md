@@ -84,6 +84,10 @@ output for these is broken, so no comparison test depends on it):
 - `util.newcon`/`getcon`: QBE searches the constants linearly, quadratic in their number; the
   port keeps an index (`Fn.concache`), same results (constants are only appended). A 125 KB
   local initializer took 223 s, now 18 s.
+- `load.load`: `rebase` moves a load's constant offset into `Slice.off`, which the address of
+  an inserted load ignored, so a load of `p+24` hoisted out of a loop read `p`. Reachable once
+  `ext.cse` runs load elimination after gvn (gcc's `20011008-3.c` on every target; on arm64 it
+  only made a loop run with a garbage bound). No QBE test exercises it: the dumps still match.
 - `load.def`: `vaarg`/`vastart` (lowered only by `abi1`, after load elimination) were not seen
   as writing their `va_list`, so a store was forwarded across them: with Apple's and Windows'
   `char *` `va_list`, a parameter passed on after `va_arg` was passed unchanged.
@@ -124,6 +128,15 @@ ones are the same either way.
   fifth or later) was a `Kl` copy into the float temporary (`%d2 =l copy S-12`), so it could
   land in an integer register (`addss %ecx, %xmm0`); it is now a load of its own class, as in
   `sysv.c`. Changes the `amd64_win` dumps of QBE's `abi6`, `abi8` and `vararg2`.
+- `winabi.lower_call` (fix over C QBE): a small struct passed on the stack advanced the
+  argument area by its size (1 to 8), not an 8-byte slot, so the arguments after it were
+  misplaced. Found by `tests/test_abi.py` against MinGW gcc.
+- `sysv` (fix over C QBE): an eightbyte with no field (`Kx`: the second half of
+  `struct { _Alignas(16) char c; }`) took a register of an undefined class (a negative shift in
+  `retr`, a class assertion in `rega`); as gcc (NO_CLASS), it takes none (`sysv._second`).
+  Found by `tests/test_abi.py` once the frontend stopped writing such padding as `b` fields.
+- `isel.seladdr` (fix over C QBE): an address whose constant does not fit a signed 32-bit
+  displacement stays an `add` (gcc's `pr94734.c`: `arr[0xdeadbeefbeefdead]` once inlined).
 
 cimo's own Windows x64 target is `amd64_windows` (`targ.T_amd64_windows`), not QBE's
 `amd64_win`, which stays as in C for the diffs: xmm6-xmm15 are callee-saved (QBE uses them as

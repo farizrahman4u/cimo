@@ -189,11 +189,13 @@ def test_long_double_error_points_at_the_expression():
 def test_gcc_type_macros():
     """gcc's predefined type macros (glibc's glob.h uses __SIZE_TYPE__), char unsignedness."""
     m = cimo.compile('#include <glob.h>\n#include <limits.h>\n'
+                     '#ifdef __CHAR_UNSIGNED__\n#define CU 1\n#else\n#define CU 0\n#endif\n'
                      'int f(void){ glob_t g; __SIZE_TYPE__ s = 0; __INT64_TYPE__ i = 0; '
                      'return sizeof g.gl_pathc + sizeof s * 10 + sizeof i * 100 + '
-                     '(CHAR_MIN == 0) * 1000 + __CHAR_UNSIGNED__ * 10000; }',
+                     '(CHAR_MIN == 0) * 1000 + CU * 10000; }',
                      host_headers=True, link=['libc'])
-    assert m.f() == 11888
+    # plain char is unsigned on arm64 Linux, signed on x86-64 Linux (as gcc)
+    assert m.f() == (11888 if cimo.driver.TARGET == 'arm64' else 888)
 
 
 def test_unreferenced_statics_are_dropped():

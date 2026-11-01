@@ -119,6 +119,11 @@ typedef unsigned long uintmax_t;
 #define WCHAR_MAX 2147483647
 #define WINT_MIN (-2147483647 - 1)
 #define WINT_MAX 2147483647
+#elif defined(__x86_64__)
+#define WCHAR_MIN (-2147483647 - 1)
+#define WCHAR_MAX 2147483647
+#define WINT_MIN 0U
+#define WINT_MAX 4294967295U
 #else
 #define WCHAR_MIN 0U
 #define WCHAR_MAX 4294967295U
