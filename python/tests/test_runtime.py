@@ -549,10 +549,13 @@ void f(int n, const double *restrict x, double *restrict y) {
 # ---------------------------------------------------------------------------------------------
 # linking
 
-def test_default_build_resolves_nothing_from_the_process(monkeypatch):
+def test_default_build_resolves_nothing_from_the_process(monkeypatch, tmp_path):
     """A module using the whole runtime links with no symbol left for the host: the merged
-    object has no undefined symbols at all, and the loader's dlsym is never asked."""
-    from cimo import loader
+    object has no undefined symbols at all, and the loader's dlsym is never asked, neither on
+    the first build nor when the cached image is loaded."""
+    from cimo import loader, driver
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path))
+    monkeypatch.setattr(driver, '_memory_cache', {})
 
     def no_dlsym(name):
         raise AssertionError('looked up %s in the process' % name)
@@ -565,7 +568,7 @@ def test_default_build_resolves_nothing_from_the_process(monkeypatch):
         seen.append(merged)
         return merged, resolve
     monkeypatch.setattr(linker, 'link', spy)
-    m = cimo.compile(r'''
+    src = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -585,12 +588,16 @@ double all(int n) {
     assert(r > 0);
     printf("%s\n", buf);
     return r;
-}''')
-    f = io.StringIO()
-    with contextlib.redirect_stdout(f):
-        r = m.all(100)
-    assert f.getvalue().startswith('99 x 0.841471\n')
-    assert r > 0
+}'''
+    for build in range(2):
+        m = cimo.compile(src)
+        f = io.StringIO()
+        with contextlib.redirect_stdout(f):
+            r = m.all(100)
+        assert f.getvalue().startswith('99 x 0.841471\n')
+        assert r > 0
+        monkeypatch.setattr(driver, '_memory_cache', {})
+    assert len(seen) == 1  # the second build loaded the image
     merged = seen[-1]
     undefined = [y.name for y in merged.symbols.values() if not y.defined and not y.common]
     assert undefined == []
@@ -754,6 +761,64 @@ def test_cache_false_reads_the_cache(tmp_path, monkeypatch):
     monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path / 'none'))
     assert cimo.compile('long g(long x) { return x - 9; }', cache=False).g(10) == 1
     assert not os.path.exists(str(tmp_path / 'none'))
+
+
+IMAGE_SRC = r"""
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+static long twice(long x) { return 2 * x; }
+static long plus3(long x) { return x + 3; }
+long (*table[])(long) = { twice, plus3 };       /* ABS64 pointers into the image */
+const char *words[] = { "alpha", "beta" };
+long counter;
+size_t (*ext_strlen)(const char *) = strlen;
+char *getenv(const char *);
+char *(*libc_getenv)(const char *) = getenv;  /* ABS64 to a link= library symbol */
+long f(long i, long x) { counter++; return table[i](x) + ext_strlen(words[i]); }
+long g(int x) { printf("g%d\n", x); return (libc_getenv("CIMO_IMAGE_UNSET") == 0) + x + counter; }
+"""
+
+
+def test_image_cache(tmp_path, monkeypatch, capfd):
+    """A module's linked image is cached (.img, no .s) and loaded without compiling,
+    assembling or linking; pointers into the image, GOT slots, stubs and stdout work."""
+    from cimo import driver, assembler
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path))
+    monkeypatch.setattr(driver, '_memory_cache', {})
+
+    def check(m):
+        assert m.f(0, 5) == 15 and m.f(1, 5) == 12
+        assert m.g(-4) == -1
+        capfd.readouterr()
+        m.g(7)
+        assert capfd.readouterr().out == 'g7\n'
+    check(cimo.compile(IMAGE_SRC, link=['libc']))
+    assert sorted(os.path.splitext(n)[1] for n in os.listdir(str(tmp_path))) == ['.img']
+    monkeypatch.setattr(driver, '_memory_cache', {})
+    monkeypatch.setattr(driver, '_compile', lambda *a: 1 / 0)
+    monkeypatch.setattr(assembler, 'assemble', lambda *a: 1 / 0)
+    monkeypatch.setattr(linker, 'link', lambda *a, **k: 1 / 0)
+    m = cimo.compile(IMAGE_SRC, link=['libc'])
+    check(m)
+    m2 = cimo.compile(IMAGE_SRC, link=['libc'])  # a second, independent copy
+    assert m2.f(0, 1) == 7 and m.g(0) == 3 and m2.g(0) == 2
+    with pytest.raises(cimo.CompileError, match="undefined symbol 'getenv'"):
+        cimo.compile(IMAGE_SRC)  # the image's externals still resolve against link= only
+
+
+def test_image_cache_fallback(tmp_path, monkeypatch):
+    """A module whose image cannot be relocated is cached as assembly."""
+    from cimo import driver, loader
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path))
+    monkeypatch.setattr(driver, '_memory_cache', {})
+    monkeypatch.setattr(loader.Image, 'snapshot', lambda self: None)
+    src = 'long f(long x) { return x * 5; }'
+    assert cimo.compile(src).f(2) == 10
+    assert sorted(os.path.splitext(n)[1] for n in os.listdir(str(tmp_path))) == ['.s', '.sig']
+    monkeypatch.setattr(driver, '_memory_cache', {})
+    monkeypatch.setattr(driver, '_compile', lambda *a: 1 / 0)
+    assert cimo.compile(src).f(3) == 15
 
 
 def test_headers_are_provided():

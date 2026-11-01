@@ -87,7 +87,7 @@ def build_tree():
     # cache
     cache = root.command(
         'cache', 'Inspect or clear the compile cache', func=cmd_cache_info,
-        description='cimo caches generated assembly per source file and the compiled runtime '
+        description='cimo caches the linked image of each source file and the compiled runtime '
                     'library, keyed by content, so unchanged code is never compiled twice.')
     cache.command('info', 'Show where the cache is and how big it is', func=cmd_cache_info)
     clear = cache.command('clear', 'Delete cached files', func=cmd_cache_clear)
@@ -405,7 +405,7 @@ def _cache_entries():
     if mods_dir and os.path.isdir(mods_dir):
         for n in sorted(os.listdir(mods_dir)):
             p = os.path.join(mods_dir, n)
-            if os.path.isfile(p) and n.endswith(('.s', '.sig')):
+            if os.path.isfile(p) and n.endswith(('.s', '.sig', '.img')):
                 mods.append((p, os.path.getsize(p)))
     if rt_root and os.path.isdir(rt_root):
         for n in sorted(os.listdir(rt_root)):
@@ -421,7 +421,7 @@ def cmd_cache_info(ctx):
     e = ctx.out
     mods_dir, rt_root = _cache_dirs()
     mods, rts = _cache_entries()
-    nmods = sum(1 for p, _ in mods if p.endswith('.s'))
+    nmods = sum(1 for p, _ in mods if p.endswith(('.s', '.img')))
     e.write(e.style('Cache', 'heading'))
     e.write('  %-18s %s' % ('modules', e.style(mods_dir or '(in memory)', 'path')))
     if rt_root != mods_dir:
@@ -449,7 +449,7 @@ def cmd_cache_clear(ctx):
             try:
                 os.remove(p)
                 freed += n
-                nm += p.endswith('.s')
+                nm += p.endswith(('.s', '.img'))
             except OSError:
                 pass
     if both or v.get('runtime'):

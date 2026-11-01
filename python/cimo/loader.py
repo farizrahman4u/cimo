@@ -25,6 +25,7 @@ they are beyond branch range. x16 is the intra-procedure-call scratch register, 
 lets veneers clobber.
 """
 
+import array
 import ctypes
 import ctypes.util
 import mmap as _mmap
@@ -288,17 +289,112 @@ def _align(x, a):
 _SKIP = ('.note', '.debug', '.comment')
 
 
+_MAGIC = b'cimo-image-1\0'
+
+
 class Image:
     """`obj` linked into this process. `resolve(name)` overrides external symbol lookup (C name,
-    without the Mach-O '_'); it returns an address or None to fall back to dlsym."""
+    without the Mach-O '_'); it returns an address or None to fall back to dlsym.
 
-    def __init__(self, obj, resolve=None):
+    snapshot=True also records the linked image in a form that loads at any address
+    (snapshot(), Image.load): the code and data bytes as linked at address 0, the slots that
+    hold external addresses (stub literals, GOT slots, ABS64 data) and the 64-bit pointers into
+    the image. Internal PC-relative references need no patching: the regions are contiguous
+    and page aligned wherever they land."""
+
+    def __init__(self, obj, resolve=None, snapshot=False):
         if not _ARM64:
             raise LoadError('cimo loads arm64 code only; this machine is %s' % platform.machine())
         self._maps = []
         self.prefix = obj.prefix
+        self._snapshot = snapshot
+        self._snap = None
         self._layout(obj)
-        self._link(obj, resolve)
+        self._link(lambda code, data: self._build(obj, resolve, code, data))
+
+    @classmethod
+    def load(cls, blob, make_resolve=None):
+        """An image from snapshot() bytes. make_resolve(external symbol names) returns a resolve
+        function as for Image(); dlsym is the fallback."""
+        if not _ARM64:
+            raise LoadError('cimo loads arm64 code only; this machine is %s' % platform.machine())
+        blob = memoryview(blob)
+        if bytes(blob[:len(_MAGIC)]) != _MAGIC:
+            raise LoadError('not a cimo image')
+        o = len(_MAGIC)
+        csize, dsize, nbody, next_, nreb, nsym, nnames = struct.unpack_from('<7I', blob, o)
+        o += 28
+        body = blob[o:o + nbody]
+        o += nbody
+        parts = []
+        for t, n in (('I', next_), ('I', next_), ('q', next_), ('I', nreb), ('I', nsym),
+                     ('I', nsym)):
+            a = array.array(t)
+            a.frombytes(blob[o:o + n * a.itemsize])
+            o += n * a.itemsize
+            parts.append(a)
+        eoff, ename, eadd, reb, sname, soff = parts
+        names = bytes(blob[o:o + nnames]).decode('utf-8').split('\0')
+        self = cls.__new__(cls)
+        self._maps = []
+        self._snapshot, self._snap = False, None
+        self.prefix = pre = names[0]
+        self.code_size, self.data_size = csize, dsize
+        external = sorted(set(names[i] for i in ename))
+        resolve = make_resolve(external) if make_resolve else None
+        addr = {}
+        for n in external:
+            c = n[len(pre):] if n.startswith(pre) else n
+            a = resolve(c) if resolve else None
+            if a is None:
+                a = _dlsym(c)
+            if a is None:
+                raise LoadError('undefined symbol: %s' % c)
+            addr[n] = a
+
+        def build(code, data):
+            if dsize and data != code + csize:
+                raise _RangeError('data region not right after the code')
+            img = bytearray(csize + dsize)
+            img[:nbody] = body
+            for off in reb:
+                struct.pack_into('<Q', img, off, struct.unpack_from('<Q', img, off)[0] + code)
+            for off, i, a in zip(eoff, ename, eadd):
+                struct.pack_into('<Q', img, off, (addr[names[i]] + a) & ((1 << 64) - 1))
+            self.symbols = {names[i]: code + off for i, off in zip(sname, soff)}
+            return memoryview(img)[:csize], memoryview(img)[csize:]
+
+        self._link(build)
+        return self
+
+    def snapshot(self):
+        """The image as bytes for Image.load, or None: not built with snapshot=True, or it has
+        a reference that depends on where it is loaded other than through a patchable 64-bit
+        slot (a direct adrp to an external symbol, an ABS32 address)."""
+        s, self._snap = self._snap, None
+        if s is None:
+            return None
+        body, ext, reb, syms = s
+        names, index = [self.prefix], {}
+
+        def ix(n):
+            i = index.get(n)
+            if i is None:
+                i = index[n] = len(names)
+                names.append(n)
+            return i
+        out = [_MAGIC, None, body]
+        out.append(array.array('I', [e[0] for e in ext]).tobytes())
+        out.append(array.array('I', [ix(e[1]) for e in ext]).tobytes())
+        out.append(array.array('q', [e[2] for e in ext]).tobytes())
+        out.append(array.array('I', reb).tobytes())
+        out.append(array.array('I', [ix(n) for n in syms]).tobytes())
+        out.append(array.array('I', list(syms.values())).tobytes())
+        strtab = '\0'.join(names).encode('utf-8')
+        out.append(strtab)
+        out[1] = struct.pack('<7I', self.code_size, self.data_size, len(body), len(ext),
+                             len(reb), len(syms), len(strtab))
+        return b''.join(out)
 
     # layout: offsets within the code and data regions
 
@@ -348,7 +444,9 @@ class Image:
 
     # mapping, symbol resolution, relocation
 
-    def _link(self, obj, resolve):
+    def _link(self, build):
+        """Map the regions and fill them with build(code address, data address) ->
+        (code bytes, data bytes)."""
         csize, dsize = self.code_size, self.data_size
         if _MAC:
             try:
@@ -356,7 +454,7 @@ class Image:
                 self._maps.append((code, csize))
                 data = _map(dsize, PROT_READ | PROT_WRITE, 0, code + csize) if dsize else 0
                 self._maps.append((data, dsize))
-                cimg, dimg = self._build(obj, resolve, code, data)
+                cimg, dimg = build(code, data)
                 jw = _libc.pthread_jit_write_protect_np
                 jw.restype = None
                 jw.argtypes = [ctypes.c_int]
@@ -372,7 +470,7 @@ class Image:
                 self.close()  # fall back to W^X
         base = _map(csize + dsize, PROT_READ | PROT_WRITE)
         self._maps.append((base, csize + dsize))
-        cimg, dimg = self._build(obj, resolve, base, base + csize)
+        cimg, dimg = build(base, base + csize)
         ctypes.memmove(base, bytes(cimg), csize)
         ctypes.memmove(base + csize, bytes(dimg), len(dimg))
         if csize:
@@ -421,10 +519,19 @@ class Image:
             if not s.nobits:
                 k, o = self._place[s]
                 img[k][o:o + s.size] = s.data
+        # for snapshot(): (offset, name, addend) of slots holding external addresses and
+        # offsets of 64-bit pointers into the image, both from the start of the code region
+        snap = self._snapshot and (not self.data_size or data == code + self.code_size)
+        ext_slots, rebases = [], []
         for name, o in self._stubs.items():
             struct.pack_into('<IIQ', cimg, o, 0x58000050, 0xd61f0200, ext(name))
+            ext_slots.append((o + 8, name, 0))
         for name, o in self._got.items():
             struct.pack_into('<Q', dimg, o, ext(name))
+            if name in self.symbols:  # a GOT access to a symbol of the image
+                rebases.append(self.code_size + o)
+            else:
+                ext_slots.append((self.code_size + o, name, 0))
         for s in self._secs:
             k, so = self._place[s]
             for r in s.relocs:
@@ -436,7 +543,24 @@ class Image:
                     S = code + self._stubs[r.sym] + r.addend
                 else:
                     S = ext(r.sym) + r.addend
+                    if snap:
+                        at = off + (self.code_size if k == 'd' else 0)
+                        if r.type == 'ABS64':
+                            if r.sym in self.symbols:
+                                rebases.append(at)
+                            else:
+                                ext_slots.append((at, r.sym, r.addend))
+                        elif r.type in ('ABS32', 'ABS16') or r.sym not in self.symbols:
+                            snap = False
                 _apply(img[k], off, P, r.type, S, r.sym)
+        if snap:
+            body = cimg + dimg
+            for at in rebases:
+                struct.pack_into('<Q', body, at, struct.unpack_from('<Q', body, at)[0] - code)
+            for at, _, _ in ext_slots:
+                struct.pack_into('<Q', body, at, 0)
+            self._snap = (bytes(body.rstrip(b'\0')), ext_slots, rebases,
+                          {n: a - code for n, a in self.symbols.items()})
         return cimg, dimg
 
     # access

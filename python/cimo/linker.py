@@ -45,7 +45,7 @@ _WINDOWS = sys.platform == 'win32'
 # Compiler sources whose changes can change the runtime's code (part of the cache key):
 # conservative, so editing the driver rebuilds the runtime too (~9 s).
 _COMPILER = ('preprocessor.py', 'frontend', 'middle', 'backend', 'include', 'wasm', 'driver.py',
-             'linker.py', 'execution.py')
+             'linker.py', 'execution.py', 'assembler.py', 'loader.py')
 
 SYMBOLS = os.path.join(RUNTIME_DIR, 'symbols.txt')
 
@@ -116,13 +116,24 @@ def cache_keys():
     return out
 
 
+_keys = {}
+
+
 def _key(target):
-    keys = _bundle_keys()
-    if keys:
-        return keys['runtime-' + target]
-    h = hashlib.sha256(b'cimo-runtime-1\0' + target.encode() + b'\0')
-    _hash(h, _res.files(RUNTIME_DIR, ('.c', '.h')) + _compiler_paths())
-    return h.hexdigest()[:20]
+    """Hash of the runtime's and the compiler's sources for a target, computed once per
+    process."""
+    k = _keys.get(target)
+    if k is None:
+        keys = _bundle_keys()
+        if keys:
+            k = keys['runtime-' + target]
+        else:
+            h = hashlib.sha256(b'cimo-runtime-2\0' + target.encode() + b'\0'
+                               + compiler_key().encode() + b'\0')
+            _hash(h, _res.files(RUNTIME_DIR, ('.c', '.h')))
+            k = h.hexdigest()[:20]
+        _keys[target] = k
+    return k
 
 
 def _globals(obj):
@@ -470,6 +481,15 @@ def link(obj, hooks=None, libs=(), libsyms=None):
     for m in pulled:
         external.update(rt.object(m)[2])
     external -= set(where)
+    merged = merge(objs) if len(objs) > 1 else obj
+    return merged, resolver(external, pre, hooks, libs, libsyms)
+
+
+def resolver(external, pre='', hooks=None, libs=(), libsyms=None):
+    """resolve(C name) -> address for the external symbols (with the target's prefix) of a
+    linked module, from hooks and the `link=` libraries; LinkError if one is in neither.
+    libsyms as for link()."""
+    hooks = hooks or {}
     handles = [(n, open_library(n)) for n in libs]
     resolved = {}
     missing = []
@@ -495,7 +515,6 @@ def link(obj, hooks=None, libs=(), libsyms=None):
                     "link=['libc'] (or the library's soname or path)")
         raise LinkError('undefined symbol%s %s: %s' % (
             's' if len(missing) > 1 else '', ', '.join("'%s'" % c for c in missing), hint))
-    merged = merge(objs) if len(objs) > 1 else obj
 
     def resolve(name):
         try:
@@ -503,7 +522,7 @@ def link(obj, hooks=None, libs=(), libsyms=None):
         except KeyError:
             raise LinkError('undefined symbol: %s' % name) from None
 
-    return merged, resolve
+    return resolve
 
 
 # ---------------------------------------------------------------------------------------------

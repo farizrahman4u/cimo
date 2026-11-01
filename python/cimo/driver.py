@@ -7,8 +7,8 @@ Pipeline, all pure Python, in this process:
 
 The module is then linked statically with the parts of cimo's runtime library it uses
 (cimo.linker): nothing resolves from the host process unless libraries are named in `link=`.
-The assembly is cached by a hash of the preprocessed source; assembling, linking and loading
-take milliseconds.
+The linked image is cached by a hash of the preprocessed source (cimo.loader.Image.snapshot);
+loading it takes milliseconds.
 """
 
 import ctypes
@@ -17,6 +17,7 @@ import io
 import os
 import platform
 import re
+import struct
 import sys
 import warnings
 
@@ -135,6 +136,35 @@ def _cache_put(key, text, sigs):
         except OSError:
             pass
     _memory_cache[key] = (text, sigs)
+
+
+def _image_get(key):
+    """A cached linked image (signatures + cimo.loader snapshot), or None."""
+    blob = _memory_cache.get(key + '.img')
+    if blob is not None:
+        return blob
+    d = _cache_dir()
+    if d is not None:
+        try:
+            with open(os.path.join(d, key + '.img'), 'rb') as f:
+                return f.read()
+        except OSError:
+            pass
+    return None
+
+
+def _image_put(key, blob):
+    d = _cache_dir()
+    if d is not None and _link.cache_writes.get():
+        p = os.path.join(d, key + '.img')
+        try:
+            with open(p + '.tmp%d' % os.getpid(), 'wb') as f:
+                f.write(blob)
+            os.replace(p + '.tmp%d' % os.getpid(), p)
+            return
+        except OSError:
+            pass
+    _memory_cache[key + '.img'] = blob
 
 
 _APPLE = sys.platform == 'darwin'
@@ -293,24 +323,38 @@ def _ir(pp, filename='<string>', host_headers=False):
         raise CompileError(_hint(str(e), host_headers)) from None
 
 
+def _key(pp):
+    """Cache key of preprocessed source: also the compiler's and the runtime's sources (a cached
+    image contains the runtime members it uses), the target and the code generation options."""
+    return hashlib.sha256(
+        _VERSION + _link.compiler_key().encode() + _link._key(TARGET).encode() + TARGET.encode()
+        + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
+        + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
+
+
 def _build(src, filename='<string>', include_dirs=(), host_headers=False, defines=()):
     """C source -> (assembly text, signatures), cached by a hash of the preprocessed source."""
     _check_machine()
     pp = _preprocess(src, filename, include_dirs, host_headers, defines)
-    key = hashlib.sha256(_VERSION + _link.compiler_key().encode() + TARGET.encode() + (b'm' if MIDDLE else b'') + (b'f' if FMA else b'')
-                         + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
+    key = _key(pp)
     hit = _cache_get(key)
     if hit is not None:
         return hit
+    text, sigs = _compile(pp, filename, host_headers)
+    _cache_put(key, text, sigs)
+    return text, sigs
+
+
+def _compile(pp, filename, host_headers):
+    """Preprocessed source -> (assembly text, signatures)."""
     ssa, params = _ir(pp, filename, host_headers)
     text = _qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
     sigs = _sigs(ssa)
     if _WINDOWS:
         from .frontend.diag import longexterns
         names = longexterns()
-        if names:  # Module warns if one resolves to a link= library
+        if names:  # _module warns if one resolves to a link= library
             sigs += '\n#long ' + ' '.join(names)
-    _cache_put(key, text, sigs)
     return text, sigs
 
 
@@ -392,23 +436,53 @@ class Module:
     """Compiled C. Each non-static function is an attribute. Calling the module calls `main`,
     or the only function if there is just one."""
 
-    def __init__(self, text, sigs, link=()):
-        lines = sigs.splitlines()
-        longs = set(next((l.split()[1:] for l in lines if l.startswith('#long ')), ()))
-        sigs = '\n'.join(l for l in lines if not l.startswith('#'))
-        names = [line.split(' ')[0] for line in sigs.splitlines()]
+    def __init__(self, text, sigs, link=(), snapshot=False):
+        """snapshot: keep the linked image for _image_bytes()."""
+        names = [l.split(' ')[0] for l in sigs.splitlines() if not l.startswith('#')]
         libsyms = {}
         try:
             obj = _asm.assemble(text + _exe.glue(names, _APPLE, _WINDOWS),
                                 'macho' if _APPLE else 'elf')
             obj, resolve = _link.link(obj, libs=link, libsyms=libsyms)
-            self._image = _jit.Image(obj, resolve)
+            image = _jit.Image(obj, resolve, snapshot=snapshot)
         except (_asm.AssemblerError, _jit.LoadError, _link.LinkError) as e:
             raise CompileError(str(e)) from None
-        for c in sorted(longs & set(libsyms)):
-            warnings.warn("'%s' (from %s) is declared with long, which is 64-bit in cimo but "
-                          "32-bit in Windows DLLs; declare it with int (or long long where the "
-                          "DLL uses a 64-bit type)" % (c, libsyms[c]), stacklevel=4)
+        self._setup(image, sigs, libsyms)
+
+    @classmethod
+    def _from_image(cls, blob, link=()):
+        """A module from _image_bytes(): no assembling or linking."""
+        n, = struct.unpack_from('<I', blob)
+        sigs = blob[4:4 + n].decode('utf-8')
+        libsyms = {}
+        try:
+            image = _jit.Image.load(memoryview(blob)[4 + n:], lambda ext: _link.resolver(
+                ext, '_' if _APPLE else '', libs=link, libsyms=libsyms))
+        except (_jit.LoadError, _link.LinkError) as e:
+            raise CompileError(str(e)) from None
+        self = cls.__new__(cls)
+        self._setup(image, sigs, libsyms)
+        return self
+
+    def _image_bytes(self):
+        """The linked image with the signatures, for _from_image(); None if the module was not
+        built with snapshot=True or its image cannot be relocated (cimo.loader.Image.snapshot).
+        Once only."""
+        snap = self._image.snapshot()
+        if snap is None:
+            return None
+        sigs = self._sigs.encode('utf-8')
+        return struct.pack('<I', len(sigs)) + sigs + snap
+
+    def _setup(self, image, sigs, libsyms):
+        self._image = image
+        self._sigs = sigs
+        lines = sigs.splitlines()
+        # functions declared with long that resolved to a link= library (see _module)
+        self._longs = sorted(set(next((l.split()[1:] for l in lines if l.startswith('#long ')),
+                                      ())) & set(libsyms))
+        self._libsyms = libsyms
+        sigs = '\n'.join(l for l in lines if not l.startswith('#'))
         self._state = _exe.State(self._image)
         self._out = _link.Stdout.attach(self._image)
         self._kernels = {}
@@ -489,5 +563,24 @@ def _module1(src, filename, include_dirs, link, host_headers, defines):
         from . import wasm as _wasm
         from .wasm.pyodide import WasmModule
         return WasmModule(*_wasm.build(src, filename, tuple(include_dirs), tuple(defines)))
-    return Module(*_build(src, filename, tuple(include_dirs), host_headers, tuple(defines)),
-                  link=tuple(link))
+    _check_machine()
+    pp = _preprocess(src, filename, tuple(include_dirs), host_headers, tuple(defines))
+    key = _key(pp)
+    blob = _image_get(key)
+    if blob is not None:
+        m = Module._from_image(blob, tuple(link))
+    else:
+        hit = _cache_get(key)  # assembly: for modules whose image cannot be cached
+        text, sigs = hit or _compile(pp, filename, host_headers)
+        m = Module(text, sigs, tuple(link), snapshot=hit is None)
+        if hit is None:
+            blob = m._image_bytes()
+            if blob is not None:
+                _image_put(key, blob)
+            else:
+                _cache_put(key, text, sigs)
+    for c in m._longs:
+        warnings.warn("'%s' (from %s) is declared with long, which is 64-bit in cimo but "
+                      "32-bit in Windows DLLs; declare it with int (or long long where the "
+                      "DLL uses a 64-bit type)" % (c, m._libsyms[c]), stacklevel=4)
+    return m
