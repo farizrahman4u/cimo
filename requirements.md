@@ -496,15 +496,15 @@ text in Pyodide with no compiler change; only file I/O, `sscanf` and `stderr` ha
 as a buffer). Compile: 4.5 s first, 0.7 s once the runtime is cached. Single thread, Node 22, aarch64
 WSL2, mains, tok/s:
 
-| Model | cimo wasm (Pyodide) | cimo arm64 | gcc -O3 scalar | gcc -O3 | gcc -Ofast |
-|---|---|---|---|---|---|
-| stories15M | 75 | 70 | 61 | 98 | 316 |
-| stories110M | 9.0 | | | 10.2 | 36.7 |
+| Model | cimo wasm (Pyodide) | cimo arm64 |
+|---|---|---|
+| stories15M | 75 | 70 |
+| stories110M | 9.0 | |
 
 - Throughput scales with parameters: about 1 G params x tok/s today, 4-4.7 with 128-bit SIMD and
-  reassociation (`-Ofast`, a ceiling: it also has `fmla`, which plain wasm SIMD lacks).
-- `-O3` gets little because strict FP blocks vectorizing the dot-product reductions, so these loops
-  need explicit SIMD, not only an auto-vectorizer.
+  reassociation (the ceiling at this vector width).
+- Strict FP blocks vectorizing the dot-product reductions, so these loops need explicit SIMD, not
+  only an auto-vectorizer.
 - wasm beats our arm64 backend on this workload; unexplained.
 - ggml is not an option without C++ (`gguf.cpp`, `ggml-cpu/ops.cpp`, `ggml-backend.cpp`).
 - **Through scramjit:** the same forward pass as ~100 lines of plain Python (no helpers or slices, since
