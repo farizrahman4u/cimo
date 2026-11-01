@@ -132,6 +132,8 @@ omap = [
     (Ocall, Kw, "blr %L0"),
 
     (D.Oafnmul, Ka, "fnmul %=, %0, %1"),
+    (D.Oasmull, Kl, "smull %=, %W0, %W1"),
+    (D.Oaumull, Kl, "umull %=, %W0, %W1"),
     (D.Osmulh, Kl, "smulh %=, %0, %1"),
     (D.Oumulh, Kl, "umulh %=, %0, %1"),
     (Oacmp, Ki, "cmp %0, %1"),
@@ -534,9 +536,10 @@ def emitins(i, e):
     elif op == D.Oamadd or op == D.Oamsub:  # cimo (ext.isel), see isel.selmadd
         m = e.fn.mem[rval(i.arg[1])]
         k = i.cls
-        e.f.write("\t%s\t%s, %s, %s, %s\n" % ("madd" if op == D.Oamadd else "msub",
-                                               rname(rval(i.to), k), rname(rval(m.base), k),
-                                               rname(rval(m.index), k), _zr(i.arg[0], k)))
+        wide = m.scale  # 0: as is; 1, 2: of 32-bit values, signed or not (isel._widening)
+        mn = {0: ("madd", "msub"), 1: ("smaddl", "smsubl"), 2: ("umaddl", "umsubl")}[wide][op != D.Oamadd]
+        e.f.write("\t%s\t%s, %s, %s, %s\n" % (mn, rname(rval(i.to), k), rname(rval(m.base), Kw if wide else k),
+                                               rname(rval(m.index), Kw if wide else k), _zr(i.arg[0], k)))
     elif op == D.Oaalu:  # cimo (ext.isel), see isel.selalu
         m = e.fn.mem[rval(i.arg[1])]
         k = i.cls

@@ -272,3 +272,10 @@ def test_ccmp():
         lines += ['ccmp x1, x2, #4, %s' % c, 'ccmp w1, w2, #8, %s' % c, 'ccmp x3, #17, #0, %s' % c, 'ccmp w3, #31, #2, %s' % c]
     d = A.compare('\n'.join(lines) + '\n')
     assert not d, '\n'.join(d)
+
+
+def test_widening_multiplications():
+    lines = ['smull x1, w2, w3', 'umull x4, w5, w6', 'smaddl x1, w2, w3, x4', 'smsubl x1, w2, w3, x4',
+             'umaddl x5, w6, w7, x8', 'umsubl x5, w6, w7, x8']
+    d = A.compare('\n'.join(lines) + '\n')
+    assert not d, '\n'.join(d)

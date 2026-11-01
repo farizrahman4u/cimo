@@ -604,3 +604,155 @@ def test_unswitched_loop_has_no_branch_on_the_flag():
     src = 'void f(long *x, long n, long k) { for (long i = 0; i < n; i++) { if (k) x[i] += 1; else x[i] -= 1; } }'
     b = body(src)
     assert len(re.findall(r'cbn?z\s+x2', b)) <= 1, b
+
+
+@pytest.mark.parametrize('src,want', [
+    ('unsigned long f(unsigned a, unsigned b) { return (unsigned long)a * b; }', r'umull\s+x0, w\d+, w\d+'),
+    ('long f(int a, int b) { return (long)a * b; }', r'smull\s+x0, w\d+, w\d+'),
+    ('long f(long s, int a, int b) { return s + (long)a * b; }', r'smaddl\s'),
+    ('long f(long s, int a, int b) { return s - (long)a * b; }', r'smsubl\s'),
+    ('unsigned long f(unsigned long s, unsigned a, unsigned b) { return s + (unsigned long)a * b; }', r'umaddl\s'),
+    ('long f(long a) { return a % 2 == 0; }', r'tst\s|and\s|ubfx\s'),
+    ('double f(double x) { return x * 2.0; }', r'fadd\s'),
+    ('float f(float x) { return 2.0f * x; }', r'fadd\s'),
+])
+def test_cheaper_forms(src, want):
+    b = body(src)
+    assert re.search(want, b), b
+    assert not re.search(r'\b(sdiv|fmul)\b', b), b
+    if 'int' in src:
+        assert 'sxtw' not in b, b
+
+
+def test_cheaper_forms_compute_the_same():
+    m = cimo.compile("""#include <math.h>
+        long a(int x, int y) { return (long)x * y; }
+        unsigned long b(unsigned x, unsigned y) { return (unsigned long)x * y; }
+        long c(long s, int x, int y) { return s + (long)x * y; }
+        long d(long s, int x, int y) { return s - (long)x * y; }
+        unsigned long e(unsigned long s, unsigned x, unsigned y) { return s + (unsigned long)x * y; }
+        long f(long s, int x, unsigned y) { return s + (long)x * (long)y; }
+        long g(long x) { return x % 8 == 0; }
+        long h(long x) { return x % 8 != 0; }
+        long i(unsigned long x) { return x % 16 == 0; }
+        int j(int x) { return x % 4 == 0; }
+        long k(long x) { long r = x % 8; return (r == 0) * 1000 + r; }
+        double l(double x) { return x * 2.0; }
+        double n(void) { return sqrt(16.0) + floor(-2.5) + ceil(2.5) + trunc(-2.5) + fabs(-1.5); }
+        """, cache=False)
+    M = 2 ** 31 - 1
+    for x in (0, 1, -1, 3, M, -M - 1):
+        for y in (0, 1, -1, 3, M, -M - 1):
+            assert m.a(x, y) == x * y
+            ux, uy = x & 0xffffffff, y & 0xffffffff
+            assert m.b(ux, uy) == ux * uy
+            assert m.c(7, x, y) == 7 + x * y and m.d(7, x, y) == 7 - x * y
+            assert m.e(7, ux, uy) == 7 + ux * uy
+            assert m.f(7, x, uy) == 7 + x * uy
+    for x in (0, 8, -8, 7, -7, 16, 2 ** 40, -(2 ** 40) + 1):
+        assert m.g(x) == int(x % 8 == 0) and m.h(x) == int(x % 8 != 0)
+        r = abs(x) % 8 * (1 if x >= 0 else -1)
+        assert m.k(x) == (r == 0) * 1000 + r
+    assert m.i(2 ** 64 - 16) == 1 and m.i(2 ** 64 - 1) == 0
+    assert m.j(-4) == 1 and m.j(-3) == 0
+    assert m.l(1.5) == 3.0 and m.l(float('inf')) == float('inf') and m.l(0.0) == 0.0
+    assert m.n() == 4.0 - 3.0 + 3.0 - 2.0 + 1.5
+
+
+def test_signedness_mix_is_not_a_widening_product():
+    b = body('long f(int x, unsigned y) { return (long)x * (long)y; }')
+    assert not re.search(r'[su]mull', b), b
+
+
+ONCE = """static long big(long a, long b) { long s = 0; for (long i = 0; i < a; i++) { s += i * b; if (s > 100) s -= 7; s ^= i;
+    s += b * 3; s -= i >> 1; s |= 1; s += i * i; s ^= b; s += a; s -= b; s ^= s >> 2; s += 11; s *= 3; s ^= 77; s -= 5; s += a ^ b; } return s; }
+long once(long a) { return big(a, 3); }
+static long twice(long a, long b) { long s = 0; for (long i = 0; i < a; i++) { s += i * b; if (s > 100) s -= 7; s ^= i;
+    s += b * 3; s -= i >> 1; s |= 1; s += i * i; s ^= b; s += a; s -= b; s ^= s >> 2; s += 11; s *= 3; s ^= 77; s -= 5; s += a ^ b; } return s; }
+long t1(long a) { return twice(a, 1); }
+long t2(long a) { return twice(a, 2); }
+static long small(long a) { return a + 1; }
+long s1(long a) { return small(a) * 2; }
+static long viaptr(long a) { return a + 2; }
+long (*fp)(long) = viaptr;
+long callfp(long a) { return fp(a); }
+static long viaaddr(long a) { return a + 3; }
+long getaddr(long a) { long (*g)(long) = viaaddr; return g(a); }
+static long rec2(long a); static long rec1(long a) { return a > 0 ? rec2(a - 1) + 1 : 0; }
+static long rec2(long a) { return a > 0 ? rec1(a - 1) + 1 : 0; }
+long startrec(long a) { return rec1(a); }
+static long unused(long a) { return a; }
+"""
+
+
+def test_once_called_functions_inline_and_dead_ones_go():
+    asm = driver._build(ONCE)[0]
+    names = set(re.findall(r'^_?(\w+):$', asm, re.M))
+    assert 'big' not in names and 'small' not in names  # inlined into their only call
+    assert 'twice' in names and 'viaptr' in names and 'rec1' in names and 'unused' not in names
+    assert not re.search(r'\bbl?\s+_?big\b', body(ONCE, 'once'))
+    m = cimo.compile(ONCE, cache=False)
+    assert m.s1(4) == 10 and m.callfp(1) == 3 and m.getaddr(1) == 4 and m.startrec(6) == 6
+    def big(a, b):
+        s = 0
+        for i in range(a):
+            s += i * b
+            if s > 100:
+                s -= 7
+            s ^= i
+            s += b * 3
+            s -= i >> 1
+            s |= 1
+            s += i * i
+            s ^= b
+            s += a
+            s -= b
+            s ^= s >> 2
+            s += 11
+            s *= 3
+            s ^= 77
+            s -= 5
+            s += a ^ b
+            s = ((s + 2 ** 63) % 2 ** 64) - 2 ** 63
+        return s
+    assert m.once(9) == big(9, 3) and m.t1(5) == big(5, 1) and m.t2(5) == big(5, 2)
+
+
+PURE = """#include <math.h>
+static long pure(long a) { long s = 0; for (long i = 0; i < a; i++) s += i * i; return s; }
+long side; static long notpure(long a) { side += a; return a; }
+static long readsp(long *p) { return *p; }
+static void writes(long *p) { *p += 100; }
+long a(long *p, long x) { long s = p[0]; long v = pure(x); long t = pure(x + 1); return s + p[0] + v + t; }
+double b(double *p, double x) { double s = p[0] + sin(x); return s + p[0]; }
+long c(long *p, long x) { long s = p[0]; long v = notpure(x) + notpure(x); return s + p[0] + v; }
+long d(long *p) { p[0] = 5; writes(p); writes(p); return p[0]; }
+long e(long *p) { long s = *p; writes(p); writes(p); return s + *p; }
+long f(long *p) { long s = readsp(p); *p = 9; return s + readsp(p); }
+"""
+
+
+def test_loads_survive_calls_that_touch_no_memory():
+    b = body(PURE, 'b')
+    assert len(re.findall(r'\bldr\s+d\d+, \[x(?!29)', b)) == 1, b  # x29: restoring a saved register
+    import array
+    m = cimo.compile(PURE, cache=False)
+    x = array.array('q', [7])
+    assert m.a(x, 3) == 7 + 7 + (0 + 1 + 4) + (0 + 1 + 4 + 9)
+    assert m.c(x, 3) == 7 + 7 + 6
+    y = array.array('d', [1.5])
+    assert m.b(y, 0.0) == 3.0
+    x[0] = 7
+    assert m.d(x) == 205 and x[0] == 205  # writes really writes, between the loads
+    x[0] = 1
+    assert m.e(x) == 1 + 201
+    x[0] = 2
+    assert m.f(x) == 2 + 9
+
+
+def test_a_programs_own_sin_is_not_assumed_pure():
+    import array
+    m = cimo.compile("""double sin(double x) { static double n; extern double g; g += 1; return g + x; }
+        double g = 10;
+        double f(void) { double a = g; double s = sin(0.0); return a + g + s; }""", cache=False)
+    assert m.f() == 10 + 11 + 11

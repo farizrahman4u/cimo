@@ -208,9 +208,9 @@ int f(int x) { return fp(x); }''')
     assert m.f(3) == 10
     syms = m._image.symbols
     pre = m._image.prefix
-    for name in ('unused', 'also_unused', 'table', 'sin'):
+    for name in ('unused', 'also_unused', 'table', 'sin', 'sq'):  # sq: inlined into helper, its only call
         assert pre + name not in syms, name
-    for name in ('sq', 'helper', 'fp', 'f'):
+    for name in ('helper', 'fp', 'f'):
         assert pre + name in syms, name
 
 

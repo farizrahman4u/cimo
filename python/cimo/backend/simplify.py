@@ -13,7 +13,8 @@ from .ssa import adduse
 
 _SIMPLE = frozenset((D.Oadd, D.Osub, D.Oneg, D.Omul, D.Odiv, D.Oudiv, D.Orem, D.Ourem, D.Oand, D.Oor,
                      D.Oxor, D.Oshl, D.Oshr, D.Osar, D.Oextsb, D.Oextub, D.Oextsh, D.Oextuh, D.Oextsw,
-                     D.Oextuw)) | frozenset(range(D.Ocmpw, D.Ocmpl1 + 1))
+                     D.Oextuw, D.Ofsqrt, D.Ofabs, D.Offloor, D.Ofceil, D.Oftrunc)) \
+    | frozenset(range(D.Ocmpw, D.Ocmpl1 + 1))
 _ONE = {Ks: 0x3f800000, Kd: 0x3ff0000000000000}
 _ZEXT = {D.Oextub: 8, D.Oextuh: 16, D.Oextuw: 32, D.Oloadub: 8, D.Oloaduh: 16, D.Oloaduw: 32,
          D.Oparub: 8, D.Oparuh: 16}  # the last two: Apple's ABI, where the caller extends
@@ -171,8 +172,38 @@ def _isnot(fn, r, k):
     return None
 
 
+_MATH = frozenset((D.Ofsqrt, D.Ofabs, D.Offloor, D.Ofceil, D.Oftrunc))
+
+
+def _fold1(o, x):
+    """A math instruction on a finite constant, exactly as the instruction rounds; or None."""
+    import math
+    if not math.isfinite(x):
+        return None
+    if o == D.Ofsqrt:
+        return math.sqrt(x) if x >= 0 else None
+    if o == D.Ofabs:
+        return abs(x)
+    f = {D.Offloor: math.floor, D.Ofceil: math.ceil, D.Oftrunc: math.trunc}[o](x)
+    return math.copysign(float(f), x)
+
+
 def _float(fn, b, i):
     k = i.cls
+    if i.op in _MATH:
+        v = _con(fn, i.arg[0], Kl if k == Kd else Kw)
+        if v is None:
+            return R
+        x = D.bitsd(v) if k == Kd else D.bitsf(v)
+        y = _fold1(i.op, x)
+        if y is None:
+            return R
+        return getcon(D.dbits(y), fn) if k == Kd else getcon(D.fbits(D.f32(y)), fn)
+    if i.op == D.Omul:  # x * 2.0: an add is cheaper, and exact the same
+        two = {Ks: 0x40000000, Kd: 0x4000000000000000}[k]
+        if _con(fn, i.arg[1], Kl if k == Kd else Kw) == two:
+            _set(fn, b, i, D.Oadd, i.arg[0], i.arg[0])
+            return R
     if i.op == D.Oneg:
         d = _defn(fn, i.arg[0])
         if d is not None and d.op == D.Oneg and d.cls == k:
@@ -195,6 +226,8 @@ def simplify(fn, b, i):
     k = i.cls
     if KBASE(k) != 0:
         return _float(fn, b, i)
+    if o in _MATH:
+        return R
     a, c = i.arg
     cm = iscmp(o)
     if cm is not None:
@@ -341,6 +374,13 @@ def _compare(fn, b, i, ck, cc):
             elif KBASE(iscmp(d0.op)[0]) == 0:  # (x < y) == 0
                 _set(fn, b, i, cmpwlneg(d0.op), d0.arg[0], d0.arg[1])
             return R
+        if n == 0 and d0 is not None and d0.op in (D.Orem, D.Ourem) and d0.cls == ck \
+                and fn.tmp[rval(a)].nuse == 1:  # x % 2**k == 0 looks at the low bits, whatever x's sign
+            c0 = _con(fn, d0.arg[1], ck)
+            if c0 and c0 & (c0 - 1) == 0:
+                d0.op = D.Oand
+                d0.arg[1] = _ref(c0 - 1, ck, fn)
+                return R
         if d0 is not None and d0.op in (D.Oadd, D.Osub) and d0.cls == ck:
             c0 = _con(fn, d0.arg[1], ck)
             if c0 is not None:

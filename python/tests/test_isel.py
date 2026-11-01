@@ -258,7 +258,7 @@ def test_selects_in_unrolled_loops(n):
     ('void f(int *p, long i) { p[i] = 0; }', r'str\s+wzr, \[x\d+, x\d+, lsl #2\]'),
     ('void f(char *p) { *p = 0; }', r'strb\s+wzr'),
     ('void f(double *p) { *p = 0.0; }', r'str\s+xzr'),
-    ('double f(double a) { return a * 2.0; }', r'fmov\s+d\d+, #2\.0'),
+    ('double f(double a) { return a * 3.0; }', r'fmov\s+d\d+, #3\.0'),
     ('float f(float a) { return a * 0.5f; }', r'fmov\s+s\d+, #0\.5'),
     ('double f(double a) { return a + 0.0; }', r'fmov\s+d\d+, xzr'),
 ])
