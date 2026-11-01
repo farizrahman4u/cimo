@@ -888,10 +888,14 @@ def selcsel(i, fn):
             chuse(a, +1, fn)
         if selcmp(args, ck, fn):
             cc = cmpop(cc)
-    else:  # each sel1 reads c, where sel0 counts one use for all of them
-        cc = Cine
-        chuse(c, +1, fn)
-        selcmp([c, CON_Z], Kw, fn)
+    else:
+        cc = None
+        if cd is not None and cd[1].op in (Oand, Oor) and cd[1].cls == Kw and fn.tmp[rval(c)].nuse == 1:
+            cc = _ccmp(selblk, cd[1], fn, keep=True)
+        if cc is None:  # each sel1 reads c, where sel0 counts one use for all of them
+            cc = Cine
+            chuse(c, +1, fn)
+            selcmp([c, CON_Z], Kw, fn)
     x.offset.i = cc
 
 
@@ -942,6 +946,13 @@ def sel(i, fn):
             found = _defin(c, selpos)
             if found is not None and iscmp(found[1].op):
                 _sweep(c, found[0], fn)
+            elif found is not None and found[1].op in (Oand, Oor) and fn.tmp[rval(c)].nuse == 0:
+                parts = list(found[1].arg)  # a condition for ccmp, and the comparisons it read
+                _sweep(c, found[0], fn)
+                for r in parts:
+                    d = _defin(r, found[0]) if rtype(r) == RTmp else None
+                    if d is not None and iscmp(d[1].op):
+                        _sweep(r, d[0], fn)
         return
     if i.op == Ofma0:
         return  # selected with its fma1
@@ -1028,12 +1039,14 @@ _NZCVTRUE = {D.Cieq: 4, D.Cine: 0, D.Cisge: 0, D.Cislt: 8, D.Cisgt: 0, D.Cisle: 
              D.Ciuge: 2, D.Ciult: 0, D.Ciugt: 2, D.Ciule: 4}
 
 
-def _ccmp(b, ir, fn):
-    """cimo (ext.isel), LLVM's AArch64ConditionalCompares: a jump on (a < b) & (c < d) or
-    (a < b) | (c < d), both comparisons only used here, as cmp; ccmp; b.cond. For & the second
-    comparison runs if the first held, else the flags are set so that its condition is false; for |
-    it runs if the first failed, else the flags make it true. Returns True if selected."""
+def _ccmp(b, ir, fn, keep=False):
+    """cimo (ext.isel), LLVM's AArch64ConditionalCompares: (a < b) & (c < d) or (a < b) | (c < d), both
+    comparisons only used here, as cmp; ccmp, whose flags then answer. For & the second comparison runs
+    if the first held, else the flags are set so that its condition is false; for | it runs if the
+    first failed, else the flags make it true. Emits them and returns the final condition, or None.
+    keep: the comparisons stay until the and or or goes, as other selects may read it (see Osel0)."""
     op = ir.op
+
     def cmpdef(r):
         if not _plain(r, fn) or fn.tmp[rval(r)].nuse != 1:
             return None
@@ -1043,26 +1056,24 @@ def _ccmp(b, ir, fn):
         return None
     d0, d1 = cmpdef(ir.arg[0]), cmpdef(ir.arg[1])
     if d0 is None or d1 is None:
-        return False
-    # the one selected last is emitted first; both must be next to the jump, with nothing between
-    # that changes what they read: an SSA temporary keeps its value, and flags aren't otherwise set
+        return None
     c0, c1 = iscmp(d0.op), iscmp(d1.op)
     if KBASE(c1[0]) != 0:
         d0, d1, c0, c1 = d1, d0, c1, c0
     if KBASE(c1[0]) != 0:
-        return False
+        return None
     k, cc1 = c1
     a, y = d1.arg
     if rtype(a) == RCon:
         a, y = y, a
         cc1 = cmpop(cc1)
     if not _plain(a, fn):
-        return False
+        return None
     n = _conbits(y, fn)
     if n is not None and not 0 <= (n & M64 if k == Kl else n & 0xffffffff) <= 31:
         n = None
     if n is None and not _plain(y, fn):
-        return False
+        return None
     m = Mem()
     fn.nmem += 1
     vgrow(fn.mem, fn.nmem)
@@ -1073,7 +1084,6 @@ def _ccmp(b, ir, fn):
         m.offset.i = n & 31
     else:
         m.base = y
-    # selected bottom-up: the jump, then accmp, then the first comparison
     args0 = list(d0.arg)
     cc0 = c0[1]
     emit(D.Oaccmp, k, R, a, MEM(fn.nmem - 1))
@@ -1084,10 +1094,13 @@ def _ccmp(b, ir, fn):
         m.scale = _FALSEFLAGS[cc1] | cc0 << 4
     else:
         m.scale = _NZCVTRUE[cc1] | cc0 << 4 | 1 << 12
-    d0.set(Ins(Onop))
-    d1.set(Ins(Onop))
-    b.jmp.type = Jjf + cc1
-    return True
+    if keep:
+        for r in list(d0.arg) + list(d1.arg):
+            chuse(r, +1, fn)
+    else:
+        d0.set(Ins(Onop))
+        d1.set(Ins(Onop))
+    return cc1
 
 
 def _tstjump(b, r, k, cc, fn):
@@ -1135,9 +1148,12 @@ def seljmp(b, fn):
             break
     cm = iscmp(ir.op) if ir is not None and use == 1 else None
     if _ext.isel and ir is not None and use == 1:
-        if ir.op in (Oand, Oor) and ir.cls == Kw and _ccmp(b, ir, fn):
-            ir.set(Ins(Onop))
-            return
+        if ir.op in (Oand, Oor) and ir.cls == Kw:
+            cc = _ccmp(b, ir, fn)
+            if cc is not None:
+                ir.set(Ins(Onop))
+                b.jmp.type = Jjf + cc
+                return
         if ir.op == Oand and ir.cls == Kw and _tstjump(b, r, Kw, Cine, fn):  # jnz tests a word
             return
         if cm and cm[1] in (Cieq, Cine) and KBASE(cm[0]) == 0 and _conbits(ir.arg[1], fn) == 0 \

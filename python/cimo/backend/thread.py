@@ -153,8 +153,15 @@ def _ifcombine(fn, h):
     if d is None or iscmp(d.op) is None or fn.tmp[rval(h.jmp.arg)].nuse != 1:
         return False
     for x, other, op in ((h.s1, h.s2, D.Oand), (h.s2, h.s1, D.Oor)):
-        ins = _combinable(fn, x, 3)
+        # one comparison, nothing else: LLVM allows one instruction more, which took scramjit's flood_fill
+        # from 2.21 to 2.52 ms (`m != 0 && (m < 0) != (b < 0)`, whose branches predict well)
+        ins = _combinable(fn, x, 1)
         if ins is None or x is h:
+            continue
+        # a way out of the loop is rarely taken (LLVM's BranchProbabilityInfo): bounds checks predict
+        # perfectly, and scramjit's flood_fill ran 25% slower combined. Otherwise combining pays: at
+        # 50% taken 1.04 ns per element against 4.6, and when always taken 1.03 against 0.79
+        if h.loop > other.loop:
             continue
         y, n = (x.s1, x.s2) if op == D.Oand else (x.s2, x.s1)
         if n is not other:
@@ -192,6 +199,7 @@ def _ifcombine(fn, h):
 def run(fn):
     from . import cfg, ssa
     any_ = False
+    cfg.fillloop(fn)
     for _ in range(4):
         cur = False
         for b in list(fn.rpo[:fn.nblk]):

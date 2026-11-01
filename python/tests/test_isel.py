@@ -658,3 +658,25 @@ def test_condition_with_a_load_is_not_speculated():
     """p may be null when a <= 0: its load must stay behind the test."""
     m = cimo.compile('long f(long *p, long a) { if (a > 0 && *p > 0) return 1; return 2; }', cache=False)
     assert m.f(0, 0) == 2
+
+
+def test_a_way_out_of_a_loop_keeps_its_branch():
+    """Bounds checks: their failure path leaves the loop, and predicts perfectly."""
+    b = body("""long f(long *p, long n, long a, long b) { long s = 0;
+        for (long i = 0; i < n; i++) { long v = p[i]; if (v < 0 || v >= a) return -1; s += v; }
+        return s; }""")
+    assert 'ccmp' not in b, b
+    b = body("""long f(long *p, long n, long a, long b) { long s = 0;
+        for (long i = 0; i < n; i++) { long u = p[i]; if (u < a && u > b) s += u * 3; } return s; }""")
+    assert 'ccmp' in b and 'cset' not in b, b
+
+
+def test_ccmp_for_a_select():
+    src = """long f(long a, long b, long c, long d, long v) { return a < b && c > d ? v : v + 1; }
+        long g(long a, long b, long c, long d, long v, long w) { long x = v, y = w;
+            if (a < b || c == d) { x = w; y = v; } return x * 100 + y; }"""
+    assert 'ccmp' in body(src, 'f') and 'cset' not in body(src, 'f'), body(src, 'f')
+    m = cimo.compile(src, cache=False)
+    for a, b, c, d in ((1, 2, 4, 3), (2, 1, 4, 3), (1, 2, 3, 4), (2, 1, 3, 4), (1, 2, 3, 3), (2, 1, 3, 3)):
+        assert m.f(a, b, c, d, 10) == (10 if a < b and c > d else 11)
+        assert m.g(a, b, c, d, 1, 2) == (201 if a < b or c == d else 102)
