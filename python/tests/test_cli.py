@@ -292,9 +292,9 @@ def test_python_m_cimo():
     assert r.returncode == 0 and r.stdout.startswith('cimo ')
 
 
-def test_bundle_command(capsys, tmp_path):
+def test_onefile_command(capsys, tmp_path):
     out = tmp_path / 'one.py'
-    status, _, err = run(capsys, 'bundle', '-o', str(out))
+    status, _, err = run(capsys, 'onefile', '-o', str(out))
     assert status == 0 and 'Wrote' in err and out.exists()
     r = subprocess.run([sys.executable, '-I', '-S', str(out), '--version'], capture_output=True,
                        text=True, cwd=tmp_path)

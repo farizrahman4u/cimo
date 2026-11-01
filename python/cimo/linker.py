@@ -85,11 +85,11 @@ _compiler_key = None
 _TARGETS = ('arm64', 'arm64_apple', 'arm64_win')
 
 
-def _bundle_keys():
-    """The keys a bundle was built with (bundle-keys.json, see cimo.bundle): its embedded
+def _onefile_keys():
+    """The keys a onefile build was built with (onefile-keys.json, see cimo.onefile): its embedded
     sources are stripped of comments, so they hash differently from the sources the keys
-    describe. None outside a bundle."""
-    p = _res.path('bundle-keys.json')
+    describe. None outside a onefile build."""
+    p = _res.path('onefile-keys.json')
     return json.loads(_res.read_text(p)) if _res.isfile(p) else None
 
 
@@ -98,7 +98,7 @@ def compiler_key():
     a changed compiler never reuses assembly the old one generated."""
     global _compiler_key
     if _compiler_key is None:
-        keys = _bundle_keys()
+        keys = _onefile_keys()
         if keys:
             _compiler_key = keys['compiler']
         else:
@@ -109,7 +109,8 @@ def compiler_key():
 
 
 def cache_keys():
-    """{'compiler': key, 'runtime-<target>': key}: what a bundle records in bundle-keys.json."""
+    """{'compiler': key, 'runtime-<target>': key}: what a onefile build records in
+    onefile-keys.json."""
     out = {'compiler': compiler_key()}
     for t in _TARGETS:
         out['runtime-' + t] = _key(t)
@@ -124,7 +125,7 @@ def _key(target):
     process."""
     k = _keys.get(target)
     if k is None:
-        keys = _bundle_keys()
+        keys = _onefile_keys()
         if keys:
             k = keys['runtime-' + target]
         else:

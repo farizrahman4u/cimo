@@ -466,7 +466,7 @@ inbound rules needed.
   `tests/runtime` matches the native build byte for byte.
 - **Measured** (Pyodide 0.27.7 on Node 22, aarch64 WSL2): a small kernel compiles in 57 ms warm
   (first `compile` 1.2 s: imports plus runtime members); a 1024x1024 5-point blur runs in
-  1.1 ms and matches numpy bit for bit; the single-file bundle is 1.1 MB.
+  1.1 ms and matches numpy bit for bit; the single file is 1.1 MB.
 - **Tests:** `tests/test_wasm.py` runs modules under Node in a stand-in loader
   (`tests/wasm/host.mjs`); with `PYODIDE_JS` set, also in real Pyodide.
 
@@ -573,14 +573,14 @@ uses Apple's type macros (signed char and `wchar_t`, `int64_t` = `long long`). S
 
 ## Single-file distribution (2026-10-30)
 
-`cimo bundle [-o cimo.py]` (`cimo.bundle.build`) writes one `cimo.py` that works
+`cimo onefile [-o cimo.py]` (`cimo.onefile.build`) writes one `cimo.py` that works
 like the package in any CPython 3.9+ with only the standard library: put it on `sys.path`,
 `import cimo`.
 
 - **Resource layer:** every read of a package file goes through `cimo.resources` (`path`,
   `isfile`, `read`, `files`): bundled headers (preprocessor search path), runtime sources,
   and the compiler sources hashed into cache keys. In the repo or a pip install they are files
-  next to the package. In the bundle `resources.ROOT` is `<cimo.py>/cimo`, a name that exists
+  next to the package. In the onefile build `resources.ROOT` is `<cimo.py>/cimo`, a name that exists
   only in the embedded table; any other path (user and host headers, the cache) is read from
   the filesystem. The `.c`/`.h` files stay real files in the repo.
 - **Format:** a license header (cimo MIT; cproc's and QBE's upstream `LICENSE` files, shipped
@@ -590,14 +590,14 @@ like the package in any CPython 3.9+ with only the standard library: put it on `
   becomes the package (`__path__ = []`) and runs `__init__.py`; run as a script it runs
   `cimo.__main__` (the CLI). Module filenames are `<cimo.py>/cimo/driver.py`, registered
   with `linecache`, so tracebacks and `inspect` show source. Deterministic (no timestamps):
-  rebuilding, also from inside the bundle, gives the same bytes.
+  rebuilding, also from inside the onefile build, gives the same bytes.
 - **Stripped:** comments, docstrings and blank lines are left out of the embedded `.py`
   (checked: same AST minus docstrings) and `.c`/`.h` (comments become a space; checked: same
   pp-tokens); C comments carrying a copyright or license notice stay (musl's math files
   have Sun/FreeBSD/Arm notices that must be preserved). 1.26 MB -> 1.05 MB.
   `--keep-comments` turns it off.
 - **Cache keys are content hashes over package-relative names**, computed from the original
-  sources at bundle time and embedded (`bundle-keys.json`), so a bundle has the same
+  sources at build time and embedded (`onefile-keys.json`), so a onefile build has the same
   `compiler_key()` and runtime key as the tree it was built from, stripped or not.
 - **Sources only.** A `--prebuilt` option (embedding the compiled runtime) was tried and
   removed: it only matched the target it was built on and put generated, target-specific
@@ -629,14 +629,14 @@ like the package in any CPython 3.9+ with only the standard library: put it on `
   an external, ABS32 address) is cached as assembly instead. A CRC32 over each entry: a
   truncated or corrupted file is deleted and recompiled (without it, a flipped byte loaded as
   wrong code).
-- **Measured** (Linux arm64, CPython 3.13): bundle 1.05 MB; building it 1 s with stripping,
+- **Measured** (Linux arm64, CPython 3.13): onefile 1.05 MB; building it 1 s with stripping,
   0.05 s without; `import cimo` from it 0.05 s; first compile of a printf/sin/malloc kernel
-  1.5 s with nothing cached (15 runtime members), then 0.1 s. `tests/test_bundle.py` runs it
+  1.5 s with nothing cached (15 runtime members), then 0.1 s. `tests/test_onefile.py` runs it
   under `python -I -S` with no writable home.
 
 ## Command line (2026-10-30)
 
-`cimo` (console script) = `python -m cimo` = `python cimo.py` for a bundle. Standard library
+`cimo` (console script) = `python -m cimo` = `python cimo.py` for a onefile build. Standard library
 only: `cimo/cli/parse.py` is a small declarative framework (nested commands, options with
 short/long/`=`/attached forms, choices, repeatable options, a `rest` argument that passes
 everything after it through), `cimo/cli/term.py` does color (`--color`, `NO_COLOR`,
@@ -646,7 +646,7 @@ terminal width and a spinner.
 - Commands: `run FILE [ARGS...]` (calls `main(argc, argv[, envp])` or `--entry NAME`; exit
   status = return value or `exit()` status, 134 for abort/assert/trap; `-` reads stdin),
   `compile FILE` (lists the exported functions with their Python-side types) with `-E`,
-  `--ir`, `-S` / `--emit pp|ir|asm` and `-o`, `bundle`, `cache [info|clear|path]`,
+  `--ir`, `-S` / `--emit pp|ir|asm` and `-o`, `onefile`, `cache [info|clear|path]`,
   `completion bash|zsh|fish`, `help [COMMAND...]`. Compile options shared by `run` and
   `compile`: `-I`, `-D`, `-l/--link`, `--host-headers`, `-O0/--no-opt`, `--no-fma`.
 - Help at every level (`-h`, `--help`, `cimo help ...`, a group without a subcommand), with

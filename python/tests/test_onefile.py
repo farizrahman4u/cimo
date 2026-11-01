@@ -1,4 +1,4 @@
-"""The single-file bundle (cimo.bundle): one cimo.py that works like the package in a bare
+"""The single file (cimo.onefile): one cimo.py that works like the package in a bare
 interpreter (`python -I -S`: no site-packages, so the installed cimo is not importable)."""
 
 import ast
@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from cimo import bundle, linker
+from cimo import onefile, linker
 
 pytestmark = pytest.mark.skipif(
     __import__('platform').machine().lower() not in ('arm64', 'aarch64'),
@@ -35,13 +35,13 @@ double kernel(int n) {
 }
 '''
 
-# Run in the subprocess, with the bundle's directory as argv[1].
+# Run in the subprocess, with the onefile build's directory as argv[1].
 SCRIPT = r'''
 import importlib.util, json, sys
 assert importlib.util.find_spec('cimo') is None, 'the installed cimo is importable'
 sys.path.insert(0, sys.argv[1])
 import cimo
-from cimo import bundle, linker, resources
+from cimo import onefile, linker, resources
 m = cimo.compile(sys.argv[2])
 s = m.kernel(10)
 try:
@@ -53,7 +53,7 @@ out = {'sum': s, 'file': cimo.__file__, 'root': resources.ROOT,
        'driver': cimo.driver.__file__, 'traceback': tb,
        'compiler_key': linker.compiler_key(), 'runtime_key': linker.runtime().key}
 if len(sys.argv) > 3:
-    bundle.build(sys.argv[3])  # the bundle rebuilds itself
+    onefile.build(sys.argv[3])  # the onefile build rebuilds itself
 print('RESULT ' + json.dumps(out))
 '''
 
@@ -81,10 +81,10 @@ def _bare_env(home, cache):
 
 @pytest.fixture(scope='module')
 def built(tmp_path_factory):
-    d = tmp_path_factory.mktemp('bundle')
+    d = tmp_path_factory.mktemp('onefile')
     plain = d / 'plain'
     plain.mkdir()
-    stats = bundle.build(str(plain / 'cimo.py'))
+    stats = onefile.build(str(plain / 'cimo.py'))
     return d, stats
 
 
@@ -93,7 +93,7 @@ def test_one_file_deterministic(built, tmp_path):
     assert set(os.listdir(str(d / 'plain'))) - {'__pycache__'} == {'cimo.py'}
     assert stats['modules'] > 50 and stats['resources'] > 200
     again = tmp_path / 'cimo.py'
-    bundle.build(str(again))
+    onefile.build(str(again))
     assert again.read_bytes() == (d / 'plain' / 'cimo.py').read_bytes()
     tree = ast.parse((d / 'plain' / 'cimo.py').read_text(encoding='utf-8'))
     files = next(ast.literal_eval(n.value) for n in tree.body
@@ -105,7 +105,7 @@ def test_one_file_deterministic(built, tmp_path):
     assert not any(k.endswith('.s') for k in files)  # sources only, nothing compiled
 
 
-def test_bundle_without_cache_dir(built, tmp_path):
+def test_onefile_without_cache_dir(built, tmp_path):
     """No writable cache: the runtime members the kernel needs are compiled and kept in
     memory, as is the module."""
     d = built[0] / 'plain'
@@ -123,8 +123,9 @@ def test_bundle_without_cache_dir(built, tmp_path):
     assert (tmp_path / 'rebuilt.py').read_bytes() == (d / 'cimo.py').read_bytes()
 
 
-def test_bundle_shares_the_cache(built, tmp_path):
-    """With a cache, the bundle reuses runtime members compiled by the package (same keys)."""
+def test_onefile_shares_the_cache(built, tmp_path):
+    """With a cache, the onefile build reuses runtime members compiled by the package (same
+    keys)."""
     cache = tmp_path / 'cache'
     env = _bare_env(tmp_path, cache)
     env['CIMO_RUNTIME_CACHE'] = str(tmp_path / 'rt')
@@ -137,31 +138,31 @@ def test_bundle_shares_the_cache(built, tmp_path):
 
 def test_strip_keeps_code_and_notices():
     """Stripped sources: same Python AST (minus docstrings), same C tokens; license comments
-    stay. Every file the bundle embeds is checked."""
+    stay. Every file the onefile build embeds is checked."""
     import ast
-    from cimo import bundle, resources
+    from cimo import onefile, resources
     from cimo.preprocessor import lex, FileInfo
-    files = bundle._package_files()
+    files = onefile._package_files()
     for rel, text in sorted(files.items()):
         if rel.endswith('.py'):
-            out = bundle.strip_py(text)  # raises if the AST changes
-            assert bundle.strip_py(out) == out, rel  # idempotent: a bundle rebuilds itself
+            out = onefile.strip_py(text)  # raises if the AST changes
+            assert onefile.strip_py(out) == out, rel  # idempotent: a onefile build rebuilds itself
         elif rel.endswith(('.c', '.h')):
-            out = bundle.strip_c(text)
+            out = onefile.strip_c(text)
             key = lambda t: (t.kind, t.text, t.bol, t.space)
             assert [key(t) for t in lex(out, FileInfo(rel))] == \
                 [key(t) for t in lex(text, FileInfo(rel))], rel
-            assert bundle.strip_c(out) == out, rel
-            for m in bundle._C_TOKEN.finditer(text):
+            assert onefile.strip_c(out) == out, rel
+            for m in onefile._C_TOKEN.finditer(text):
                 c = m.group('block') or m.group('line')
-                if c and bundle._NOTICE.search(c):
+                if c and onefile._NOTICE.search(c):
                     assert c in out, rel
     # docstrings and comments are gone, strings that look like them are not
     src = ('"""doc"""\n# comment\nX = """\n\n  kept\n"""  # trailing\n'
            'def f():\n    """only a docstring"""\n\nclass C:\n    "doc"\n    y = 1\n')
-    out = bundle.strip_py(src)
+    out = onefile.strip_py(src)
     assert 'doc' not in out and 'comment' not in out and 'trailing' not in out
     assert 'X = """\n\n  kept\n"""' in out and 'def f():\n    pass' in out
     c = '/* Copyright (C) 1993 Sun */\nint a; /* gone */ // gone\n#define S "/* not a comment */"\n'
-    out = bundle.strip_c(c)
+    out = onefile.strip_c(c)
     assert 'Copyright' in out and 'gone' not in out and '"/* not a comment */"' in out

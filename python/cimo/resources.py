@@ -1,17 +1,17 @@
 """Package files: the bundled headers (`include/`), the runtime sources (`runtime/`) and the
 compiler's own sources (hashed into cache keys).
 
-Installed or in the repo, they are files next to the package. In the single-file bundle
-(cimo.bundle) they are a table embedded in `cimo.py`, and ROOT is a name like
+Installed or in the repo, they are files next to the package. In the single file
+(cimo.onefile) they are a table embedded in `cimo.py`, and ROOT is a name like
 `<cimo.py>/cimo` that exists only there. Paths elsewhere (user and host headers, the cache)
 are read from the filesystem, so callers can mix both kinds of path freely.
 """
 
 import os
 
-# The bundle's loader carries the embedded files: {path relative to the package: text}.
-_FILES = getattr(__loader__, 'bundle_files', None)
-ROOT = __loader__.bundle_root if _FILES is not None else os.path.dirname(
+# The onefile build's loader carries the embedded files: {path relative to the package: text}.
+_FILES = getattr(__loader__, 'onefile_files', None)
+ROOT = __loader__.onefile_root if _FILES is not None else os.path.dirname(
     os.path.abspath(__file__))
 _PREFIX = ROOT + os.sep
 
@@ -22,14 +22,14 @@ def path(rel):
 
 
 def _embedded(p):
-    """The table key of path `p` if the bundle embeds it, else None."""
+    """The table key of path `p` if the onefile build embeds it, else None."""
     if _FILES is None or not p.startswith(_PREFIX):
         return None
     return p[len(_PREFIX):].replace(os.sep, '/')
 
 
 def abspath(p):
-    """os.path.abspath, keeping the bundle's paths as they are."""
+    """os.path.abspath, keeping the onefile build's paths as they are."""
     return p if _embedded(p + os.sep) is not None else os.path.abspath(p)
 
 
@@ -47,7 +47,7 @@ def read(p):
     try:
         return _FILES[k].encode('utf-8', 'surrogateescape')
     except KeyError:
-        raise FileNotFoundError('No such file in the bundle: %r' % p) from None
+        raise FileNotFoundError('No such file in the onefile build: %r' % p) from None
 
 
 def read_text(p):

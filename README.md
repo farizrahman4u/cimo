@@ -171,7 +171,7 @@ rejected at call time, in every build.
 ```console
 $ cimo run life.c 64 64          # compile and run main(), arguments and all
 $ cimo compile -S kernel.c       # see the arm64 it generates
-$ cimo bundle -o cimo.py         # all of cimo as one file to vendor
+$ cimo onefile -o cimo.py         # all of cimo as one file to vendor
 ```
 
 ### Know why a loop is slow

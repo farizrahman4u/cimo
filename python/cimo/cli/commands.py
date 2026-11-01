@@ -29,7 +29,7 @@ def build_tree():
              help='Colored output')
     root.example('cimo run hello.c', 'compile and run a program')
     root.example('cimo compile -S kernel.c -o kernel.s', 'look at the generated assembly')
-    root.example('cimo bundle -o cimo.py', 'one file to drop into any Python')
+    root.example('cimo onefile -o cimo.py', 'one file to drop into any Python')
 
     # run
     run = root.command(
@@ -70,9 +70,9 @@ def build_tree():
     comp.example('cimo compile -S kernel.c -o kernel.s')
     comp.example('cimo compile --ir -DN=64 kernel.c')
 
-    # bundle
+    # onefile
     b = root.command(
-        'bundle', 'Write cimo as one self-contained .py file', func=cmd_bundle,
+        'onefile', 'Write cimo as one self-contained .py file', func=cmd_onefile,
         description='Writes a single Python file holding all of cimo: the compiler, its '
                     'headers and runtime library sources. Drop it next to your code in any '
                     'Python 3.9+ (embedded interpreters, locked-down machines, Pyodide) and '
@@ -81,8 +81,8 @@ def build_tree():
           help='Output file (default: `cimo.py`)')
     b.opt('--keep-comments', flag=True,
           help='Keep comments and docstrings (by default only license notices stay)')
-    b.example('cimo bundle')
-    b.example('cimo bundle -o vendor/cimo.py')
+    b.example('cimo onefile')
+    b.example('cimo onefile -o vendor/cimo.py')
 
     # cache
     cache = root.command(
@@ -357,9 +357,9 @@ def cmd_compile(ctx):
         raise Failure(1)
 
 
-def cmd_bundle(ctx):
+def cmd_onefile(ctx):
     try:
-        from .. import bundle
+        from .. import onefile
     except ImportError:
         ctx.err.write('%s bundling is not available in this build' % ctx.err.style('error:',
                                                                                    'error'))
@@ -368,7 +368,7 @@ def cmd_bundle(ctx):
     out = ctx.values['output']
     e = ctx.err
     with Spinner(e, 'Bundling cimo into %s' % out) as sp:
-        stats = bundle.build(out, progress=sp.update, strip=not ctx.values.get('keep_comments'))
+        stats = onefile.build(out, progress=sp.update, strip=not ctx.values.get('keep_comments'))
     size = os.path.getsize(out)
     e.write('%s Wrote %s (%s) in %.1f s' % (e.style(e.symbol('ok'), 'ok'), e.style(out, 'path'),
                                             _size(size), sp.elapsed))

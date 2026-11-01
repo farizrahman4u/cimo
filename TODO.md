@@ -4,12 +4,12 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Big
 
-1. ~~**Single-file distribution.**~~ **Done:** `cimo bundle [-o cimo.py]`
-   (`cimo/bundle.py`, `cimo/resources.py`; `.c`/`.h` stay real files). See "Single-file
+1. ~~**Single-file distribution.**~~ **Done:** `cimo onefile [-o cimo.py]`
+   (`cimo/onefile.py`, `cimo/resources.py`; `.c`/`.h` stay real files). See "Single-file
    distribution" in `requirements.md`.
 2. **Python interop API (M6).** Struct/union arguments and returns (ctypes structures, dicts),
    VLA shape checks at call time (README promises them). The CLI is done (`cimo run`,
-   `compile`, `bundle`, `cache`, `completion`) except `cimo report kernels.c`: per-loop
+   `compile`, `onefile`, `cache`, `completion`) except `cimo report kernels.c`: per-loop
    optimization remarks from the middle end (README promises it). zsh/fish completion
    scripts are untested.
 3. **amd64 backend.** Linux x86-64 and Windows x64 (`VirtualAlloc` loader, Win64 ABI).
@@ -66,7 +66,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 - Demos (see "Demos (planned)" in `requirements.md`).
 - Website demo (`docs/demo.js`): C vector field → particles, recompiled in Pyodide on every edit.
-  `docs/cimo.py` is a `cimo bundle` build: regenerate it when the compiler changes.
+  `docs/cimo.py` is a `cimo onefile` build: regenerate it when the compiler changes.
 - Website training demo (`docs/nn.js`, `docs/nn/codegen.py`): a drawn network → JSON → C
   (forward, backward, Adam) → cimo → WASM, trained in the page. `docs/runtime.js` shares Pyodide.
 - Website Architecture section (`docs/arch.js`): real output of each compiler stage for one kernel,
