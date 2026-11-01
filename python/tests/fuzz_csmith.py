@@ -25,8 +25,8 @@ sys.path.insert(0, HERE)
 CSMITH_DIR = os.path.expanduser(os.environ.get('CSMITH_DIR', '~/code/csmith'))
 CSMITH = os.path.join(CSMITH_DIR, 'build', 'src', 'csmith')
 INCLUDE = [os.path.join(CSMITH_DIR, 'runtime'), os.path.join(CSMITH_DIR, 'build', 'runtime')]
-# what cimo does not support: volatile stores (cproc), packed bit-fields
-CSMITH_ARGS = ['--no-volatiles', '--no-packed-struct']
+# what cimo does not support: packed bit-fields
+CSMITH_ARGS = ['--no-packed-struct']
 GCC_TIMEOUT = 5
 
 
@@ -50,24 +50,46 @@ def generate(seed, d):
     return src
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+def args(doc):
+    ap = argparse.ArgumentParser(description=doc.split('\n\n')[0])
     ap.add_argument('-n', type=int, default=100, help='programs to try')
     ap.add_argument('--seed', type=int, default=int(time.time()), help='first seed')
     ap.add_argument('-j', type=int, default=os.cpu_count() or 4)
     ap.add_argument('--out', default=os.path.join(HERE, 'fuzz_failures'))
+    ap.add_argument('--minutes', type=float, help='stop starting programs after this long')
+    ap.add_argument('--timeout', type=int, default=120,
+                    help='seconds per program for cimo (compile and run)')
     a = ap.parse_args()
+    a.prefix = ''
+    return a
+
+
+def main():
+    a = args(__doc__)
     if not os.access(CSMITH, os.X_OK):
         sys.exit('Csmith not found at %s (set CSMITH_DIR)' % CSMITH)
+    return run(generate, a, INCLUDE)
+
+
+def run(generate, a, include=()):
+    """Runs generate(seed, dir) -> program path (with .expected) or None for seeds a.seed ...
+    a.seed + a.n - 1 through cimo; saves failures under a.out. Returns 1 if any failed."""
+    import test_corpora
     from test_corpora import Worker
-    env = dict(os.environ, CIMO_INCLUDE=os.pathsep.join(INCLUDE))
+    test_corpora.TIMEOUT = a.timeout
+    deadline = time.time() + a.minutes * 60 if a.minutes else None
+    env = dict(os.environ, CIMO_INCLUDE=os.pathsep.join(include))
     import threading
     local = threading.local()
     workers = []
-    counts = {'pass': 0, 'skip': 0, 'fail': 0}
+    counts = {'pass': 0, 'skip': 0, 'fail': 0, 'unrun': 0}
     lock = threading.Lock()
 
     def one(seed):
+        if deadline and time.time() > deadline:
+            with lock:
+                counts['unrun'] += 1
+            return
         w = getattr(local, 'w', None)
         if w is None:
             w = local.w = Worker(env)
@@ -86,8 +108,9 @@ def main():
                 counts['fail'] += 1
                 os.makedirs(a.out, exist_ok=True)
                 for ext in ('.c', '.c.expected'):
-                    shutil.copy(src[:-2] + ext, os.path.join(a.out, '%d%s' % (seed, ext)))
-                with open(os.path.join(a.out, '%d.txt' % seed), 'w') as f:
+                    shutil.copy(src[:-2] + ext, os.path.join(a.out, '%s%d%s'
+                                                             % (a.prefix, seed, ext)))
+                with open(os.path.join(a.out, '%s%d.txt' % (a.prefix, seed)), 'w') as f:
                     f.write(res + '\n')
                 print('seed %d: %s' % (seed, res[:200]), flush=True)
         if src:
@@ -103,9 +126,9 @@ def main():
         for w in workers:
             w.close()
         shutil.rmtree(tmp, ignore_errors=True)
-    print('seeds %d..%d: %d pass, %d fail, %d skipped (gcc timeout) in %.0f s'
-          % (a.seed, a.seed + a.n - 1, counts['pass'], counts['fail'], counts['skip'],
-             time.time() - t0))
+    print('%sseeds %d..%d: %d pass, %d fail, %d skipped (gcc timeout), %d not run (time) in %.0f s'
+          % (a.prefix, a.seed, a.seed + a.n - 1, counts['pass'], counts['fail'], counts['skip'],
+             counts['unrun'], time.time() - t0))
     return 1 if counts['fail'] else 0
 
 
