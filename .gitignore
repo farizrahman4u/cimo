@@ -19,3 +19,4 @@ __pycache__/
 scratch/**/build/
 *.o
 *.log
+docs/cimo.py

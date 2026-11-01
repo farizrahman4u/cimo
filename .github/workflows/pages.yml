@@ -1,4 +1,7 @@
-# Publishes docs/ to GitHub Pages on every push to main.
+# Publishes docs/ to GitHub Pages on every push to main, with docs/cimo.py built from this
+# commit (cimo onefile): the site's in-browser demos import it, and it is the one-file download
+# at https://www.cimo.dev/cimo.py. It is deployed only after the wasm tests pass, in Pyodide
+# (the version docs/runtime.js loads) against that very file.
 # Settings → Pages → Source must be "GitHub Actions".
 name: Deploy site
 
@@ -18,16 +21,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install pytest numpy
+      - name: build docs/cimo.py
+        working-directory: python
+        run: python -m cimo onefile -o ../docs/cimo.py
+      - name: wasm tests, in Pyodide with that cimo.py
+        working-directory: python
+        run: |
+          ver=$(grep -o 'pyodide/v[0-9.]*' ../docs/runtime.js | head -1 | cut -dv -f2)
+          npm install --silent --prefix "$RUNNER_TEMP/pyodide" "pyodide@$ver"
+          PYODIDE_JS="$RUNNER_TEMP/pyodide/node_modules/pyodide/pyodide.mjs" \
+            CIMO_ONEFILE=../docs/cimo.py python -m pytest -q tests/test_wasm.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
   deploy:
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs
       - id: deployment
         uses: actions/deploy-pages@v4

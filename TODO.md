@@ -66,7 +66,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 - Demos (see "Demos (planned)" in `requirements.md`).
 - Website demo (`docs/demo.js`): C vector field → particles, recompiled in Pyodide on every edit.
-  `docs/cimo.py` is a `cimo onefile` build: regenerate it when the compiler changes.
+  `docs/cimo.py` is built by the Pages workflow on each deploy, after the wasm tests pass in
+  Pyodide; for a local preview, `cimo onefile -o docs/cimo.py`.
 - Website training demo (`docs/nn.js`, `docs/nn/codegen.py`): a drawn network → JSON → C
   (forward, backward, Adam) → cimo → WASM, trained in the page. `docs/runtime.js` shares Pyodide.
 - Website Architecture section (`docs/arch.js`): real output of each compiler stage for one kernel,

@@ -2,6 +2,7 @@
 //   node pyodide_run.mjs script.py
 // Needs the `pyodide` npm package: PYODIDE_JS=<path to node_modules/pyodide/pyodide.mjs>
 // (scratch/spikes/pyodide has one), else it must resolve as 'pyodide'.
+// CIMO_ONEFILE=<path to a cimo.py>: import that single file instead, as the website does.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -20,8 +21,8 @@ const copy = (dir) => {
     else py.FS.writeFile(dest, readFileSync(p));
   }
 };
-py.FS.mkdirTree('/lib/cimo');
-copy(pkg);
+if (process.env.CIMO_ONEFILE) py.FS.writeFile('/lib/cimo.py', readFileSync(process.env.CIMO_ONEFILE));
+else { py.FS.mkdirTree('/lib/cimo'); copy(pkg); }
 py.runPython("import sys; sys.path.insert(0, '/lib')");
 if (process.env.PYODIDE_PACKAGES) await py.loadPackage(process.env.PYODIDE_PACKAGES.split(','));
 await py.runPythonAsync(readFileSync(process.argv[2], 'utf8'));
