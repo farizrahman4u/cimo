@@ -608,6 +608,9 @@ like the package in any CPython 3.9+ with only the standard library: put it on `
 - **`cache=False`** (`compile`/`load`): fully in-memory. The caches are still read; nothing is
   written (no entries, directories or intermediate files) and what is built, runtime members
   included, stays in memory for the process. A context variable, so other threads still write.
+- **Profiling (2026-11-01):** with `CIMO_PERFMAP=1` the loader appends each image's functions
+  (start, size to the next symbol, name) to `/tmp/perf-<pid>.map`, perf's convention for JIT
+  code (Linux). Off by default, since it writes to disk.
 - **Image cache (2026-11-01).** A module is cached as its linked image, as a shared library
   would be: code and data bytes linked at address 0, the slots that hold external addresses
   (stub literals, GOT slots, ABS64 data; resolved per process, `link=` is not in the key) and

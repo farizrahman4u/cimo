@@ -29,6 +29,7 @@ import array
 import ctypes
 import ctypes.util
 import mmap as _mmap
+import os
 import platform
 import struct
 import sys
@@ -311,6 +312,7 @@ class Image:
         self._snap = None
         self._layout(obj)
         self._link(lambda code, data: self._build(obj, resolve, code, data))
+        self._perfmap()
 
     @classmethod
     def load(cls, blob, make_resolve=None):
@@ -365,6 +367,7 @@ class Image:
             return memoryview(img)[:csize], memoryview(img)[csize:]
 
         self._link(build)
+        self._perfmap()
         return self
 
     def snapshot(self):
@@ -574,6 +577,25 @@ class Image:
 
     def function(self, name, restype, argtypes):
         return ctypes.CFUNCTYPE(restype, *argtypes)(self.address(name))
+
+    def _perfmap(self):
+        """CIMO_PERFMAP=1 (Linux): append the image's functions to /tmp/perf-<pid>.map, where
+        perf looks up code it finds no file for (start, size, name; a size runs to the next
+        symbol). Off by default: it writes to disk."""
+        if not os.environ.get('CIMO_PERFMAP') or not sys.platform.startswith('linux') \
+                or not self._maps or not self.code_size:
+            return
+        code = self._maps[0][0]
+        end = code + self.code_size
+        pts = sorted((a, n) for n, a in self.symbols.items()
+                     if code <= a < end and not n.startswith('.L'))
+        lines = []
+        for k, (a, n) in enumerate(pts):
+            nxt = pts[k + 1][0] if k + 1 < len(pts) else end
+            name = n[len(self.prefix):] if self.prefix and n.startswith(self.prefix) else n
+            lines.append('%x %x %s\n' % (a, nxt - a, name))
+        with open('/tmp/perf-%d.map' % os.getpid(), 'a') as f:
+            f.writelines(lines)
 
     def close(self):
         """Unmap the image. Its functions must not be called afterwards."""

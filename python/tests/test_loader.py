@@ -4,6 +4,7 @@ import ctypes
 import gc
 import platform
 import struct
+import os
 import sys
 
 import pytest
@@ -200,3 +201,25 @@ def test_flush_icache_runs():
     loader._protect(base, img.code_size, loader.PROT_READ | loader.PROT_EXEC)
     loader.flush_icache(img.address('f'), 4)
     assert f() == 2
+
+
+@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='perf maps are a Linux convention')
+def test_perf_map(monkeypatch):
+    """CIMO_PERFMAP=1 appends each loaded image's functions to /tmp/perf-<pid>.map (start,
+    size, name), which perf reads for JIT code; nothing is written without it."""
+    import cimo
+    path = '/tmp/perf-%d.map' % os.getpid()
+    if os.path.exists(path):
+        os.remove(path)
+    cimo.compile('long sq_pm(long x) { return x * x; }', cache=False)
+    assert not os.path.exists(path)
+    monkeypatch.setenv('CIMO_PERFMAP', '1')
+    try:
+        m = cimo.compile('long cube_pm(long x) { return x * x * x; }', cache=False)
+        with open(path) as f:
+            entries = {l.split()[2]: (int(l.split()[0], 16), int(l.split()[1], 16)) for l in f}
+        start, size = entries['cube_pm']
+        assert start == m._image.address('cube_pm') and size > 0
+    finally:
+        if os.path.exists(path):
+            os.remove(path)

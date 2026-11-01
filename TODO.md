@@ -48,8 +48,9 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   Fix: keep `Roots` across transforms (temporaries it has not seen must count as unknown, and
   rewritten uses must keep their roots) and continue with the loops still valid.
 
-- Profiler symbols: write a perf map (`/tmp/perf-<pid>.map`) and/or jitdump for loaded modules, so
-  `perf record` names kernel functions (the docs' profiling page marks it Planned).
+- Profiler symbols: `CIMO_PERFMAP=1` writes `/tmp/perf-<pid>.map` (done; not yet tried with
+  `perf` itself). Open: jitdump (with code bytes, for `perf annotate`), and the docs' profiling
+  page still says Planned.
 
 - Demos (see "Demos (planned)" in `requirements.md`).
 - Website demo (`docs/demo.js`): C vector field → particles, recompiled in Pyodide on every edit.
