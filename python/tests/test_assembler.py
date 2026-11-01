@@ -164,7 +164,7 @@ def test_math_builtins():
     'fmadd d0, d1, s2, d3',
     'ldp s0, s1, [x2, 2]',
     'ldp d0, d1, [x2, 512]',
-    'ldr x0, [x1, x2]',
+    'ldr x0, [x1, x2, lsl #2]',
     'ldr x0, [x1, 32768]',
     'ldr x0, [x1, -257]',
     'ldr w0, [x1, 257]',
@@ -195,3 +195,20 @@ def test_branch_resolution():
     t = o.section('.text')
     assert t.data[:4] == bytes.fromhex('02000014')  # b l, resolved
     assert [(r.offset, r.type, r.sym) for r in t.relocs] == [(4, 'CALL26', 'g')]
+
+
+def test_register_offsets_and_cbz():
+    """Register-offset addressing and cbz/cbnz (ext.isel)."""
+    lines = []
+    for mn, r, sz in (('ldr', 'x', 3), ('str', 'x', 3), ('ldr', 'w', 2), ('str', 'w', 2),
+                      ('ldr', 'd', 3), ('str', 'd', 3), ('ldr', 's', 2), ('str', 's', 2),
+                      ('ldrb', 'w', 0), ('strb', 'w', 0), ('ldrh', 'w', 1), ('strh', 'w', 1),
+                      ('ldrsb', 'x', 0), ('ldrsb', 'w', 0), ('ldrsh', 'x', 1), ('ldrsw', 'x', 2)):
+        for t in ('', ', lsl #%d' % sz):
+            lines.append('%s %s1, [x2, x3%s]' % (mn, r, t))
+        for how in ('sxtw', 'uxtw'):
+            for t in ('', ' #%d' % sz, ' #0'):
+                lines.append('%s %s1, [sp, w3, %s%s]' % (mn, r, how, t))
+    lines += ['cbz x3, .Lt', 'cbnz w4, .Lt', '.Lt:', 'cbz w5, .Lt', 'cbnz x6, .Lt']
+    d = A.compare('\n'.join(dict.fromkeys(lines)) + '\n')
+    assert not d, '\n'.join(d)

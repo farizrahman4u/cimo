@@ -44,12 +44,11 @@ A pass that doesn't pay for its compile time is recorded here and dropped; cimo 
 in Python.
 
 **Tier 1, instruction selection and peepholes** (seen in today's output; no analysis needed):
-- Frame only when needed: no `stp x29, x30` in a leaf function that uses no stack.
-- Shifts by an immediate (`lsl x0, x0, #3`; today `mov w1, #3; lsl x0, x0, x1`).
-- Scaled and extended addressing: `ldr x0, [x0, x1, lsl #3]`, `ldr w0, [x0, w1, sxtw #2]`,
-  `strb`, and pre/post-index (`AArch64LoadStoreOpt`, GCC `inc_dec`).
+- ~~Frame only when needed, shifts by an immediate, register-offset addressing, `madd`, `msub`,
+  `cbz`, `cbnz`~~ **Done** (`ext.isel`).
+- Pre/post-index addressing (`AArch64LoadStoreOpt`, GCC `inc_dec`).
 - Shifted and extended operands: `add x0, x0, x1, lsl #4`, `add x0, x0, w1, sxtw`.
-- `madd`, `msub`, `mneg`, `fnmul` (`MachineCombiner`, GCC `combine`).
+- `mneg`, `fnmul` (`MachineCombiner`, GCC `combine`).
 - `csel`, `csinc`, `csneg`, `cneg`, `csetm`: then the middle end's 4-instruction select goes.
 - `cbz`, `cbnz`, `tbz`, `tbnz` (`AArch64CondBrTuning`), `tst`, `cmp`/`cmn` dropped after a flag-setting
   `subs`/`adds`/`ands` (`AArch64ConditionOptimizer`, GCC `compare_elim_after_reload`), `ccmp` for `a && b`

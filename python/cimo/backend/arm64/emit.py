@@ -305,8 +305,19 @@ def emitf(s, i, e):
                 f.write("[x29, %d]" % slot(r, e))
             elif t == RMem:
                 pm = e.fn.mem[rval(r)]
-                assert isreg(pm.base) and req(pm.index, R)
-                if pm.offset.i:
+                assert isreg(pm.base)
+                if not req(pm.index, R):  # cimo (ext.isel): see isel.foldindex
+                    shift, ext = pm.scale & 15, pm.scale >> 4
+                    b = rname(rval(pm.base), Kl)
+                    x = rname(rval(pm.index), Kw if ext else Kl)
+                    how = ("lsl", "sxtw", "uxtw")[ext]
+                    if ext:
+                        f.write("[%s, %s, %s%s]" % (b, x, how, " #%d" % shift if shift else ""))
+                    elif shift:
+                        f.write("[%s, %s, lsl #%d]" % (b, x, shift))
+                    else:
+                        f.write("[%s, %s]" % (b, x))
+                elif pm.offset.i:
                     f.write("[%s, %d]" % (rname(rval(pm.base), Kl), pm.offset.i))
                 else:
                     f.write("[%s]" % rname(rval(pm.base), Kl))
@@ -504,6 +515,12 @@ def emitins(i, e):
             emitf("mov %=, sp", i, e)
     elif op == Odbgloc:
         emitdbgloc(rval(i.arg[0]), rval(i.arg[1]), e.f)
+    elif op == D.Oamadd or op == D.Oamsub:  # cimo (ext.isel), see isel.selmadd
+        m = e.fn.mem[rval(i.arg[1])]
+        k = i.cls
+        e.f.write("\t%s\t%s, %s, %s, %s\n" % ("madd" if op == D.Oamadd else "msub",
+                                               rname(rval(i.to), k), rname(rval(m.base), k),
+                                               rname(rval(m.index), k), rname(rval(i.arg[0]), k)))
     elif op in _FMA:
         # cimo extension: r = a*b +- c, with b and c in a Mem (see isel.selfma)
         m = e.fn.mem[rval(i.arg[1])]
@@ -619,25 +636,69 @@ def layoutplan(fn):
     return dup, lbl
 
 
-def emitcondjmp(b, jt, s1, s2, e):
+def emitcondjmp(b, jt, s1, s2, e, cz=None):
     """Conditional jump to s1 (condition true) or s2 from the end of b (b.link follows).
     Returns 1 if control falls through to b.link."""
     T = D.T
     c = jt - Jjf
+    def branch(n, to):
+        if cz is None:
+            e.f.write("\tb%s\t%s%d\n" % (ctoa[c][n], T.asloc, _id0 + to.id))
+        else:  # the block's last instruction was cmp cz, #0, not emitted (see _cbz)
+            e.f.write("\t%s\t%s, %s%d\n" % ("cbz" if (c == Cieq) != n else "cbnz", cz,
+                                             T.asloc, _id0 + to.id))
     if b.link is s2:
-        e.f.write("\tb%s\t%s%d\n" % (ctoa[c][0], T.asloc, _id0 + s1.id))
+        branch(0, s1)
         return 1
     if b.link is s1:
-        e.f.write("\tb%s\t%s%d\n" % (ctoa[c][1], T.asloc, _id0 + s2.id))
+        branch(1, s2)
         return 1
     # neither follows: branch conditionally backwards (a loop), unconditionally forwards
     if s2.id <= b.id < s1.id:
-        e.f.write("\tb%s\t%s%d\n" % (ctoa[c][1], T.asloc, _id0 + s2.id))
+        branch(1, s2)
         e.f.write("\tb\t%s%d\n" % (T.asloc, _id0 + s1.id))
     else:
-        e.f.write("\tb%s\t%s%d\n" % (ctoa[c][0], T.asloc, _id0 + s1.id))
+        branch(0, s1)
         e.f.write("\tb\t%s%d\n" % (T.asloc, _id0 + s2.id))
     return 0
+
+
+def _cbz(ins, jt, e):
+    """cimo (ext.isel): (instructions, register) without a last "cmp x, #0" if jt tests it for
+    (in)equality: cbz or cbnz does both; else (ins, None). Nothing after the jump reads flags."""
+    c = jt - Jjf
+    if not _ext.isel or (c != Cieq and c != Cine):
+        return ins, None
+    n = len(ins)
+    while n > 0 and ins[n - 1].op == Onop:
+        n -= 1
+    if n == 0 or ins[n - 1].op != Oacmp or rtype(ins[n - 1].arg[1]) != RCon:
+        return ins, None
+    i = ins[n - 1]
+    pc = e.fn.con[rval(i.arg[1])]
+    if pc.type != CBits or pc.i != 0 or not isreg(i.arg[0]):
+        return ins, None
+    return ins[:n - 1], rname(rval(i.arg[0]), i.cls)
+
+
+def _frameless(e):
+    """cimo (ext.isel): a leaf that keeps nothing on the stack needs no frame: no saved register
+    (x30 is allocatable), slot, stack argument, call, stack pointer change, or trap (which
+    unwinds through the frame chain)."""
+    fn = e.fn
+    if (not _ext.isel or e.frame or fn.vararg or fn.dynalloc or fn.slot or (fn.reg & BIT(LR))
+            or (_ext.stkchk and fn.name in _ext.stkchk)):
+        return False
+    b = fn.start
+    while b:
+        if b.jmp.type == Jhlt:
+            return False
+        for i in b.ins[:b.nins]:
+            if i.op in (Ocall, Oaddr, Osalloc) or rtype(i.to) == RSlot \
+                    or rtype(i.arg[0]) == RSlot or rtype(i.arg[1]) == RSlot:
+                return False
+        b = b.link
+    return True
 
 
 def framelayout(e):
@@ -701,7 +762,10 @@ def arm64_emitfn(fn, out):
     if T.windows and e.frame + 16 > 4096:
         _probe(e, e.frame + 16)
 
-    if e.frame + 16 <= 512:
+    frameless = _frameless(e)
+    if frameless:
+        pass
+    elif e.frame + 16 <= 512:
         e.f.write("\tstp\tx29, x30, [sp, -%d]!\n" % (e.frame + 16))
     elif e.frame <= 4095:
         e.f.write("\tsub\tsp, sp, #%d\n"
@@ -715,7 +779,8 @@ def arm64_emitfn(fn, out):
                   "\tmovk\tx16, #%d, lsl #16\n"
                   "\tsub\tsp, sp, x16\n"
                   "\tstp\tx29, x30, [sp, -16]!\n" % (e.frame & 0xFFFF, e.frame >> 16))
-    e.f.write("\tmov\tx29, sp\n")
+    if not frameless:
+        e.f.write("\tmov\tx29, sp\n")
     if _ext.stkchk and e.fn.name in _ext.stkchk:  # cimo extension: stack guard
         e.f.write("\tbl\t%s__cimo_stkchk\n" % T.assym)
     s = s32((e.frame - e.padding) // 4)
@@ -735,13 +800,17 @@ def arm64_emitfn(fn, out):
     while b:
         if lbl or b.npred > 1 or b in dlbl:
             e.f.write("%s%d:\n" % (T.asloc, _id0 + b.id))
-        emitinsl(b.ins[:b.nins], e)
-        lbl = 1
         jt = b.jmp.type
+        body, cz = b.ins[:b.nins], None
+        if jt != Jjmp and jt != Jhlt and jt != Jret0 and _ext.layout and b not in dup:
+            body, cz = _cbz(body, jt, e)
+        emitinsl(body, e)
+        lbl = 1
         if b in dup:
             hins, hjt, hs1, hs2 = dup[b]
+            hins, hcz = _cbz(hins, hjt, e)
             emitinsl([i.copy() for i in hins], e)
-            if emitcondjmp(b, hjt, hs1, hs2, e):
+            if emitcondjmp(b, hjt, hs1, hs2, e, hcz):
                 lbl = 0
         elif jt == Jhlt:
             if _ext.trap:  # cimo extension: unwind to Python
@@ -760,6 +829,10 @@ def arm64_emitfn(fn, out):
                     i.cls = Kd if r >= V0 else Kl
                     rest.append(i)
             emitinsl(rest, e)
+            if frameless:
+                e.f.write("\tret\n")
+                b = b.link
+                continue
             if e.fn.dynalloc:
                 e.f.write("\tmov sp, x29\n")
             o = e.frame + 16
@@ -785,7 +858,7 @@ def arm64_emitfn(fn, out):
                 c = jt - Jjf
                 if c < 0 or c > NCmp:
                     die("unhandled jump %d", jt)
-                if emitcondjmp(b, jt, b.s1, b.s2, e):
+                if emitcondjmp(b, jt, b.s1, b.s2, e, cz):
                     lbl = 0
                 b = b.link
                 continue
