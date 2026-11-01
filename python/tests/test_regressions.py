@@ -344,3 +344,37 @@ long long callfl(void) { struct fl s = {4}; struct z q; return flf(s, q, 6); }
 struct a16 zeroed(void) { struct a16 v = {0}; return v; }
 """)
     assert m.call() == 2778 and m.callp() == 4321 and m.callfl() == 10
+
+
+OVERFLOW = r"""
+typedef unsigned long long u64;
+u64 run(int k) {
+    unsigned char uc; signed char sc; int i; unsigned u; long long ll; unsigned long long ull;
+    float nf = __builtin_nanf(""); double nd = __builtin_nan("");
+    switch (k) {
+    case 0: return __builtin_add_overflow(200, 100, &uc) * 1000 + uc;
+    case 1: return __builtin_sub_overflow(-100, 100, &sc) * 1000 + (unsigned char)sc;
+    case 2: return __builtin_mul_overflow(0x7fffffffffffffffLL, 2, &ll) * 1000 + (u64)ll % 997;
+    case 3: return __builtin_mul_overflow(-1LL, (unsigned long long)-1, &ll) * 1000 + (u64)ll % 997;
+    case 4: return __builtin_sub_overflow(0u, 1, &i) * 1000 + (u64)(i + 5);
+    case 5: return __builtin_add_overflow(-1, 0u, &u) * 1000 + u % 997;
+    case 6: return __builtin_mul_overflow(0x100000000ULL, 0x100000000ULL, &ull) * 1000 + ull;
+    case 7: return __builtin_mul_overflow_p(65536, 65536, (int)0) * 10 + __builtin_add_overflow_p(1, 2, (char)0);
+    case 8: return __builtin_smul_overflow(46341, 46341, &i) * 10 + __builtin_uadd_overflow(1u, ~0u, &u);
+    case 9: return __builtin_isunordered(nd, 1.0) * 100 + __builtin_isgreater(2.0, nd) * 10 + __builtin_isless(1.0f, 2.0);
+    case 10: return __builtin_islessgreater(1.0, 2.0) * 100 + __builtin_isgreaterequal(nf, nf) * 10 + __builtin_islessequal(2.0, 2.0);
+    case 11: return __builtin_issignaling(__builtin_nansf("")) * 100 + __builtin_issignaling(__builtin_nans("")) * 10 + __builtin_issignaling(nd);
+    case 12: return __builtin_isinff(__builtin_inff()) * 10 + __builtin_isinff(1.0f);
+    }
+    return 0;
+}
+"""
+
+
+def test_gnu_overflow_and_float_comparison_builtins():
+    # __builtin_{add,sub,mul}_overflow(_p) for every integer type (exact result, not just the
+    # common type's), the typed variants, the quiet comparisons and issignaling; values from
+    # gcc (3000 random cases matched it when this was written)
+    m = cimo.compile(OVERFLOW)
+    assert [m.run(k) for k in range(13)] == [1044, 1056, 1959, 1001, 4, 1965, 1000, 10, 11,
+                                             101, 101, 110, 10]

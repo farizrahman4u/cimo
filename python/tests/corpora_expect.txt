@@ -266,34 +266,28 @@ gcc-torture/gofast.c                                unsupported  undeclared iden
 gcc-torture/ieee/20010226-1.c                       unsupported  long double is not supported
 gcc-torture/ieee/20011123-1.c                       unsupported  long double is not supported
 gcc-torture/ieee/920810-1.c                         unsupported  no type in parameter declaration
-gcc-torture/ieee/bfloat16-builtin-issignaling-1.c   unsupported  built-in function '__builtin_issignaling' is not supported
-gcc-torture/ieee/builtin-issignaling-1.c            unsupported  built-in function '__builtin_issignaling' is not supported
+gcc-torture/ieee/bfloat16-builtin-issignaling-1.c   unsupported  built-in function '__builtin_nansf16b' is not supported
+gcc-torture/ieee/builtin-issignaling-1.c            unsupported  built-in function '__builtin_nansf' is not supported
 gcc-torture/ieee/builtin-nan-1.c                    unsupported  __builtin_nanf currently only supports empty string literals
 gcc-torture/ieee/cdivchkd.c                         unsupported  _Complex is not yet supported
 gcc-torture/ieee/cdivchkf.c                         unsupported  _Complex is not yet supported
 gcc-torture/ieee/cdivchkld.c                        unsupported  _Complex is not yet supported
-gcc-torture/ieee/compare-fp-1.c                     unsupported  built-in function '__builtin_isunordered' is not supported
-gcc-torture/ieee/compare-fp-3.c                     unsupported  built-in function '__builtin_isunordered' is not supported
-gcc-torture/ieee/compare-fp-4.c                     unsupported  built-in function '__builtin_isunordered' is not supported
 gcc-torture/ieee/copysign1.c                        unsupported  long double is not supported
 gcc-torture/ieee/copysign2.c                        unsupported  long double is not supported
-gcc-torture/ieee/float128-builtin-issignaling-1.c   unsupported  built-in function '__builtin_issignaling' is not supported
-gcc-torture/ieee/float128x-builtin-issignaling-1.c  unsupported  built-in function '__builtin_issignaling' is not supported
-gcc-torture/ieee/float16-builtin-issignaling-1.c    unsupported  built-in function '__builtin_issignaling' is not supported
-gcc-torture/ieee/float32-builtin-issignaling-1.c    unsupported  built-in function '__builtin_issignaling' is not supported
-gcc-torture/ieee/float32x-builtin-issignaling-1.c   unsupported  built-in function '__builtin_issignaling' is not supported
-gcc-torture/ieee/float64-builtin-issignaling-1.c    unsupported  built-in function '__builtin_issignaling' is not supported
-gcc-torture/ieee/float64x-builtin-issignaling-1.c   unsupported  built-in function '__builtin_issignaling' is not supported
+gcc-torture/ieee/float128-builtin-issignaling-1.c   unsupported  built-in function '__builtin_nansf128' is not supported
+gcc-torture/ieee/float128x-builtin-issignaling-1.c  unsupported  built-in function '__builtin_nansf128x' is not supported
+gcc-torture/ieee/float16-builtin-issignaling-1.c    unsupported  built-in function '__builtin_nansf16' is not supported
+gcc-torture/ieee/float32-builtin-issignaling-1.c    unsupported  built-in function '__builtin_nansf32' is not supported
+gcc-torture/ieee/float32x-builtin-issignaling-1.c   unsupported  built-in function '__builtin_nansf32x' is not supported
+gcc-torture/ieee/float64-builtin-issignaling-1.c    unsupported  built-in function '__builtin_nansf64' is not supported
+gcc-torture/ieee/float64x-builtin-issignaling-1.c   unsupported  built-in function '__builtin_nansf64x' is not supported
 gcc-torture/ieee/fp-cmp-1.c                         unsupported  signal.h: No such file or directory
 gcc-torture/ieee/fp-cmp-2.c                         unsupported  signal.h: No such file or directory
 gcc-torture/ieee/fp-cmp-3.c                         unsupported  signal.h: No such file or directory
 gcc-torture/ieee/fp-cmp-4.c                         unsupported  expected ')' to close function declarator, saw 'true'
 gcc-torture/ieee/fp-cmp-4f.c                        unsupported  expected ')' to close function declarator, saw 'true'
 gcc-torture/ieee/fp-cmp-4l.c                        unsupported  expected ')' to close function declarator, saw 'true'
-gcc-torture/ieee/fp-cmp-5.c                         unsupported  built-in function '__builtin_isunordered' is not supported
 gcc-torture/ieee/fp-cmp-7.c                         unsupported  undefined symbol 'link_error': cimo's runtime does not provide it
-gcc-torture/ieee/fp-cmp-8.c                         unsupported  built-in function '__builtin_isunordered' is not supported
-gcc-torture/ieee/fp-cmp-8f.c                        unsupported  built-in function '__builtin_isunordered' is not supported
 gcc-torture/ieee/fp-cmp-8l.c                        unsupported  long double is not supported
 gcc-torture/ieee/fp-cmp-cond-1.c                    unsupported  vector types (vector_size) are not supported yet
 gcc-torture/ieee/inf-1.c                            unsupported  long double is not supported
@@ -302,8 +296,7 @@ gcc-torture/ieee/inf-3.c                            unsupported  long double is 
 gcc-torture/ieee/pr122307.c                         unsupported  fenv.h: No such file or directory
 gcc-torture/ieee/pr29302-1.c                        unsupported  long double is not supported
 gcc-torture/ieee/pr36332.c                          unsupported  long double is not supported
-gcc-torture/ieee/pr38016.c                          unsupported  built-in function '__builtin_isunordered' is not supported
-gcc-torture/ieee/pr50310.c                          unsupported  built-in function '__builtin_isgreater' is not supported
+gcc-torture/ieee/pr50310.c                          unsupported  inline assembly is not supported
 gcc-torture/ieee/pr72824-2.c                        unsupported  vector types (vector_size) are not supported yet
 gcc-torture/inst-check.c                            unsupported  expected declaration or function definition
 gcc-torture/int-compare.c                           unsupported  expected declaration or function definition
@@ -344,10 +337,8 @@ gcc-torture/pr103405.c                              unsupported  nested function
 gcc-torture/pr104604.c                              unsupported  _Complex is not yet supported
 gcc-torture/pr105613.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr105777.c                              unsupported  ../../gcc.dg/tree-ssa/pr105777.c: No such file or directory
-gcc-torture/pr105984.c                              unsupported  built-in function '__builtin_mul_overflow_p' is not supported
 gcc-torture/pr108292.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr108498-1.c                            unsupported  inline assembly is not supported
-gcc-torture/pr108789.c                              unsupported  built-in function '__builtin_add_overflow' is not supported
 gcc-torture/pr109040.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr109938.c                              unsupported  ../../gcc.dg/tree-ssa/pr109938.c: No such file or directory
 gcc-torture/pr109986.c                              unsupported  ../../gcc.dg/tree-ssa/pr109986.c: No such file or directory
@@ -363,7 +354,6 @@ gcc-torture/pr123625-2.c                            unsupported  vector types (v
 gcc-torture/pr123625-3.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr123625.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr123753.c                              unsupported  vector types (vector_size) are not supported yet
-gcc-torture/pr123864.c                              unsupported  built-in function '__builtin_mul_overflow_p' is not supported
 gcc-torture/pr126405-2.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr126405-3.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr126405.c                              unsupported  vector types (vector_size) are not supported yet
@@ -392,7 +382,7 @@ gcc-torture/pr38151.c                               unsupported  _Complex is not
 gcc-torture/pr38533.c                               unsupported  inline assembly is not supported
 gcc-torture/pr38969.c                               unsupported  expected declaration or function definition
 gcc-torture/pr39120.c                               unsupported  no type in parameter declaration
-gcc-torture/pr39228.c                               unsupported  built-in function '__builtin_isinff' is not supported
+gcc-torture/pr39228.c                               unsupported  long double is not supported
 gcc-torture/pr40022.c                               unsupported  inline assembly is not supported
 gcc-torture/pr40657.c                               unsupported  inline assembly is not supported
 gcc-torture/pr41239.c                               unsupported  inline assembly is not supported
@@ -439,7 +429,6 @@ gcc-torture/pr58943.c                               skip         unspecified ord
 gcc-torture/pr60003.c                               unsupported  built-in function '__builtin_longjmp' is not supported
 gcc-torture/pr60960.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr63641.c                               unsupported  inline assembly is not supported
-gcc-torture/pr64006.c                               unsupported  built-in function '__builtin_mul_overflow' is not supported
 gcc-torture/pr64242.c                               unsupported  expected declaration or function definition
 gcc-torture/pr65053-1.c                             unsupported  inline assembly is not supported
 gcc-torture/pr65053-2.c                             unsupported  inline assembly is not supported
@@ -448,7 +437,6 @@ gcc-torture/pr65648.c                               unsupported  inline assembly
 gcc-torture/pr65956.c                               unsupported  inline assembly is not supported
 gcc-torture/pr67037.c                               unsupported  too many arguments for function call
 gcc-torture/pr68328.c                               unsupported  inline assembly is not supported
-gcc-torture/pr68381.c                               unsupported  built-in function '__builtin_mul_overflow' is not supported
 gcc-torture/pr69320-2.c                             unsupported  inline assembly is not supported
 gcc-torture/pr69691.c                               unsupported  inline assembly is not supported
 gcc-torture/pr70460.c                               unsupported  labels as values ('&&label', a GNU extension) are not supported
@@ -456,7 +444,6 @@ gcc-torture/pr70602.c                               unsupported  bit-field 's' i
 gcc-torture/pr70903.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr71083.c                               unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/pr71494.c                               unsupported  labels as values ('&&label', a GNU extension) are not supported
-gcc-torture/pr71554.c                               unsupported  built-in function '__builtin_mul_overflow' is not supported
 gcc-torture/pr71626-1.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr71626-2.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr78438.c                               unsupported  inline assembly is not supported
@@ -469,12 +456,10 @@ gcc-torture/pr80692.c                               unsupported  expected primar
 gcc-torture/pr81588.c                               unsupported  inline assembly is not supported
 gcc-torture/pr82210.c                               unsupported  GNU attribute 'aligned' is not supported here
 gcc-torture/pr82954.c                               unsupported  inline assembly is not supported
-gcc-torture/pr84169.c                               unsupported  built-in function '__builtin_mul_overflow' is not supported
 gcc-torture/pr84478.c                               unsupported  inline assembly is not supported
 gcc-torture/pr84521.c                               unsupported  built-in function '__builtin_longjmp' is not supported
 gcc-torture/pr84524.c                               unsupported  inline assembly is not supported
 gcc-torture/pr84748.c                               unsupported  type 'unsigned __int128' is not supported
-gcc-torture/pr85095.c                               unsupported  built-in function '__builtin_add_overflow' is not supported
 gcc-torture/pr85156.c                               unsupported  inline assembly is not supported
 gcc-torture/pr85169.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr85331.c                               unsupported  vector types (vector_size) are not supported yet
@@ -484,16 +469,10 @@ gcc-torture/pr86659-2.c                             unsupported  no type in para
 gcc-torture/pr86714.c                               unsupported  initializer string is too long for the array
 gcc-torture/pr87623.c                               unsupported  attribute 'scalar_storage_order' is not supported
 gcc-torture/pr88904.c                               unsupported  inline assembly is not supported
-gcc-torture/pr89434.c                               unsupported  built-in function '__builtin_mul_overflow' is not supported
-gcc-torture/pr90311.c                               unsupported  built-in function '__builtin_add_overflow' is not supported
-gcc-torture/pr91450-1.c                             unsupported  built-in function '__builtin_mul_overflow' is not supported
-gcc-torture/pr91450-2.c                             unsupported  built-in function '__builtin_mul_overflow' is not supported
 gcc-torture/pr91597.c                               unsupported  GNU attribute 'aligned' is not supported here
-gcc-torture/pr91635.c                               unsupported  built-in function '__builtin_add_overflow' is not supported
 gcc-torture/pr92618.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr92904.c                               unsupported  GNU attribute 'aligned' is not supported here
 gcc-torture/pr93213.c                               unsupported  type 'unsigned __int128' is not supported
-gcc-torture/pr93494.c                               unsupported  built-in function '__builtin_add_overflow' is not supported
 gcc-torture/pr93945.c                               unsupported  inline assembly is not supported
 gcc-torture/pr94130.c                               unsupported  inline assembly is not supported
 gcc-torture/pr94412.c                               unsupported  vector types (vector_size) are not supported yet

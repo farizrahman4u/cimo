@@ -52,7 +52,6 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   (`filluse`), re-finds loops and recomputes `Roots` over the whole function (~480 rounds).
   Fix: keep `Roots` across transforms (temporaries it has not seen must count as unknown, and
   rewritten uses must keep their roots) and continue with the loops still valid.
-- GNU overflow builtins (`__builtin_add_overflow`, ...) and `__builtin_isunordered` & co.
 
 - Profiler symbols: write a perf map (`/tmp/perf-<pid>.map`) and/or jitdump for loaded modules, so
   `perf record` names kernel functions (the docs' profiling page marks it Planned).

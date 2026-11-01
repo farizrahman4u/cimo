@@ -95,6 +95,48 @@ double __builtin_fmax(double, double) __cimo_lib(fmax);
 #undef __cimo_s
 #undef __cimo_s2
 #define __builtin_prefetch(...) ((void)(__VA_ARGS__))
+int __builtin_isinff(float);
+double __builtin_nans(const char *); float __builtin_nansf(const char *);
+int __cimo_issignalingf(float); int __cimo_issignaling(double);
+#define __builtin_issignaling(x) _Generic((x), float: __cimo_issignalingf, \
+	default: __cimo_issignaling)(x)
+int __cimo_fcmp(int, double, double);
+#define __builtin_isunordered(x, y) __cimo_fcmp(0, x, y)
+#define __builtin_isgreater(x, y) __cimo_fcmp(1, x, y)
+#define __builtin_isgreaterequal(x, y) __cimo_fcmp(2, x, y)
+#define __builtin_isless(x, y) __cimo_fcmp(3, x, y)
+#define __builtin_islessequal(x, y) __cimo_fcmp(4, x, y)
+#define __builtin_islessgreater(x, y) __cimo_fcmp(5, x, y)
+int __cimo_overflow(int, unsigned long long, int, unsigned long long, int, void *,
+                    unsigned long, int);
+#define __cimo_signed(x) ((__typeof__(x))-1 < 0)
+#define __cimo_ovf(op, a, b, r, rs, rsg) __cimo_overflow(op, (unsigned long long)(a), \
+	__cimo_signed(a), (unsigned long long)(b), __cimo_signed(b), r, rs, rsg)
+#define __builtin_add_overflow(a, b, r) __cimo_ovf(0, a, b, r, sizeof(*(r)), __cimo_signed(*(r)))
+#define __builtin_sub_overflow(a, b, r) __cimo_ovf(1, a, b, r, sizeof(*(r)), __cimo_signed(*(r)))
+#define __builtin_mul_overflow(a, b, r) __cimo_ovf(2, a, b, r, sizeof(*(r)), __cimo_signed(*(r)))
+#define __builtin_add_overflow_p(a, b, c) __cimo_ovf(0, a, b, (void *)0, sizeof(c), __cimo_signed(c))
+#define __builtin_sub_overflow_p(a, b, c) __cimo_ovf(1, a, b, (void *)0, sizeof(c), __cimo_signed(c))
+#define __builtin_mul_overflow_p(a, b, c) __cimo_ovf(2, a, b, (void *)0, sizeof(c), __cimo_signed(c))
+#define __cimo_ovft(op, t, a, b, r) __cimo_ovf(op, (t)(a), (t)(b), (t *)(r), sizeof(t), (t)-1 < 0)
+#define __builtin_sadd_overflow(a, b, r) __cimo_ovft(0, int, a, b, r)
+#define __builtin_saddl_overflow(a, b, r) __cimo_ovft(0, long, a, b, r)
+#define __builtin_saddll_overflow(a, b, r) __cimo_ovft(0, long long, a, b, r)
+#define __builtin_uadd_overflow(a, b, r) __cimo_ovft(0, unsigned, a, b, r)
+#define __builtin_uaddl_overflow(a, b, r) __cimo_ovft(0, unsigned long, a, b, r)
+#define __builtin_uaddll_overflow(a, b, r) __cimo_ovft(0, unsigned long long, a, b, r)
+#define __builtin_ssub_overflow(a, b, r) __cimo_ovft(1, int, a, b, r)
+#define __builtin_ssubl_overflow(a, b, r) __cimo_ovft(1, long, a, b, r)
+#define __builtin_ssubll_overflow(a, b, r) __cimo_ovft(1, long long, a, b, r)
+#define __builtin_usub_overflow(a, b, r) __cimo_ovft(1, unsigned, a, b, r)
+#define __builtin_usubl_overflow(a, b, r) __cimo_ovft(1, unsigned long, a, b, r)
+#define __builtin_usubll_overflow(a, b, r) __cimo_ovft(1, unsigned long long, a, b, r)
+#define __builtin_smul_overflow(a, b, r) __cimo_ovft(2, int, a, b, r)
+#define __builtin_smull_overflow(a, b, r) __cimo_ovft(2, long, a, b, r)
+#define __builtin_smulll_overflow(a, b, r) __cimo_ovft(2, long long, a, b, r)
+#define __builtin_umul_overflow(a, b, r) __cimo_ovft(2, unsigned, a, b, r)
+#define __builtin_umull_overflow(a, b, r) __cimo_ovft(2, unsigned long, a, b, r)
+#define __builtin_umulll_overflow(a, b, r) __cimo_ovft(2, unsigned long long, a, b, r)
 '''
 _CTYPE = {'w': ctypes.c_int32, 'l': ctypes.c_int64, 's': ctypes.c_float, 'd': ctypes.c_double}
 _SIG = re.compile(r'^export\s*\nfunction\s+(?:([wlsd]|:[\w.]+)\s+)?\$(\w+)\(([^)]*)\)', re.M)
