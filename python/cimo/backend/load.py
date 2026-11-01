@@ -165,21 +165,27 @@ def load(sl, msk, l):
     # sl.ref might not be live here,
     # but its alias base ref will be
     # (see killsl() below)
+    # fix over C QBE: the slice's own offset (rebase moves the address's offset there, and a blit's
+    # source has one) was dropped: a load moved up a loop read the start of the object
     if rtype(r) == RTmp:
         a = curf.tmp[rval(r)].alias
         if a.type in (ALoc, AEsc, AUnk):
             r = TMP(a.base)
-            if a.offset:
-                r1 = getcon(a.offset, curf)
+            if a.offset + sl.off:
+                r1 = getcon(a.offset + sl.off, curf)
                 r = iins(Kl, Oadd, r, r1, l)
         elif a.type in (ACon, ASym):
             c = Con()
             c.type = CAddr
             c.sym = a.sym.copy()
-            c.i = a.offset
+            c.i = a.offset + sl.off
             r = newcon(c, curf)
         else:
             die("unreachable")
+    elif rtype(r) == RCon and sl.off:
+        c = curf.con[rval(r)].copy()
+        c.i += sl.off
+        r = newcon(c, curf)
     r = iins(cls, ld, r, R, l)
     if not all_:
         r = mask(cls, r, msk, l)
