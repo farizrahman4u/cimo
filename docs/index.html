@@ -322,6 +322,17 @@ button.nn-chip{cursor:pointer;border-color:var(--line)}button.nn-chip:hover{bord
 @media(max-width:600px){.arch-steps{margin:0 -16px;padding:6px 16px 0}.arch-line{left:72px}}
 @media(max-width:900px){.arch-slide{display:flex;flex-direction:column;align-items:stretch;gap:14px;width:88%;padding:16px}.arch-code{flex:1 0 auto;display:flex;flex-direction:column}.arch-slide .arch-code pre{flex:1 0 auto;height:240px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11.5px}.arch-desc{font-size:14.5px}.arch-head h3{font-size:20px}}
 @media (prefers-reduced-motion:reduce){.arch-line b{transition:none}}
+.sj{display:flex;align-items:center;gap:16px;margin-top:22px;padding:16px 20px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(100deg,#fff 0%,#fff 55%,#fff4ec 100%);color:var(--ink);transition:border-color .2s,box-shadow .2s}
+.sj:hover{border-color:#fdba74;box-shadow:0 6px 24px -12px rgba(249,115,22,.45)}
+.sj>svg{width:40px;height:40px;flex:none}
+.sj-txt{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.sj-q{--h:1.4em;position:relative;display:block;height:var(--h);overflow:hidden;clip-path:inset(0);font-weight:650;font-size:16.5px;line-height:1.4}
+.sj-q span{position:absolute;left:0;top:0;white-space:nowrap;opacity:0;transform:translateY(var(--h));transition:opacity .45s,transform .45s}
+.sj-q span.on{opacity:1;transform:none}.sj-q span.out{opacity:0;transform:translateY(calc(-1 * var(--h)))}
+.sj-sub{font-size:14px;color:var(--ink3)}.sj-sub code{font:500 .92em var(--mono);color:#c2410c}
+.sj-go{flex:none;font-weight:600;font-size:14px;padding:9px 14px;border-radius:9px;color:#fff;background:linear-gradient(90deg,#2563eb,#f97316 60%,#dc2626)}
+@media(max-width:640px){.sj{flex-wrap:wrap;align-items:flex-start}.sj-q{--h:2.8em}.sj-q span{white-space:normal}.sj-go{width:100%;text-align:center}}
+@media (prefers-reduced-motion:reduce){.sj-q span{transition:none}}
 .doclink{margin-top:18px;font-size:14px;font-weight:500}.doclink a{color:var(--brand)}.doclink a:hover{color:var(--brandD)}.doclink .sep{color:var(--ink4);margin:0 6px}
 /* code panels */
 .code{background:var(--code);border:1px solid var(--codeline);border-radius:12px;overflow:hidden;color:#c9d1d9;min-width:0}
@@ -689,6 +700,7 @@ void ema(int n, const double x[n],
   </div>
   </div>
   <p class="doclink"><a href="docs/?p=first-kernel">Docs: your first kernel →</a></p>
+  <a class="sj" href="https://www.scramjit.dev/"><svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="sj-lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset=".6" stop-color="#f97316"/><stop offset="1" stop-color="#dc2626"/></linearGradient></defs><rect width="32" height="32" rx="8" fill="url(#sj-lg)"/><path d="M5.5 9.5L13 14h6l7.5-4.5M5.5 22.5L13 18h6l7.5 4.5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="16" r="1.7" fill="#fff"/></svg><span class="sj-txt"><span class="sj-q"><span class="on">Rather write Python, but love the speed?</span><span aria-hidden="true">Hot loop stuck in Python?</span><span aria-hidden="true">Loops numpy can’t vectorize?</span><span aria-hidden="true">Don’t want to write the C?</span><span aria-hidden="true">Like cimo, but rather stay in Python?</span></span><span class="sj-sub">scramjit compiles your Python loops with cimo, in pure Python. Add <code>@scram</code> and keep your code.</span></span><span class="sj-go">Try scramjit →</span></a>
 </div></section>
 
 <section class="s" id="why"><div class="wrap">
@@ -876,7 +888,7 @@ with ThreadPoolExecutor() as pool:
 
 <footer class="site"><div class="wrap foot">
   <span>cimo · MIT. Bundled code from QBE (MIT), cproc (ISC) and musl (MIT) keeps its license.</span>
-  <nav class="foot-links" aria-label="Footer"><a href="docs/">Docs</a><a href="https://github.com/farizrahman4u/cimo">GitHub</a><a href="https://github.com/farizrahman4u/cimo/blob/main/requirements.md">Design spec</a><a href="https://github.com/farizrahman4u/cimo/blob/main/LICENSE">License</a></nav>
+  <nav class="foot-links" aria-label="Footer"><a href="docs/">Docs</a><a href="https://github.com/farizrahman4u/cimo">GitHub</a><a href="https://github.com/farizrahman4u/cimo/blob/main/requirements.md">Design spec</a><a href="https://github.com/farizrahman4u/cimo/blob/main/LICENSE">License</a><a href="https://www.scramjit.dev/">scramjit</a></nav>
 </div></footer>
 
 <script>
@@ -1087,5 +1099,22 @@ document.querySelectorAll(".pip-tab").forEach(function (t) {
 <script src="demo.js?v=130f5236" defer></script>
 <script src="arch.js?v=c33b326c" defer></script>
 <script src="nn.js?v=262d08c0" defer></script>
+<script>
+// The scramjit card's question line: one at a time, each rolling up in turn. Paused while hovered
+// and when motion is reduced.
+(function () {
+  var q = document.querySelector('.sj-q'); if (!q || matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+  var ls = [].slice.call(q.children), i = 0, hover = false;
+  q.closest('.sj').addEventListener('mouseenter', function () { hover = true; });
+  q.closest('.sj').addEventListener('mouseleave', function () { hover = false; });
+  setInterval(function () {
+    if (hover || document.hidden) return;
+    var a = ls[i], b = ls[i = (i + 1) % ls.length];
+    a.classList.remove('on'); a.classList.add('out');
+    b.classList.remove('out'); b.style.transition = 'none'; b.offsetWidth; b.style.transition = ''; b.classList.add('on');
+    setTimeout(function () { a.classList.remove('out'); }, 500);
+  }, 3200);
+})();
+</script>
 </body>
 </html>
