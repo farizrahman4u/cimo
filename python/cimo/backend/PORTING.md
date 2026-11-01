@@ -94,6 +94,10 @@ output for these is broken, so no comparison test depends on it):
   aligned stack offset, while a pointer replacing a large one keeps 8-byte alignment. A
   zero-size composite (GNU C) was passed by pointer; gcc passes nothing. Found with
   `tests/test_abi.py` (structs with `_Alignas(16)`) and gcc's `va-arg-22.c`.
+- `arm64/emit` (Apple in C QBE; Windows in cimo, both without x18): a store to a stack slot
+  beyond the immediate offset range, whose value is in x17, goes through s31/d31; the width
+  came from `i.cls`, which is `Kw` for the `storel` of a spill, so 4 of the 8 bytes were
+  stored. Found by gcc's `pr28982b.c` on Windows (a big frame and many live pointers).
 - `arm64/abi.argsclass` (Windows variadic call): a composite that does not fit in the
   remaining registers is split between them and the stack (x7 is saved right below the
   stack arguments, so the callee sees it whole), as clang's and cimo's `va_arg` read it; it

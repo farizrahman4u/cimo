@@ -516,10 +516,14 @@ def emitins(i, e):
             t = -1 if T.apple or T.windows else R18  # x18 is the platform register
             if fixarg(i.arg, 1, _storesz(i), t, e):
                 if req(i.arg[0], TMP(IP1)):
-                    e.f.write("\tfmov\t%s31, %s17\n"
-                              % ("ds"[i.cls == Kw], "xw"[i.cls == Kw]))
+                    # fix over C QBE: the width comes from the op (a spill's storel has cls
+                    # Kw, see Ocopy above, and stored only its low 4 bytes); only word and
+                    # doubleword stores get their value in x17
+                    assert i.op in (Ostorew, Ostorel)
+                    w = i.op == Ostorew
+                    e.f.write("\tfmov\t%s31, %s17\n" % ("ds"[w], "xw"[w]))
                     i.arg[0] = TMP(V31)
-                    i.op = Ostores + (i.cls - Kw)
+                    i.op = Ostores if w else Ostored
                 fixarg(i.arg, 1, _storesz(i), IP1, e)
         _table(i, e)
 

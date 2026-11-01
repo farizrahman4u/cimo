@@ -409,3 +409,43 @@ unsigned long b64(unsigned long x) { return __builtin_bswap64(x); }
         assert m.b32(w) & 0xffffffff == int.from_bytes(w.to_bytes(4, 'little'), 'big')
         assert m.b64(x) & (2 ** 64 - 1) == int.from_bytes(x.to_bytes(8, 'little'), 'big')
     assert 'bl\t' not in driver._build(src)[0]
+
+
+SPILL_FAR = r"""
+#define V(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11) X(12) X(13) \
+    X(14) X(15) X(16) X(17) X(18) X(19)
+float in[80], out[20];
+int incs[20];
+struct huge { int i[0x4000]; };    /* stack slots beyond a store's immediate offset */
+int sink(struct huge h) { return h.i[0]; }
+int big(int n) {
+    struct huge h = {0};
+#define D(i) float *p##i = in + i, r##i = 0; int s##i = incs[i];
+    V(D)
+#define L(i) r##i += *p##i; p##i += s##i;
+    while (n--) { V(L) }
+#define O(i) out[i] = r##i;
+    V(O)
+    return sink(h);
+}
+int check(void) {
+    for (int i = 0; i < 80; i++) in[i] = i;
+    for (int i = 0; i < 20; i++) incs[i] = 20;
+    big(4);
+    for (int i = 0; i < 20; i++)
+        if (out[i] != 4 * i + 20 * 6) return 1 + i;
+    return 0;
+}
+"""
+
+
+def test_spill_to_a_far_slot_keeps_64_bits():
+    # without x18 (Windows, Apple) a spill of x17 to a slot past the immediate range went
+    # through s31: 4 of its 8 bytes (QBE's Apple path has the same bug; gcc pr28982b.c)
+    assert cimo.compile(SPILL_FAR).check() == 0
+    import platform
+    if sys.platform.startswith('linux') and platform.machine() == 'aarch64':
+        from cimo import driver  # Windows code generation runs here too (no variadics)
+        ssa, params = driver._ir(driver._preprocess(SPILL_FAR), '<s>', False)
+        m = driver.Module(driver._qbe(ssa, params, target='arm64_win'), driver._sigs(ssa))
+        assert m.check() == 0

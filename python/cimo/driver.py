@@ -411,7 +411,7 @@ def _compile(pp, filename, host_headers):
         from .frontend.diag import longexterns
         names = longexterns()
         if names:  # _module warns if one resolves to a link= library
-            sigs += '\n#long ' + ' '.join(names)
+            sigs += ('\n' if sigs else '') + '#long ' + ' '.join(names)
     return text, sigs
 
 
@@ -495,7 +495,7 @@ class Module:
 
     def __init__(self, text, sigs, link=(), snapshot=False):
         """snapshot: keep the linked image for _image_bytes()."""
-        names = [l.split(' ')[0] for l in sigs.splitlines() if not l.startswith('#')]
+        names = [l.split(' ')[0] for l in sigs.splitlines() if l and not l.startswith('#')]
         libsyms = {}
         try:
             obj = _asm.assemble(text + _exe.glue(names, _APPLE, _WINDOWS),
@@ -539,7 +539,7 @@ class Module:
         self._longs = sorted(set(next((l.split()[1:] for l in lines if l.startswith('#long ')),
                                       ())) & set(libsyms))
         self._libsyms = libsyms
-        sigs = '\n'.join(l for l in lines if not l.startswith('#'))
+        sigs = '\n'.join(l for l in lines if l and not l.startswith('#'))
         self._state = _exe.State(self._image)
         self._out = _link.Stdout.attach(self._image)
         self._kernels = {}
