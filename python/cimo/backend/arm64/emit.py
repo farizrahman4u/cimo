@@ -129,6 +129,8 @@ omap = [
     (Oultof, Ka, "ucvtf %=, %L0"),
     (Ocall, Kw, "blr %L0"),
 
+    (D.Osmulh, Kl, "smulh %=, %0, %1"),
+    (D.Oumulh, Kl, "umulh %=, %0, %1"),
     (Oacmp, Ki, "cmp %0, %1"),
     (Oacmn, Ki, "cmn %0, %1"),
     (Oafcmp, Ka, "fcmpe %0, %1"),

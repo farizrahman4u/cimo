@@ -116,8 +116,9 @@ class _Driver:
             loads = cse.nload(fn)
             cfg.filldom(fn)
             merged = cse.domcse(fn)
-            if T.name.startswith('arm64') and cse.divrem(fn):
-                merged = True
+            if T.name.startswith('arm64'):
+                merged = cse.divconst(fn) or merged
+                merged = cse.divrem(fn) or merged
             ssa.filluse(fn)
             alias.fillalias(fn)
             load.loadopt(fn)

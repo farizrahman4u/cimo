@@ -138,3 +138,121 @@ def test_wasm_keeps_a_division_that_may_not_run():
         assert h.call('f', 'w,w', 9, 3)[0] == 6 and h.call('f', 'w,w', 9, 0)[0] == 0
     finally:
         h.close()
+
+
+DIVISORS = [2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 25, 100, 125, 127, 128, 255, 256, 641, 1000, 1024, 3600,
+            65535, 65536, 65537, 86400, 1000000, 1000000007, 2147483647, 1 << 30]
+_EDGE32 = [0, 1, 2, 3, 6, 7, 9, 10, 99, 100, 127, 128, 255, 256, 999, 1000, 65535, 65536, 2 ** 30,
+           2 ** 31 - 2, 2 ** 31 - 1]
+_EDGE64 = _EDGE32 + [2 ** 31, 2 ** 32 - 1, 2 ** 32, 2 ** 33 + 1, 10 ** 15, 2 ** 62, 2 ** 63 - 2, 2 ** 63 - 1]
+
+
+def _tdiv(a, b):
+    q = abs(a) // abs(b)
+    return q if (a < 0) == (b < 0) else -q
+
+
+def _kernels(ty, name, divisors):
+    return ''.join('%s %sd%d(%s a) { return a / %s; }\n%s %sr%d(%s a) { return a %% %s; }\n'
+                   % (ty, name, n, ty, lit, ty, name, n, ty, lit) for n, lit in divisors)
+
+
+@pytest.mark.parametrize('bits,signed', [(32, True), (32, False), (64, True), (64, False)])
+def test_division_by_constants(bits, signed):
+    """Against Python's integers: each divisor, of both signs, on the edges of each range and on
+    multiples of the divisor and their neighbours."""
+    import random
+    ty = {(32, True): 'int', (32, False): 'unsigned', (64, True): 'long', (64, False): 'unsigned long'}[bits, signed]
+    ds = [d for d in DIVISORS] + ([2 ** 62, 2 ** 63 - 1, 10 ** 18, 2 ** 40 + 1] if bits == 64 else [])
+    if not signed:
+        ds += [2 ** (bits - 1), 2 ** (bits - 1) + 1, 2 ** bits - 1, 2 ** bits - 2, 3 * 2 ** (bits - 2)]
+    suffix = 'L' if bits == 64 else ''
+    suffix = ('U' + suffix) if not signed else suffix
+    items = [(d, '%d%s' % (d, suffix)) for d in ds]
+    src = _kernels(ty, 'p', items)
+    if signed:
+        src += _kernels(ty, 'm', [(d, '(-%d%s)' % (d, suffix)) for d in ds])
+    asm = driver._build(src)[0]
+    assert not re.search(r'\b[su]div\b', asm), 'a division is left'
+    m = cimo.compile(src, cache=False)
+    rnd = random.Random(bits * 2 + signed)
+    edge = _EDGE64 if bits == 64 else _EDGE32
+    lo, hi = (-2 ** (bits - 1), 2 ** (bits - 1) - 1) if signed else (0, 2 ** bits - 1)
+    wrap = lambda v: ((v + 2 ** (bits - 1)) % 2 ** bits) - 2 ** (bits - 1)  # as the binding returns
+    for d in ds:
+        xs = set(edge + [hi, hi - 1, lo, lo + 1])
+        for _ in range(30):
+            xs.add(rnd.randint(lo, hi))
+            q = rnd.randint(0, hi // d)
+            xs.update((q * d, q * d - 1, q * d + 1))
+        if signed:
+            xs |= {-x for x in xs}
+        for x in xs:
+            if not lo <= x <= hi:
+                continue
+            t = _tdiv(x, d)
+            r = x - t * d
+            dv, rv = getattr(m, 'pd%d' % d), getattr(m, 'pr%d' % d)
+            assert wrap(dv(x)) == wrap(t), (ty, x, d)
+            assert wrap(rv(x)) == wrap(r), (ty, x, '%', d)
+            if signed and not (x == lo and d == 1):
+                assert wrap(getattr(m, 'md%d' % d)(x)) == wrap(_tdiv(x, -d)), (ty, x, -d)
+                assert wrap(getattr(m, 'mr%d' % d)(x)) == wrap(x - _tdiv(x, -d) * -d), (ty, x, '%', -d)
+
+
+def test_a_quotient_and_remainder_share_their_work():
+    src = 'long f(long a) { return a / 10 * 1000 + a % 10; }'
+    b = body(src, 'f')
+    assert 'sdiv' not in b and b.count('smulh') == 1, b
+    m = cimo.compile(src, cache=False)
+    assert m.f(1234) == 123001 + 3 and m.f(-1234) == -123000 - 4
+
+
+def test_divisors_that_stay_divisions():
+    m = cimo.compile('''long f(long a) { return a / 1; }
+        long g(long a) { return a / -1; }
+        unsigned h(unsigned a) { return a / 1; }
+        long i(long a, long b) { return a / b; }''', cache=False)
+    assert m.f(7) == 7 and m.g(7) == -7 and m.g(-2 ** 63) == -2 ** 63 and m.h(9) == 9 and m.i(9, 2) == 4
+
+
+def test_a_load_moved_up_a_loop_keeps_its_offset():
+    """gcc-torture's 20011008-3: loading a field at an offset, the load moved to the loop's
+    predecessor read the start of the object (it hung on Windows, where that was garbage)."""
+    src = '''struct S { int first; int pad[5]; int n; int *p; };
+    int f(struct S *e, unsigned flags) { int val = 0;
+        for (int i = 0; i < (!(flags & 1) ? 1 : e->n); i++) {
+            val++;
+            for (int j = 0; j < e->n - 1; j++) val += 100;
+        }
+        return val; }
+    long g(struct S *e, int k) { long s = 0;
+        if (k) s = e->n;
+        for (int i = 0; i < 3; i++) s += e->n;
+        return s; }'''
+    b = body(src, 'f')
+    assert not re.search(r'ldr\s+w\d+, \[x\d+\]', b), b  # n is at offset 24, nothing at 0 is read
+    import struct
+    buf = bytearray(struct.pack('<iiiiiii', 1000000, 0, 0, 0, 0, 0, 3) + bytes(16))
+    arr = (__import__('ctypes').c_char * len(buf)).from_buffer(buf)
+    m = cimo.compile(src, cache=False)
+    assert m.f(arr, 1) == 3 + 3 * 2 * 100 and m.f(arr, 0) == 1 + 2 * 100
+    assert m.g(arr, 1) == 12 and m.g(arr, 0) == 9
+
+
+def test_a_struct_copy_forwarded_at_an_offset():
+    """A load from a blit's destination reads the source at the same offset."""
+    m = cimo.compile('''struct T { long a, b, c, d; };
+    struct T g = {1, 2, 3, 4};
+    long f(struct T *q, int k) { struct T t = *q; long s = 0;
+        if (k) s = t.b;
+        for (int i = 0; i < 2; i++) s += t.c * 10 + t.d;
+        return s; }
+    long h(int k) { struct T t = g; long s = 0;
+        if (k) s = t.b;
+        for (int i = 0; i < 2; i++) s += t.c * 10 + t.d;
+        return s; }''', cache=False)
+    import array
+    x = array.array('q', [100, 200, 300, 400])
+    assert m.f(x, 1) == 200 + 2 * 3400 and m.f(x, 0) == 2 * 3400
+    assert m.h(1) == 2 + 2 * 34 and m.h(0) == 2 * 34

@@ -221,3 +221,8 @@ def test_csel():
                   'fcsel d1, d2, d3, %s' % c, 'fcsel s4, s5, s6, %s' % c]
     d = A.compare('\n'.join(lines) + '\n')
     assert not d, '\n'.join(d)
+
+
+def test_mulh():
+    d = A.compare('smulh x1, x2, x3\numulh x29, x30, x0\n')
+    assert not d, '\n'.join(d)

@@ -57,10 +57,15 @@ in Python.
 - `bic`, `orn`, `eon`, `mvn`, `ubfx`, `sbfx`, `ubfiz`, `bfi`, `bfxil`, `extr`/`ror`.
 - `xzr` and `wzr` as operands: `str xzr, [x0]`; `movi`/`fmov #imm` for FP constants (2.0, 0.0).
 - Redundant extensions (`ldrb` then `uxtb`; GCC `ree`, `ext_dce`).
-- Division by a constant: multiply by the inverse (`TargetLowering::BuildSDIV`/`BuildUDIV`, Hacker's
-  Delight), signed powers of two with shifts. `mul` by 2^n+-1 as `add`/`sub` with a shift.
+- ~~Division by a constant~~ **Done** (`cse.divconst`). `mul` by 2^n+-1 as `add`/`sub` with a shift.
+  Large constants (the inverse: 4 instructions) are rebuilt inside loops, per unrolled copy: hoist them
+  (`MachineLICM`, GCC `rtl_move_loop_invariants`) and rematerialize only when out of registers.
 - Tail calls and sibling calls (`TailCallElim`, GCC `tail_recursion`, `tail_calls`), loops for
   self-recursion. Jump tables for dense `switch` (`lower_switch`, `if_to_switch`).
+
+**Testing:** corpora and fuzzers run on a clean stack, so reading uninitialized or wrong memory often
+gives 0 and passes: QBE's `load` dropped an offset (fixed) and gcc-torture's 20011008-3 only failed
+where the stack held garbage, on Windows, half of the time. Run them with the stack poisoned.
 
 **Tier 2, scalar IR passes:**
 - Algebraic simplification: `InstCombine`, `AggressiveInstCombine`, GCC `forwprop`/`match.pd`.
