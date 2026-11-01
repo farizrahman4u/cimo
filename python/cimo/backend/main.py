@@ -12,7 +12,9 @@ from .parse import parse, printfn
 
 def _targets():
     from .arm64 import targ
-    return [targ.T_arm64, targ.T_arm64_apple, targ.T_arm64_win]
+    from .amd64 import targ as atarg
+    return [targ.T_arm64, targ.T_arm64_apple, targ.T_arm64_win,
+            atarg.T_amd64_sysv, atarg.T_amd64_apple, atarg.T_amd64_win]
 
 
 class _Lazy:
