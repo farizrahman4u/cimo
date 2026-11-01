@@ -546,3 +546,160 @@ c-testsuite/00213.c                                 unsupported  statement expre
 c-testsuite/00214.c                                 unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 c-testsuite/00216.c                                 unsupported  empty structs and unions (a GNU extension) are not supported
 c-testsuite/00220.c                                 unsupported  wchar.h: No such file or directory
+libc-test/functional/argv.c                         unsupported  undeclared identifier: PATH_MAX
+libc-test/functional/basename.c                     unsupported  libgen.h: No such file or directory
+libc-test/functional/clocale_mbfuncs.c              unsupported  wchar.h: No such file or directory
+libc-test/functional/clock_gettime.c                unsupported  time.h: No such file or directory
+libc-test/functional/crypt.c                        unsupported  crypt.h: No such file or directory
+libc-test/functional/dirname.c                      unsupported  libgen.h: No such file or directory
+libc-test/functional/dlopen.c                       unsupported  dlfcn.h: No such file or directory
+libc-test/functional/dlopen_dso.c                   skip         a shared library for dlopen.c, not a program
+libc-test/functional/env.c                          unsupported  errno.h: No such file or directory
+libc-test/functional/fcntl.c                        unsupported  fcntl.h: No such file or directory
+libc-test/functional/fdopen.c                       unsupported  errno.h: No such file or directory
+libc-test/functional/fnmatch.c                      unsupported  fnmatch.h: No such file or directory
+libc-test/functional/fscanf.c                       unsupported  errno.h: No such file or directory
+libc-test/functional/fwscanf.c                      unsupported  errno.h: No such file or directory
+libc-test/functional/iconv_open.c                   unsupported  errno.h: No such file or directory
+libc-test/functional/inet_pton.c                    unsupported  errno.h: No such file or directory
+libc-test/functional/ipc_msg.c                      unsupported  errno.h: No such file or directory
+libc-test/functional/ipc_sem.c                      unsupported  errno.h: No such file or directory
+libc-test/functional/ipc_shm.c                      unsupported  errno.h: No such file or directory
+libc-test/functional/mbc.c                          unsupported  wchar.h: No such file or directory
+libc-test/functional/memstream.c                    unsupported  unistd.h: No such file or directory
+libc-test/functional/mntent.c                       unsupported  mntent.h: No such file or directory
+libc-test/functional/popen.c                        unsupported  unistd.h: No such file or directory
+libc-test/functional/pthread_cancel-points.c        unsupported  errno.h: No such file or directory
+libc-test/functional/pthread_cancel.c               unsupported  pthread.h: No such file or directory
+libc-test/functional/pthread_cond.c                 unsupported  pthread.h: No such file or directory
+libc-test/functional/pthread_mutex.c                unsupported  pthread.h: No such file or directory
+libc-test/functional/pthread_mutex_pi.c             unsupported  pthread.h: No such file or directory
+libc-test/functional/pthread_robust.c               unsupported  pthread.h: No such file or directory
+libc-test/functional/pthread_tsd.c                  unsupported  pthread.h: No such file or directory
+libc-test/functional/random.c                       unsupported  undeclared identifier: srandom
+libc-test/functional/search_hsearch.c               unsupported  search.h: No such file or directory
+libc-test/functional/search_insque.c                unsupported  search.h: No such file or directory
+libc-test/functional/search_lsearch.c               unsupported  search.h: No such file or directory
+libc-test/functional/search_tsearch.c               unsupported  search.h: No such file or directory
+libc-test/functional/sem_init.c                     unsupported  pthread.h: No such file or directory
+libc-test/functional/sem_open.c                     unsupported  errno.h: No such file or directory
+libc-test/functional/setjmp.c                       unsupported  signal.h: No such file or directory
+libc-test/functional/snprintf.c                     unsupported  errno.h: No such file or directory
+libc-test/functional/socket.c                       unsupported  unistd.h: No such file or directory
+libc-test/functional/spawn.c                        unsupported  unistd.h: No such file or directory
+libc-test/functional/sscanf.c                       unsupported  undeclared identifier: sscanf
+libc-test/functional/sscanf_long.c                  unsupported  errno.h: No such file or directory
+libc-test/functional/stat.c                         unsupported  sys/stat.h: No such file or directory
+libc-test/functional/strftime.c                     unsupported  time.h: No such file or directory
+libc-test/functional/string.c                       unsupported  undeclared identifier: strlcpy
+libc-test/functional/string_memmem.c                unsupported  undeclared identifier: memmem
+libc-test/functional/strptime.c                     unsupported  time.h: No such file or directory
+libc-test/functional/strtol.c                       unsupported  errno.h: No such file or directory
+libc-test/functional/strtold.c                      unsupported  long double is not supported
+libc-test/functional/swprintf.c                     unsupported  errno.h: No such file or directory
+libc-test/functional/tgmath.c                       unsupported  tgmath.h: No such file or directory
+libc-test/functional/time.c                         unsupported  time.h: No such file or directory
+libc-test/functional/tls_align.c                    unsupported  undefined symbol 't': cimo's runtime does not provide it
+libc-test/functional/tls_align_dlopen.c             unsupported  dlfcn.h: No such file or directory
+libc-test/functional/tls_align_dso.c                unsupported  thread-local storage is not supported
+libc-test/functional/tls_init.c                     unsupported  pthread.h: No such file or directory
+libc-test/functional/tls_init_dlopen.c              unsupported  dlfcn.h: No such file or directory
+libc-test/functional/tls_init_dso.c                 unsupported  thread-local storage is not supported
+libc-test/functional/tls_local_exec.c               unsupported  pthread.h: No such file or directory
+libc-test/functional/ungetc.c                       unsupported  errno.h: No such file or directory
+libc-test/functional/utime.c                        unsupported  sys/stat.h: No such file or directory
+libc-test/functional/vfork.c                        unsupported  unistd.h: No such file or directory
+libc-test/functional/wcsstr.c                       unsupported  wchar.h: No such file or directory
+libc-test/functional/wcstol.c                       unsupported  errno.h: No such file or directory
+libc-test/functional/wordexp.c                      unsupported  wordexp.h: No such file or directory
+libc-test/math/acoshl.c                             unsupported  array element has incomplete type
+libc-test/math/acosl.c                              unsupported  array element has incomplete type
+libc-test/math/asinhl.c                             unsupported  array element has incomplete type
+libc-test/math/asinl.c                              unsupported  array element has incomplete type
+libc-test/math/atan2l.c                             unsupported  array element has incomplete type
+libc-test/math/atanhl.c                             unsupported  array element has incomplete type
+libc-test/math/atanl.c                              unsupported  array element has incomplete type
+libc-test/math/cbrtl.c                              unsupported  array element has incomplete type
+libc-test/math/ceill.c                              unsupported  array element has incomplete type
+libc-test/math/copysignl.c                          unsupported  array element has incomplete type
+libc-test/math/coshl.c                              unsupported  array element has incomplete type
+libc-test/math/cosl.c                               unsupported  array element has incomplete type
+libc-test/math/drem.c                               unsupported  undeclared identifier: drem
+libc-test/math/dremf.c                              unsupported  undeclared identifier: dremf
+libc-test/math/erfcl.c                              unsupported  array element has incomplete type
+libc-test/math/erfl.c                               unsupported  array element has incomplete type
+libc-test/math/exp10.c                              unsupported  undeclared identifier: exp10
+libc-test/math/exp10f.c                             unsupported  undeclared identifier: exp10f
+libc-test/math/exp10l.c                             unsupported  array element has incomplete type
+libc-test/math/exp2l.c                              unsupported  array element has incomplete type
+libc-test/math/expl.c                               unsupported  array element has incomplete type
+libc-test/math/expm1l.c                             unsupported  array element has incomplete type
+libc-test/math/fabsl.c                              unsupported  array element has incomplete type
+libc-test/math/fdiml.c                              unsupported  array element has incomplete type
+libc-test/math/fenv.c                               unsupported  unknown type name 'fenv_t'
+libc-test/math/floorl.c                             unsupported  array element has incomplete type
+libc-test/math/fmal.c                               unsupported  array element has incomplete type
+libc-test/math/fmaxl.c                              unsupported  array element has incomplete type
+libc-test/math/fminl.c                              unsupported  array element has incomplete type
+libc-test/math/fmodl.c                              unsupported  array element has incomplete type
+libc-test/math/fpclassify.c                         unsupported  long double is not supported
+libc-test/math/frexpl.c                             unsupported  array element has incomplete type
+libc-test/math/hypotl.c                             unsupported  array element has incomplete type
+libc-test/math/ilogbl.c                             unsupported  array element has incomplete type
+libc-test/math/isless.c                             unsupported  long double is not supported
+libc-test/math/j0.c                                 unsupported  undeclared identifier: j0
+libc-test/math/j0f.c                                unsupported  undeclared identifier: j0f
+libc-test/math/j1.c                                 unsupported  undeclared identifier: j1
+libc-test/math/j1f.c                                unsupported  undeclared identifier: j1f
+libc-test/math/jn.c                                 unsupported  undeclared identifier: jn
+libc-test/math/jnf.c                                unsupported  undeclared identifier: jnf
+libc-test/math/ldexpl.c                             unsupported  array element has incomplete type
+libc-test/math/lgamma.c                             unsupported  undeclared identifier: signgam
+libc-test/math/lgamma_r.c                           unsupported  undeclared identifier: lgamma_r
+libc-test/math/lgammaf.c                            unsupported  undeclared identifier: signgam
+libc-test/math/lgammaf_r.c                          unsupported  undeclared identifier: lgammaf_r
+libc-test/math/lgammal.c                            unsupported  array element has incomplete type
+libc-test/math/lgammal_r.c                          unsupported  array element has incomplete type
+libc-test/math/llrintl.c                            unsupported  array element has incomplete type
+libc-test/math/llroundl.c                           unsupported  array element has incomplete type
+libc-test/math/log10l.c                             unsupported  array element has incomplete type
+libc-test/math/log1pl.c                             unsupported  array element has incomplete type
+libc-test/math/log2l.c                              unsupported  array element has incomplete type
+libc-test/math/logbl.c                              unsupported  array element has incomplete type
+libc-test/math/logl.c                               unsupported  array element has incomplete type
+libc-test/math/lrintl.c                             unsupported  array element has incomplete type
+libc-test/math/lroundl.c                            unsupported  array element has incomplete type
+libc-test/math/modfl.c                              unsupported  array element has incomplete type
+libc-test/math/nearbyintl.c                         unsupported  array element has incomplete type
+libc-test/math/nextafterl.c                         unsupported  array element has incomplete type
+libc-test/math/nexttoward.c                         unsupported  array element has incomplete type
+libc-test/math/nexttowardf.c                        unsupported  array element has incomplete type
+libc-test/math/nexttowardl.c                        unsupported  array element has incomplete type
+libc-test/math/pow10.c                              unsupported  undeclared identifier: pow10
+libc-test/math/pow10f.c                             unsupported  undeclared identifier: pow10f
+libc-test/math/pow10l.c                             unsupported  array element has incomplete type
+libc-test/math/powl.c                               unsupported  array element has incomplete type
+libc-test/math/remainderl.c                         unsupported  array element has incomplete type
+libc-test/math/remquol.c                            unsupported  array element has incomplete type
+libc-test/math/rintl.c                              unsupported  array element has incomplete type
+libc-test/math/roundl.c                             unsupported  array element has incomplete type
+libc-test/math/scalb.c                              unsupported  undeclared identifier: scalb
+libc-test/math/scalbf.c                             unsupported  undeclared identifier: scalbf
+libc-test/math/scalblnl.c                           unsupported  array element has incomplete type
+libc-test/math/scalbnl.c                            unsupported  array element has incomplete type
+libc-test/math/sincos.c                             unsupported  undeclared identifier: sincos
+libc-test/math/sincosf.c                            unsupported  undeclared identifier: sincosf
+libc-test/math/sincosl.c                            unsupported  array element has incomplete type
+libc-test/math/sinhl.c                              unsupported  array element has incomplete type
+libc-test/math/sinl.c                               unsupported  array element has incomplete type
+libc-test/math/sqrtl.c                              unsupported  array element has incomplete type
+libc-test/math/tanhl.c                              unsupported  array element has incomplete type
+libc-test/math/tanl.c                               unsupported  array element has incomplete type
+libc-test/math/tgammal.c                            unsupported  array element has incomplete type
+libc-test/math/truncl.c                             unsupported  array element has incomplete type
+libc-test/math/y0.c                                 unsupported  undeclared identifier: y0
+libc-test/math/y0f.c                                unsupported  undeclared identifier: y0f
+libc-test/math/y1.c                                 unsupported  undeclared identifier: y1
+libc-test/math/y1f.c                                unsupported  undeclared identifier: y1f
+libc-test/math/yn.c                                 unsupported  undeclared identifier: yn
+libc-test/math/ynf.c                                unsupported  undeclared identifier: ynf

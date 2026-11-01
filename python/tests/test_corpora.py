@@ -98,7 +98,11 @@ def run_all(keys, jobs=None):
             w = local.w = Worker(env)
             workers.append(w)
         name, rel = key.split('/', 1)
-        return key, w.run(os.path.join(corpora.root(name), rel))
+        line = os.path.join(corpora.root(name), rel)
+        h = corpora.harness(name, rel)
+        if h:
+            line += '\t%s\t%s' % (h[0], os.pathsep.join(h[1]))
+        return key, w.run(line)
     try:
         with ThreadPoolExecutor(jobs) as ex:
             return dict(ex.map(one, keys))

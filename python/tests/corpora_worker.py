@@ -1,6 +1,7 @@
-"""test_corpora.py's worker process: reads C file paths from stdin, one per line; for each,
-compiles it with cimo (include directories: $CIMO_INCLUDE, os.pathsep-separated), calls main()
-and writes one result line to the original stdout:
+"""test_corpora.py's worker process: reads lines `path` or `path<TAB>prelude<TAB>include dirs`
+(os.pathsep-separated) from stdin; for each, compiles the C file with cimo (the prelude first,
+if any; include directories: those, then $CIMO_INCLUDE), calls main() and writes one result
+line to the original stdout:
 
     PASS | COMPILE <message> | ABORT <message> | STATUS <n> | OUTPUT <repr> | ERROR <message>
 
@@ -22,9 +23,15 @@ from cimo.driver import CompileError, KernelError  # noqa: E402
 INCLUDE = [d for d in os.environ.get('CIMO_INCLUDE', '').split(os.pathsep) if d]
 
 
-def run(path):
+def run(line):
+    path, prelude, inc = (line.split('\t') + ['', ''])[:3]
+    inc = [d for d in inc.split(os.pathsep) if d] + INCLUDE
     try:
-        m = cimo.load(path, include_dirs=INCLUDE)
+        if prelude:
+            m = cimo.compile('#include "%s"\n#include "%s"\n' % (prelude, path),
+                             include_dirs=inc)
+        else:
+            m = cimo.load(path, include_dirs=inc)
     except CompileError as e:
         return 'COMPILE ' + str(e).replace(os.path.dirname(path) + os.sep, '').splitlines()[0]
     k = m._kernels.get('main')
