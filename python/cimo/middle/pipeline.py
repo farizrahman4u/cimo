@@ -21,6 +21,8 @@ def _phase(fn, rnames, pick, act, done):
         if ir.merge_blocks(fn):
             ir.refresh(fn)
         progress = False
+        rts = None  # the function's roots: one fixpoint over the whole function, so computed
+        # once per round (the function only changes when a round ends), not once per loop
         for lp in loops.find_loops(fn):
             if lp.header in done or not pick(lp):
                 continue
@@ -32,7 +34,8 @@ def _phase(fn, rnames, pick, act, done):
                         progress = True
                 if progress:
                     break
-                rts = memdep.Roots(fn, rnames)
+                if rts is None:
+                    rts = memdep.Roots(fn, rnames)
                 ok = act(fn, lp, rts)
             except ir.Bail as e:
                 if M.debug:

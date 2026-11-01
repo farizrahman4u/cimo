@@ -48,6 +48,12 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   operations): 34 torture programs. Emit them as ordinary stores the optimizer may not remove.
 - **Backend speed on huge functions:** a Csmith function with a 125 KB initializer compiles in
   18 s (spill, liveness bitsets, `filluse`); C QBE takes well under a second.
+- **Middle end on functions with hundreds of loops** (YARPGen, `tests/fuzz_yarpgen.py`): a
+  474 KB program took 141 s, 77 s since `memdep.Roots` is computed once per round instead of
+  once per loop tried. Still quadratic: after each transformed loop, `_phase` refreshes uses
+  (`filluse`), re-finds loops and recomputes `Roots` over the whole function (~480 rounds).
+  Fix: keep `Roots` across transforms (temporaries it has not seen must count as unknown, and
+  rewritten uses must keep their roots) and continue with the loops still valid.
 - GNU overflow builtins (`__builtin_add_overflow`, ...) and `__builtin_isunordered` & co.
 
 - Profiler symbols: write a perf map (`/tmp/perf-<pid>.map`) and/or jitdump for loaded modules, so
