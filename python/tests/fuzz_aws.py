@@ -124,7 +124,9 @@ def main():
     tags = 'ResourceType=%s,Tags=[{Key=Name,Value=' + TAG + '}]'
     tmp = tempfile.mkdtemp(prefix='cimo-aws-')
     key = os.path.join(tmp, 'key.pem')
-    instance = group = keyname = None
+    instance = group = keyname = ip = None
+    fetched = False
+    out = os.path.join(HERE, 'fuzz_failures', 'aws-' + stamp)
     try:
         r = aws('ec2', 'create-key-pair', '--key-name', name, '--key-type', 'ed25519',
                 '--tag-specifications', tags % 'key-pair')
@@ -158,19 +160,27 @@ def main():
         ip = aws('ec2', 'describe-instances', '--instance-ids', instance)[
             'Reservations'][0]['Instances'][0]['PublicIpAddress']
         t0 = time.time()
+        errors = 0  # consecutive failed status checks (a network blip must not end the run)
         while True:
             time.sleep(60)
             p = ssh(ip, key, 'test -f ~/done && echo done; tail -n 2 ~/fuzz.log 2>/dev/null',
                     capture_output=True, text=True)
             if 'done' in p.stdout.split('\n', 1)[0]:
                 break
-            state = aws('ec2', 'describe-instances', '--instance-ids', instance)[
-                'Reservations'][0]['Instances'][0]['State']['Name']
+            try:
+                state = aws('ec2', 'describe-instances', '--instance-ids', instance)[
+                    'Reservations'][0]['Instances'][0]['State']['Name']
+                errors = 0
+            except RuntimeError as e:
+                errors += 1
+                print('  status check failed (%d): %s' % (errors, e), flush=True)
+                if errors >= 10:
+                    raise
+                continue
             if state not in ('pending', 'running'):
                 raise RuntimeError('instance is %s before finishing' % state)
             print('  %3.0f min: %s' % ((time.time() - t0) / 60,
                                        p.stdout.strip().replace('\n', ' | ')[-200:]), flush=True)
-        out = os.path.join(HERE, 'fuzz_failures', 'aws-' + stamp)
         os.makedirs(out)
         subprocess.check_call(['scp', '-i', key, '-o', 'StrictHostKeyChecking=no', '-o',
                                'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR',
@@ -180,10 +190,31 @@ def main():
         with open(os.path.join(out, 'fuzz_failures', 'fuzz.log')) as f:
             print(f.read())
         print('results in', out)
+        fetched = True
     finally:
-        cleanup(instance, group, keyname) if instance or group or keyname else None
+        if ip and not fetched:  # salvage what there is before the instance goes
+            p = ssh(ip, key, 'cd ~/cimo/python && mkdir -p tests/fuzz_failures && '
+                    'cp ~/fuzz.log tests/fuzz_failures/ 2>/dev/null; '
+                    'tar -czf ~/partial.tar.gz -C tests fuzz_failures', capture_output=True)
+            os.makedirs(out, exist_ok=True)
+            if p.returncode == 0 and subprocess.run(
+                    ['scp', '-i', key, '-o', 'StrictHostKeyChecking=no', '-o',
+                     'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR',
+                     'ubuntu@%s:partial.tar.gz' % ip, tmp]).returncode == 0:
+                with tarfile.open(os.path.join(tmp, 'partial.tar.gz')) as t:
+                    t.extractall(out, filter='data')
+                print('partial results in', out)
+        for attempt in range(10):  # cleanup must not give up on a network blip either
+            try:
+                cleanup(instance, group, keyname) if instance or group or keyname else None
+                left = leftovers()
+                break
+            except RuntimeError as e:
+                print('cleanup failed (%s), retrying' % e, flush=True)
+                time.sleep(30)
+        else:
+            left = ['(unknown: run `python tests/fuzz_aws.py --cleanup`)']
         shutil.rmtree(tmp, ignore_errors=True)
-        left = leftovers()
         if left:
             print('WARNING: cimo-fuzz instances still running:', ' '.join(left))
     return 0
