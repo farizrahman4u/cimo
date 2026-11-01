@@ -94,16 +94,25 @@ def typclass(a, t):
 _retreg = [[RAX, RDX], [XMM0, XMM0 + 1]]
 
 
+def _second(a):
+    """Whether the second eightbyte of a (classified) composite is passed: it exists and is not
+    all padding. Fix over C QBE: an eightbyte with no field (Kx, e.g. the second half of
+    `struct { _Alignas(16) char c; }`) took a register of an undefined class (a negative shift
+    in retr, a class assertion in rega); the ABI's NO_CLASS, it takes no register (as gcc)."""
+    return a.size > 8 and a.cls[1] != Kx
+
+
 def retr(reg, aret):
     """reg: a 2-element list, filled."""
     nr = [0, 0]
     ca = 0
     n = 0
     while n * 8 < aret.size:
-        k = KBASE(aret.cls[n])
-        reg[n] = TMP(_retreg[k][nr[k]])
-        nr[k] += 1
-        ca += 1 << (2 * k)
+        if aret.cls[n] != Kx:  # fix over C QBE: see _second
+            k = KBASE(aret.cls[n])
+            reg[n] = TMP(_retreg[k][nr[k]])
+            nr[k] += 1
+            ca += 1 << (2 * k)
         n += 1
     return ca
 
@@ -129,7 +138,7 @@ def selret(b, fn):
         else:
             reg = [R, R]
             ca = retr(reg, aret)
-            if aret.size > 8:
+            if _second(aret):
                 r = newtmp("abi", Kl, fn)
                 emit(Oload, Kl, reg[1], r, R)
                 emit(Oadd, Kl, r, r0, getcon(8, fn))
@@ -183,7 +192,9 @@ def argsclass(ins, i0, i1, ac, op, aret, env):
             ni = ns = 0
             n = 0
             while n * 8 < a.size:
-                if KBASE(a.cls[n]) == 0:
+                if a.cls[n] == Kx:  # fix over C QBE: see _second
+                    pass
+                elif KBASE(a.cls[n]) == 0:
                     ni += 1
                 else:
                     ns += 1
@@ -317,7 +328,7 @@ def selcall(fn, ins, i0, i1, rap):
             # todo, may read out of bounds.
             # gcc did this up until 5.2, but
             # this should still be fixed.
-            if aret.size > 8:
+            if _second(aret):
                 r = newtmp("abi", Kl, fn)
                 aret.ref[1] = newtmp("abi", aret.cls[1], fn)
                 emit(Ostorel, 0, R, aret.ref[1], r)
@@ -326,7 +337,7 @@ def selcall(fn, ins, i0, i1, rap):
             emit(Ostorel, 0, R, aret.ref[0], ic.to)
             reg = [R, R]
             ca += retr(reg, aret)
-            if aret.size > 8:
+            if _second(aret):
                 emit(Ocopy, aret.cls[1], aret.ref[1], reg[1], R)
             emit(Ocopy, aret.cls[0], aret.ref[0], reg[0], R)
             r1 = ic.to
@@ -362,7 +373,7 @@ def selcall(fn, ins, i0, i1, rap):
             continue
         r1 = rarg(a.cls[0], n)
         if i.op == Oargc:
-            if a.size > 8:
+            if _second(a):
                 r2 = rarg(a.cls[1], n)
                 r = newtmp("abi", Kl, fn)
                 emit(Oload, a.cls[1], r2, r, R)
@@ -415,7 +426,7 @@ def selpar(fn, i0, i1):
         a = ac[k - i0]
         if i.op != Oparc or a.inmem:
             continue
-        if a.size > 8:
+        if _second(a):
             r = newtmp("abi", Kl, fn)
             a.ref[1] = newtmp("abi", Kl, fn)
             emit(Ostorel, 0, R, a.ref[1], r)
@@ -452,7 +463,7 @@ def selpar(fn, i0, i1):
         r = rarg(a.cls[0], n)
         if i.op == Oparc:
             emit(Ocopy, a.cls[0], a.ref[0], r, R)
-            if a.size > 8:
+            if _second(a):
                 r = rarg(a.cls[1], n)
                 emit(Ocopy, a.cls[1], a.ref[1], r, R)
         else:

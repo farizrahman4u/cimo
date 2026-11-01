@@ -43,8 +43,19 @@ LINUX_ARM64 = sys.platform.startswith('linux') and hosts.RUNS  # Linux, any arch
 
 pytestmark = pytest.mark.skipif(not hosts.RUNS,
                                 reason='arm64 only')
-need_cc = pytest.mark.skipif(not (shutil.which(CC) and LINUX_ARM64),
-                             reason='needs a C compiler on Linux arm64 for the references')
+def _is_gcc(cc):
+    """The references build the runtime itself, which defines __builtin_popcount and friends:
+    gcc accepts that, clang does not."""
+    import subprocess
+    try:
+        out = subprocess.run([cc, '--version'], capture_output=True, text=True).stdout
+    except OSError:
+        return False
+    return 'Free Software Foundation' in out and 'clang' not in out
+
+
+need_cc = pytest.mark.skipif(not (shutil.which(CC) and LINUX_ARM64 and _is_gcc(CC)),
+                             reason='needs gcc on Linux for the references')
 
 TESTS = ['t_string', 't_ctype', 't_stdlib', 't_printf', 't_math']
 CAP = 8 << 20
