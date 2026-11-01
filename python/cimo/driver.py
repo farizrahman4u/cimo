@@ -20,6 +20,7 @@ import re
 import struct
 import sys
 import warnings
+import zlib
 
 from . import assembler as _asm
 from . import execution as _exe
@@ -139,15 +140,23 @@ def _cache_put(key, text, sigs):
 
 
 def _image_get(key):
-    """A cached linked image (signatures + cimo.loader snapshot), or None."""
+    """A cached linked image (signatures + cimo.loader snapshot), or None. A file whose
+    checksum does not match (truncated, corrupted) is deleted and counts as a miss."""
     blob = _memory_cache.get(key + '.img')
     if blob is not None:
         return blob
     d = _cache_dir()
     if d is not None:
+        p = os.path.join(d, key + '.img')
         try:
-            with open(os.path.join(d, key + '.img'), 'rb') as f:
-                return f.read()
+            with open(p, 'rb') as f:
+                data = f.read()
+        except OSError:
+            return None
+        if len(data) >= 4 and struct.unpack_from('<I', data)[0] == zlib.crc32(data[4:]):
+            return data[4:]
+        try:
+            os.remove(p)
         except OSError:
             pass
     return None
@@ -159,7 +168,7 @@ def _image_put(key, blob):
         p = os.path.join(d, key + '.img')
         try:
             with open(p + '.tmp%d' % os.getpid(), 'wb') as f:
-                f.write(blob)
+                f.write(struct.pack('<I', zlib.crc32(blob)) + blob)
             os.replace(p + '.tmp%d' % os.getpid(), p)
             return
         except OSError:
@@ -174,7 +183,7 @@ _WINDOWS = sys.platform == 'win32'
 TARGET = 'arm64_apple' if _APPLE else 'arm64_win' if _WINDOWS else 'arm64'
 _FRONTEND = {'arm64': 'aarch64', 'arm64_apple': 'aarch64-apple', 'arm64_win': 'aarch64-windows'}
 _PYODIDE = sys.platform == 'emscripten'  # cimo.wasm: an Emscripten side module, not arm64
-_VERSION = b'cimo-1'  # cache entry format; the compiler's own sources are hashed too (linker.compiler_key)
+_VERSION = b'cimo-2'  # cache entry format; the compiler's own sources are hashed too (linker.compiler_key)
 
 
 # the middle end's loop optimizations (cimo.middle); CIMO_MIDDLE=0 turns them off

@@ -613,7 +613,9 @@ like the package in any CPython 3.9+ with only the standard library: put it on `
   The rest on Windows is mostly hashing the compiler's and runtime's sources for the key, once
   per process (file reads are slow there); the runtime key reuses the compiler key so those
   sources are read once. An image with another load-address-dependent reference (direct adrp to
-  an external, ABS32 address) is cached as assembly instead.
+  an external, ABS32 address) is cached as assembly instead. A CRC32 over each entry: a
+  truncated or corrupted file is deleted and recompiled (without it, a flipped byte loaded as
+  wrong code).
 - **Measured** (Linux arm64, CPython 3.13): bundle 1.05 MB; building it 1 s with stripping,
   0.05 s without; `import cimo` from it 0.05 s; first compile of a printf/sin/malloc kernel
   1.5 s with nothing cached (15 runtime members), then 0.1 s. `tests/test_bundle.py` runs it

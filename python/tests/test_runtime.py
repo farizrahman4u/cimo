@@ -807,6 +807,29 @@ def test_image_cache(tmp_path, monkeypatch, capfd):
         cimo.compile(IMAGE_SRC)  # the image's externals still resolve against link= only
 
 
+@pytest.mark.parametrize('damage', ['truncate', 'flip', 'empty'])
+def test_corrupt_image_is_recompiled(tmp_path, monkeypatch, damage):
+    """A cached image that is truncated, has a flipped byte or is empty is deleted and
+    recompiled (a checksum covers it): a flipped byte used to load as wrong code."""
+    import glob
+    from cimo import driver
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path))
+    monkeypatch.setattr(driver, '_memory_cache', {})
+    src = 'long f(long x) { return x * 7 + 3; }\nlong g(long *p) { return p[1]; }'
+    cimo.compile(src)
+    img, = glob.glob(str(tmp_path / '*.img'))
+    with open(img, 'rb') as f:
+        b = f.read()
+    b = {'truncate': b[:len(b) // 2], 'flip': b[:200] + bytes([b[200] ^ 0xff]) + b[201:],
+         'empty': b''}[damage]
+    with open(img, 'wb') as f:
+        f.write(b)
+    monkeypatch.setattr(driver, '_memory_cache', {})
+    assert cimo.compile(src).f(5) == 38
+    with open(img, 'rb') as f:
+        assert f.read() != b
+
+
 def test_image_cache_fallback(tmp_path, monkeypatch):
     """A module whose image cannot be relocated is cached as assembly."""
     from cimo import driver, loader
