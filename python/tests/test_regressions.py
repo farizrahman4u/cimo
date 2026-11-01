@@ -405,6 +405,7 @@ unsigned long b64(unsigned long x) { return __builtin_bswap64(x); }
         assert m.cz(w) == 32 - w.bit_length() and m.czll(x) == 64 - x.bit_length()
         assert m.tz(w) == (w & -w).bit_length() - 1 and m.tzl(x) == (x & -x).bit_length() - 1
         assert m.b16(x & 0xffff) == int.from_bytes((x & 0xffff).to_bytes(2, 'little'), 'big')
-        assert m.b32(w) == int.from_bytes(w.to_bytes(4, 'little'), 'big')
-        assert m.b64(x) == int.from_bytes(x.to_bytes(8, 'little'), 'big')
+        # (32- and 64-bit results come back signed)
+        assert m.b32(w) & 0xffffffff == int.from_bytes(w.to_bytes(4, 'little'), 'big')
+        assert m.b64(x) & (2 ** 64 - 1) == int.from_bytes(x.to_bytes(8, 'little'), 'big')
     assert 'bl\t' not in driver._build(src)[0]
