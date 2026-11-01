@@ -1,25 +1,19 @@
-"""Without cimo vs with cimo: the same loops in pure Python, in numpy where numpy can express
-them, and in C compiled by cimo. Every version must give the same answer; times are the best
-of a few runs. Compiled with fma=False so cimo's floating-point results are bit-identical to
-Python's (fused multiply-add rounds once instead of twice)."""
+"""The same functions in pure Python and in C compiled by cimo: run each, time them, print the
+speedups. fma=False keeps cimo's floating-point results identical to Python's."""
 
+import array
+import random
 import time
-
-import numpy as np
 
 import cimo
 
-SRC = r"""
-/* exponential moving average: each output depends on the previous one */
-void ema(long n, const double *x, double a, double *y) {
+k = cimo.compile(r"""
+double ema(const double *x, long n, double a) {         /* exponential moving average */
     double s = x[0];
-    for (long i = 0; i < n; i++) {
-        s = a * x[i] + (1 - a) * s;
-        y[i] = s;
-    }
+    for (long i = 0; i < n; i++) s = a * x[i] + (1 - a) * s;
+    return s;
 }
 
-/* Levenshtein distance, the classic dynamic program */
 int edit_distance(const char *a, int n, const char *b, int m) {
     int prev[m + 1], cur[m + 1];
     for (int j = 0; j <= m; j++) prev[j] = j;
@@ -36,11 +30,21 @@ int edit_distance(const char *a, int n, const char *b, int m) {
     return prev[m];
 }
 
-/* Mandelbrot set: iterations until escape, per pixel */
-void mandelbrot(int h, int w, double x0, double y0, double step, int maxit, int out[h][w]) {
+long collatz(long n) {                     /* the start below n with the longest chain */
+    long best = 1, best_len = 1;
+    for (long i = 1; i < n; i++) {
+        long x = i, len = 1;
+        while (x != 1) { x = x % 2 ? 3 * x + 1 : x / 2; len++; }
+        if (len > best_len) { best_len = len; best = i; }
+    }
+    return best;
+}
+
+long mandelbrot(int h, int w, int maxit) {          /* total iterations over the image */
+    long total = 0;
     for (int r = 0; r < h; r++)
         for (int c = 0; c < w; c++) {
-            double cr = x0 + c * step, ci = y0 + r * step, zr = 0, zi = 0;
+            double cr = -2.2 + c * 3.2 / w, ci = -1.2 + r * 2.4 / h, zr = 0, zi = 0;
             int k = 0;
             while (k < maxit && zr * zr + zi * zi <= 4.0) {
                 double t = zr * zr - zi * zi + cr;
@@ -48,138 +52,98 @@ void mandelbrot(int h, int w, double x0, double y0, double step, int maxit, int 
                 zr = t;
                 k++;
             }
-            out[r][c] = k;
+            total += k;
         }
+    return total;
 }
 
-/* plain sum: numpy is already native code here */
-double total(long n, const double *x) {
-    double s = 0;
-    for (long i = 0; i < n; i++) s += x[i];
-    return s;
+long primes(char *composite, long n) {             /* sieve of Eratosthenes: count below n */
+    long count = 0;
+    for (long i = 2; i < n; i++) {
+        if (composite[i]) continue;
+        count++;
+        for (long j = i * i; j < n; j += i) composite[j] = 1;
+    }
+    return count;
 }
-"""
+""", fma=False)
 
 
-def best(f, runs=3):
-    """(seconds, result) of the fastest of `runs` calls."""
-    t, r = float('inf'), None
-    for _ in range(runs):
-        t0 = time.perf_counter()
-        r = f()
-        t = min(t, time.perf_counter() - t0)
-    return t, r
+def ema(x, n, a):
+    s = x[0]
+    for i in range(n):
+        s = a * x[i] + (1 - a) * s
+    return s
 
 
-# --- pure Python -------------------------------------------------------------------------
-
-def ema_py(x, a):
-    y, s = [0.0] * len(x), x[0]
-    for i, v in enumerate(x):
-        s = a * v + (1 - a) * s
-        y[i] = s
-    return y
-
-
-def edit_distance_py(a, b):
-    prev = list(range(len(b) + 1))
-    for i in range(1, len(a) + 1):
-        cur = [i] + [0] * len(b)
-        for j in range(1, len(b) + 1):
+def edit_distance(a, n, b, m):
+    prev = list(range(m + 1))
+    for i in range(1, n + 1):
+        cur = [i] + [0] * m
+        for j in range(1, m + 1):
             cur[j] = min(prev[j - 1] + (a[i - 1] != b[j - 1]), prev[j] + 1, cur[j - 1] + 1)
         prev = cur
-    return prev[-1]
+    return prev[m]
 
 
-def mandelbrot_py(h, w, x0, y0, step, maxit):
-    out = []
+def collatz(n):
+    best, best_len = 1, 1
+    for i in range(1, n):
+        x, length = i, 1
+        while x != 1:
+            x = 3 * x + 1 if x % 2 else x // 2
+            length += 1
+        if length > best_len:
+            best, best_len = i, length
+    return best
+
+
+def mandelbrot(h, w, maxit):
+    total = 0
     for r in range(h):
-        row = []
         for c in range(w):
-            cr, ci, zr, zi, k = x0 + c * step, y0 + r * step, 0.0, 0.0, 0
+            cr, ci, zr, zi, k = -2.2 + c * 3.2 / w, -1.2 + r * 2.4 / h, 0.0, 0.0, 0
             while k < maxit and zr * zr + zi * zi <= 4.0:
                 zr, zi = zr * zr - zi * zi + cr, 2.0 * zr * zi + ci
                 k += 1
-            row.append(k)
-        out.append(row)
-    return out
+            total += k
+    return total
 
 
-# --- numpy (where it can express the loop) ------------------------------------------------
-
-def mandelbrot_np(h, w, x0, y0, step, maxit):
-    cr = x0 + np.arange(w) * step
-    ci = y0 + np.arange(h)[:, None] * step
-    cr, ci = np.broadcast_to(cr, (h, w)).copy(), np.broadcast_to(ci, (h, w)).copy()
-    zr, zi = np.zeros((h, w)), np.zeros((h, w))
-    out = np.zeros((h, w), dtype=np.int32)
-    live = np.ones((h, w), dtype=bool)
-    for _ in range(maxit):
-        live &= zr * zr + zi * zi <= 4.0
-        if not live.any():
-            break
-        t = zr[live] * zr[live] - zi[live] * zi[live] + cr[live]
-        zi[live] = 2.0 * zr[live] * zi[live] + ci[live]
-        zr[live] = t
-        out[live] += 1
-    return out
+def primes(composite, n):
+    count = 0
+    for i in range(2, n):
+        if composite[i]:
+            continue
+        count += 1
+        for j in range(i * i, n, i):
+            composite[j] = 1
+    return count
 
 
-def main():
-    t0 = time.perf_counter()
-    k = cimo.compile(SRC, fma=False, cache=False)
-    cold = time.perf_counter() - t0
-    cimo.compile(SRC, fma=False)  # fills the cache
-    t0 = time.perf_counter()
-    cimo.compile(SRC, fma=False)
-    cached = time.perf_counter() - t0
-    print('compile: %.0f ms the first time, %.1f ms from the cache\n' % (cold * 1e3, cached * 1e3))
-
-    rows = []
-    rng = np.random.default_rng(0)
-
-    # moving average over a million samples
-    x = rng.random(1_000_000)
-    xl = x.tolist()
-    tp, yp = best(lambda: ema_py(xl, 0.01), 1)
-    y = np.empty_like(x)
-    tc, _ = best(lambda: k.ema(len(x), x, 0.01, y))
-    assert y.tolist() == yp
-    rows.append(('moving average, 1M samples', tp, None, tc))
-
-    # edit distance between two 2000-character strings
-    a = ''.join(rng.choice(list('ACGT'), 2000))
-    b = ''.join(rng.choice(list('ACGT'), 2000))
-    tp, dp = best(lambda: edit_distance_py(a, b), 1)
-    tc, dc = best(lambda: k.edit_distance(a.encode(), len(a), b.encode(), len(b)))
-    assert dc == dp
-    rows.append(('edit distance, 2000 x 2000', tp, None, tc))
-
-    # Mandelbrot set, 320 x 240, up to 200 iterations
-    args = (240, 320, -2.2, -1.2, 0.01, 200)
-    tp, mp = best(lambda: mandelbrot_py(*args), 1)
-    tn, mn = best(lambda: mandelbrot_np(*args))
-    out = np.empty(args[:2], dtype=np.int32)
-    tc, _ = best(lambda: k.mandelbrot(*args, out))
-    assert out.tolist() == mp == mn.tolist()
-    rows.append(('Mandelbrot, 320 x 240', tp, tn, tc))
-
-    # sum of 10 million numbers (numpy's home turf)
-    x = rng.random(10_000_000)
-    xl = x.tolist()
-    tp, sp = best(lambda: sum(xl), 1)
-    tn, sn = best(lambda: x.sum())
-    tc, sc = best(lambda: k.total(len(x), x))
-    assert abs(sc - sp) < 1e-6 * sp and abs(sn - sp) < 1e-6 * sp
-    rows.append(('sum, 10M numbers', tp, tn, tc))
-
-    def ms(t):
-        return '-' if t is None else '%.1f ms' % (t * 1e3)
-    print('%-28s %12s %12s %12s %16s' % ('', 'pure Python', 'numpy', 'cimo', 'cimo vs Python'))
-    for name, tp, tn, tc in rows:
-        print('%-28s %12s %12s %12s %15.0fx' % (name, ms(tp), ms(tn), ms(tc), tp / tc))
-    print("\n'-': no simple numpy version (each step depends on the previous one)")
+def timed(f, *args):
+    t = time.perf_counter()
+    r = f(*args)
+    return r, time.perf_counter() - t
 
 
-if __name__ == '__main__':
-    main()
+random.seed(0)
+xs = array.array('d', (random.random() for _ in range(1_000_000)))
+a = bytes(random.choice(b'ACGT') for _ in range(1500))
+b = bytes(random.choice(b'ACGT') for _ in range(1500))
+N = 2_000_000
+
+tests = [  # name, function name, arguments (a fresh copy for each run where it writes)
+    ('moving average, 1M samples', 'ema', lambda: (xs, len(xs), 0.01)),
+    ('edit distance, 1500 x 1500', 'edit_distance', lambda: (a, len(a), b, len(b))),
+    ('longest Collatz chain < 100k', 'collatz', lambda: (100_000,)),
+    ('Mandelbrot, 320 x 240', 'mandelbrot', lambda: (240, 320, 200)),
+    ('primes below 2M', 'primes', lambda: (bytearray(N), N)),
+]
+
+print('%-30s %12s %12s %9s' % ('', 'Python', 'cimo', 'speedup'))
+for name, fn, args in tests:
+    want, tp = timed(globals()[fn], *args())
+    got, tc = min((timed(getattr(k, fn), *args()) for _ in range(3)), key=lambda r: r[1])
+    assert got == want, (name, got, want)
+    print('%-30s %9.1f ms %9.1f ms %8.0fx' % (name, tp * 1e3, tc * 1e3, tp / tc))
