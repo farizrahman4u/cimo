@@ -14,11 +14,14 @@ pytestmark = pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aar
                                 reason='arm64 assembly')
 
 
+SYM = '_' if driver.TARGET == 'arm64_apple' else ''  # the target's symbol prefix
+
+
 def body(src, name='f'):
     asm = driver._build(src)[0]
-    m = re.search(r'^%s:\n(.*?)^/\* end function' % name, asm, re.S | re.M)
+    m = re.search(r'^%s:\n(.*?)^/\* end function' % (SYM + name), asm, re.S | re.M)
     if m is None:
-        m = re.search(r'^%s:\n(.*?)^\.type' % name, asm, re.S | re.M)
+        m = re.search(r'^%s:\n(.*?)^\.type' % (SYM + name), asm, re.S | re.M)
     assert m, name
     return m.group(1)
 
