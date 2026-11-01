@@ -14,6 +14,7 @@ from ..defs import (R, RTmp, RCon, NIns, M64, Ins, Con, Mem, CBits, CAddr, SExt,
 from ..util import (err, newtmp, newcon, getcon, chuse, emit, emiti, idup, intern, iscmp,
                     cmpop, salloc, argcls, vgrow)
 from ..parse import printfn
+from ..defs import Tmp0, Oextsw, Oextuw, Osar, Oshr
 from .regs import R0
 from .. import ext as _ext
 
@@ -277,6 +278,101 @@ def foldaddr(pa, pi, sz, fn):
     pa[pi] = MEM(fn.nmem - 1)
 
 
+def _defin(r, before):
+    """The instruction of the block being selected, before index `before`, that defines r."""
+    ins = selblk.ins
+    d = before
+    while d > 0:
+        d -= 1
+        if ins[d].to == r:
+            return d, ins[d]
+    return None
+
+
+def _plain(r, fn):
+    """r is a temporary, not a register or a stack slot's address."""
+    return rtype(r) == RTmp and rval(r) >= Tmp0 and fn.tmp[rval(r)].slot == -1
+
+
+def _sweep(r, d, fn):
+    """Delete instruction d, which defines r, if r has no uses left."""
+    if fn.tmp[rval(r)].nuse == 0:
+        di = selblk.ins[d]
+        for a in di.arg:
+            chuse(a, -1, fn)
+        di.set(Ins(Onop))
+
+
+def _scaled(r, before, sz, fn):
+    """(index, shift, defining position) if r is "shl x, log2(sz)" or "mul x, sz"."""
+    if sz == 1:
+        return None
+    found = _defin(r, before)
+    if found is None:
+        return None
+    d, di = found
+    if di.cls != Kl or not _plain(di.arg[0], fn) or rtype(di.arg[1]) != RCon:
+        return None
+    c = fn.con[rval(di.arg[1])]
+    if c.type != CBits:
+        return None
+    l = log2p(sz)
+    if (di.op == Oshl and c.i == l) or (di.op == Omul and c.i == sz):
+        return di.arg[0], l, d
+    return None
+
+
+def foldindex(pa, pi, sz, fn):
+    """cimo (ext.isel): fold "%a = add %base, %index" into [base, index], with the index's
+    "shl x, log2(sz)" and "extsw"/"extuw" if it has them, as foldaddr does for an offset. The
+    instructions go once all their uses are folded."""
+    pr = pa[pi]
+    if not _plain(pr, fn):
+        return
+    found = _defin(pr, selpos)
+    if found is None:
+        return
+    d, di = found
+    a0, a1 = di.arg
+    if di.op != Oadd or di.cls != Kl or not _plain(a0, fn) or not _plain(a1, fn):
+        return
+    base, index, shift, sd, shl = a0, a1, 0, None, None
+    x = _scaled(a1, d, sz, fn)
+    if x is not None:
+        index, shift, sd = x
+        shl = a1
+    else:
+        x = _scaled(a0, d, sz, fn)
+        if x is not None:
+            base, index, shift, sd = a1, x[0], x[1], x[2]
+            shl = a0
+    ext = 0
+    ed = None
+    wide = index
+    found = _defin(index, sd if sd is not None else d)
+    if found is not None and found[1].op in (Oextsw, Oextuw) and found[1].cls == Kl \
+            and _plain(found[1].arg[0], fn):
+        ed = found[0]
+        ext = 1 if found[1].op == Oextsw else 2
+        index = found[1].arg[0]
+    m = Mem()
+    m.base = base
+    m.index = index
+    m.scale = shift | ext << 4
+    fn.nmem += 1
+    vgrow(fn.mem, fn.nmem)
+    fn.mem[fn.nmem - 1] = m
+    chuse(base, +1, fn)
+    chuse(index, +1, fn)
+    chuse(pr, -1, fn)
+    _sweep(pr, d, fn)
+    if sd is not None:
+        _sweep(shl, sd, fn)
+    if ed is not None:
+        _sweep(wide, ed, fn)
+    pa[pi] = MEM(fn.nmem - 1)
+
+
 def log2p(n):
     if n <= 0 or (n & (n - 1)):
         return -1
@@ -351,6 +447,36 @@ def selfma(i, fn):
     m.base, m.index = bc
 
 
+def selmadd(i, fn):
+    """cimo (ext.isel): "r = add c, m" or "r = sub c, m", with m a product only used here and
+    defined in this block, becomes one instruction (see Oamadd in defs). Returns True if so."""
+    for n in ((1, 0) if i.op == Oadd else (1,)):
+        m = i.arg[n]
+        c = i.arg[n ^ 1]
+        if not _plain(m, fn) or not _plain(c, fn) or fn.tmp[rval(m)].nuse != 1:
+            continue
+        found = _defin(m, selpos)
+        if found is None or found[1].op != Omul or found[1].cls != i.cls:
+            continue
+        di = found[1]
+        if any(rtype(a) == RCon and log2p(fn.con[rval(a)].i) >= 0 for a in di.arg):
+            continue  # a shift
+        ab = list(di.arg)
+        di.set(Ins(Onop))
+        x = Mem()
+        fn.nmem += 1
+        vgrow(fn.mem, fn.nmem)
+        fn.mem[fn.nmem - 1] = x
+        emit(D.Oamadd if i.op == Oadd else D.Oamsub, i.cls, i.to, c, MEM(fn.nmem - 1))
+        iarg = D.insb[D.curi].arg
+        fixarg(iarg, 0, i.cls, 0, fn)
+        fixarg(ab, 0, i.cls, 0, fn)
+        fixarg(ab, 1, i.cls, 0, fn)
+        x.base, x.index = ab
+        return True
+    return False
+
+
 def callable(r, fn):
     if rtype(r) == RTmp:
         return 1
@@ -391,10 +517,15 @@ def sel(i, fn):
     if i.op == Ofma0:
         return  # selected with its fma1
     immarg = False
+    if _ext.isel and i.op in (Oadd, Osub) and KBASE(i.cls) == 0 and selmadd(i, fn):
+        return
     if KBASE(i.cls) == 0 and rtype(i.arg[1]) == RCon \
             and fn.con[rval(i.arg[1])].type == CBits:
         c = fn.con[rval(i.arg[1])]
-        if i.op in (Oadd, Osub):
+        if _ext.isel and i.op in (Oshl, Osar, Oshr):
+            i.arg[1] = getcon(c.i & (63 if i.cls == Kl else 31), fn)
+            immarg = True
+        elif i.op in (Oadd, Osub):
             im, n = imm(c, i.cls)
             if im in (Inlo12, Inhi12):
                 i.op = Osub if i.op == Oadd else Oadd
@@ -421,8 +552,12 @@ def sel(i, fn):
         return
     if isload(i.op):
         foldaddr(i.arg, 0, accsize(i), fn)
+        if _ext.isel:
+            foldindex(i.arg, 0, accsize(i), fn)
     if isstore(i.op):
         foldaddr(i.arg, 1, accsize(i), fn)
+        if _ext.isel:
+            foldindex(i.arg, 1, accsize(i), fn)
     emiti(i)
     iarg = D.insb[D.curi].arg  # fixarg() can change curi
     fixarg(iarg, 0, argcls(i, 0), 0, fn)

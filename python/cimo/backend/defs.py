@@ -317,6 +317,10 @@ _OPS += [('getsp', ((Kx, Kx, Kx, Kx), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0,
 _OPS += [(_n, ((Kw, Kl, Ke, Ke), (Kx, Kx, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
          for _n in ('bclz', 'bctz', 'bpopcnt', 'bswap')]
 _OPS += [('bswap16', ((Kw, Ke, Ke, Ke), (Kx, Kx, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
+# arm64 after isel (ext.isel): r = amadd c, MEM{base=a, index=b} is c + a*b, amsub c - a*b (as
+# afmadd, the Mem only carries the third register)
+_OPS += [(_n, ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+         for _n in ('amadd', 'amsub')]
 
 
 

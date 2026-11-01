@@ -767,6 +767,31 @@ _LO12 = {0: 'LDST8_ABS_LO12_NC', 1: 'LDST16_ABS_LO12_NC', 2: 'LDST32_ABS_LO12_NC
          3: 'LDST64_ABS_LO12_NC', 4: 'LDST128_ABS_LO12_NC'}
 
 
+_REGOFF = re.compile(r'\[\s*([^,\s]+)\s*,\s*([wx]\d+)\s*(?:,\s*(lsl|sxtw|uxtw|sxtx)\s*(?:#?\s*(\d+))?\s*)?\]$')
+_OPTION = {'lsl': 3, 'sxtx': 7, 'sxtw': 6, 'uxtw': 2}
+
+
+def _regoffset(ops, sz):
+    """Rm, option, S, Rn fields of a register-offset operand, or None."""
+    if len(ops) != 2:
+        return None
+    m = _REGOFF.match(ops[1].strip().lower())
+    if m is None:
+        return None
+    base = _reg(m.group(1), 'x', sp=True, zr=False)
+    rm = _reg(m.group(2))
+    how = m.group(3) or 'lsl'
+    if (rm[0] == 'w') != (how in ('sxtw', 'uxtw')):
+        raise AssemblerError('bad memory operand %r' % ops[1])
+    s = 0
+    if m.group(4) is not None:
+        n = int(m.group(4))
+        if n not in (0, sz):
+            raise AssemblerError('bad shift in %r' % ops[1])
+        s = int(sz == 0 or n == sz)  # an explicit #0 sets S only for byte accesses
+    return rm[1] << 16 | _OPTION[how] << 13 | s << 12 | base[1] << 5
+
+
 def _i_ldst(a, mn, ops):
     if len(ops) < 2:
         raise AssemblerError('%s needs 2 operands' % mn)
@@ -775,6 +800,9 @@ def _i_ldst(a, mn, ops):
     if ent is None:
         raise AssemblerError('%s does not take %s registers' % (mn, rt[0]))
     op, sz = ent
+    x = _regoffset(ops, sz)
+    if x is not None:
+        return (op & ~0x01000000) | 1 << 21 | x | 2 << 10 | rt[1]
     base, mode, off, rel = _mem(ops, 1)
     rr = base[1] << 5 | rt[1]
     if rel is not None:
@@ -841,6 +869,17 @@ def _i_b(a, mn, ops):
     return 0x54000000 | c
 
 
+def _i_cbz(a, mn, ops):
+    if len(ops) != 2:
+        raise AssemblerError('%s needs 2 operands' % mn)
+    rt = _reg(ops[0])
+    sym, add, mod = _expr(ops[1])
+    if sym is None or mod is not None:
+        raise AssemblerError('bad branch target %r' % ops[1])
+    a.fixup('CONDBR19', sym, add)
+    return (0x35000000 if mn == 'cbnz' else 0x34000000) | _sf(rt) | rt[1]
+
+
 def _i_blr(a, mn, ops):
     if len(ops) != 1:
         raise AssemblerError('%s needs 1 operand' % mn)
@@ -900,6 +939,7 @@ _INSNS = {
     'and': _i_logic, 'orr': _i_logic, 'eor': _i_logic, 'ands': _i_logic,
     'lsl': _i_shift, 'lsr': _i_shift, 'asr': _i_shift,
     'mul': _i_dp2, 'sdiv': _i_dp2, 'udiv': _i_dp2, 'madd': _i_madd, 'msub': _i_madd,
+    'cbz': _i_cbz, 'cbnz': _i_cbz,
     'sxtb': _i_ext, 'sxth': _i_ext, 'sxtw': _i_ext, 'uxtb': _i_ext, 'uxth': _i_ext,
     'mov': _i_mov, 'movk': _i_movk, 'movz': _i_movk, 'movn': _i_movk, 'cset': _i_cset,
     'fadd': _i_fp3, 'fsub': _i_fp3, 'fmul': _i_fp3, 'fdiv': _i_fp3, 'fneg': _i_fneg,

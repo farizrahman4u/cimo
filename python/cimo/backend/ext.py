@@ -22,6 +22,9 @@ Flags:
           plain loads and stores
   bigcopy None, or a size: a struct argument of at least that many bytes is copied by a call
           to memcpy instead of an unrolled blit (arm64)
+  isel    arm64 selection beyond QBE's: shifts by an immediate, register-offset addressing
+          (`ldr x0, [x1, x2, lsl #3]`, `[x1, w2, sxtw #2]`), madd/msub, cbz/cbnz, no frame in a
+          leaf function that needs no stack
   cse     load elimination again after gvn, identical integer divisions merged, remainders
           computed from the division of the same operands on arm64 (cimo.backend.cse)
   inline  0, or a size: copy functions of at most that many instructions into the callers
@@ -60,6 +63,7 @@ trap = False
 volatile = False
 vla = False
 cse = False
+isel = False
 bigcopy = None
 inline = 0
 stkchk = None
@@ -69,7 +73,7 @@ stkchk = None
 # may, so accesses never move past accesses off another base.
 disjoint = None
 
-ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True, 'volatile': True, 'vla': True, 'cse': True}
+ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True, 'volatile': True, 'vla': True, 'cse': True, 'isel': True}
 _NAMES = tuple(ALL) + ('stkchk', 'bigcopy', 'inline')
 
 
