@@ -33,6 +33,19 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Performance
 
+- **Slower than gcc -O3 on scramjit's kernels** (requested by scramjit, 2026-11-01; arm64 WSL,
+  gcc 13.3 `-O3 -ffp-contract=off`, cimo with `CIMO_FMA=0`; reproduce with scramjit's
+  `python3 bench/gcc.py`, which compiles the same C both ways). On the same generated C:
+  gray_scott 0.22 vs 0.17 ms (1.3x), flood_fill 3.60 vs 1.93 ms (1.9x), viewshed 7.84 vs 3.43 ms
+  (2.3x); on the hand-written C of scramjit's `kernels/c/`: 1.2x, 1.3x and 2.5x. Pinned down so far:
+  - `rint` is a library call: 2.5 vs 1.0 ns per element (gcc emits `frintx`). Lower `rint` and
+    `nearbyint` to single instructions, as `floor`/`ceil`/`trunc` are.
+  - The bundled `hypot` is 1.5x glibc's (10.3 vs 6.8 ns).
+  - No common subexpression elimination: an expression repeated in the source is computed each
+    time (scramjit's `x % n` macro computed `a % b` three times). scramjit now writes each
+    division once, but flood_fill (branchy, many small blocks, bounds checks) is still 1.9x.
+  **When fixed, add a note to scramjit's `TODO.md`** so it can drop the workarounds listed there.
+
 - **Inline small static functions** (requested by scramjit). `static inline` helpers are
   compiled as real calls: a loop calling a one-line wrapping-subtract helper ran at 5.15 ns per
   element against 3.07 ns for the same loop with a macro (arm64). Every C user writing helpers
