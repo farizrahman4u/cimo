@@ -2,19 +2,13 @@
 
 # cimo
 
-**A C compiler written in pure Python.** Write a C kernel as a string, call it on your numpy arrays
-a few hundred milliseconds later, and it runs at `-O3` speed.<br>
-No compiler, no SDK, no wheels, no build step. In the browser too.
+A C compiler written in pure Python.
 
-```
-pip install cimo
-```
-
-or as one file: `wget https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py`
+[Live demo](https://www.cimo.dev/) · [Docs](https://www.cimo.dev/docs/)
 
 </div>
 
----
+## Usage
 
 ```python
 import numpy as np
@@ -31,96 +25,108 @@ void blur(int h, int w, const float src[h][w], float dst[h][w]) {
 
 src = np.random.rand(4096, 4096).astype(np.float32)
 dst = np.zeros_like(src)
-k.blur(*src.shape, src, dst)   # native code, running on your arrays in place
+k.blur(*src.shape, src, dst)   # native code, on the arrays in place
 ```
 
-That's it. No `setup.py`, no `gcc`, no Xcode, no MSVC, no LLVM wheel. cimo parses the C, optimizes
-it, encodes arm64 / x86-64 / WebAssembly instructions itself, maps them into executable memory, and
-hands you a Python callable. Your numpy data is never copied.
+cimo parses the C, optimizes it, encodes arm64, x86-64 or WebAssembly itself and maps the result into
+executable memory in-process. It needs no C compiler, SDK, LLVM or binary wheels. Arrays are passed
+without copying, and compiled code releases the GIL.
 
-## Why
+## Install
 
-Compiling native code at runtime means a C compiler on the user's machine. Compute-graph engines, PDE
-solvers and symbolic code generators that emit C call `gcc` or MSVC on the target, and fail or fall
-back to slow paths when it isn't there. Numba avoids the compiler by bundling LLVM (llvmlite alone is
-176 MB unpacked).
+The package on PyPI is a placeholder for now. Install from GitHub:
 
-cimo is a compiler written in Python, standard library only. Anything that runs Python can compile
-and run C:
+```
+pip install "cimo @ git+https://github.com/farizrahman4u/cimo#subdirectory=python"
+```
 
-- **Libraries** ship C kernels as source: no wheel matrix across OSes, architectures and Python
-  versions, and no compiler needed to install from an sdist.
-- **Desktop apps** get native-speed kernels without bundling LLVM or putting a C compiler on every
-  build machine.
-- **Browsers and locked-down machines** work too: Pyodide, JupyterLite and marimo, plugin
-  repositories that ban binaries (QGIS), corporate machines and hosted sandboxes.
+or download one file to put on `sys.path`:
 
-## Fast where it matters
+```
+wget https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py
+```
 
-cimo isn't a toy interpreter or a TCC-style one-pass compiler. Its loop optimizer handles
-unrolling, unroll-and-jam, scalar replacement, strength reduction and runtime alias checks, and
-its backend does real instruction selection. On analyzable loops it matches gcc and clang at
+Requires CPython 3.9 or newer, or Pyodide. There are no dependencies outside the standard library;
+numpy is only needed for your arrays.
+
+## Motivation
+
+Compute-graph engines, PDE solvers and symbolic code generators emit C at runtime and call the system
+compiler on the user's machine. Where there is none, they fail or fall back to slow paths. Numba avoids
+the compiler by bundling LLVM. cimo runs wherever Python does:
+
+- **Libraries** can ship C kernels as source, with no wheel matrix and no compiler needed for a source
+  install.
+- **Desktop applications** can use native kernels without bundling LLVM or installing a C compiler on
+  every build machine.
+- **Browsers and restricted machines**: Pyodide, JupyterLite and marimo, plugin repositories that accept
+  no binaries, and machines where nothing can be installed.
+
+## Performance
+
+cimo has a loop optimizer (unrolling, unroll-and-jam, scalar replacement, strength reduction, runtime
+alias checks) and an instruction-selecting backend. On scalar code it runs close to gcc and clang at
 `-O3`:
 
 | Kernel   | vs `gcc -O3` (Linux arm64) | vs `clang -O3` (Apple M4) |
-|----------|:--------------------------:|:-------------------------:|
-| saxpy    | **0.79x**                  | 1.43x                     |
-| gemm     | **0.89x**                  | 1.11x                     |
-| jacobi2d | **1.04x**                  | **0.96x**                 |
-| conv3x3  | **1.04x**                  | **1.07x**                 |
+|:---------|---------------------------:|--------------------------:|
+| saxpy    | 0.79x                      | 1.43x                     |
+| gemm     | 0.89x                      | 1.11x                     |
+| jacobi2d | 1.04x                      | 0.96x                     |
+| conv3x3  | 1.04x                      | 1.07x                     |
 
-<sub>cimo time ÷ reference time; lower is better. Scalar code with FMA contraction off on both sides.
+<sub>cimo time ÷ reference time; lower is better. Scalar code on both sides, with FMA contraction off.
 Results are bit-identical to the reference compiler.</sub>
 
-Compiling a whole kernel file takes well under a second, and results are cached by content
-hash, so the second run starts instantly.
+cimo doesn't auto-vectorize yet, so loops the reference compilers vectorize run slower than this table
+suggests. See [`requirements.md`](requirements.md) for the full measurements.
 
-About **100x faster than pure Python** on the loops numpy can't express: stencils, flood fills,
-dynamic programming.
+Compiling a kernel file takes under a second, and compiled modules are cached by content hash.
 
-## Real C, not a subset
+## Language
 
 cimo compiles C11 and bundles its own C library, so a kernel behaves the same on every platform,
-the browser included.
+including the browser.
 
-- structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs,
-  VLAs, `goto`, `switch`, globals and `const` tables
-- `stdio.h`, `stdlib.h`, `string.h`, `math.h`, `ctype.h`, `inttypes.h` and the freestanding
-  headers, all bundled. `printf` writes to `sys.stdout`, so output lands in your notebook
-- GNU vector types (`__attribute__((vector_size(32)))`) for hand-written NEON / AVX2 / AVX-512
-- `#pragma omp simd` and `restrict`, honored as written
+- Structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs, VLAs, `goto`,
+  `switch`, globals and `const` tables
+- `stdio.h`, `stdlib.h`, `string.h`, `math.h`, `ctype.h`, `inttypes.h` and the freestanding headers.
+  `printf` writes to `sys.stdout`, so output appears in notebooks
+- `restrict`, used by the loop optimizer
 
-Need the operating system? Link it:
+To use the operating system, link the host libc or any other shared library (zlib, BLAS, the Python C
+API):
 
 ```python
-k = cimo.compile(src, link=["libc"], host_headers=True)   # files, clocks, threads, sockets
+k = cimo.compile(src, link=["libc"], host_headers=True)
+k = cimo.compile(src, link=["libz.so.1"])
 ```
 
-Any shared library works the same way (`link=["libz.so.1"]`, BLAS, the Python C API).
-Kernels run with the full privileges of your Python process, like ctypes. There is no sandbox.
+Kernels run with the full privileges of the Python process, like ctypes. There is no sandbox.
 
-Not supported: inline assembly, `setjmp`/`longjmp` and 128-bit `long double`. Each is a
+Inline assembly, `setjmp`/`longjmp`, `long double` and GNU vector types are not supported. Each is a
 compile error that says so.
 
-## Pythonic bindings
+## Calling kernels
 
 Every non-`static` function becomes a Python callable, typed from its C signature:
 
-| C parameter                         | Pass from Python                                 |
-|-------------------------------------|--------------------------------------------------|
-| `float *`, `const uint8_t *`, VLAs  | numpy arrays, `bytearray`, `memoryview`          |
-| `int`, `double`, `size_t`           | Python numbers                                   |
-| `struct point`                      | a ctypes structure or a `dict`                   |
+| C parameter                        | Pass from Python                        |
+|:-----------------------------------|:----------------------------------------|
+| `float *`, `const uint8_t *`, VLAs | numpy arrays, `bytearray`, `memoryview` |
+| `int`, `double`, `size_t`          | Python numbers                          |
+| `struct point *`                   | a ctypes structure                      |
 
-Keep kernels in a `.c` file next to your module if you prefer:
+Kernels can also live in a `.c` file:
 
 ```python
 k = cimo.load("kernels.c")
 ```
 
-### Multicore with plain Python threads
+### Threads
 
-Kernels release the GIL and are safe to call concurrently. No launch API; bring your own threads:
+Kernels are safe to call concurrently. There is no launch API; use ordinary Python threads and give each
+one a part of the work:
 
 ```c
 void blur(int block, int nblocks, int h, int w, const float src[h][w], float dst[h][w]) {
@@ -142,96 +148,82 @@ with ThreadPoolExecutor() as pool:
     list(pool.map(lambda b: k.blur(b, n, h, w, src, dst), range(n)))
 ```
 
-`malloc` is lock-free: each thread gets its own heap.
+Each thread gets its own part of the module's heap, so `malloc` doesn't take a lock.
 
-### Errors are Python exceptions
+### Errors
 
-`assert`, `abort()`, `exit()` and traps unwind cleanly back to Python. A crashing kernel doesn't take
-your interpreter down with it.
+Errors in the C raise `cimo.CompileError`. `assert`, `abort()`, `exit()`, traps and stack overflow from
+deep recursion raise `cimo.KernelError`, and the module stays usable:
 
 ```python
 k = cimo.compile(r"""
-void blur(int h, int w, const float src[h][w], float dst[h][w]) {
-    for (int i = 1; i < h; i++)            /* should be h - 1 */
-        for (int j = 1; j < w - 1; j++)
-            dst[i][j] = 0.2f * (src[i][j] + src[i-1][j] + src[i+1][j]
-                                          + src[i][j-1] + src[i][j+1]);
-}
-""", debug=True)
+#include <assert.h>
 
-k.blur(*src.shape, src, dst)
-# cimo.BoundsError: blur: read of src[4096][1] is out of bounds (src is 4096 x 4096)
-#   at line 5
+void check(int x) { assert(x > 0); }
+""")
+
+k.check(-1)
+# cimo.KernelError: assertion failed: x > 0, at <string>:4 in check() (calling check)
 ```
 
-Debug builds bounds-check every access, against both Python buffers and heap allocations, and catch
-use-after-free, double free and leaks. Arrays that don't match a VLA parameter's shape are
-rejected at call time, in every build.
+A kernel that reads or writes outside its memory can still crash the process, as a bad pointer in a C
+extension would.
 
-### From the command line
+## Command line
 
 ```console
-$ cimo run life.c 64 64          # compile and run main(), arguments and all
-$ cimo compile -S kernel.c       # see the arm64 it generates
-$ cimo onefile -o cimo.py         # all of cimo as one file to vendor
+$ cimo run life.c 64 64       # compile and run main(), with arguments
+$ cimo compile -S kernel.c    # print the generated assembly
+$ cimo onefile -o cimo.py     # write cimo as one file to vendor
 ```
 
-### Know why a loop is slow
+## Browser
 
-```console
-$ python -m cimo report kernels.c
-kernels.c:12  loop over j: optimized (unrolled x4, alias check on src/dst)
-kernels.c:31  loop over i: not optimized: base of `p` depends on a runtime branch
-```
-
-## Runs in the browser
-
-The same compiler emits WebAssembly. In Pyodide, JupyterLite or marimo:
-
-```python
-import micropip; await micropip.install("cimo")
-import cimo
-k = cimo.compile(src)   # compiled in the page, linked into Pyodide's own memory
-```
-
-Kernels share Pyodide's memory and work on numpy arrays **in place**. No server, no 50 MB
-clang-in-WASM download.
+In Pyodide, JupyterLite and marimo, `cimo.compile` emits WebAssembly in the page and links it into
+Pyodide's memory, with no compile server. Kernels work on numpy arrays in place. The
+[live demo](https://www.cimo.dev/) runs this way, and recompiles as you edit the C.
 
 ## Platforms
 
-| Platform                    | Backend        | Loader                          |
-|-----------------------------|----------------|---------------------------------|
-| Linux arm64 / x86-64        | arm64, amd64   | `mmap` + `mprotect` (W^X)       |
-| macOS (Apple silicon)       | arm64          | `MAP_JIT`, W^X fallback         |
-| Windows arm64 / x64         | arm64, amd64   | `VirtualAlloc` + `VirtualProtect` |
-| Pyodide / browser           | WebAssembly    | shared-memory side module       |
-
-CPython 3.9+ and Pyodide. Zero runtime dependencies.
+| Platform             | Backend      | Loader                            |
+|:---------------------|:-------------|:----------------------------------|
+| Linux arm64 / x86-64 | arm64, amd64 | `mmap` + `mprotect` (W^X)         |
+| macOS, Apple silicon | arm64        | `MAP_JIT`, W^X fallback           |
+| Windows arm64 / x64  | arm64, amd64 | `VirtualAlloc` + `VirtualProtect` |
+| Pyodide / browser    | WebAssembly  | shared-memory side module         |
 
 ## How it works
 
 ```
  C source ──▶ front end ──▶ loop optimizer ──▶ backend ──▶ encoder ──▶ executable memory
-             (from cproc)     (cimo's own)     (from QBE)  (arm64, amd64,   (JIT, or ELF /
-                                                            WASM)           Mach-O / PE)
+             (from cproc)     (cimo's own)     (from QBE)  (arm64, amd64,
+                                                            WebAssembly)
 ```
 
-cimo stands on two excellent small compilers: [cproc](https://sr.ht/~mcf/cproc/) for the C front
-end and [QBE](https://c9x.me/compile/) for the backend, ported to Python and checked against the
-originals by diffing their IR output pass by pass. On top of that sits cimo's own loop optimizer,
-which is what closes the gap to gcc, plus a machine-code encoder, so no external assembler or
-linker is ever needed. Every release is differential-tested against gcc and clang on generated
-random programs.
+The front end and backend are [cproc](https://sr.ht/~mcf/cproc/) and [QBE](https://c9x.me/compile/),
+ported to Python and checked against the originals by diffing their IR pass by pass. The loop optimizer
+and machine-code encoder are new, so no external assembler or linker is used. The compiler is
+differential-tested against gcc on randomly generated programs.
+
+## Status
+
+Pre-release. Planned:
+
+- Auto-vectorization and GNU vector types (`__attribute__((vector_size(16)))`)
+- `debug=True`: bounds checks on every access, and detection of use-after-free, double free and leaks
+- `cimo report`: which loops were optimized, and why the others weren't
+- Checking at call time that an array matches a VLA parameter's shape
+- Struct arguments by value, from a ctypes structure or a `dict`
 
 ## Repository
 
 - [`python/cimo/`](python/cimo/): the compiler and Python runtime
 - [`js/`](js/): browser glue
-- [`docs/`](docs/): the website, [cimo.dev](https://www.cimo.dev/); the documentation goes in
-  [`docs/docs/`](docs/docs/) ([cimo.dev/docs](https://www.cimo.dev/docs/))
+- [`docs/`](docs/): the website, [cimo.dev](https://www.cimo.dev/), and the documentation in
+  [`docs/docs/`](docs/docs/)
 - [`examples/`](examples/): kernels and demos
 - [`requirements.md`](requirements.md): the design spec, measurements and roadmap
 
 ## License
 
-[MIT](LICENSE). Bundled code from QBE (MIT), cproc (ISC) and musl (MIT) keeps its original license.
+[MIT](LICENSE). Bundled code from QBE (MIT), cproc (ISC) and musl (MIT) keeps its license.
