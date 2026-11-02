@@ -187,9 +187,14 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   (`ema` 5.12 to 3.33 ns, a wrapping-add sum 2.05 to 0.34 ns). Costs 13-38% compile time and about
   25-30% more code on `t_printf` and `t_math`. Open: drop a static function once every call is
   inlined (its definition is still compiled and emitted); honor `noinline`.
-- **`79d11d6` (nsw, WidenIV) slows a division loop 9%** (from scramjit): `ratio_sum` in scramjit's `bench/m1.py`, a loop of
-  checked float divisions, goes from 1.02 to 1.11 ns per element at that commit, the same on later ones. Cause not looked
-  into. Reproduce by running `bench/m1.py` against an export of `79d11d6~1` and of `79d11d6`.
+- **`ratio_sum` in scramjit's `bench/m1.py` got slower at `79d11d6`, cause not found** (Snapdragon X: 1.02 ns per
+  element before, 1.05 to 1.11 after). Not `nsw`: the kernel's code is the same with `wrapv=True`. The hot loop is the
+  same instructions before and after; what changed is a folded shift in setup that runs once per 65536 elements. Times
+  cluster at about 1.05, 1.08 and 1.11, with nops before the loop moving it between them. Loop alignment doesn't settle
+  it: over 8 offsets, none spreads 3%, 16 bytes 6%, 32 bytes 0% but at 1.046, 64 bytes 3%. Not tried: performance
+  counters, Graviton.
+- **Loop alignment (LLVM's `alignBlocks`, 16 to 32 bytes by CPU) tried and left out:** on the 15 kernels the geomean is
+  0.997 to 1.005 at both sizes on Snapdragon X and Neoverse N1, V1, V2, at 62 directives in 1639 instructions.
 - **Inlining stops by position in a large function** (from scramjit): `inline.CALLER_LIMIT` (4000 IR
   instructions) is spent in source order, so later code keeps its calls however hot it is and however
   small the callee. A llama2.c forward pass as one function (scramjit's `bench/llm.py`) called
