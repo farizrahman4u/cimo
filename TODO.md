@@ -57,6 +57,10 @@ in Python.
   LLVM folds. Measured folded / not on Snapdragon X and Neoverse N1, V1, V2: `s += x << 3` 1.82, 0.84, 0.96,
   0.95; `s -= x >> 3` 1.82, 1.19, 1.46, 1.70; through the shifted value 1.00, 0.71, 0.65, 0.55; off any chain
   1.04, 0.87, 0.76, 0.85. Folding the first on Neoverse alone (`FeatureALULSLFast`) needs per-CPU tuning: open.
+- ~~FP accumulator copies~~ **Done for phis with their own hint** (`rega`): `s += x[i] * y[i]` had one `fmov` on the chain,
+  52 to 56% on Neoverse, nothing on Snapdragon X. Open: phis that feed each other share a hint and still swap through
+  `s31` (`iir`, `conv3x3`), for the register allocation work below.
+- ~~Benchmark gate~~ **Done** (`tests/test_bench_gate.py`): counts in the kernels' loops; timing stays a manual EC2 run.
 - ~~`mneg`, `fnmul`~~ **Done** (`ext.isel`).
 - ~~`csel`, `fcsel`~~ **Done** (`ext.isel`; policy from `SimplifyCFG`, `EarlyIfConversion`). Then
   wasm `select`.
