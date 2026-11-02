@@ -118,9 +118,9 @@ in Python.
   **Done** for loops that count (`scalar._deadloops`).
 - `LoopIdiomRecognize`: memset, memcpy, popcount, ctz. GCC `crc_optimization`.
 - `LoopStrengthReduce`/GCC `iv_optimize`, with `AArch64` addressing modes as its cost.
-- SIMD targets from scramjit (`bench`-style loops over float64, 1,000,000 elements, arm64): a sum loop 1,019 µs against `np.sum` 162, a max loop
-  1,358 against `np.max` 114. scramjit plans to compile `x.sum()` and `x.max()`, which would be slower than numpy on big arrays until
-  then. Its sum must keep numpy's pairwise order to match bit for bit, so that's the loop to vectorize, not a reassociated one.
+- SIMD targets from scramjit (float64, 1,000,000 elements, arm64; `sj_np_*` in its `_mathlib.py`): `x.max()` 1,564 µs against numpy's 175, `x.argmax()` 2,095 against 479,
+  `x.all()` 523 against 220. Its pairwise `x.sum()`, 8 parallel accumulators, is already within 15% of numpy, whose sum isn't SIMD either. Bits must stay: signed zeros and NaNs
+  in `max` follow numpy's scalar rule, and the pairwise order can't be reassociated.
 - Store-to-load across iterations: `LoopLoadElimination`, GCC `predcom`. scramjit does the one-store case
   itself (`ema` 3.09 to 2.39 ns, where the same loop as hand C through cimo stays at 3.06).
 - `LoopInterchange`/GCC `linterchange`, `LoopDistribute`/GCC `loop_distribution`, `LoopFuse`, `LoopFlatten`,
