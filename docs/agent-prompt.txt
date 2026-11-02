@@ -7,7 +7,7 @@ Docs (raw Markdown): https://www.cimo.dev/llms.txt
 `cimo.compile` turns C11 into native code at runtime, in well under a second, and returns Python callables that run on numpy arrays in place. No gcc, clang, MSVC, LLVM, SDK, binary wheels or build step. Calls release the GIL, so threads run in parallel. Compiled code is cached on disk by content. MIT licensed.
 
 ## Install
-pip install "cimo @ git+https://github.com/farizrahman4u/cimo#subdirectory=python"
+pip install cimo
 Or no install: put this one file on sys.path and `import cimo`: https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py
 CPython 3.9+ on arm64 Linux, macOS and Windows, or Pyodide. On x86-64, compile raises CompileError. numpy is only needed for arrays.
 

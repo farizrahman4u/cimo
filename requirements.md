@@ -1,7 +1,6 @@
 # cimo: requirements
 
-**C in, machine code out.** A pure-Python C compiler for CPU kernels. PyPI name `cimo` is reserved
-(placeholder 0.0.1, published 2026-10-30).
+**C in, machine code out.** A pure-Python C compiler for CPU kernels. Published on PyPI as `cimo`.
 
 This is the living spec: what to build, why, what has been measured, and in what order. Research
 code behind the measurements is in `scratch/` (`scratch/qbe_eval/`, `scratch/spikes/`).
