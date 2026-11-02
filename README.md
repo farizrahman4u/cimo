@@ -77,7 +77,7 @@ alias checks) and an instruction-selecting backend. On scalar code it runs close
 Results are bit-identical to the reference compiler.</sub>
 
 On arm64, cimo also auto-vectorizes straight counted loops over 4- and 8-byte elements, 128 bits at a
-time. Reductions, loops with conditions, narrower elements, x86-64 and WebAssembly stay scalar, so the
+time. Floating-point sums, loops with conditions, narrower elements, x86-64 and WebAssembly stay scalar, so the
 reference compilers are ahead where they vectorize those. See [`requirements.md`](requirements.md) for
 the full measurements.
 
