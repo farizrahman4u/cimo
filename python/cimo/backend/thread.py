@@ -13,7 +13,7 @@ recomputed.
 
 from . import defs as D
 from .defs import RCon, RTmp, CBits, KBASE, Kw, Kl, UPhi, rtype, rval
-from .util import iscmp, phiarg, isconbits, newtmp, cmpwlneg
+from .util import getcon, iscmp, phiarg, isconbits, newtmp, cmpwlneg
 from .simplify import _facts
 
 
@@ -131,6 +131,79 @@ def _combinable(fn, x, n):
     if fn.tmp[rval(x.jmp.arg)].nuse != 1:
         return None
     return ins
+
+
+BITTEST_MIN = 6
+
+
+def _equality(fn, b):
+    """(x, class, constant, where it goes when equal, else) when b ends in x == constant, used only there."""
+    d = fn.tmp[rval(b.jmp.arg)].def_ if rtype(b.jmp.arg) == RTmp else None
+    cm = iscmp(d.op) if d is not None else None
+    if cm is None or KBASE(cm[0]) != 0 or cm[1] not in (D.Cieq, D.Cine) or fn.tmp[rval(b.jmp.arg)].nuse != 1:
+        return None
+    c = isconbits(fn, d.arg[1])
+    if c is None or rtype(d.arg[0]) != RTmp:
+        return None
+    eq, ne = (b.s1, b.s2) if cm[1] == D.Cieq else (b.s2, b.s1)
+    return d.arg[0], cm[0], c, eq, ne
+
+
+def _bittest(fn, h):
+    """c == k1 || c == k2 || ..., as branches to one place, is (unsigned)(c - lo) <= hi - lo & mask >> (c - lo).
+    LLVM's form has a branch for each half, from 3 values, and against the ccmp chains here it took up to 2.66x
+    at 4 values and 1.43x at 6. Without those branches it costs about the same on any data. Against the chains,
+    best to worst on Snapdragon X and Neoverse N1, V1, V2: at 4 values 0.60-1.07, 0.77-1.28, 0.61-1.03, 0.87-1.19;
+    at 6 0.24-1.04, 0.39-1.12, 0.32-0.98, 0.40-1.34; at 10 0.43-0.83, 0.54-0.85, 0.52-0.78, 0.46-0.78."""
+    if h.jmp.type != D.Jjnz or h.s1 is h.s2:
+        return False
+    e = _equality(fn, h)
+    if e is None:
+        return False
+    x, k, c, hit, b = e
+    w = 64 if k == D.Kl else 32
+    full = (1 << w) - 1
+    vals = {c & full}
+    chain = []
+    while b is not h and b not in chain and _combinable(fn, b, 1) is not None:
+        e = _equality(fn, b)
+        if e is None or e[0] != x or e[1] != k or e[3] is not hit or not _samephis(hit, h, b):
+            break
+        vals.add(e[2] & full)
+        chain.append(b)
+        b = e[4]
+    miss = b
+    if len(vals) < BITTEST_MIN or max(vals) - min(vals) >= 64 or hit is h or hit in chain or miss is hit or miss is h:
+        return False
+    lo, span = min(vals), max(vals) - min(vals)
+    mask = sum(1 << (v - lo) for v in vals)
+    t = x
+    new = []
+    if lo:
+        t = newtmp('bt', k, fn)
+        new.append(D.Ins(D.Osub, k, t, x, getcon(D.s64(lo), fn)))
+    inr, sh, bit, bw, r = (newtmp('bt', cl, fn) for cl in (Kw, D.Kl, D.Kl, Kw, Kw))
+    new += [D.Ins((D.Ocmpw if k == Kw else D.Ocmpl) + D.Ciule, Kw, inr, t, getcon(span, fn)),
+            D.Ins(D.Oshr, D.Kl, sh, getcon(D.s64(mask), fn), t),
+            D.Ins(D.Oand, D.Kl, bit, sh, getcon(1, fn)),
+            D.Ins(D.Ocopy, Kw, bw, bit, D.R),
+            D.Ins(D.Oand, Kw, r, inr, bw)]
+    h.ins = h.ins[:h.nins] + new
+    h.nins = len(h.ins)
+    last = chain[-1]
+    p = miss.phi
+    while p:
+        p.blk = [h if q is last else q for q in p.blk]
+        p = p.link
+    for q in chain:
+        q.ins = []
+        q.nins = 0
+        q.jmp.type = D.Jhlt  # unreachable now; fillcfg removes it
+        q.jmp.arg = D.R
+        q.s1 = q.s2 = None
+    h.jmp.arg = r
+    h.s1, h.s2 = hit, miss
+    return True
 
 
 def _samephis(t, p, q):
@@ -266,6 +339,16 @@ def run(fn):
     from . import cfg, ssa
     any_ = False
     cfg.fillloop(fn)
+    bits = False
+    if D.T.name.startswith('arm64'):
+        for b in list(fn.rpo[:fn.nblk]):
+            if b.jmp.type != D.Jhlt and _bittest(fn, b):
+                bits = True
+    if bits:
+        any_ = True
+        cfg.fillcfg(fn)
+        ssa.filluse(fn)
+        cfg.filldom(fn)
     for _ in range(6):
         cur = False
         for b in list(fn.rpo[:fn.nblk]):

@@ -491,3 +491,53 @@ uint64_t f(const uint32_t *p) {  /* a shifted 128 bits: its middle is one load, 
     m = cimo.compile(src)
     p = array.array('I', [0x11223344, 0x55667788, 0x99aabbcc, 0xddeeff00])
     assert m.f(p) == 0xcc55667788112233
+
+
+BITS = '''
+int any6(int c) { return c == 3 || c == 9 || c == 17 || c == 30 || c == 41 || c == 60; }
+int none6(int c) { return c != 3 && c != 9 && c != 17 && c != 30 && c != 41 && c != 60; }
+int low(int c) { return c == 0 || c == 1 || c == 5 || c == 7 || c == 40 || c == 63; }
+int high(int c) { return c == 100 || c == 110 || c == 120 || c == 130 || c == 140 || c == 163; }
+int neg(int c) { return c == -1 || c == -2 || c == -5 || c == -9 || c == -20 || c == -33; }
+int wide(long c) { return c == 3 || c == 9 || c == 17 || c == 30 || c == 41 || c == 60; }
+int big(long c) { return c == 0x100000003 || c == 0x100000009 || c == 0x100000011 || c == 0x10000001e || c == 0x100000029 || c == 0x10000003c; }
+int uns(unsigned char c) { return c == 200 || c == 201 || c == 205 || c == 209 || c == 230 || c == 250; }
+int far(int c) { return c == 1 || c == 2 || c == 5 || c == 9 || c == 20 || c == 65; }
+int ten(int c, int *p) { if (c == 1 || c == 4 || c == 9 || c == 14 || c == 22 || c == 27 || c == 33 || c == 40 || c == 51 || c == 60) return *p; return -1; }
+'''
+
+
+def test_bit_test_answers_as_the_comparisons():
+    import cimo
+    src = BITS
+    m = cimo.compile(src, cache=False)
+    sets = {'any6': (3, 9, 17, 30, 41, 60), 'low': (0, 1, 5, 7, 40, 63), 'high': (100, 110, 120, 130, 140, 163),
+            'neg': (-1, -2, -5, -9, -20, -33), 'wide': (3, 9, 17, 30, 41, 60),
+            'big': tuple(0x100000000 + v for v in (3, 9, 17, 30, 41, 60)),
+            'uns': (200, 201, 205, 209, 230, 250), 'far': (1, 2, 5, 9, 20, 65)}
+    edge = [-2**31, -64, -1, 0, 1, 2, 63, 64, 65, 66, 127, 128, 255, 256, 2**31 - 1]
+    for name, vals in sets.items():
+        f = getattr(m, name)
+        tries = set(edge) | set(vals) | {v + d for v in vals for d in (-1, 1)} | {v + 64 for v in vals} | {v - 64 for v in vals}
+        for c in sorted(tries):
+            if name == 'uns' and not 0 <= c < 256:
+                continue
+            if name not in ('big', 'wide') and not -2**31 <= c < 2**31:
+                continue
+            assert f(c) == (c in vals), (name, c)
+    for c in (3, 9, 60, 0, 4, 64, 67, 73, -1, 2**31 - 1):
+        assert m.none6(c) == (c not in (3, 9, 17, 30, 41, 60)), c
+    for c in (0x3, 0x9, 0x13, 2**32 + 3 + 64):
+        assert m.wide(c) == (c in (3, 9)), c  # the high bits count
+
+
+def test_bit_test_has_no_chain():
+    from cimo import driver
+    text = driver._build(BITS)[0]
+    for f in ('any6', 'none6', 'ten'):
+        b = text[text.index('\n%s:' % f):]
+        b = b[:b.index('/* end function')]
+        assert 'lsr' in b and 'ccmp' not in b, b
+    b = text[text.index('\nfar:'):]
+    b = b[:b.index('/* end function')]
+    assert 'lsr' not in b  # 64 apart: no word holds them
