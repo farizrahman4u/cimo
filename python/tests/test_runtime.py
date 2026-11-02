@@ -579,7 +579,7 @@ def test_math_in_loops_is_optimized():
 void f(int n, const double *restrict x, double *restrict y) {
     for (int i = 0; i < n; i++) y[i] = 1.0 / sqrt(x[i] * x[i] + 1.0);
 }''')
-    body = re.split(r'^f:$', text, flags=re.M)[1]
+    body = re.split(r'^_?f:$', text, flags=re.M)[1]  # Apple's symbols have a _
     if driver.TARGET.startswith('amd64'):
         assert body.count('sqrtsd') >= 4 and 'call' not in body  # unrolled by 4
         return

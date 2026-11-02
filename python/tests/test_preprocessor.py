@@ -217,7 +217,11 @@ TOKEN_CORPUS = [f for f in CORPUS if not preprocessor_compare.missing_headers(f)
 
 
 def _id(path):
-    return os.path.relpath(path, os.path.dirname(os.path.dirname(preprocessor_compare.CPROC_DIR)))
+    root = os.path.dirname(os.path.dirname(preprocessor_compare.CPROC_DIR))
+    try:
+        return os.path.relpath(path, root)
+    except ValueError:  # Windows: on another drive than the corpus
+        return path
 
 
 @pytest.mark.skipif(not HAVE_CPP, reason='needs GNU cpp')
