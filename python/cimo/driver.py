@@ -152,7 +152,11 @@ int __cimo_overflow(int, unsigned long long, int, unsigned long long, int, void 
 #define __builtin_umull_overflow(a, b, r) __cimo_ovft(2, unsigned long, a, b, r)
 #define __builtin_umulll_overflow(a, b, r) __cimo_ovft(2, unsigned long long, a, b, r)
 '''
-_CTYPE = {'w': ctypes.c_int32, 'l': ctypes.c_int64, 's': ctypes.c_float, 'd': ctypes.c_double}
+_CTYPE = {'w': ctypes.c_int32, 'l': ctypes.c_int64, 's': ctypes.c_float, 'd': ctypes.c_double,
+          # a result of class w or l of an unsigned C type (see _sigs)
+          'W': ctypes.c_uint32, 'L': ctypes.c_uint64,
+          # char and short parameters on Apple arm64 (frontend.qbe.abiclass)
+          'sb': ctypes.c_int8, 'ub': ctypes.c_uint8, 'sh': ctypes.c_int16, 'uh': ctypes.c_uint16}
 _SIG = re.compile(r'^export\s*\nfunction\s+(?:([wlsd]|:[\w.]+)\s+)?\$(\w+)\(([^)]*)\)', re.M)
 
 
@@ -425,11 +429,16 @@ def _preprocess(src, filename='<string>', include_dirs=(), host_headers=False, d
     """C source -> preprocessed text, with the prelude. defines: (name, value or None) pairs.
     target: as _qbe."""
     from .preprocessor import preprocess, PreprocessError
+    warn = None
     if host_headers:
         include_dirs = tuple(include_dirs) + tuple(_host_include_dirs())
+    if (target or TARGET) == 'arm64_apple':
+        def warn(msg):  # the SDK's sys/cdefs.h warns about every compiler but gcc and clang
+            if not msg.endswith('#warning "Unsupported compiler detected"'):
+                sys.stderr.write(msg + '\n')
     try:
         return preprocess(_PRELUDE + '#line 1\n' + src, filename, include_dirs=include_dirs,
-                          defines=list(defines) or None,
+                          defines=list(defines) or None, warn=warn,
                           target=target or TARGET, keep_attributes=True)
     except PreprocessError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
@@ -481,7 +490,7 @@ def _compile(pp, filename, host_headers):
     with _compile_lock:  # longexterns() reads what this compilation's frontend left
         ssa, params = _ir(pp, filename, host_headers)
         text = _qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
-        sigs = _sigs(ssa)
+        sigs = _sigs(ssa, params)
         if _WINDOWS:
             from .frontend.diag import longexterns
             names = longexterns()
@@ -490,9 +499,12 @@ def _compile(pp, filename, host_headers):
     return text, sigs
 
 
-def _sigs(ssa):
-    """'name ret params' lines for the exported functions of IR text."""
-    return '\n'.join('%s %s %s' % (m.group(2), m.group(1) or '-',
+def _sigs(ssa, params=None):
+    """'name ret params' lines for the exported functions of IR text. params: the frontend's
+    parameter info, which says whose w or l result is unsigned (ret W, L)."""
+    unsigned = (params or {}).get('#unsigned', ())
+    return '\n'.join('%s %s %s' % (m.group(2), (m.group(1) or '-').upper() if m.group(2) in unsigned
+                                   else m.group(1) or '-',
                                    ','.join(a.split()[0] for a in m.group(3).split(',')
                                             if a.strip()))
                      for m in _SIG.finditer(ssa))

@@ -134,3 +134,6 @@ html{scrollbar-width:thin}
   .search-open{width:auto}.search-open span,.search-open kbd,.links,.crumb{display:none}
   .pager{grid-template-columns:1fr}.pager .next{grid-column:1}
 }
+/* keep clear of the Prompt for Agents corner where the gutter is too narrow */
+@media(max-width:1527px){.top-in{padding-right:64px}}
+@media(max-width:600px){.top-in{padding-right:48px}}

@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(not ARM64, reason='arm64 code generation')
 
 
 def body(text, name='f'):
-    return text.split('\n%s:' % name)[1].split('/* end function')[0]
+    return text.split('\n%s%s:' % (X.SYM, name))[1].split('/* end function')[0]
 
 
 def pairs(text, name='f'):
@@ -144,5 +144,5 @@ def test_layout_rotates_loops():
         assert b1.count('\tb\t') < b0.count('\tb\t'), b1
     # the hot loop of `loop` ends in its own conditional branch back
     b1 = body(on, 'loop')
-    m = re.search(r'\n(\.L\d+):\n(?:\t[^\n]*\n)*?\tb(lt|gt|le|ge)\t\1\n', b1)
+    m = re.search(r'\n(\.?L\d+):\n(?:\t[^\n]*\n)*?\tb(lt|gt|le|ge)\t\1\n', b1)  # .L1 or L1 (Apple)
     assert m, b1

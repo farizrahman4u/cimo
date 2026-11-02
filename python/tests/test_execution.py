@@ -56,8 +56,11 @@ _Noreturn void never(void) { }
 long unreach(long x) { if (x) never(); return 6; }
 long rec(long n) { return n == 0 ? 0 : 1 + rec(n - 1); }
 long even(long n);
-long odd(long n) { return n == 0 ? 0 : even(n - 1); }
-long even(long n) { return n == 0 ? 1 : odd(n - 1); }
+long odd(long n) { return n == 0 ? 0 : 1 + even(n - 1); }
+long even(long n) { return n == 0 ? 0 : 1 + odd(n - 1); }
+long tail_odd(long n);
+long tail_even(long n) { return n == 0 ? 1 : tail_odd(n - 1); }
+long tail_odd(long n) { return n == 0 ? 0 : tail_even(n - 1); }
 long callback(long (*cb)(long), long x) { long r = cb(x); assert(r != 99); return r + 1; }
 long many(long a, long b, long c, long d, long e, long f, long g, long h, long i, long j)
 { assert(a != 0); return a + b + c + d + e + f + g + h + i + j; }
@@ -118,7 +121,11 @@ def test_stack_overflow(em):
     with pytest.raises(cimo.KernelError) as ei:
         em.odd(1 << 40)  # mutual recursion
     assert ei.value.function in ('odd', 'even')
-    assert em.rec(10000) == 10000 and em.even(10) == 1
+    assert em.rec(10000) == 10000 and em.even(10) == 10
+
+
+def test_tail_calls_use_no_stack(em):
+    assert em.tail_even(3000000) == 1 and em.tail_odd(3000000) == 0
 
 
 def test_stack_overflow_in_thread(em):
@@ -543,3 +550,11 @@ def test_reset_refuses_while_running(hm):
     assert m.cbk(ctypes.cast(f, ctypes.c_void_p).value) == 1
     assert seen == ['refused']
     m.reset_heap()
+
+
+def test_read_of_a_local_before_its_only_store():
+    m = cimo.compile("""int f(int c) { int x; int y = 0; if (c) y = x; x = 1; return c ? 1 : y + x; }
+int g(void) { int x; int y = x; x = 1; return y - y + x; }
+int h(int n) { int x; int s = 0; for (int i = 0; i < n; i++) { if (i) s += x; x = i; } return s; }
+""")
+    assert m.f(0) == 1 and m.f(1) == 1 and m.g() == 1 and m.h(4) == 3

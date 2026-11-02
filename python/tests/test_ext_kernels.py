@@ -28,6 +28,18 @@ FLAGSETS = {'ldp+layout': ('ldp', 'layout'), 'all': ('fma', 'ldp', 'layout'),
 FAST_SAME = {'saxpy', 'gemm', 'conv3x3', 'dot', 'nbody_acc', 'iir'}
 
 
+def _novec():
+    """clang (Apple's cc) vectorizes reductions such as dot's `s += x[i] * y[i]` into a
+    multiply and a separate add even with -ffp-contract=fast; scalar, it contracts them as
+    gcc does."""
+    try:
+        v = subprocess.run([M.CC, '--version'], stdout=subprocess.PIPE,
+                           universal_newlines=True).stdout
+    except OSError:
+        return []
+    return ['-fno-vectorize', '-fno-slp-vectorize'] if 'clang' in v else []
+
+
 @pytest.fixture(scope='module')
 def built(tmp_path_factory):
     tmp = tmp_path_factory.mktemp('ext')
@@ -38,8 +50,8 @@ def built(tmp_path_factory):
     refs = {}
     for name, opt in (('off', '-ffp-contract=off'), ('fast', '-ffp-contract=fast')):
         so = str(tmp / ('ref-%s.so' % name))
-        subprocess.run([M.CC, '-O2', opt, '-shared', '-fPIC', M.KERNELS, '-o', so, '-lm'],
-                       check=True)
+        subprocess.run([M.CC, '-O2', opt] + _novec() + ['-shared', '-fPIC', M.KERNELS, '-o',
+                                                       so, '-lm'], check=True)
         refs[name] = ctypes.CDLL(so)
     return mods, refs, tmp, src
 
@@ -108,7 +120,7 @@ def test_extensions_fire(built):
     stock = X.asm(src)
     assert 'fmadd' in s and 'fmadd' not in stock
     # loop latches end in one conditional branch back instead of "b loop" to the test
-    body = s.split('\nsaxpy:')[1].split('/* end function')[0]
+    body = s.split('\n%ssaxpy:' % X.SYM)[1].split('/* end function')[0]
     assert '\tb\t' not in body and '\tblt\t' in body
     assert s.count('\n\tb\t') * 3 < stock.count('\n\tb\t') * 2
     pairs = sum(1 for l in s.splitlines() if l.startswith(('\tldp', '\tstp'))

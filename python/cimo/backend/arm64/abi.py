@@ -279,8 +279,15 @@ def argsclass(ins, i0, i1, carg, winva=0):
             c.class_ |= Cstk
         elif op in (Oparc, Oargc):
             typclass(c, D.typ[rval(i.arg[0])], gp, fp, winva)
-            if c.align == 16 and c.ngp == 2 and gp & 1 and ngp:
-                c.hole = gpreg[gp]  # fix over C QBE: an even register pair (AAPCS64 C.8)
+            if va:
+                # fix over C QBE: Apple passes every variadic argument on the stack, structs
+                # included (by value, HFAs too; a pointer to a copy over 16 bytes)
+                c.class_ |= Cstk
+                continue
+            if c.align == 16 and c.ngp == 2 and gp & 1 and ngp and not D.T.apple:
+                # fix over C QBE: an even register pair (AAPCS64 C.8; Apple does not round
+                # up, it takes the next two registers as for any 16-byte composite)
+                c.hole = gpreg[gp]
                 gp += 1
                 ngp -= 1
                 typclass(c, D.typ[rval(i.arg[0])], gp, fp, winva)

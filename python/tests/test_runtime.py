@@ -36,6 +36,7 @@ import hosts
 HERE = os.path.dirname(os.path.abspath(__file__))
 RT = os.path.join(HERE, 'runtime')
 CIMO_PKG = os.path.dirname(os.path.abspath(cimo.__file__))
+_SYM = '_' if cimo.driver.TARGET == 'arm64_apple' else ''  # the target's symbol prefix
 # the reference compiler: on Windows a cc on PATH is MinGW for x86-64 (GitHub's arm64 image),
 # whose libraries an arm64 Python cannot load, so none there
 CC = os.environ.get('CC', 'cc') if sys.platform != 'win32' else '<none on Windows>'
@@ -515,7 +516,7 @@ def test_math_builtins_are_instructions():
     for name in ('b_sqrt', 'b_fabs', 'b_floor', 'b_ceil', 'b_trunc', 'b_round', 'b_fmin',
                  'b_fmax', 'b_fma', 'b_sqrtf', 'b_roundf', 'b_fminf', 'b_floorf', 'b_rint',
                  'b_nearbyint', 'b_rintf', 'b_nearbyintf'):
-        m = re.search(r'^%s:\n(.*?)\n\s*ret\n' % name, text, re.S | re.M)
+        m = re.search(r'^%s%s:\n(.*?)\n\s*ret\n' % (_SYM, name), text, re.S | re.M)
         assert m, name
         body[name] = m.group(1)
         assert 'bl\t' not in body[name] and 'blr' not in body[name], (name, body[name])
@@ -704,6 +705,10 @@ def test_host_data_symbols():
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <crt_externs.h>
+#define __environ (*_NSGetEnviron())
+#endif
 extern char **environ;
 int *p = &optind;
 long f(void) {
@@ -973,3 +978,33 @@ def test_compiling_in_threads():
             assert all(ex.map(one, range(16)))
     finally:
         sys.setswitchinterval(old)
+
+
+def test_unsigned_results_are_not_negative():
+    m = cimo.compile('''#include <stdint.h>
+    #include <stddef.h>
+    unsigned a(void) { return 0xffffffffu; }
+    unsigned long b(void) { return 0xffffffffffffffffUL; }
+    unsigned long long c(void) { return 0x8000000000000000ULL; }
+    uint32_t d(uint32_t x) { return x; }
+    uint64_t e(uint64_t x) { return x * 3; }
+    size_t g(void) { return (size_t)-2; }
+    unsigned char h(void) { return 255; }
+    unsigned short i(void) { return 65535; }
+    int j(void) { return -1; }
+    long k(void) { return -1; }
+    signed char l(void) { return -1; }
+    short n(void) { return -1; }
+    _Bool o(void) { return 1; }
+    unsigned q(void) { return 5; }''', cache=False)
+    assert m.a() == 2 ** 32 - 1 and m.b() == 2 ** 64 - 1 and m.c() == 2 ** 63
+    assert m.d(4000000000) == 4000000000 and m.e(2 ** 63) == 2 ** 63
+    assert m.g() == 2 ** 64 - 2 and m.h() == 255 and m.i() == 65535 and m.q() == 5
+    assert m.j() == -1 and m.k() == -1 and m.l() == -1 and m.n() == -1 and m.o() == 1
+
+
+def test_unsigned_results_from_the_cache():
+    src = 'unsigned long z(void) { return 0xffffffffffffffffUL; } /* %s */ static int s%s;' % (
+        (os.urandom(4).hex(),) * 2)
+    assert cimo.compile(src).z() == 2 ** 64 - 1
+    assert cimo.compile(src).z() == 2 ** 64 - 1  # the same entry, from memory or disk

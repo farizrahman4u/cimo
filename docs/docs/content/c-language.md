@@ -38,13 +38,23 @@ Each of these is a compile error that names the problem:
 
 | Type | Size |
 |---|---|
-| `char` | 1 byte, unsigned (as on Linux arm64) |
+| `char` | 1 |
 | `short` | 2 |
 | `int` | 4 |
 | `long`, `long long`, pointers, `size_t` | 8 |
 | `float` / `double` | 4 / 8 |
 
 These are the same on every target, including WebAssembly, where cimo keeps `long` and pointers 64-bit.
+
+A few things follow the platform's C ABI, so that kernels can call its libraries and use its headers:
+
+| | Linux, Pyodide | macOS | Windows |
+|---|---|---|---|
+| plain `char` | unsigned | signed | signed |
+| `wchar_t` | 4 bytes | 4 bytes | 2 bytes |
+| `long double` | compile error | 8 bytes, same as `double` | 8 bytes, same as `double` |
+
+Write `signed char` or `unsigned char` when the sign matters: `char c = 200; return c > 0;` returns 1 on Linux and 0 on macOS and Windows.
 
 ## Floating point
 

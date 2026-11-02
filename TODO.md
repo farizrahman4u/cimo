@@ -20,8 +20,9 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    of the loops the middle end already analyzes. Closes the 1.58x gap to gcc `-O3`.
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.
-7. **macOS (Apple silicon).** Never run: `MAP_JIT` loader, `tpidrro_el0` contexts, Mach-O
-   assembly, Apple ABI variant. Needs `python/tests` on an M-series Mac.
+7. ~~**macOS (Apple silicon).**~~ **Done:** the suite, corpora and examples pass on an M-series
+   Mac, ABI checked against Apple clang, CI job `macos-arm64` (see "macOS on Apple silicon" in
+   `requirements.md`).
 8. **SIGSEGV/SIGBUS in a kernel kills the process.** Turn faults inside module code into
    `KernelError` (signal handler that unwinds to the entry trampoline when the pc is in a
    module; chain to Python's handler otherwise). On Windows an access violation ends the
@@ -38,6 +39,8 @@ per compile time first. Sources: `../llvm-project` (`llvm/lib/Passes/PassBuilder
 `llvm/lib/Target/AArch64/AArch64TargetMachine.cpp`), `../gcc` (`gcc/passes.def`), both shallow
 sparse clones. **Licenses:** cimo is MIT. LLVM is Apache-2.0 with the LLVM exception: porting is
 fine, with its notice kept. GCC is GPL: read for what it does, never translate its code.
+**Follow them by default:** read what LLVM and gcc do and emit (`clang.exe` from VS and gcc are on this
+machine) before designing anything. Differ only with a measurement showing they lose, and record it.
 **Rules for each:** behind `backend.ext` (stock QBE stays byte-identical), measured with
 `bench/` and scramjit's `bench/gcc.py` before and after including compile time, tests, then Csmith.
 A pass that doesn't pay for its compile time is recorded here and dropped; cimo compiles at run time
@@ -46,42 +49,60 @@ in Python.
 **Tier 1, instruction selection and peepholes** (seen in today's output; no analysis needed):
 - ~~Frame only when needed, shifts by an immediate, register-offset addressing, `madd`, `msub`,
   `cbz`, `cbnz`~~ **Done** (`ext.isel`).
-- Pre/post-index addressing (`AArch64LoadStoreOpt`, GCC `inc_dec`).
-- Shifted and extended operands: `add x0, x0, x1, lsl #4`, `add x0, x0, w1, sxtw`.
-- `mneg`, `fnmul` (`MachineCombiner`, GCC `combine`).
+- ~~Pre/post-index addressing, `ldp`/`stp` with write-back~~ **Done** (`isel.sinkinc`, `emit._writeback`).
+- ~~Shifted and extended operands~~ **Done, outside loops only:** folded, `add`/`sub`/`eor` take 2 cycles
+  from every input here (`s += x[i] << 3`: 0.72 ns folded, 0.38 not; through the shifted value 12%
+  better; off any chain the same). Measure on other CPUs: LLVM always folds single uses.
+- ~~`mneg`, `fnmul`~~ **Done** (`ext.isel`).
 - ~~`csel`, `fcsel`~~ **Done** (`ext.isel`; policy from `SimplifyCFG`, `EarlyIfConversion`). Then
-  `csinc`, `csneg`, `cneg`, `csetm`. wasm `select`.
+  wasm `select`.
 - `cbz`, `cbnz`, `tbz`, `tbnz` (`AArch64CondBrTuning`), `tst`, `cmp`/`cmn` dropped after a flag-setting
   `subs`/`adds`/`ands` (`AArch64ConditionOptimizer`, GCC `compare_elim_after_reload`), `ccmp` for `a && b`
   (`AArch64ConditionalCompares`).
-- `bic`, `orn`, `eon`, `mvn`, `ubfx`, `sbfx`, `ubfiz`, `bfi`, `bfxil`, `extr`/`ror`.
-- `xzr` and `wzr` as operands: `str xzr, [x0]`; `movi`/`fmov #imm` for FP constants (2.0, 0.0).
-- Redundant extensions (`ldrb` then `uxtb`; GCC `ree`, `ext_dce`).
-- Division by a constant: multiply by the inverse (`TargetLowering::BuildSDIV`/`BuildUDIV`, Hacker's
-  Delight), signed powers of two with shifts. `mul` by 2^n+-1 as `add`/`sub` with a shift.
+- ~~`bic`, `orn`, `eon`, `mvn`, `ubfx`, `sbfx`, `ror`, storing `xzr`, `fmov` immediates~~ **Done**
+  (`ext.isel`), and `csinc`/`csneg`/`csinv`, `xzr` in `csel`, `ubfiz`, `tst`/`tbz`/`tbnz`, identical compares
+  dropped, `mul` by constants near powers of two, sibling calls, self tail recursion as a loop
+  (`inline.selftail`), `csetm`, `ccmp` also for values and for `&&` through a flag variable
+  (`thread._ifcombine`, `isel._ccmp`), `bfi`, `bfxil` (`isel.selbfi`), flags from `ands`/`adds`/`subs`
+  (`emit._flagsfrom`), `tbz`/`tbnz` on the sign. Open: `mi`/`pl` after `subs`/`adds`.
+- ~~Redundant extensions (GCC `ree`)~~ **Done** where a `w` write already cleared the top (`isel._DEF32`), and
+  logical immediates on `w`, which went through a register. Open: demanded bits (`BDCE`, GCC `ext_dce`).
+- ~~Division by a constant~~ **Done** (`cse.divconst`). `mul` by 2^n+-1 as `add`/`sub` with a shift.
+  ~~Large constants and global addresses built outside loops~~ **Done** (`cse.hoistcons`, `MachineLICM`, GCC
+  `rtl_move_loop_invariants`): `H[i] += G[i]` 0.68 to 0.34 ns. Open: rematerializing when out of registers.
 - Tail calls and sibling calls (`TailCallElim`, GCC `tail_recursion`, `tail_calls`), loops for
-  self-recursion. Jump tables for dense `switch` (`lower_switch`, `if_to_switch`).
+  self-recursion. ~~Jump tables for dense `switch`~~ **Done**, from 16 cases, not LLVM's 4: per element, tree /
+  table, random cases: 4 cases 5.0 / 6.5 ns, 8 cases 7.5 / 7.2, 16 cases 9.0 / 7.6, 32 cases 11.3 / 7.8; a few
+  dominant cases 4.5 / 5.6. Measure on other CPUs. ~~Value tables~~ **Done** (`emit._valuetable`), LLVM's 4 cases and 40% density: 0.85 ns
+  per element from 4 cases on against 3.8 to 7.8 for the tree. Open: bit tests for `c == 1 || c == 2 || c == 5`.
 
 **Tier 2, scalar IR passes:**
 - Algebraic simplification: `InstCombine`, `AggressiveInstCombine`, GCC `forwprop`/`match.pd`.
-- Value ranges and known conditions: `ConstraintElimination`, `CorrelatedValuePropagation`, GCC `vrp`,
-  `dominator`; removes bounds checks from what dominating conditions prove (`top > 0` then
-  `top - 1 >= 0`). `SCCP`/GCC `ccp`, `BDCE` and known bits, `ADCE`/GCC `cd_dce`.
-- Jump threading (`JumpThreading`, GCC `thread_jumps`, `DFAJumpThreading`) and loop unswitching
-  (`SimpleLoopUnswitch`, GCC `tree_unswitch`).
+- ~~Value ranges and known conditions~~ **Done** (`simplify.srange`, `simplify.decide`, known bits): facts
+  from dominating branches, counters that only grow. `SCCP`, `ADCE` **done** (`backend/scalar.py`). Open: `nsw`
+  from the frontend, for `x + 1 > x` and `x * 2 == 8`, which the wrapping IR can't assume.
+- ~~Jump threading~~ **Done** (`backend/thread.py`), for joins that only branch. Open: threading through
+  blocks with other work, by copying them (`DFAJumpThreading`).
+- ~~Loop unswitching~~ **Done** (`middle/unswitch.py`), small innermost loops with one exit block.
 - If-conversion with a cost model: `SimplifyCFG` (speculate at most 4 cost units), `SelectOptimize`
   (select back to a branch when predictable), `EarlyIfConversion` (trace metrics); GCC `phiopt`,
   `cselim`, `tree_ifcombine`. Replaces the one-block-body rule in `middle/ifconv.py`.
-- `Reassociate`/GCC `reassoc`, `StraightLineStrengthReduce`/GCC `strength_reduction`, `SpeculativeExecution`.
-- Memory: `SROA`/GCC `sra`, `DSE`, `MemCpyOpt`, `MergedLoadStoreMotion`, `GVN` load PRE/GCC `pre`, GCC
-  `store_merging`, `sink_code`, `MergeICmps`, `ExpandMemCmp`.
-- GCC `cse_reciprocals`, `cse_sincos`, `expand_pow`, `optimize_bswap`, `optimize_widening_mul`, `strlen`.
-- Inlining with a real cost model (`InlineCost`), `DeadArgumentElimination`, `IPSCCP`, `GlobalOpt`,
-  `FunctionAttrs` (pure, nocapture: loads and stores survive calls), `ModRef`/GCC `ipa_modref`,
-  `PartialInliner`, `GlobalDCE`, `ConstantMerge`, `MergeFunctions`/GCC `ipa_icf`.
+- ~~`Reassociate`~~ **Done** for constants, sums and `a * b + a * c` (`cse.reassoc`), range checks as one
+  comparison (`cse.ranges`). Open: `StraightLineStrengthReduce`/GCC `strength_reduction`, `SpeculativeExecution`.
+- ~~Local `DSE`, `MergedLoadStoreMotion`, GVN hoisting, GCC `store_merging`, small `memcpy`, `memset`, `strlen`
+  of a literal, `pow(x, 2)`, `ExpandMemCmp` for `== 0`, loads of constant globals~~ **Done** (`backend/memopt.py`,
+  `frontend.qbe`, `inline.constglobals`), `SROA` (`backend/sroa.py`), load PRE for one missing way in and `DSE`
+  across a branch (`memopt.pre`, `memopt.dse`). Open: `MemCpyOpt`, `MergeICmps`.
+- ~~GCC `optimize_bswap`, load combining~~ **Done** on arm64 (`cse.bytepatterns`); wasm could have the loads.
+  Open: GCC `cse_reciprocals`, `cse_sincos`, `expand_pow`.
+- ~~`DeadArgumentElimination`, `IPSCCP`, `GlobalDCE`, readonly from `FunctionAttrs`~~ **Done** (`inline.ipo`,
+  `inline.expand_all`). Open: nocapture, `ModRef`/GCC `ipa_modref`, `PartialInliner`, `ConstantMerge`,
+  `MergeFunctions`/GCC `ipa_icf`. Inlining with a cost model (`InlineCost`): no benchmark moves between size
+  limits 40, 100 and 225 (only 0 is worse: scramjit's viewshed 3.48 against 4.05 ms), so 40 stays for now.
 
 **Tier 3, loops** (`middle/`, which has unrolling, unroll-and-jam, scalar replacement, strength reduction):
-- `LoopRotate`, `IndVarSimplify`/GCC `iv_canon`, `LoopDeletion`, `LoopSimplifyCFG`, `LICM` scalar promotion.
+- `LoopRotate`, `IndVarSimplify`/GCC `iv_canon`, `LoopSimplifyCFG`, `LICM` scalar promotion. ~~`LoopDeletion`~~
+  **Done** for loops that count (`scalar._deadloops`).
 - `LoopIdiomRecognize`: memset, memcpy, popcount, ctz. GCC `crc_optimization`.
 - `LoopStrengthReduce`/GCC `iv_optimize`, with `AArch64` addressing modes as its cost.
 - Store-to-load across iterations: `LoopLoadElimination`, GCC `predcom` (scramjit's `ema`).
@@ -103,6 +124,33 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
+- **A faster `Kernel.__call__`** (requested by scramjit, 2026-11-01). On quiet arm64 Linux with ints and an
+  int address for the pointer, a call costs about 905 ns where the underlying ctypes call is about 450, so the
+  wrapper is about 450 ns, for any caller making many small calls. Passing a buffer costs more: a numpy array
+  about 1,200 ns more (`__array_interface__`; `addressof(c_char.from_buffer(a))` is much less, falling back for
+  read-only arrays), a `bytearray` more again (`memoryview` and `from_buffer`). Only those totals were measured;
+  the likely pieces, from reading the code, are the argument list comprehension, `self._state.ctx()` and the
+  `try`/`finally` for stdout. Idea: choose a per-kernel call function when it's created, from its parameters
+  (no pointers means no list; no stdout means no `finally`). In Pyodide a call is about 13 us, not broken down;
+  the JavaScript wrapper converting i64 parameters to BigInt is a suspect. Reproduce with a loop over
+  `kernel(1, 2, addr)`. **When done, note it in scramjit's `TODO.md`.**
+- **Say whether a compile came from the cache** (requested by scramjit, 2026-11-01): a public attribute on the
+  module, or a compile time. `scramjit preflight --run` wants to show `disk` instead of a time, and can't tell.
+  **When done, note it in scramjit's `TODO.md`.**
+- **WebAssembly: a call through a function pointer that takes a pointer traps** (found by scramjit, 2026-11-01).
+  Calling Pyodide's libm `frexp` by address, cast to `double (*)(double, int *)`, gives "null function or
+  function signature mismatch"; doubles and ints are fine (`ldexp`, `sin`). cimo's wasm pointers don't match
+  the main module's `i32`. It affects any kernel calling into a host library by pointer, or a callback taking
+  one. scramjit worked around it by computing `frexp` from the float's bits. **When done, note it in
+  scramjit's `TODO.md`.**
+- **Make the CLI framework public, or a small package** (requested by scramjit, 2026-11-01, low priority).
+  scramjit's command line copies `cli/term.py`, `cli/parse.py` and `cli/completion.py`, because they aren't
+  public API, so a fix to one needs copying by hand.
+- **Ctrl-C can't stop a running kernel** (found by scramjit, 2026-11-01): Python's handler only runs between
+  bytecodes, so `KeyboardInterrupt` waits until the kernel returns, and an infinite loop can only be killed.
+  Every cimo user has this. scramjit is adding a check of its own to the C it generates; if cimo offers a
+  general way (an interruptible loop flag in the execution context, set from the entry path), scramjit would
+  use that instead.
 - **A public way to get a module's WebAssembly** (requested by scramjit): its site demo shows the
   compiled kernel's disassembly and calls `cimo.wasm.build` for the bytes, as cimo's own demo does,
   which isn't documented API. For example `module.wasm` (bytes, in Pyodide) and making
@@ -129,6 +177,17 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   (`ema` 5.12 to 3.33 ns, a wrapping-add sum 2.05 to 0.34 ns). Costs 13-38% compile time and about
   25-30% more code on `t_printf` and `t_math`. Open: drop a static function once every call is
   inlined (its definition is still compiled and emitted); honor `noinline`.
+- **Inlining stops by position in a large function** (from scramjit): `inline.CALLER_LIMIT` (4000 IR
+  instructions) is spent in source order, so later code keeps its calls however hot it is and however
+  small the callee. A llama2.c forward pass as one function (scramjit's `bench/llm.py`) called
+  one-instruction helpers three times per element in its matrix loops: 28 tok/s, against 89 with the
+  limit lifted (compile 0.8 to 1.4 s). Exempt callees no bigger than the call they replace, which
+  shrinks the caller, and spend the rest of the budget on the deepest loops first. scramjit made its
+  four wrapping helpers macros because of this; its other helpers still hit the limit.
+- **FMA contraction slows reductions on arm64**: `s += a[i] * b[i]` runs 2.15 ns per element with `fmadd`,
+  1.81 with `fmul` and `fadd` (`-ffp-contract` shows the same in gcc: `bench/llm.py`'s C at `-O3`, 63 tok/s
+  with, 82 without), probably the latency on the sum (not measured on other cores). Contraction is on
+  by default. Measure on other arm64 cores, then consider not contracting when `c` is carried round the loop.
 - **Linking the host libm for math calls** (requested by scramjit; see the scramjit paragraph in
   `requirements.md`): needed for results bit-identical to CPython's on native targets, on Linux,
   macOS and Windows. **When done, note it in scramjit's `TODO.md`.**

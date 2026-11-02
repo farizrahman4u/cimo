@@ -23,10 +23,13 @@ Flags:
   bigcopy None, or a size: a struct argument of at least that many bytes is copied by a call
           to memcpy instead of an unrolled blit (arm64)
   isel    arm64 selection beyond QBE's: shifts by an immediate, register-offset addressing
-          (`ldr x0, [x1, x2, lsl #3]`, `[x1, w2, sxtw #2]`), madd/msub, cbz/cbnz, no frame in a
-          leaf function that needs no stack
+          (`ldr x0, [x1, x2, lsl #3]`, `[x1, w2, sxtw #2]`), madd/msub/mneg, cbz/cbnz, csel/fcsel,
+          shifted and extended operands outside loops, bic/orn/eon/mvn, ubfx/sbfx, ror, fnmul,
+          storing xzr, fmov immediates, no frame in a leaf function that needs no stack
   cse     load elimination again after gvn, identical integer divisions merged, remainders
-          computed from the division of the same operands on arm64 (cimo.backend.cse)
+          computed from the division of the same operands on arm64 (cimo.backend.cse), algebra,
+          known bits and facts from dominating branches (cimo.backend.simplify), jump threading
+          (cimo.backend.thread)
   inline  0, or a size: copy functions of at most that many instructions into the callers
           that follow them in the module (cimo.backend.inline)
   vla     accept getsp/setsp in the IR text (`%s =l getsp`, `setsp %s`), which cimo.frontend

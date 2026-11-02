@@ -4,7 +4,7 @@ import sys
 from functools import cmp_to_key
 
 from . import defs as D
-from .defs import (R, RTmp, RCon, RInt, M64, CAddr, Con, Ins, Phi, Kw, Kl, Ks, Kd,
+from .defs import (R, RTmp, RCon, RInt, M64, KBASE, CAddr, Con, Ins, Phi, Kw, Kl, Ks, Kd,
                    ALoc, AEsc, AUnk, ACon, ASym, NoAlias, MayAlias, MustAlias,
                    Oloadsb, Oloadub, Oloadsh, Oloaduh, Oloadsw, Oloaduw, Oload,
                    Ostoreb, Ostoreh, Ostorew, Ostorel, Ostores, Ostored, Ocast, Oextuw,
@@ -110,6 +110,17 @@ def storesz(s):
     die("unreachable")
 
 
+nomemcalls = frozenset()  # cimo: symbol ids of functions that write no memory (inline.expand_all)
+
+
+def _nomem(call):
+    r = call.arg[0]
+    if not nomemcalls or rtype(r) != RCon:
+        return False
+    c = curf.con[rval(r)]
+    return c.type == CAddr and c.i == 0 and c.sym.id in nomemcalls
+
+
 def iins(cls, op, a0, a1, l):
     global inum
     ist = _newlog()
@@ -161,29 +172,34 @@ def load(sl, msk, l):
         cls = sl.cls
     else:
         cls = Kl if sl.sz > 4 else Kw
+    if KBASE(cls) == 1:  # fix over C QBE: there is no loaduw of class s (dead code there too)
+        ld = Oload
     r = sl.ref
     # sl.ref might not be live here,
     # but its alias base ref will be
     # (see killsl() below)
-    # fix over C QBE: rebase() moves a load's constant offset from its address into sl.off,
-    # which the address of a load inserted here ignored, so a load of p+24 hoisted out of a
-    # loop read p (gcc's 20011008-3.c, once ext.cse ran load elimination after gvn)
-    off = sl.off
+    # fix over C QBE: the slice's own offset (rebase moves the address's offset there, and a blit's
+    # source has one) was dropped: a load moved up a loop read the start of the object. Dead code
+    # in C QBE, where loadopt runs before fillloop, so no load is ever inserted (ext.cse runs it after)
     if rtype(r) == RTmp:
         a = curf.tmp[rval(r)].alias
         if a.type in (ALoc, AEsc, AUnk):
             r = TMP(a.base)
-            if a.offset + off:
-                r1 = getcon(a.offset + off, curf)
+            if a.offset + sl.off:
+                r1 = getcon(a.offset + sl.off, curf)
                 r = iins(Kl, Oadd, r, r1, l)
         elif a.type in (ACon, ASym):
             c = Con()
             c.type = CAddr
             c.sym = a.sym.copy()
-            c.i = a.offset + off
+            c.i = a.offset + sl.off
             r = newcon(c, curf)
         else:
             die("unreachable")
+    elif rtype(r) == RCon and sl.off:
+        c = curf.con[rval(r)].copy()
+        c.i += sl.off
+        r = newcon(c, curf)
     r = iins(cls, ld, r, R, l)
     if not all_:
         r = mask(cls, r, msk, l)
@@ -251,7 +267,7 @@ def def_(sl, msk, b, i, il):
     while i > 0:
         i -= 1
         ins = b.ins[i]
-        if killsl(ins.to, sl) or (ins.op == Ocall and escapes(sl.ref, curf)):
+        if killsl(ins.to, sl) or (ins.op == Ocall and not _nomem(ins) and escapes(sl.ref, curf)):
             return Load()
         if ins.op in (Ovaarg, Ovastart) and \
                 alias(sl.ref, sl.off, sl.sz, ins.arg[0], 32, curf)[0] != NoAlias:
@@ -308,7 +324,10 @@ def def_(sl, msk, b, i, il):
             if (msk1 & msk) == 0:
                 continue
             if ins.op == Oblit0:
-                r = def_(sl1, MASK(sz), b, i, il)
+                # fix over C QBE: no load of the blit's source at il, below the blit, where it may
+                # have changed since (and sl1 may have no load of its size); il's own load is fine
+                il1 = il if il.type != LLoad else Loc(LNoLoad, il.off, il.blk)
+                r = def_(sl1, MASK(sz), b, i, il1)
                 if r == R:
                     return Load()
             if off:

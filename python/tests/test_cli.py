@@ -215,7 +215,7 @@ def test_compile_stages(capsys, prog, tmp_path):
     out_s = str(tmp_path / 'k.s')
     status, _, err = run(capsys, 'compile', '-S', '-DN=1', p, '-o', out_s)
     assert status == 0 and 'Wrote' in err
-    assert '.globl f' in open(out_s).read()
+    assert '.globl %sf' % ('_' if driver.TARGET == 'arm64_apple' else '') in open(out_s).read()
     status, _, err = run(capsys, 'compile', '-DN=1', p)
     assert status == 0 and 'compiled' in err and 'f(int32)' in err
 
@@ -274,7 +274,7 @@ def test_bash_completion(tmp_path):
     os.chmod(tmp_path / 'cimo', 0o755)
     (tmp_path / 'hello.c').write_text('')
     script = r'''
-source <(cimo completion bash)
+eval "$(cimo completion bash)"
 t() { COMP_WORDS=("$@"); COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 )); _cimo; echo "${COMPREPLY[*]}"; }
 t cimo co
 t cimo compile --emit a
