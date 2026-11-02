@@ -78,7 +78,7 @@ in Python.
   self-recursion. ~~Jump tables for dense `switch`~~ **Done**, from 16 cases, not LLVM's 4: per element, tree /
   table, random cases: 4 cases 5.0 / 6.5 ns, 8 cases 7.5 / 7.2, 16 cases 9.0 / 7.6, 32 cases 11.3 / 7.8; a few
   dominant cases 4.5 / 5.6. Measure on other CPUs. ~~Value tables~~ **Done** (`emit._valuetable`), LLVM's 4 cases and 40% density: 0.85 ns
-  per element from 4 cases on against 3.8 to 7.8 for the tree. Open: bit tests for `c == 1 || c == 2 || c == 5`.
+  per element from 4 cases on against 3.8 to 7.8 for the tree.
 
 **Tier 2, scalar IR passes:**
 - Algebraic simplification: `InstCombine`, `AggressiveInstCombine`, GCC `forwprop`/`match.pd`.
@@ -87,6 +87,9 @@ in Python.
 - ~~`nsw` from the frontend~~ **Done** (`backend/nowrap.py`, `compile(wrapv=True)` for `-fwrapv`): comparisons,
   divisions and LLVM's `WidenIV`; wasm doesn't get it yet. Open: LFTR and the middle end's overflow guards,
   `nsw` on `shl`, `add` with an invariant step.
+- ~~Bit tests~~ **Done for `||` and `&&` chains** (`thread._bittest`), from 6 values and branch-free, where LLVM
+  branches from 3 (measured in its docstring). Open: `switch` with several cases to one target, which reaches
+  the backend as a tree.
 - ~~Jump threading~~ **Done** (`backend/thread.py`), for joins that only branch. Open: threading through
   blocks with other work, by copying them (`DFAJumpThreading`).
 - ~~Loop unswitching~~ **Done** (`middle/unswitch.py`), small innermost loops with one exit block.
