@@ -1075,8 +1075,18 @@ def callable(r, fn):
     return 0
 
 
+_qdest = [R]  # what the q instruction that takes its third operand from the one before writes
+
+
 def sel(i, fn):
     """i is a copy (C passes Ins by value)."""
+    if i.op in (D.Oqfma0, D.Oqsel0):  # cimo (ext.vector): fmla and bsl keep their third operand in the destination
+        d = _qdest[0]
+        emit(i.op, D.Kq, R, d, R)
+        emit(Ocopy, D.Kq, d, i.arg[0], R)
+        return
+    if i.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1):
+        _qdest[0] = i.to
     if D.isqop(i.op):  # cimo (ext.vector): registers, and a plain address
         emiti(i)
         iarg = D.insb[D.curi].arg

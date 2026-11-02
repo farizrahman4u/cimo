@@ -222,6 +222,26 @@ def test_loop_with_a_phi():
     assert list(got) == want
 
 
+@pytest.mark.parametrize('rotate', [2, 5, 40])
+def test_phis_under_pressure(rotate):
+    """Vector phis that rotate, more of them than registers: the moves between them go through stack slots."""
+    names = ['p%d' % k for k in range(rotate)]
+    phis = ''.join('\t%%%s =q phi @s %%x, @l %%%s\n' % (names[k], ('n' if k == 0 else names[k - 1])) for k in range(rotate))
+    summed = ['\t%%t0 =q qaddw %%y, %%%s\n' % names[0]]
+    summed += ['\t%%t%d =q qaddw %%t%d, %%%s\n' % (k, k - 1, names[k]) for k in range(1, rotate)]
+    body = LOADS + '\tjmp @h\n@h\n\t%i =w phi @s 0, @l %j\n' + phis + '\t%c =w csltw %i, 7\n\tjnz %c, @l, @e\n@l\n' \
+        + ''.join(summed) + '\t%%n =q qaddw %%t%d, %%y\n\t%%j =w add %%i, 1\n\tjmp @h\n@e\n\t%%r =q qaddw %%%s, %%%s\n\tqstore %%r, %%d' % (rotate - 1, names[0], names[-1])
+    a, b = [1, 2, 3, 4], [10, 20, 30, 40]
+    got = struct.unpack('<4i', run(body, struct.pack('<4i', *a), struct.pack('<4i', *b)))
+    want = []
+    for x, y in zip(a, b):
+        ps = [x] * rotate
+        for _ in range(7):
+            ps = [y + sum(ps) + y] + ps[:-1]
+        want.append(wrap('w', ps[0] + ps[-1]))
+    assert list(got) == want
+
+
 @pytest.mark.parametrize('live', [1, 3, 12])
 def test_live_across_a_call(live):
     """A call keeps at most the low 64 bits of an FP register. The callee here wipes all of v0 to v31."""

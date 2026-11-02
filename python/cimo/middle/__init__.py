@@ -25,11 +25,12 @@ import contextlib
 
 enabled = False
 params = {}      # function name -> [(tmp name, restrict)]
+vectorizing = __import__('os').environ.get('CIMO_VECTORIZE', '1') != '0'  # auto-vectorize where the target can (ext.vector)
 unroll = 4       # main unroll factor for innermost loops (1 disables unrolling)
 debug = False    # print the IR before/after to stderr
 stats = None     # optional dict: counters of transformations applied
 
-_NAMES = ('enabled', 'params', 'unroll', 'debug', 'stats')
+_NAMES = ('enabled', 'params', 'unroll', 'debug', 'stats', 'vectorizing')
 
 
 def configure(**kw):

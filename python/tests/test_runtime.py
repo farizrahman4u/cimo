@@ -594,7 +594,7 @@ void f(int n, const double *restrict x, double *restrict y) {
     if driver.TARGET.startswith('amd64'):
         assert body.count('sqrtsd') >= 4 and 'call' not in body  # unrolled by 4
         return
-    assert text.count('fsqrt') >= 4  # unrolled by 4
+    assert 'fsqrt\tv' in body  # vectorized
     assert '\tbl\t' not in body
 
 

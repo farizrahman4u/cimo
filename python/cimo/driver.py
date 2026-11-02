@@ -466,6 +466,11 @@ def _contract():
     return FMA if v is None else v
 
 
+def _vectorizes():
+    from . import middle as _middle
+    return _middle.vectorizing
+
+
 def _wraps():
     """Whether signed overflow wraps in this compile: its wrapv= argument, else the process default."""
     v = _wrapv.get()
@@ -477,7 +482,7 @@ def _key(pp):
     image contains the runtime members it uses), the target and the code generation options."""
     return hashlib.sha256(
         _VERSION + _link.compiler_key().encode() + _link._key(TARGET).encode() + TARGET.encode()
-        + (b'm' if MIDDLE else b'') + (b'f' if _contract() else b'') + (b'v' if _wraps() else b'') + b'i%d' % INLINE
+        + (b'm' if MIDDLE else b'') + (b'f' if _contract() else b'') + (b'v' if _wraps() else b'') + (b'V' if _vectorizes() else b'') + b'i%d' % INLINE
         + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
 
 

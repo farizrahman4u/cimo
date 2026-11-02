@@ -497,8 +497,21 @@ def _qins(i, e):
     f = e.f
     op = i.op
     if op == Ocopy and i.cls == D.Kq:
-        if rtype(i.to) == RSlot or rtype(i.arg[0]) == RSlot:
-            die("128-bit copy through memory")
+        if rtype(i.to) == RSlot or rtype(i.arg[0]) == RSlot:  # register allocation's moves, of what's spilled
+            if req(i.to, i.arg[0]):
+                return True
+            tmpreg = 31
+            if rtype(i.arg[0]) == RSlot:
+                if rtype(i.to) == RSlot:
+                    f.write("\tldr\tq31, %s\n" % _qaddr(i.arg[0], e))
+                else:
+                    tmpreg = rval(i.to) - V0
+                    f.write("\tldr\tq%d, %s\n" % (tmpreg, _qaddr(i.arg[0], e)))
+                    return True
+            else:
+                tmpreg = rval(i.arg[0]) - V0
+            f.write("\tstr\tq%d, %s\n" % (tmpreg, _qaddr(i.to, e)))
+            return True
         if not req(i.to, i.arg[0]):
             f.write("\tmov\t%s, %s\n" % (_qv(i.to), _qv(i.arg[0])))
         return True

@@ -33,7 +33,7 @@ from ..backend.util import newtmp
 from . import ir
 from .ir import Bail, Emitter
 from .affine import Analysis
-from .inner import Shape, Control
+from .inner import Shape, Control, vectorizable
 import cimo.middle as M
 
 MAXINNER = 40
@@ -64,6 +64,8 @@ def transform(fn, O, rts, done):
     shi = Shape(fn, I)
     if shi.pre is not Bpre or Bpre.npred != 1 or Bpre.phi:
         raise Bail('inner preheader')
+    if vectorizable(fn, I, rts):  # as LLVM, where unroll-and-jam is off by default: lanes beat a second row
+        raise Bail('the inner loop vectorizes')
     Ej = shi.E
     if Ej not in O.blocks or Ej.npred != 1 or Ej.jmp.type != D.Jjmp or Ej.s1 is not Ho \
             or Ej.phi or O.latches[0] is not Ej:

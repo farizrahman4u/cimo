@@ -33,6 +33,8 @@ from ..backend.util import iscmp, newtmp
 from . import ir
 from .ir import Bail, Emitter
 from .affine import Analysis, Lin, AV, norm
+from . import vectorize
+from ..backend import ext as _ext
 import cimo.middle as M
 
 MAXFULL = 16         # full unrolling: at most this many iterations
@@ -205,6 +207,8 @@ class Fast:
         self.chains = []
         self.srload = {}       # load tmp -> (chain, position)
         self.chk = set()       # ids of the extension checks the fast loop relies on
+        self.vf = 0            # lanes, when the main loop is vectorized
+        self.vchecks = ()      # and the arrays to compare before it
 
     # ---------- materialization of invariant values (in self.em, memoized)
 
@@ -686,24 +690,31 @@ def _replace_outside(fn, lp, H, newexit, E, env, newblocks):
         b.jmp.arg = _m(env, b.jmp.arg)
 
 
-def transform(fn, lp, rts, done, mode='opt'):
-    """Optimize innermost loop lp; returns True if the function changed. mode 'full': only
-    full unrolling of small constant-trip loops; 'opt': everything else."""
+def _lanes(fn, lp, sh, A, ctl, rts):
+    if not (_ext.vector and D.T.name.startswith('arm64') and M.vectorizing):
+        return 0
+    probe = Fast(fn, lp, sh, A, rts)
+    probe.ctl = ctl
+    probe.plan(1)
+    vf = vectorize.plan(probe, rts)
+    return (vf, probe.vchecks) if vf else 0
+
+
+def vectorizable(fn, lp, rts):
+    """Whether transform() would vectorize innermost loop lp (for jam, which would take that from it)."""
+    if not (_ext.vector and D.T.name.startswith('arm64') and M.vectorizing):
+        return False
     sh = Shape(fn, lp)
     A = Analysis(fn, lp, sh.order)
     A.fn_con0 = ir.getcon(0, fn)
     ctl = Control(A, sh)
-    nbody = sum(ir.ins(b).__len__() for b in sh.order)
-    T = ctl.const_trips(MAXFULL)
-    if mode == 'full':
-        if T is not None and T * nbody <= MAXFULLINS:
-            full_unroll(fn, lp, sh, A, ctl, T)
-            return True
-        return False
-    if T is not None and T <= 1:
-        return False
+    A, ctl = _hoisted(fn, lp, sh, A, ctl, rts)[:2]
+    return bool(_lanes(fn, lp, sh, A, ctl, rts))
 
-    # memory: hoistable loads, stores
+
+def _hoisted(fn, lp, sh, A, ctl, rts):
+    """The analysis again with invariant loads that nothing in the loop can change as invariants. Returns it with those
+    loads and the function that says which load no store can change."""
     loads = []
     stores = []
     for b in sh.order:
@@ -729,17 +740,46 @@ def transform(fn, lp, rts, done, mode='opt'):
         A = Analysis(fn, lp, sh.order, frozenset(hoist))
         A.fn_con0 = ir.getcon(0, fn)
         ctl = Control(A, sh)
+    return A, ctl, hoist, noalias_load
 
+
+def transform(fn, lp, rts, done, mode='opt'):
+    """Optimize innermost loop lp; returns True if the function changed. mode 'full': only
+    full unrolling of small constant-trip loops; 'opt': everything else."""
+    sh = Shape(fn, lp)
+    A = Analysis(fn, lp, sh.order)
+    A.fn_con0 = ir.getcon(0, fn)
+    ctl = Control(A, sh)
+    nbody = sum(ir.ins(b).__len__() for b in sh.order)
+    T = ctl.const_trips(MAXFULL)
+    if mode == 'full':
+        if T is not None and T * nbody <= MAXFULLINS:
+            full_unroll(fn, lp, sh, A, ctl, T)
+            return True
+        return False
+    if T is not None and T <= 1:
+        return False
+
+    # memory: hoistable loads, stores
+    A, ctl, hoist, noalias_load = _hoisted(fn, lp, sh, A, ctl, rts)
+
+    lanes = _lanes(fn, lp, sh, A, ctl, rts)
+    vf, vchecks = lanes or (0, ())
     fast = Fast(fn, lp, sh, A, rts)
     fast.ctl = ctl
-    fast.find_chains(noalias_load)
+    fast.vf = vf
+    fast.vchecks = vchecks
+    if not vf:  # lanes read their own elements: nothing to reuse
+        fast.find_chains(noalias_load)
     ncl = 0
-    U = max(1, M.unroll)
+    U = vf or max(1, M.unroll)
     fast.plan(U)
     ncl = len(fast.cloned)
-    while U > 1 and ncl * U > MAXBODY:
+    while U > 1 and not vf and ncl * U > MAXBODY:
         U //= 2
     fast.U = U
+    if vf:
+        M.count('vectorized')
     if U == 1 and not fast.groups and not hoist and not fast.chains:
         return False
     emit_versioned(fn, lp, sh, A, ctl, fast, U, done)
@@ -847,6 +887,8 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
         for v in (vlo, vhi):
             ext = e2.op(D.Oextsw if c.kind == 's' else D.Oextuw, Kl, v)
             oks.append(e2.cmp(D.Oceql, ext, v))
+    if fast.vf:
+        oks += vectorize.overlapchecks(fast, e2, T, 16 // fast.vf)
     ok = None
     for o in oks:
         co = ir.conval(fn, o)
@@ -912,7 +954,8 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
     if U > 1:
         stM = {sv: newtmp('m', _svcls(fn, sv, fast, [(None, state0[sv])]), fn) for sv in svs}
         em = Emitter(fn, MB)
-        out, _ = fast.copies(em, stM, U)
+        fast.em = em
+        out = vectorize.body(fast, em, stM) if fast.vf else fast.copies(em, stM, U)[0]
         out = fast.advance(em, out, U)
         c = em.raw(D.Ocnel if kc == Kl else D.Ocnew, Kw, out[('iv', ctlg.idx)], end4)
         em.flush()

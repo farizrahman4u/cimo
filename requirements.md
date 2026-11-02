@@ -527,7 +527,7 @@ WSL2, mains, tok/s:
 
 ## Vector code (2026-11-02)
 
-Stage 1 is built: class `q` on arm64 (`ext.vector`), from IR text only; nothing emits it yet. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
+Built on arm64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes. x86-64, GNU vector types and wasm aren't. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
 Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorization (`rgb2gray` up to 6.6x; `saxpy`, `jacobi2d`,
 `conv3x3` 3 to 4x).
 
@@ -535,12 +535,16 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   needs CPU dispatch. 256-bit AVX2 can come later, behind a check at load.
 - **IR:** one class for a 128-bit value, in the FP registers, and operations that name their lanes (4 x i32, 2 x f64...), so the
   class doesn't multiply. Spill slots are 16 bytes.
-- **Order:** (1) the IR class through register allocation, spilling, parsing and arm64's selection and assembler; (2) x86-64;
-  (3) GNU vector types in the frontend (`vector_size`, operators, subscripts, `__builtin_shuffle`), which give all of it a user
-  with no analysis in the way; (4) the auto-vectorizer; (5) wasm SIMD; (6) SLP.
+- **Order:** (1) the IR class through register allocation, spilling, parsing and arm64's selection and assembler; (2) the
+  auto-vectorizer on arm64, which shows whether the operations are the right ones before they're ported; (3) x86-64; (4) GNU
+  vector types in the frontend (`vector_size`, operators, subscripts, `__builtin_shuffle`); (5) wasm SIMD; (6) SLP.
 - **Auto-vectorizer:** `middle/inner.py` already proves what LLVM's `LoopVectorizationLegality` checks: trip count, overlap and
   overflow checks at run time, affine addresses, one versioned fast path. Where it emits 4 scalar copies, a loop with
   consecutive accesses gets one vector operation and the scalar loop as the remainder.
+- **Overlap at run time:** arrays that may overlap are compared before the loop, as LLVM's `LoopVersioning`, up to 8 pairs.
+  Unroll-and-jam leaves alone a loop that vectorizes, as LLVM has it off by default.
+- **First result (Neoverse N1, V1, V2):** 2 to 3.4x on `saxpy`, `jacobi2d`, `conv3x3`; geomean against gcc `-O3` 1.50 to 1.53x
+  down to 1.21 to 1.28x before `gemm`.
 - **What can't vectorize:** FP reductions (`dot`, `prefix_sum`): C fixes their order, as for gcc and clang without `-ffast-math`.
   scramjit needs numpy's pairwise order for its sums, which is a loop it writes itself (`TODO.md`).
 - **A call keeps at most 64 bits of an FP register on arm64:** a `q` temporary live across one lives in memory
