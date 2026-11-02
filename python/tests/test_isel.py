@@ -1032,7 +1032,8 @@ def test_logic_immediates():
 def test_redundant_extensions():
     for name in ('zext1', 'zext2'):
         assert 'mov' not in body(CONSTS, name) and 'uxtw' not in body(CONSTS, name), body(CONSTS, name)
-    assert 'ubfx' in body(CONSTS, 'shifted') and 'uxtb' not in body(CONSTS, 'shifted')
+    # no extension apart: Apple's callers have done it, so there a plain lsr does
+    assert re.search(r'ubfx|lsr', body(CONSTS, 'shifted')) and 'uxtb' not in body(CONSTS, 'shifted')
     m = cimo.compile(CONSTS)
     M = 2 ** 32 - 1
     for a, b in ((M, 1), (M, M), (5, 7), (2 ** 31, 2 ** 31)):
