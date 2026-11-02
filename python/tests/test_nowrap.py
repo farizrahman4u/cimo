@@ -7,6 +7,7 @@ import re
 import pytest
 
 import cimo
+import hosts
 from cimo import driver
 
 INT_MAX = 2**31 - 1
@@ -189,6 +190,7 @@ def test_loops_same_with_and_without_the_promise(name):
     'long f(int *a, int n, long (*g)(long)) { long s = 0; for (int i = 0; i < n; i++) s += g(a[i]) + a[i + 1]; return s; }',
     'long f(int *a, int n) { long s = 0; for (int i = 0; i < n; i++) { if (a[i] > 3) s += a[i + 1]; else s -= a[i + 2]; } return s; }',
 ])
+@pytest.mark.skipif(not hosts.ARM64, reason="reads arm64's labels and sxtw")
 def test_no_extension_in_the_loop(src):
     text = body(asm(src), 'f')
     start = re.search(r'^\.?L\d+:', text, re.M).start()
