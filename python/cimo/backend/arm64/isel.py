@@ -531,6 +531,50 @@ def _conbits(r, fn):
     return fn.con[rval(r)].i
 
 
+def _loaded(r, fn):
+    """r is a 32-bit load that an extension of it can join."""
+    d = _only(r, fn)
+    return d is not None and D.isload(d[1].op)
+
+
+_phifn = _phis = None
+
+
+def _accumulator(a, to, fn):
+    """a comes from a phi that gets its value back from `to`, through arithmetic: to is on the loop's chain."""
+    global _phifn, _phis
+    if _phifn is not fn:
+        _phifn = fn
+        _phis = {}
+        for b in fn.rpo[:fn.nblk]:
+            p = b.phi
+            while p:
+                _phis[p.to] = p
+                p = p.link
+
+    def walk(r, found):
+        """Calls found(r) for what r comes from, a phi being as far as it goes; true if one call is."""
+        todo = [r]
+        seen = set()
+        while todo and len(seen) < 32:
+            r = todo.pop()
+            if r in seen or rtype(r) != RTmp:
+                continue
+            seen.add(r)
+            if found(r):
+                return True
+            if r not in _phis:
+                d = fn.tmp[rval(r)].def_
+                if d is not None and d.op in _CHAINOPS:
+                    todo += d.arg[:2]
+        return False
+
+    def carried(r):
+        p = _phis.get(r)
+        return p is not None and any(walk(p.arg[n], lambda x: x == to) for n in range(p.narg))
+    return walk(a, carried)
+
+
 def _shifted(r, k, wantext, fn):
     """(value, kind, amount, instruction) if r is a shift that can be a shifted operand."""
     found = _only(r, fn)
@@ -541,6 +585,8 @@ def _shifted(r, k, wantext, fn):
         return None
     w = 64 if k == Kl else 32
     if wantext and k == Kl and di.op in (Oextsw, Oextuw):
+        if _loaded(di.arg[0], fn):  # ldrsw does the extension for free: s += a[i] 2x slower on Neoverse otherwise
+            return None
         return di.arg[0], SH_SXTW if di.op == Oextsw else SH_UXTW, 0, di
     n = _conbits(di.arg[1], fn)
     if n is None:
@@ -553,7 +599,8 @@ def _shifted(r, k, wantext, fn):
         return None
     if wantext and k == Kl and how == SH_LSL and n <= 4:
         ex = _only(di.arg[0], fn)
-        if ex is not None and ex[1].op in (Oextsw, Oextuw) and _plain(ex[1].arg[0], fn):
+        if ex is not None and ex[1].op in (Oextsw, Oextuw) and _plain(ex[1].arg[0], fn) \
+                and not _loaded(ex[1].arg[0], fn):
             e = ex[1]
             kind = SH_SXTW if e.op == Oextsw else SH_UXTW
             x = e.arg[0]
@@ -599,10 +646,11 @@ def selalu(i, fn):
                 found[1].set(Ins(Onop))
                 _aalu(i, a, ALU_NOT[i.op], SH_LSL, 0, x, fn)
                 return True
-        # outside loops only: a folded shift or extension takes 2 cycles from every input, 1 otherwise.
-        # Measured on a dependency chain (Snapdragon X): s += x[i] << 3 at 0.72 ns folded and 0.38 not,
-        # the usual shape of a loop; through the shifted value 12% better folded; else the same
-        s = _shifted(b, k, i.op in (Oadd, Osub), fn) if selblk.loop <= 1 else None
+        # not onto the loop's accumulator: there the other input waits for a folded shift's 2 cycles.
+        # Measured, folded / not: s += x << 3 1.82 on Snapdragon X and 0.84 to 0.96 on Neoverse N1, V1 and
+        # V2 (LLVM's FeatureALULSLFast), s -= x >> 3 1.82 and 1.19 to 1.69. Anywhere else it never loses:
+        # through the shifted value 1.00 and 0.55 to 0.71, off any chain 1.03 and 0.77 to 0.87
+        s = _shifted(b, k, i.op in (Oadd, Osub), fn) if selblk.loop <= 1 or not _accumulator(a, i.to, fn) else None
         if s is not None:
             x, how, n, di = s
             di.set(Ins(Onop))
@@ -611,6 +659,7 @@ def selalu(i, fn):
     return False
 
 
+_CHAINOPS = frozenset((Oadd, Osub, Oand, D.Oor, Oxor, D.Ocopy))
 _DEF32 = frozenset((Oadd, Osub, Oneg, Omul, Oand, Oor, Oxor, Oshl, Oshr, Osar, Oextub, Oextuh, D.Oextsb, D.Oextsh,
                     D.Oloadub, D.Oloadsb, D.Oloaduh, D.Oloadsh, D.Oloadsw, D.Oloaduw, Oload))
 

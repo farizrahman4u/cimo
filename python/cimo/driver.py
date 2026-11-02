@@ -252,6 +252,8 @@ MIDDLE = os.environ.get('CIMO_MIDDLE', '1') != '0'
 # -ffp-contract=on); CIMO_FMA=0 turns it off, for results identical to -ffp-contract=off
 FMA = os.environ.get('CIMO_FMA', '1') != '0'
 _fma = contextvars.ContextVar('cimo_fma', default=None)  # compile(fma=): this call's choice
+_wrapv = contextvars.ContextVar('cimo_wrapv', default=None)  # compile(wrapv=): this call's choice
+WRAPV = os.environ.get('CIMO_WRAPV', '0') not in ('', '0')
 # the frontend and backend ports keep their state in module globals, as the C programs do: one
 # compilation at a time in a process. Taken only around them, and they take no other lock.
 _compile_lock = threading.RLock()
@@ -274,7 +276,7 @@ def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
     try:
         with _compile_lock, _middle.options(enabled=MIDDLE if middle is None else middle,
                              params=params or {}), \
-                _ext.options(fma=True, ldp=True, layout=True, math=True, trap=True, volatile=True, vla=True, cse=True, isel=True, bigcopy=256,
+                _ext.options(fma=True, ldp=True, layout=True, math=True, trap=True, volatile=True, vla=True, cse=True, isel=True, nowrap=True, bigcopy=256,
                              inline=INLINE, stkchk=stkchk), _Recursion():
             D.T = next(t for t in _targets() if t.name == (target or TARGET))
             drv = _Driver(out, 0)
@@ -410,7 +412,7 @@ def _ir(pp, filename='<string>', host_headers=False):
     """Preprocessed text -> (QBE IR text, parameter info for the middle end)."""
     from .frontend import FrontendError
     try:
-        return _frontend(pp, filename, fma=_contract(), builtins=True,
+        return _frontend(pp, filename, fma=_contract(), nowrap=not _wraps(), builtins=True,
                          diagnostics=True, prune=True)
     except FrontendError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
@@ -422,12 +424,18 @@ def _contract():
     return FMA if v is None else v
 
 
+def _wraps():
+    """Whether signed overflow wraps in this compile: its wrapv= argument, else the process default."""
+    v = _wrapv.get()
+    return WRAPV if v is None else v
+
+
 def _key(pp):
     """Cache key of preprocessed source: also the compiler's and the runtime's sources (a cached
     image contains the runtime members it uses), the target and the code generation options."""
     return hashlib.sha256(
         _VERSION + _link.compiler_key().encode() + _link._key(TARGET).encode() + TARGET.encode()
-        + (b'm' if MIDDLE else b'') + (b'f' if _contract() else b'') + b'i%d' % INLINE
+        + (b'm' if MIDDLE else b'') + (b'f' if _contract() else b'') + (b'v' if _wraps() else b'') + b'i%d' % INLINE
         + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
 
 
@@ -634,7 +642,7 @@ class Module:
 
 def compile(src: str, include_dirs: Iterable[PathArg] = (), link: Union[str, Iterable[str]] = (),
             host_headers: bool = False, defines: Defines = (), cache: bool = True,
-            fma: Optional[bool] = None) -> Module:
+            fma: Optional[bool] = None, wrapv: Optional[bool] = None) -> Module:
     """Compile C source and return a Module of callables.
 
     The module is linked with cimo's runtime library (string.h, math.h, printf, malloc, ...)
@@ -648,25 +656,29 @@ def compile(src: str, include_dirs: Iterable[PathArg] = (), link: Union[str, Ite
     a*b+c within one expression into a fused multiply-add (one rounding), like
     -ffp-contract=on; False gives results identical to -ffp-contract=off, and None the process
     default (on, or off with CIMO_FMA=0). Calls of fma() are always fused. wasm never
-    contracts."""
-    return _module(src, '<string>', include_dirs, link, host_headers, defines, cache, fma)
+    contracts. wrapv: signed integer overflow wraps, like -fwrapv; otherwise it is undefined, as in
+    C, and the compiler assumes it doesn't happen (None: the process default, off, or on with
+    CIMO_WRAPV=1)."""
+    return _module(src, '<string>', include_dirs, link, host_headers, defines, cache, fma, wrapv)
 
 
 def load(path: PathArg, include_dirs: Iterable[PathArg] = (), link: Union[str, Iterable[str]] = (),
          host_headers: bool = False, defines: Defines = (), cache: bool = True,
-         fma: Optional[bool] = None) -> Module:
+         fma: Optional[bool] = None, wrapv: Optional[bool] = None) -> Module:
     """Compile a .c file; its directory is searched for "..." includes. Options as compile()."""
     from .resources import read_text
     path = os.fspath(path)
-    return _module(read_text(path), path, include_dirs, link, host_headers, defines, cache, fma)
+    return _module(read_text(path), path, include_dirs, link, host_headers, defines, cache, fma, wrapv)
 
 
-def _module(src, filename, include_dirs, link, host_headers, defines, cache=True, fma=None):
+def _module(src, filename, include_dirs, link, host_headers, defines, cache=True, fma=None, wrapv=None):
     token = _link.cache_writes.set(bool(cache))
     ftoken = _fma.set(None if fma is None else bool(fma))
+    vtoken = _wrapv.set(None if wrapv is None else bool(wrapv))
     try:
         return _module1(src, filename, include_dirs, link, host_headers, defines)
     finally:
+        _wrapv.reset(vtoken)
         _fma.reset(ftoken)
         _link.cache_writes.reset(token)
 

@@ -464,16 +464,19 @@ class BSet:
 
 
 class Ins:
-    __slots__ = ('op', 'cls', 'to', 'arg')
+    __slots__ = ('op', 'cls', 'to', 'arg', 'nsw')
 
     def __init__(self, op=0, cls=0, to=R, arg0=R, arg1=R):
         self.op = op
         self.cls = cls
         self.to = to
         self.arg = [arg0, arg1]
+        self.nsw = False  # cimo (ext.nowrap): C says this signed operation doesn't overflow
 
     def copy(self):
-        return Ins(self.op, self.cls, self.to, self.arg[0], self.arg[1])
+        i = Ins(self.op, self.cls, self.to, self.arg[0], self.arg[1])
+        i.nsw = self.nsw
+        return i
 
     def set(self, o):
         """*self = *o"""
@@ -482,6 +485,7 @@ class Ins:
         self.to = o.to
         self.arg[0] = o.arg[0]
         self.arg[1] = o.arg[1]
+        self.nsw = o.nsw
 
     def __repr__(self):
         return 'Ins(%s, %d, %#x, %#x, %#x)' % (optab[self.op].name, self.cls, self.to,

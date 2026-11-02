@@ -7,7 +7,7 @@ with n in [0, 100] and k in [-5, 5]; buffers are valid from -256 to 767. Loop ne
 1-3 with random bounds, steps, directions and IV types; bodies of array updates with affine
 indexes (kept in bounds by interval arithmetic on the IVs), reductions, conditionals and
 early exits. All integer arithmetic is wrapping-safe for gcc -fwrapv (the reference is
-built with -fwrapv, and cimo never assumes signed overflow is undefined).
+built with -fwrapv, and so is what's tested).
 """
 
 import random

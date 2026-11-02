@@ -285,7 +285,7 @@ Repeated work QBE leaves goes too (`backend/cse.py`, `ext.cse`): repeated loads,
 arm64, where `sdiv` never traps; wasm's trap, so only a dominating one merges there), a remainder from
 its division, a repeated branch condition and a select written twice. Costs 13-27% compile time on
 `t_printf` and `t_math`. Also from LLVM and GCC, under the same flag: algebra and known bits
-(`backend/simplify.py`; IR integers wrap, so nothing assumes signed overflow can't happen), facts from
+(`backend/simplify.py`; IR integers wrap: only `backend/nowrap.py` uses C's promise about signed overflow, and it removes it, so no other pass has to keep it true), facts from
 dominating branches (same file), jump threading (`backend/thread.py`), memory (`backend/memopt.py`),
 reassociation (`backend/cse.py`), unswitching (`middle/unswitch.py`). **Load hoisting runs for the first
 time here:** C QBE's `loadopt` runs before

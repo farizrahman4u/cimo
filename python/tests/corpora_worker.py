@@ -43,8 +43,10 @@ def run(line):
     inc = [d for d in inc.split(os.pathsep) if d] + INCLUDE
     try:
         first = '#include "%s"\n' % prelude.replace(os.sep, '/') if prelude else ''
+        with open(path, 'rb') as f:
+            wrapv = b'-fwrapv' in f.read()  # the program's own dg-options
         m = cimo.compile(first + '#include "%s"\n' % path.replace(os.sep, '/') + WRAPPER,
-                         include_dirs=inc)
+                         include_dirs=inc, wrapv=wrapv)
     except CompileError as e:
         return 'COMPILE ' + str(e).replace(os.path.dirname(path) + os.sep, '').splitlines()[0]
     k = m._kernels.get('main')

@@ -50,9 +50,10 @@ in Python.
 - ~~Frame only when needed, shifts by an immediate, register-offset addressing, `madd`, `msub`,
   `cbz`, `cbnz`~~ **Done** (`ext.isel`).
 - ~~Pre/post-index addressing, `ldp`/`stp` with write-back~~ **Done** (`isel.sinkinc`, `emit._writeback`).
-- ~~Shifted and extended operands~~ **Done, outside loops only:** folded, `add`/`sub`/`eor` take 2 cycles
-  from every input here (`s += x[i] << 3`: 0.72 ns folded, 0.38 not; through the shifted value 12%
-  better; off any chain the same). Measure on other CPUs: LLVM always folds single uses.
+- ~~Shifted and extended operands~~ **Done, except onto a loop's accumulator** (`isel._accumulator`), where
+  LLVM folds. Measured folded / not on Snapdragon X and Neoverse N1, V1, V2: `s += x << 3` 1.82, 0.84, 0.96,
+  0.95; `s -= x >> 3` 1.82, 1.19, 1.46, 1.70; through the shifted value 1.00, 0.71, 0.65, 0.55; off any chain
+  1.04, 0.87, 0.76, 0.85. Folding the first on Neoverse alone (`FeatureALULSLFast`) needs per-CPU tuning: open.
 - ~~`mneg`, `fnmul`~~ **Done** (`ext.isel`).
 - ~~`csel`, `fcsel`~~ **Done** (`ext.isel`; policy from `SimplifyCFG`, `EarlyIfConversion`). Then
   wasm `select`.
@@ -79,8 +80,10 @@ in Python.
 **Tier 2, scalar IR passes:**
 - Algebraic simplification: `InstCombine`, `AggressiveInstCombine`, GCC `forwprop`/`match.pd`.
 - ~~Value ranges and known conditions~~ **Done** (`simplify.srange`, `simplify.decide`, known bits): facts
-  from dominating branches, counters that only grow. `SCCP`, `ADCE` **done** (`backend/scalar.py`). Open: `nsw`
-  from the frontend, for `x + 1 > x` and `x * 2 == 8`, which the wrapping IR can't assume.
+  from dominating branches, counters that only grow. `SCCP`, `ADCE` **done** (`backend/scalar.py`).
+- ~~`nsw` from the frontend~~ **Done** (`backend/nowrap.py`, `compile(wrapv=True)` for `-fwrapv`): comparisons,
+  divisions and LLVM's `WidenIV`; wasm doesn't get it yet. Open: LFTR and the middle end's overflow guards,
+  `nsw` on `shl`, `add` with an invariant step.
 - ~~Jump threading~~ **Done** (`backend/thread.py`), for joins that only branch. Open: threading through
   blocks with other work, by copying them (`DFAJumpThreading`).
 - ~~Loop unswitching~~ **Done** (`middle/unswitch.py`), small innermost loops with one exit block.

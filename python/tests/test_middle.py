@@ -53,7 +53,7 @@ def _compile(src, middle, tmp):
     os.environ['CIMO_CACHE_DIR'] = str(tmp / 'cache')
     driver.MIDDLE = middle
     try:
-        return cimo.compile(src)
+        return cimo.compile(src, wrapv=True)  # the generated programs wrap: see middle_gen
     finally:
         driver.MIDDLE = oldm
         if old is None:

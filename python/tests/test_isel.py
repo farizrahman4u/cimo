@@ -893,7 +893,7 @@ def test_flags_from_the_operation():
     assert re.search(r'tb(n)?z', body(FLAGS, 'nonneg')) and 'cmp' not in body(FLAGS, 'nonneg')
     for f in ('aa', 'oo', 'ok'):
         assert 'ccmp' in body(FLAGS, f), body(FLAGS, f)
-    m = cimo.compile(FLAGS)
+    m = cimo.compile(FLAGS, wrapv=True)  # the values below overflow
     I = ctypes.c_int * 1
     Q = ctypes.c_long * 1
     M, H = 2 ** 31 - 1, -2 ** 31
@@ -1043,3 +1043,27 @@ def test_redundant_extensions():
         assert m.shifted(a & 255) == (a & 255) >> 1
         assert m.shiftedh(a & 65535) == (a & 65535) >> 9
     assert m.zext4(-1) == M
+
+
+LOOPFOLDS = '''
+long X[64], Y[64], Z[64]; int W[64];
+long acc(long n) { long s = 0; for (long i = 0; i < n; i++) s += X[i & 63] << 3; return s; }
+long acc2(long n) { long s = 0; for (long i = 0; i < n; i++) s -= X[i & 63] >> 3; return s; }
+long through(long n) { long s = 1; for (long i = 0; i < n; i++) s = X[i & 63] + (s << 3); return s; }
+void off(long n) { for (long i = 0; i < n; i++) Z[i & 63] = X[i & 63] + (Y[i & 63] << 3); }
+long sext(long n) { long s = 0; for (long i = 0; i < n; i++) s += (long)W[i & 63]; return s; }
+long sext1(long i) { return i + (long)W[i]; }
+'''
+
+
+def test_shift_folded_except_onto_the_accumulator():
+    assert not re.search(r'(add|sub)\s.*, (lsl|asr) #', body(LOOPFOLDS, 'acc')) and 'lsl' in body(LOOPFOLDS, 'acc')
+    assert not re.search(r'(add|sub)\s.*, (lsl|asr) #', body(LOOPFOLDS, 'acc2'))
+    assert re.search(r'add\s.*, lsl #3', body(LOOPFOLDS, 'through'))
+    assert re.search(r'add\s.*, lsl #3', body(LOOPFOLDS, 'off'))
+
+
+def test_extension_of_a_load_stays_in_the_load():
+    for f in ('sext', 'sext1'):
+        assert 'ldrsw' in body(LOOPFOLDS, f) and 'sxtw\n' not in body(LOOPFOLDS, f)
+        assert not re.search(r'add\s.*, sxtw', body(LOOPFOLDS, f))

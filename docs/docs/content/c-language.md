@@ -56,6 +56,10 @@ A few things follow the platform's C ABI, so that kernels can call its libraries
 
 Write `signed char` or `unsigned char` when the sign matters: `char c = 200; return c > 0;` returns 1 on Linux and 0 on macOS and Windows.
 
+## Signed overflow
+
+Signed integer overflow is undefined, and the compiler assumes it doesn't happen: `x + 1 > x` is always true. Pass `wrapv=True` to `cimo.compile` (or `--wrapv`, or set `CIMO_WRAPV=1`) for code that relies on wrapping, as with `-fwrapv`. `unsigned` arithmetic always wraps.
+
 ## Floating point
 
 By default cimo contracts `a * b + c` within one expression into a fused multiply-add, as clang does with `-ffp-contract=on`. That is faster and slightly more accurate, and it means results can differ in the last bit from a compiler that doesn't contract. Set `CIMO_FMA=0` for results identical to `-ffp-contract=off`.

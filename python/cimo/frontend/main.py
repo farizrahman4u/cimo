@@ -85,12 +85,15 @@ def _tostr(s):
 
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
-            builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False, bigcopy=None):
+            builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False, bigcopy=None, nowrap=False):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
     the `fma` instruction, as clang's -ffp-contract=on does; the backend must then be run
     with cimo.backend.ext.fma on to parse it.
+
+    nowrap=True (cimo extension, off by default): signed +, - and * are addnsw, subnsw and mulnsw;
+    the backend then needs cimo.backend.ext.nowrap.
 
     builtins=True (cimo extension, off by default): calls to sqrt, fabs, fmin, fmax, floor,
     ceil, trunc, round (and the float versions) become single instructions, and fma/fmaf the
@@ -130,6 +133,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     from . import qbe as _qbe
     try:
         _qbe.contract = bool(fma)
+        _qbe.nowrap = bool(nowrap)
         _qbe.builtins = bool(builtins)
         _qbe.volatile = bool(volatile)
         _qbe.vlafree = bool(vlafree)
@@ -150,6 +154,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         raise
     finally:
         _qbe.contract = False
+        _qbe.nowrap = False
         _qbe.builtins = False
         _qbe.volatile = False
         _qbe.vlafree = False

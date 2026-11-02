@@ -225,6 +225,7 @@ def dedupins(fn, b, i):
     normins(fn, i)
     if i.op == Onop:
         return
+    was = (i.op, i.arg[0], i.arg[1]) if i.nsw else None
     if _ext.cse:
         from .simplify import simplify
         r = simplify(fn, b, i)
@@ -242,6 +243,8 @@ def dedupins(fn, b, i):
     assert i.op != Osel0
     assert i.to != R
     assoccon(fn, b, i)
+    if was is not None and was != (i.op, i.arg[0], i.arg[1]):  # another operation: C's promise was about the old
+        i.nsw = False
 
     r = C.copyref(fn, b, i)
     if r != R:
@@ -253,6 +256,7 @@ def dedupins(fn, b, i):
         return
     i1 = gvndup(i, 1)
     if i1:
+        i1.nsw = i1.nsw and i.nsw  # one instruction for both, and gcm may place it on either's path
         killins(fn, i, i1.to)
         return
 

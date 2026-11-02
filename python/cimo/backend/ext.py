@@ -32,6 +32,9 @@ Flags:
           (cimo.backend.thread)
   inline  0, or a size: copy functions of at most that many instructions into the callers
           that follow them in the module (cimo.backend.inline)
+  nowrap  accept addnsw, subnsw and mulnsw in the IR text: add, sub and mul whose signed result C
+          says doesn't overflow, which cimo.frontend emits for signed integers unless
+          compile(wrapv=True). Only cimo.backend.nowrap reads the promise, and it removes it
   vla     accept getsp/setsp in the IR text (`%s =l getsp`, `setsp %s`), which cimo.frontend
           emits to free variable-length arrays when their scope ends
   trap    arm64: unreachable code (QBE's `hlt`) calls __cimo_trap instead of `brk #1000`,
@@ -66,6 +69,7 @@ trap = False
 volatile = False
 vla = False
 cse = False
+nowrap = False
 isel = False
 bigcopy = None
 inline = 0
@@ -76,7 +80,7 @@ stkchk = None
 # may, so accesses never move past accesses off another base.
 disjoint = None
 
-ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True, 'volatile': True, 'vla': True, 'cse': True, 'isel': True}
+ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True, 'volatile': True, 'vla': True, 'cse': True, 'isel': True, 'nowrap': True}
 _NAMES = tuple(ALL) + ('stkchk', 'bigcopy', 'inline')
 
 

@@ -210,6 +210,9 @@ del _n, _i
 # cimo extension: contract a*b+c into fma within one expression, like clang's
 # -ffp-contract=on; off by default (stock cproc output), set by compile(fma=True)
 contract = False
+# cimo extension: tell the backend that signed +, - and * don't overflow (C 6.5p5); off by default
+# (stock cproc output), set unless compile(wrapv=True)
+nowrap = False
 
 instname = [None] + [_s for _n, _s in _OPS]
 # IARG, IVARARG and IFMA are printed by emitinst itself
@@ -249,7 +252,7 @@ class QbeType(object):
 
 
 class Inst(object):
-    __slots__ = ('kind', 'cls', 'res', 'arg0', 'arg1', 'arg2')
+    __slots__ = ('kind', 'cls', 'res', 'arg0', 'arg1', 'arg2', 'nsw')
 
 
 JUMP_NONE, JUMP_JMP, JUMP_JNZ, JUMP_RET, JUMP_HLT = range(5)
@@ -401,6 +404,7 @@ def mkinst(f, op, cls, arg0, arg1):
     inst.cls = cls
     inst.arg0 = arg0
     inst.arg1 = arg1
+    inst.nsw = False
     inst.res = Value(VALUE_NONE)
     if cls and op != IARG:
         functemp(f, inst.res)
@@ -955,6 +959,13 @@ def funcbranch(f, e, bt, bf):
     return v
 
 
+def _nowrapinst(f, t):
+    """The instruction just made is a signed + or - or * of type t: mark it. Sizes below int are the store
+    of a value computed in int, and a _BitInt wraps at its own width."""
+    if nowrap and t.prop & PROPINT and t.issigned and t.size >= 4 and t.kind != TYPEBITINT:
+        f.end.insts[-1].nsw = True
+
+
 def _binop(op, t):
     if op == TMUL:
         return IMUL
@@ -1260,6 +1271,7 @@ def funcexpr(f, e):
             v = mkintconst(1) if e.op == TINC else funcinst(f, ICEQW, 'w', l, mkintconst(0))
         else:
             v = funcinst(f, IADD if e.op == TINC else ISUB, qbetype(t).base, l, r)
+            _nowrapinst(f, t)
         v = funcstore(f, e.type, e.qual, lval, v)
         return l if e.post else v
     elif k == EXPRCALL:
@@ -1353,6 +1365,8 @@ def funcexpr(f, e):
         if op == INONE:
             U.fatal("internal error; unimplemented binary expression")
         v = funcinst(f, op, qbetype(e.type).base, l, r)
+        if op in (IADD, ISUB, IMUL) and t is e.l.type:  # not of pointers (t became unsigned long)
+            _nowrapinst(f, e.type)
         if t.kind == TYPEBITINT:
             v = funcbits(f, t, v, BITS0)
         return v
@@ -1712,6 +1726,8 @@ def emitinst(insts, i, n):
         emitclass(inst.cls, inst.arg1)
         w(' ')
     w(instname[inst.kind])
+    if inst.nsw:
+        w('nsw')
     if inst.kind == IGETSP:
         w('\n')
         return i + 1

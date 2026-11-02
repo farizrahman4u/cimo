@@ -136,6 +136,8 @@ def _compile_options(c):
           help='Turn off the loop optimizer')
     c.opt('--no-fma', flag=True, group=g,
           help='No fused multiply-add contraction (results identical to `-ffp-contract=off`)')
+    c.opt('--wrapv', flag=True, group=g,
+          help='Signed integer overflow wraps, instead of being undefined')
 
 
 # ---------------------------------------------------------------------------------------------
@@ -186,22 +188,24 @@ def _defines(ctx):
 
 
 class _Settings:
-    """Apply --no-opt / --no-fma to the driver for the duration of a command."""
+    """Apply --no-opt / --no-fma / --wrapv to the driver for the duration of a command."""
 
     def __init__(self, ctx):
         self.ctx = ctx
 
     def __enter__(self):
         from .. import driver
-        self.old = driver.MIDDLE, driver.FMA
+        self.old = driver.MIDDLE, driver.FMA, driver.WRAPV
         if self.ctx.values.get('no_opt'):
             driver.MIDDLE = False
         if self.ctx.values.get('no_fma'):
             driver.FMA = False
+        if self.ctx.values.get('wrapv'):
+            driver.WRAPV = True
 
     def __exit__(self, *exc):
         from .. import driver
-        driver.MIDDLE, driver.FMA = self.old
+        driver.MIDDLE, driver.FMA, driver.WRAPV = self.old
 
 
 def _module(ctx, src, filename):

@@ -36,6 +36,7 @@ $ cimo compile -S kernels.c -o k.s    # stop after code generation: assembly
 | `--host-headers` | also search the host's C headers |
 | `-O0`, `--no-opt` | turn off the loop optimizer |
 | `--no-fma` | no fused multiply-add contraction |
+| `--wrapv` | signed integer overflow wraps, instead of being undefined |
 
 ## cimo onefile
 

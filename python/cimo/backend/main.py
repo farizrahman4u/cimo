@@ -133,6 +133,13 @@ class _Driver:
         ssa.filluse(fn)
         ssa.ssacheck(fn)
         from . import ext, cse
+        if ext.nowrap:  # cimo: C's promise about signed arithmetic is used here, and goes
+            from . import nowrap
+            if nowrap.run(fn):
+                cfg.fillcfg(fn)
+                ssa.filluse(fn)
+                cfg.filldom(fn)
+                self._cleanup(fn, cfg, ssa, gvn, gcm)
         if ext.cse:  # cimo: gvn made equal addresses one temporary: their loads can merge
             loads = cse.nload(fn)
             cfg.filldom(fn)

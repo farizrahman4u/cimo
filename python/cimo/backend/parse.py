@@ -40,6 +40,8 @@ _VOLOPS = {optab[o].name: o for o in range(D.Ovloadsb, D.Ovstored + 1)}
 _VOLOPS.update(vloadw=D.Ovloadsw, vloadl=D.Ovload, vloads=D.Ovload, vloadd=D.Ovload)
 Tsp = Ntok + 3  # cimo extension: getsp and setsp, keywords when ext.vla is on
 Tbits = Ntok + 4  # cimo extension: the bit builtins, keywords when ext.math is on
+Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
+_NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
 _BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16')
 
 kwmap = {
@@ -241,6 +243,9 @@ def lex():
         if _ext.volatile and S.tokval_str in _VOLOPS:
             S.mathop = _VOLOPS[S.tokval_str]
             return Tvol
+        if _ext.nowrap and S.tokval_str in _NSWOPS:
+            S.mathop = _NSWOPS[S.tokval_str]
+            return Tnsw
         err("unknown keyword %s", S.tokval_str)
     return t
 
@@ -613,6 +618,12 @@ def parseline(ps):
         return PIns
     elif op == Tvol:
         return _ins(S.mathop, k, r, arg)
+    elif op == Tnsw:
+        if i != 2 or KBASE(k) != 0:
+            err("%snsw needs two arguments and class w or l", optab[S.mathop].name)
+        p = _ins(S.mathop, k, r, arg)
+        D.insb[D.curi - 1].nsw = True
+        return p
     elif op == Tbits:
         if i != 1 or KBASE(k) != 0 or (S.mathop == D.Obswap16 and k != Kw):
             err("%s needs one argument and class w or l", optab[S.mathop].name)

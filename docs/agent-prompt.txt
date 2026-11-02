@@ -29,9 +29,9 @@ src = np.random.rand(512, 512).astype(np.float32)
 dst = np.zeros_like(src)
 k.blur(*src.shape, src, dst)
 
-cimo.compile(src, include_dirs=(), link=(), host_headers=False, defines=(), cache=True, fma=None)
+cimo.compile(src, include_dirs=(), link=(), host_headers=False, defines=(), cache=True, fma=None, wrapv=None)
 cimo.load(path, ...same options): compile a .c file; its directory is searched for includes.
-defines: dict or (name, value) pairs. fma=False: no a*b+c contraction, for results bit-identical to Python. cache=False: write nothing to disk.
+defines: dict or (name, value) pairs. fma=False: no a*b+c contraction, for results bit-identical to Python. wrapv=True: signed overflow wraps (-fwrapv); otherwise it is undefined, as in C. cache=False: write nothing to disk.
 Module: each non-static function is an attribute; module(...) calls main or the only function; dir(module); module.free(ptr); module.reset_heap(); module.heap_bytes().
 Arguments: int for integer types; float or int for float, double; for pointers a numpy array, bytearray, memoryview, bytes, ctypes array or int address. Returns int, float or None; pointers as int.
 Errors: cimo.CompileError (message starts file:line:column). cimo.KernelError from abort, exit, assert and stack overflow: .kind is 'abort', 'assert', 'exit', 'trap', 'stack overflow' or 'nesting'; also .kernel, .function, .expr, .file, .line, .status. The module stays usable.
@@ -51,7 +51,7 @@ Files, time, threads, sockets and other hosted libc: link=['libc'], host_headers
 ## CLI
 cimo run prog.c [args]  # compile and call main; -e NAME for another function; --time
 cimo compile k.c  # check it compiles, list callable functions; -E preprocess, --ir QBE IR, -S assembly, -o FILE
-Options for both: -I DIR, -D NAME[=VALUE], -l LIB, --host-headers, -O0, --no-fma
+Options for both: -I DIR, -D NAME[=VALUE], -l LIB, --host-headers, -O0, --no-fma, --wrapv
 cimo onefile -o cimo.py  # all of cimo as one file; --compress
 cimo cache info|clear|path  # CIMO_CACHE_DIR moves it; CIMO_FMA=0 and CIMO_MIDDLE=0 turn off FMA and the optimizer
 Every command has --help.
