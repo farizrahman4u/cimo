@@ -12,7 +12,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    `compile`, `onefile`, `cache`, `completion`) except `cimo report kernels.c`: per-loop
    optimization remarks from the middle end (README promises it). zsh/fish completion
    scripts are untested.
-3. **amd64 backend.** Linux x86-64 and Windows x64 (`VirtualAlloc` loader, Win64 ABI).
+3. ~~**amd64 backend.**~~ **Done** (branch `amd64-backend`): Linux x86-64 and Windows x64 run end to end. Corpora and `tests/test_abi.py` pass on both (see "x86-64" in `requirements.md`). Open: sibling calls (arm64's `b` for a tail call; mutual tail recursion still uses stack on x86-64), and the arm64-only `ext.cse` passes (`divconst`, `bytepatterns`, `hoistcons`) for x86-64; SSE4.1/POPCNT/FMA with CPU detection; hardware faults (#DE on INT_MIN/-1 or x/0 kills the process, as SIGSEGV does).
 4. ~~**WASM backend + Pyodide loading.**~~ **Done:** `cimo.backend.wasm`, `cimo.wasm` (see "WASM
    backend" in `requirements.md`). Open: host JS libraries via `link=`, async loading for large
    modules on a browser main thread, wasm SIMD.

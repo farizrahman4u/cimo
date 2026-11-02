@@ -25,7 +25,8 @@ Design (requirements.md, "Execution model"):
   the assembly below and runtime/heap.c (`CTX_HEAP`):
 
       0 err   8 msg   16 file   24 line   32 func   40 pc   48 depth   56 stack limit   64 tid
-      128 frames: MAXDEPTH x 176 bytes (x19-x28, x29, lr, sp, d8-d15)
+      128 frames: MAXDEPTH x 176 bytes (x19-x28, x29, lr, sp, d8-d15; x86-64 Linux: rbx,
+          rbp, r12-r15, the return address and rsp)
       3072 the thread's heap (struct heap in runtime/heap.c, at most 1024 bytes)
       4096 the thread's stdout buffer (runtime/stdio/stdout.c: length, then 4088 bytes)
 
@@ -53,6 +54,12 @@ from . import loader as _jit
 __all__ = ['KernelError', 'glue', 'stack_checked', 'State']
 
 CTX_SIZE = 8192
+# Windows x64 frames also hold rdi, rsi and xmm6-xmm15 (240 bytes): they go after the stdout
+# buffer, in a third page (_glue_amd64)
+_WIN_X64 = sys.platform == 'win32' and _jit.platform.machine().lower() in ('amd64', 'x86_64')
+WFRAMES, WFRAMESZ = 8192, 240
+if _WIN_X64:
+    CTX_SIZE = 12288
 ERR, MSG, FILE, LINE, FUNC, PC, DEPTH, LIMIT, TID = range(0, 72, 8)
 FRAMES, FRAMESZ, MAXDEPTH = 128, 176, 16
 CTX_HEAP = 3072
@@ -138,9 +145,11 @@ _SAVE = [('x19', 'x20', 0), ('x21', 'x22', 16), ('x23', 'x24', 32), ('x25', 'x26
 _DSAVE = [('d8', 'd9', 104), ('d10', 'd11', 120), ('d12', 'd13', 136), ('d14', 'd15', 152)]
 
 
-def glue(names, apple=False, windows=False):
+def glue(names, apple=False, windows=False, target=None):
     """Assembly text (the syntax `cimo.backend` emits for the target) with the context
     routines and an entry trampoline `__cimo_entry_<name>` for each name."""
+    if target and target.startswith('amd64'):
+        return _glue_amd64(names, windows)
     p = '_' if apple else ''
     L = 'L' if apple else '.L'
     tab = p + '__cimo_ctxtab'
@@ -222,6 +231,119 @@ def glue(names, apple=False, windows=False):
                     p + name + '@PAGEOFF' if apple else '#:lo12:' + name, p))
     o.append('\t.data\n\t.p2align\t3\n\t.globl\t%s\n%s:\n\t.quad\t0\n' % (tab, tab))
     return ''.join(o)
+
+
+def _glue_amd64(names, windows):
+    """glue() for x86-64 (System V on Linux, Windows x64): the same routines and context layout.
+
+    The thread key is the thread's own control block, which the segment base points at and
+    whose first word is its own address: %fs:0 on Linux (glibc and musl), %gs:0x30 (the
+    TEB's self pointer) on Windows. __cimo_find does the table lookup, clobbering only r10, r11
+    and flags (r11 = the context or 0), so the argument registers survive into the kernel.
+
+    Entry: the trampoline pops the caller's return address into the frame, so the kernel,
+    called from there, sees its stack arguments (and Windows' shadow space) where its caller put
+    them, then jumps back to the saved address."""
+    key = '\tmovq\t%gs:0x30, %r10\n' if windows else '\tmovq\t%fs:0, %r10\n'
+    if windows:
+        frames, framesz = WFRAMES, WFRAMESZ
+        regs = [('rbx', 0), ('rbp', 8), ('r12', 16), ('r13', 24), ('r14', 32), ('r15', 40),
+                ('rdi', 48), ('rsi', 56)]
+        xregs = [('xmm%d' % (6 + k), 80 + 16 * k) for k in range(10)]
+    else:
+        frames, framesz = FRAMES, FRAMESZ
+        regs = [('rbx', 0), ('rbp', 8), ('r12', 16), ('r13', 24), ('r14', 32), ('r15', 40)]
+        xregs = []
+    RET, RSP = 64, 72
+
+    def fn(name):
+        return '\t.globl\t%s\n\t.p2align\t4\n%s:\n' % (name, name)
+
+    o = ['\t.text\n']
+    o.append(fn('__cimo_find') + '\tpushq\t%rax\n\tpushq\t%rcx\n\tpushq\t%rdx\n' + key +
+             '\tmovq\t__cimo_ctxtab(%%rip), %%r11\n'
+             '\ttestq\t%%r11, %%r11\n\tjz\t.Lcimo_none\n'
+             '\tmovabsq\t$%d, %%rax\n\timulq\t%%r10, %%rax\n'
+             '\tmovq\t8(%%r11), %%rcx\n\tshrq\t%%cl, %%rax\n\tshlq\t$4, %%rax\n'
+             '\tleaq\t16(%%r11,%%rax), %%rax\n'
+             '\tmovq\t(%%r11), %%rdx\n\tshlq\t$4, %%rdx\n\tleaq\t16(%%r11,%%rdx), %%rdx\n'
+             '.Lcimo_probe:\n\tmovq\t(%%rax), %%rcx\n\tcmpq\t%%r10, %%rcx\n\tje\t.Lcimo_found\n'
+             '\ttestq\t%%rcx, %%rcx\n\tjz\t.Lcimo_none\n\taddq\t$16, %%rax\n'
+             '\tcmpq\t%%rdx, %%rax\n\tjne\t.Lcimo_probe\n\tleaq\t16(%%r11), %%rax\n'
+             '\tjmp\t.Lcimo_probe\n'
+             '.Lcimo_found:\n\tmovq\t8(%%rax), %%r11\n\tjmp\t.Lcimo_done\n'
+             '.Lcimo_none:\n\txorl\t%%r11d, %%r11d\n'
+             '.Lcimo_done:\n\tpopq\t%%rdx\n\tpopq\t%%rcx\n\tpopq\t%%rax\n\tret\n'
+             % (_HASH_K - (1 << 64) if _HASH_K >> 63 else _HASH_K))
+    # __cimo_enter: r11 = the kernel, [rsp] = the caller's return address
+    o.append(fn('__cimo_enter') +
+             '\tpushq\t%r11\n\tcallq\t__cimo_find\n\ttestq\t%r11, %r11\n\tjnz\t.Lcimo_ctx\n'
+             '\tpopq\t%r11\n\tjmp\t*%r11\n'  # no context (a raw call): straight to the kernel
+             '.Lcimo_ctx:\n')
+    o.append('\tmovq\t%d(%%r11), %%r10\n\tcmpq\t$%d, %%r10\n\tjae\t.Lcimo_deep\n'
+             '\taddq\t$1, %d(%%r11)\n\timulq\t$%d, %%r10, %%r10\n\tleaq\t%d(%%r11,%%r10), %%r10\n'
+             % (DEPTH, MAXDEPTH, DEPTH, framesz, frames))
+    o += ['\tmovq\t%%%s, %d(%%r10)\n' % r for r in regs]
+    o += ['\tmovdqu\t%%%s, %d(%%r10)\n' % r for r in xregs]
+    o.append('\tmovq\t%%r11, %%r13\n\tmovq\t%%r10, %%r12\n'   # r13 = ctx, r12 = frame
+             '\tpopq\t%%r11\n\tpopq\t%%r10\n'                # kernel, return address
+             '\tmovq\t%%r10, %d(%%r12)\n\tmovq\t%%rsp, %d(%%r12)\n'
+             '\tcallq\t*%%r11\n'
+             '\tsubq\t$1, %d(%%r13)\n\tmovq\t%d(%%r12), %%r10\n'
+             '\tmovq\t24(%%r12), %%r13\n\tmovq\t16(%%r12), %%r12\n\tjmp\t*%%r10\n'
+             % (RET, RSP, DEPTH, RET))
+    o.append('.Lcimo_deep:\n\tmovq\t$%d, (%%r11)\n\taddq\t$8, %%rsp\n\tjmp\t.Lcimo_ret0\n'
+             % E_DEPTH)
+    # unwind: r11 = ctx with the error stored; back to the innermost trampoline's caller
+    o.append('.Lcimo_unwind:\n\tmovq\t%d(%%r11), %%r10\n\ttestq\t%%r10, %%r10\n'
+             '\tjz\t.Lcimo_noframe\n\tsubq\t$1, %%r10\n\tmovq\t%%r10, %d(%%r11)\n'
+             '\timulq\t$%d, %%r10, %%r10\n\tleaq\t%d(%%r11,%%r10), %%r10\n'
+             % (DEPTH, DEPTH, framesz, frames))
+    o += ['\tmovq\t%d(%%r10), %%%s\n' % (off, r) for r, off in regs]
+    o += ['\tmovdqu\t%d(%%r10), %%%s\n' % (off, r) for r, off in xregs]
+    o.append('\tmovq\t%d(%%r10), %%rsp\n\tmovq\t%d(%%r10), %%r10\n\tpushq\t%%r10\n' % (RSP, RET))
+    o.append('.Lcimo_ret0:\n\txorl\t%eax, %eax\n\txorl\t%edx, %edx\n\tpxor\t%xmm0, %xmm0\n'
+             '\tpxor\t%xmm1, %xmm1\n\tret\n.Lcimo_noframe:\n\tud2\n')
+    # __cimo_fail(code, msg, file, line, func): called by abort()/__assert_fail (C, with an rbp
+    # frame, so 8(%rbp) is the address in their caller)
+    a = ['rcx', 'rdx', 'r8', 'r9'] if windows else ['rdi', 'rsi', 'rdx', 'rcx', 'r8']
+    o.append(fn('__cimo_fail') + '\tcallq\t__cimo_find\n\ttestq\t%r11, %r11\n'
+             '\tjz\t.Lcimo_noframe\n')
+    o.append('\tmovslq\t%%%s, %%r10\n\tmovq\t%%r10, (%%r11)\n' % _w32(a[0]))
+    o.append('\tmovq\t%%%s, %d(%%r11)\n\tmovq\t%%%s, %d(%%r11)\n' % (a[1], MSG, a[2], FILE))
+    o.append('\tmovslq\t%%%s, %%r10\n\tmovq\t%%r10, %d(%%r11)\n' % (_w32(a[3]), LINE))
+    o.append('\tmovq\t40(%%rsp), %%r10\n\tmovq\t%%r10, %d(%%r11)\n' % FUNC if windows else
+             '\tmovq\t%%%s, %d(%%r11)\n' % (a[4], FUNC))
+    o.append('\tmovq\t8(%%rbp), %%r10\n\tmovq\t%%r10, %d(%%r11)\n\tjmp\t.Lcimo_unwind\n' % PC)
+    # __builtin_trap / __cimo_trap: pc = the call site
+    o.append(fn('__builtin_trap') + fn('__cimo_trap'))
+    o.append('\tcallq\t__cimo_find\n\ttestq\t%%r11, %%r11\n\tjz\t.Lcimo_noframe\n'
+             '\tmovq\t$%d, (%%r11)\n\tmovq\t(%%rsp), %%r10\n\tmovq\t%%r10, %d(%%r11)\n'
+             '\tjmp\t.Lcimo_unwind\n' % (E_TRAP, PC))
+    # __cimo_stkchk: called first thing in the prologue of functions that can recurse;
+    # preserves every argument register
+    o.append(fn('__cimo_stkchk') +
+             '\tcallq\t__cimo_find\n\ttestq\t%%r11, %%r11\n\tjz\t.Lcimo_stkok\n'
+             '\tcmpq\t%d(%%r11), %%rsp\n\tjb\t.Lcimo_stkovf\n.Lcimo_stkok:\n\tret\n'
+             '.Lcimo_stkovf:\n\tmovq\t$%d, (%%r11)\n\tmovq\t(%%rsp), %%r10\n'
+             '\tmovq\t%%r10, %d(%%r11)\n\tjmp\t.Lcimo_unwind\n' % (LIMIT, E_STACK, PC))
+    o.append(fn('__cimo_ctx') + '\tcallq\t__cimo_find\n\tmovq\t%r11, %rax\n\tret\n')
+    o.append(fn('__cimo_tid') + key + '\tmovq\t%r10, %rax\n\tret\n')
+    # void *__cimo_cas(void **p, void *expect, void *desired): returns the old *p
+    o.append(fn('__cimo_cas') + ('\tmovq\t%rdx, %rax\n\tlock cmpxchgq\t%r8, (%rcx)\n\tret\n'
+                                 if windows else
+                                 '\tmovq\t%rsi, %rax\n\tlock cmpxchgq\t%rdx, (%rdi)\n\tret\n'))
+    o.append(fn('__cimo_barrier') + '\tmfence\n\tret\n')
+    for name in names:
+        o.append(fn('__cimo_entry_' + name))
+        o.append('\tleaq\t%s(%%rip), %%r11\n\tjmp\t__cimo_enter\n' % name)
+    o.append('\t.data\n\t.p2align\t3\n\t.globl\t__cimo_ctxtab\n__cimo_ctxtab:\n\t.quad\t0\n')
+    return ''.join(o)
+
+
+def _w32(r):
+    """The 32-bit name of a 64-bit register."""
+    return r + 'd' if r[1].isdigit() else 'e' + r[1:]
 
 
 # ---------------------------------------------------------------------------------------------

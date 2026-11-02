@@ -12,7 +12,9 @@ from .parse import parse, printfn
 
 def _targets():
     from .arm64 import targ
-    return [targ.T_arm64, targ.T_arm64_apple, targ.T_arm64_win]
+    from .amd64 import targ as atarg
+    return [targ.T_arm64, targ.T_arm64_apple, targ.T_arm64_win,
+            atarg.T_amd64_sysv, atarg.T_amd64_apple, atarg.T_amd64_win, atarg.T_amd64_windows]
 
 
 class _Lazy:
@@ -207,7 +209,8 @@ class _Driver:
         cfg.fillcfg(fn)
         ssa.filluse(fn)
         # cimo: volatile accesses are plain ones from here on (ext.volatile)
-        D.unvolatile(fn, D.TMP(_IP1) if T.name.startswith('arm64') else None)
+        D.unvolatile(fn, D.TMP(_IP1) if T.name.startswith('arm64') else
+                     'use' if T.name.startswith('amd64') else None)
         T.isel(fn)
         cfg.fillcfg(fn)
         live.filllive(fn)

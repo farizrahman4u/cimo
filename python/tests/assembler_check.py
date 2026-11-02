@@ -71,8 +71,10 @@ def gas(text):
             return f.read()
 
 
-def parse_elf(data):
-    """ELF64 LE relocatable -> normalized (sections, relocs, globals)."""
+def parse_elf(data, reloc_names=None):
+    """ELF64 LE relocatable -> normalized (sections, relocs, globals). reloc_names maps
+    relocation type numbers to cimo names (default: arm64)."""
+    reloc_names = RELOC_NAMES if reloc_names is None else reloc_names
     shoff, = struct.unpack_from('<Q', data, 0x28)
     shentsize, shnum, shstrndx = struct.unpack_from('<HHH', data, 0x3a)
     shdrs = []
@@ -112,7 +114,7 @@ def parse_elf(data):
         for j in range(h[5] // 24):
             off, info, add = struct.unpack_from('<QQq', data, h[4] + j * 24)
             nm, bind, typ, shndx, value, _ = syms[info >> 32]
-            t = RELOC_NAMES.get(info & 0xffffffff, info & 0xffffffff)
+            t = reloc_names.get(info & 0xffffffff, info & 0xffffffff)
             if typ == 3:  # STT_SECTION
                 tgt = ('sec', names[shndx], add)
             elif bind == 0 and 0 < shndx < 0xff00:

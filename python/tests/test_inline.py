@@ -18,7 +18,7 @@ def body(asm, name):
 
 
 def calls(asm, name):
-    return re.findall(r'\bbl\s+%s(\w+)' % SYM, body(asm, name))
+    return re.findall(r'\b(?:bl|callq)\s+%s(\w+)' % SYM, body(asm, name))  # arm64, x86-64
 
 
 @pytest.fixture

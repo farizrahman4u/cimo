@@ -10,13 +10,14 @@ import pytest
 
 import cimo
 from cimo.frontend import compile as frontend_compile
+import hosts
 
-pytestmark = pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aarch64'),
-                                reason='cimo.compile generates arm64 code')
+pytestmark = pytest.mark.skipif(not hosts.RUNS,
+                                reason='cimo does not run here')
 
 LOC = re.compile(r'^<string>:\d+:\d+: error: ')
 # long double is 128-bit (rejected) on Linux; binary64, a plain double, on Apple and Windows
-QUAD = cimo.driver.TARGET == 'arm64'
+QUAD = cimo.driver.TARGET in ('arm64', 'amd64_sysv')  # long double is 16 bytes (Linux)
 needs_quad = pytest.mark.skipif(not QUAD, reason='long double is double on this target')
 
 REJECTED = [
@@ -188,11 +189,13 @@ def test_long_double_error_points_at_the_expression():
 def test_gcc_type_macros():
     """gcc's predefined type macros (glibc's glob.h uses __SIZE_TYPE__), char unsignedness."""
     m = cimo.compile('#include <glob.h>\n#include <limits.h>\n'
+                     '#ifdef __CHAR_UNSIGNED__\n#define CU 1\n#else\n#define CU 0\n#endif\n'
                      'int f(void){ glob_t g; __SIZE_TYPE__ s = 0; __INT64_TYPE__ i = 0; '
                      'return sizeof g.gl_pathc + sizeof s * 10 + sizeof i * 100 + '
-                     '(CHAR_MIN == 0) * 1000 + __CHAR_UNSIGNED__ * 10000; }',
+                     '(CHAR_MIN == 0) * 1000 + CU * 10000; }',
                      host_headers=True, link=['libc'])
-    assert m.f() == 11888
+    # plain char is unsigned on arm64 Linux, signed on x86-64 Linux (as gcc)
+    assert m.f() == (11888 if cimo.driver.TARGET == 'arm64' else 888)
 
 
 def test_unreferenced_statics_are_dropped():

@@ -21,6 +21,7 @@ np = pytest.importorskip('numpy')
 
 import cimo  # noqa: E402
 from cimo import driver  # noqa: E402
+import hosts
 
 
 @pytest.fixture(scope='module', autouse=True)
@@ -41,8 +42,8 @@ KERNELS = os.path.join(REPO, 'scratch', 'qbe_eval', 'kernels.c')
 CC = os.environ.get('CC', 'cc') if sys.platform != 'win32' else '<none on Windows>'
 
 pytestmark = [
-    pytest.mark.skipif(platform.machine().lower() not in ('arm64', 'aarch64'),
-                       reason='arm64 only'),
+    pytest.mark.skipif(not hosts.RUNS,
+                       reason='cimo does not run here'),
     pytest.mark.skipif(not shutil.which(CC), reason='no C compiler for the reference'),
 ]
 

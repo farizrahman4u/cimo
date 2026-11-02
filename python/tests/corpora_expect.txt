@@ -91,6 +91,7 @@ gcc-torture/20090113-2.c                            unsupported  empty structs a
 gcc-torture/20090113-3.c                            unsupported  empty structs and unions (a GNU extension) are not supported
 gcc-torture/20090219-1.c                            unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/20100430-1.c                            unsupported  GNU attribute 'packed' is not supported here
+gcc-torture/20101011-1.c                            unsupported  signal.h: No such file or directory (x86 only: it tests the division trap)
 gcc-torture/20111212-1.c                            unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/20120427-1.c                            unsupported  expected declaration or function definition
 gcc-torture/20120427-2.c                            unsupported  expected declaration or function definition

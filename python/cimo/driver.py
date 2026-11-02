@@ -238,10 +238,29 @@ def _image_put(key, blob):
 
 _APPLE = sys.platform == 'darwin'
 _WINDOWS = sys.platform == 'win32'
+_MACHINE = platform.machine().lower()
+_AMD64 = _MACHINE in ('x86_64', 'amd64', 'x64')
 # This machine's target, as the preprocessor, backend and linker name it: Linux, Apple's ABI
-# variant, or Windows (LP64 like the others, with Windows' variadic convention).
-TARGET = 'arm64_apple' if _APPLE else 'arm64_win' if _WINDOWS else 'arm64'
-_FRONTEND = {'arm64': 'aarch64', 'arm64_apple': 'aarch64-apple', 'arm64_win': 'aarch64-windows'}
+# variant, or Windows (LP64 like the others, with Windows' variadic convention), on arm64; Linux
+# (System V ABI) or Windows on x86-64.
+if _AMD64:
+    TARGET = 'amd64_windows' if _WINDOWS else 'amd64_sysv'
+else:
+    TARGET = 'arm64_apple' if _APPLE else 'arm64_win' if _WINDOWS else 'arm64'
+_FRONTEND = {'arm64': 'aarch64', 'arm64_apple': 'aarch64-apple', 'arm64_win': 'aarch64-windows',
+             'amd64_sysv': 'x86_64-sysv', 'amd64_windows': 'x86_64-windows'}
+# va_arg of a struct (cimo.frontend vastruct=): each ABI's own
+_VASTRUCT = {'arm64': 'aapcs', 'arm64_apple': 'slots', 'arm64_win': 'slots',
+             'amd64_sysv': 'sysv', 'amd64_windows': 'win64'}
+# Calls and builtins that become one instruction (cimo.frontend builtins=, bitops=): on x86-64
+# only what SSE2, the baseline, has: no FMA (fma() and contraction), no SSE4.1 rounding (floor,
+# ceil, ...), no POPCNT, and fmin/fmax are C's, not minsd/maxsd; those stay runtime calls.
+_X86_BUILTINS = frozenset(('fsqrt', 'fabs'))
+_X86_BITOPS = frozenset(('bclz', 'bctz', 'bswap', 'bswap16'))
+
+
+def _is_amd64(target=None):
+    return (target or TARGET).startswith('amd64')
 _PYODIDE = sys.platform == 'emscripten'  # cimo.wasm: an Emscripten side module, not arm64
 _VERSION = b'cimo-2'  # cache entry format; the compiler's own sources are hashed too (linker.compiler_key)
 
@@ -262,6 +281,14 @@ _compile_lock = threading.RLock()
 INLINE = int(os.environ.get('CIMO_INLINE', '40'))
 
 
+def _backend_ext(target=None):
+    """The cimo.backend.ext flags for a target: the arm64 selection extensions (fma, ldp,
+    layout, isel) only on arm64."""
+    arm = not _is_amd64(target)
+    return dict(fma=arm, ldp=arm, layout=arm, math=True, trap=True, volatile=True, vla=True,
+                cse=True, isel=arm, nowrap=True)
+
+
 def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
     """QBE IR text to assembly text, with the Python QBE port, in this process.
     params: the frontend's parameter info (restrict flags) for the middle end.
@@ -276,8 +303,8 @@ def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
     try:
         with _compile_lock, _middle.options(enabled=MIDDLE if middle is None else middle,
                              params=params or {}), \
-                _ext.options(fma=True, ldp=True, layout=True, math=True, trap=True, volatile=True, vla=True, cse=True, isel=True, nowrap=True, bigcopy=256,
-                             inline=INLINE, stkchk=stkchk), _Recursion():
+                _ext.options(**_backend_ext(target), bigcopy=256, inline=INLINE,
+                             stkchk=stkchk), _Recursion():
             D.T = next(t for t in _targets() if t.name == (target or TARGET))
             drv = _Driver(out, 0)
             parse(ssa.encode('latin-1'), '<cimo>', drv.dbgfile, drv.data, drv.func)
@@ -320,8 +347,13 @@ def _frontend(pp, filename, target=None, **kw):
     kw.setdefault('vlafree', True)
     kw.setdefault('bitops', True)
     kw.setdefault('bigcopy', 256)
-    kw.setdefault('vastruct', 'slots' if (target or TARGET) in ('arm64_apple', 'arm64_win')
-                  else 'aapcs')
+    kw.setdefault('vastruct', _VASTRUCT[target or TARGET])
+    if _is_amd64(target):
+        if kw.get('builtins') is True:
+            kw['builtins'] = _X86_BUILTINS
+        if kw.get('bitops') is True:
+            kw['bitops'] = _X86_BITOPS
+        kw['fma'] = False
     with _compile_lock:
         _fq.paraminfo = {}
         try:
@@ -374,7 +406,8 @@ def _host_include_dirs():
         dirs = [os.path.join(sdk, 'usr', 'include')]
     else:
         import sysconfig
-        multiarch = sysconfig.get_config_var('MULTIARCH') or 'aarch64-linux-gnu'
+        multiarch = sysconfig.get_config_var('MULTIARCH') or (
+            'x86_64-linux-gnu' if _AMD64 else 'aarch64-linux-gnu')
         dirs = ['/usr/local/include', '/usr/include/' + multiarch, '/usr/include']
     dirs = [d for d in dirs if os.path.isdir(d)]
     if not dirs:
@@ -383,8 +416,13 @@ def _host_include_dirs():
 
 
 def _check_machine():
-    if platform.machine().lower() not in ('arm64', 'aarch64'):
-        raise CompileError('cimo generates arm64 code only; this machine is %s'
+    if _AMD64:
+        if _APPLE:
+            raise CompileError('cimo does not support Intel Macs (x86-64 macOS); it runs on '
+                               'Apple silicon, and on x86-64 Linux and Windows')
+        return
+    if _MACHINE not in ('arm64', 'aarch64'):
+        raise CompileError('cimo generates arm64 and x86-64 code only; this machine is %s'
                            % platform.machine())
 
 
@@ -419,7 +457,10 @@ def _ir(pp, filename='<string>', host_headers=False):
 
 
 def _contract():
-    """Whether this compile contracts a*b+c: its fma= argument, else the process default."""
+    """Whether this compile contracts a*b+c: its fma= argument, else the process default. Never
+    on x86-64, whose baseline has no fused multiply-add."""
+    if _is_amd64():
+        return False
     v = _fma.get()
     return FMA if v is None else v
 
@@ -558,8 +599,7 @@ class Module:
         names = [l.split(' ')[0] for l in sigs.splitlines() if l and not l.startswith('#')]
         libsyms = {}
         try:
-            obj = _asm.assemble(text + _exe.glue(names, _APPLE, _WINDOWS),
-                                'macho' if _APPLE else 'elf')
+            obj = _link.assemble(text + _exe.glue(names, _APPLE, _WINDOWS, TARGET), TARGET)
             obj, resolve = _link.link(obj, libs=link, libsyms=libsyms)
             image = _jit.Image(obj, resolve, snapshot=snapshot)
         except (_asm.AssemblerError, _jit.LoadError, _link.LinkError) as e:

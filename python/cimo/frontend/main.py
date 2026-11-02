@@ -84,6 +84,13 @@ def _tostr(s):
     return s.encode('latin-1').decode('utf-8', 'surrogateescape')
 
 
+
+def _opset(v):
+    """True/False, or a frozenset of IR instruction names (builtins=, bitops=)."""
+    if isinstance(v, (bool, int)) or v is None:
+        return bool(v)
+    return frozenset(v)
+
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
             builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False, bigcopy=None, nowrap=False):
     """Compile preprocessed C (str or bytes) to QBE IR text.
@@ -97,7 +104,9 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
 
     builtins=True (cimo extension, off by default): calls to sqrt, fabs, fmin, fmax, floor,
     ceil, trunc, round (and the float versions) become single instructions, and fma/fmaf the
-    fma instruction; the backend then needs cimo.backend.ext.math (and .fma).
+    fma instruction; the backend then needs cimo.backend.ext.math (and .fma). A collection of
+    IR instruction names (e.g. {'fsqrt', 'fabs'}) instead of True limits it to those, for a
+    backend that selects only some of them (amd64); the other calls stay calls.
 
     diagnostics=True (cimo extension, off by default): clear errors for C that cimo does not
     support (unknown attributes, long double, __int128, thread-local storage, GNU extensions,
@@ -134,11 +143,11 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     try:
         _qbe.contract = bool(fma)
         _qbe.nowrap = bool(nowrap)
-        _qbe.builtins = bool(builtins)
+        _qbe.builtins = _opset(builtins)
         _qbe.volatile = bool(volatile)
         _qbe.vlafree = bool(vlafree)
         _qbe.vastruct = vastruct
-        _qbe.bitops = bool(bitops)
+        _qbe.bitops = _opset(bitops)
         _qbe.bigcopy = bigcopy
         U.diagnostics = bool(diagnostics)
         if diagnostics:

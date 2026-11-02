@@ -1,6 +1,6 @@
 """Calling convention against a reference compiler, with random signatures (abi_gen.py): gcc on
-Linux, clang (Visual Studio's, or $CIMO_WIN_CLANG) on Windows, Apple clang (Xcode or the Command
-Line Tools) on macOS. For each signature, cimo calling
+Linux, clang (Visual Studio's, or $CIMO_WIN_CLANG) on Windows arm64, MinGW-w64 gcc ($CIMO_WIN_GCC)
+on Windows x64, Apple clang (Xcode or the Command Line Tools) on macOS. For each signature, cimo calling
 the reference, the reference calling cimo, and cimo calling itself must give what the reference
 gives calling itself.
 
@@ -27,6 +27,10 @@ COUNT = 60
 
 def reference():
     """(compiler command, shared library suffix), or None."""
+    if driver.TARGET == 'amd64_windows':
+        # MinGW-w64 gcc follows the Windows x64 convention (and LLP64, like MSVC)
+        cc = os.environ.get('CIMO_WIN_GCC', 'gcc')
+        return ([cc, '-O1', '-shared', '-w'], '.dll') if _have(cc) else None
     if sys.platform == 'win32':
         from test_windows import _clang
         c = _clang()
@@ -34,7 +38,7 @@ def reference():
             return None
         return [c, '--target=aarch64-pc-windows-msvc', '-O1', '-shared', '-nostdlib',
                 '-fuse-ld=lld', '-Wl,/noentry', '-w'], '.dll'
-    if driver.TARGET == 'arm64' and _have('gcc'):
+    if driver.TARGET in ('arm64', 'amd64_sysv') and _have('gcc'):
         return ['gcc', '-O1', '-shared', '-fPIC', '-w'], '.so'
     if driver.TARGET == 'arm64_apple' and _have('clang'):
         return ['clang', '-arch', 'arm64', '-O1', '-dynamiclib', '-w'], '.dylib'
@@ -74,7 +78,7 @@ def check(seed, count, d):
     return bad
 
 
-@pytest.mark.skipif(reference() is None, reason='needs gcc (Linux arm64), clang (Windows arm64) or Apple clang (macOS)')
+@pytest.mark.skipif(reference() is None, reason='needs gcc (Linux, Windows x64: MinGW), clang (Windows arm64) or Apple clang (macOS)')
 @pytest.mark.parametrize('seed', SEEDS)
 def test_random_signatures(seed):
     # in a child process: an ABI mismatch often crashes
@@ -155,7 +159,7 @@ double z%(n)d(void) { return call%(n)d(f%(n)d); }''' % {'n': n} for n in range(l
     return bad
 
 
-@pytest.mark.skipif(reference() is None, reason='needs gcc (Linux arm64), clang (Windows arm64) or Apple clang (macOS)')
+@pytest.mark.skipif(reference() is None, reason='needs gcc (Linux, Windows x64: MinGW), clang (Windows arm64) or Apple clang (macOS)')
 def test_packed_structs_by_value():
     p = subprocess.run([sys.executable, os.path.abspath(__file__), 'packed'],
                        capture_output=True, universal_newlines=True, timeout=600)

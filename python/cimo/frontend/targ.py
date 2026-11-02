@@ -9,6 +9,9 @@ double-sized (8 bytes, so it compiles as QBE `d`).
 
 Extension: target "aarch64-windows" for Windows arm64: as aarch64-apple, but wchar_t is
 unsigned short. Still LP64 (cimo keeps `long` 64-bit on every target; Windows' own C is LLP64).
+
+Extension: target "x86_64-windows" for Windows x64, the same choices as aarch64-windows
+(va_list is `char *`, signed char, 16-bit wchar_t, double-sized long double, LP64).
 """
 
 from .cc import Type, TYPEARRAY, TYPESTRUCT, TYPEPOINTER, PROPSCALAR, QUALNONE, Ref
@@ -46,6 +49,9 @@ def _alltargs():
                Type(kind=TYPEPOINTER, prop=PROPSCALAR, align=8, size=8, base=TY.typechar),
                TY.typeint, 1, 8),
         Target("aarch64-windows",
+               Type(kind=TYPEPOINTER, prop=PROPSCALAR, align=8, size=8, base=TY.typechar),
+               TY.typeushort, 1, 8),
+        Target("x86_64-windows",
                Type(kind=TYPEPOINTER, prop=PROPSCALAR, align=8, size=8, base=TY.typechar),
                TY.typeushort, 1, 8),
     ]

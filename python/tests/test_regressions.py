@@ -236,9 +236,14 @@ def test_volatile_accesses():
     from cimo import driver
     asm = driver._build(VOLATILE)[0]
     three = asm.split('three:')[1].split('ret')[0]
-    assert three.count('str\tw') == 3  # no store merged away
     discard = asm.split('discard:')[1].split('ret')[0]
-    assert discard.count('ldr\tw17') == 1  # the unused volatile read happens
+    import re
+    if driver.TARGET.startswith("amd64"):
+        assert len(re.findall(r'\tmovl \$\d, \(%', three)) == 3  # no store merged away
+        assert len(re.findall(r'\tmovl \(%\w+\), %', discard)) == 1  # the read happens
+    else:
+        assert three.count('str\tw') == 3  # no store merged away
+        assert discard.count('ldr\tw17') == 1  # the unused volatile read happens
 
 
 def test_vlas_are_freed_when_their_scope_ends():

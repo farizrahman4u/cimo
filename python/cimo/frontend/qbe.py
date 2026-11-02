@@ -774,11 +774,118 @@ def _tempalloc(f, size, align):
     return v
 
 
+def _sysv_unaligned(ty, off):
+    """x86-64 SysV: whether a member of ty at offset off (a packed struct's) is not at a
+    multiple of its own alignment: such a struct is passed in memory (the psABI's MEMORY class
+    for unaligned fields; gcc's classify_argument), whatever its size. Bit-fields don't count."""
+    if ty.kind == TYPEARRAY:
+        n = ty.size // ty.base.size if ty.base.size else 0
+        return any(_sysv_unaligned(ty.base, off + k * ty.base.size) for k in range(min(n, 2)))
+    if ty.kind in (TYPESTRUCT, TYPEUNION):
+        m = ty.members
+        while m:
+            if not (m.bits[0] or m.bits[1]) and _sysv_unaligned(m.type, off + m.offset):
+                return True
+            m = m.next
+        return False
+    return bool(ty.size) and off % min(ty.align, 8) != 0
+
+
+def _sysv_classes(t):
+    """x86-64 SysV: the classes of the eightbytes of a struct or union ('i' INTEGER, 's'
+    SSE, 'n' all padding: no register, as gcc), or None when it is passed in memory. As QBE's
+    amd64 classify(): an eightbyte with any integer (or bit-field) in it is INTEGER, else SSE;
+    over 16 bytes (after rounding the size up to the alignment, at least 8) is memory."""
+    al = max(t.align, 8)
+    sz = (t.size + al - 1) & -al
+    if sz > 16 or sz == 0 or _sysv_unaligned(t, 0):
+        return None
+    cls = [None, None]
+
+    def walk(ty, off):
+        if ty.kind == TYPEARRAY:
+            if ty.base.size:
+                for k in range(ty.size // ty.base.size):
+                    walk(ty.base, off + k * ty.base.size)
+        elif ty.kind in (TYPESTRUCT, TYPEUNION):
+            m = ty.members
+            while m:
+                if m.bits[0] or m.bits[1]:
+                    cls[(off + m.offset) // 8] = 'i'
+                else:
+                    walk(m.type, off + m.offset)
+                m = m.next
+        elif ty.prop & PROPFLOAT:
+            if cls[off // 8] is None:
+                cls[off // 8] = 's'
+        elif ty.size:
+            cls[off // 8] = 'i'
+
+    walk(t, 0)
+    return [c or 'n' for c in cls[:sz // 8]]
+
+
+def _vaargsysv(f, t, ap, add, load, align16):
+    """va_arg of a struct or union with the x86-64 SysV va_list {gp_offset, fp_offset,
+    overflow_arg_area, reg_save_area}, as gcc: all of its eightbytes from the register save
+    area (gathered into a temporary) if enough registers of each class are left, else the
+    whole value from the stack (memory-class values always)."""
+    size, align = t.size, t.align
+    n8 = (size + 7) & -8
+    cls = _sysv_classes(t)
+    if cls is None:
+        p = load(ILOADL, 'l', add(ap, 8))
+        if align > 8:
+            p = align16(p)
+        funcinst(f, ISTOREL, 0, add(p, n8), add(ap, 8))
+        return p
+    ni, ns = cls.count('i'), cls.count('s')
+    slot = _tempalloc(f, 8, 8)
+    buf = _tempalloc(f, 8 * len(cls), max(align, 8))
+    breg, bstk, bjoin = mkblock("vaarg_reg"), mkblock("vaarg_stack"), mkblock("vaarg_join")
+    gp = load(ILOADW, 'w', ap)
+    fpp = add(ap, 4)
+    fp = load(ILOADW, 'w', fpp)
+    ok = None
+    if ni:
+        ok = funcinst(f, ICULEW, 'w', gp, mkintconst(48 - 8 * ni))
+    if ns:
+        c = funcinst(f, ICULEW, 'w', fp, mkintconst(176 - 16 * ns))
+        ok = c if ok is None else funcinst(f, IAND, 'w', ok, c)
+    funcjnz(f, ok, None, breg, bstk)
+    funclabel(f, breg)
+    save = load(ILOADL, 'l', add(ap, 16))
+    for k, c in enumerate(cls):
+        if c == 'n':  # padding only: in no register
+            continue
+        if c == 'i':
+            src = funcinst(f, IADD, ptrclass, save, funcinst(f, IEXTUW, 'l', gp, None))
+            gp = funcinst(f, IADD, 'w', gp, mkintconst(8))
+        else:
+            src = funcinst(f, IADD, ptrclass, save, funcinst(f, IEXTUW, 'l', fp, None))
+            fp = funcinst(f, IADD, 'w', fp, mkintconst(16))
+        funcinst(f, ISTOREL, 0, load(ILOADL, 'l', src), add(buf, 8 * k))
+    if ni:
+        funcinst(f, ISTOREW, 0, gp, ap)
+    if ns:
+        funcinst(f, ISTOREW, 0, fp, fpp)
+    funcinst(f, ISTOREL, 0, buf, slot)
+    funcjmp(f, bjoin)
+    funclabel(f, bstk)
+    p = load(ILOADL, 'l', add(ap, 8))
+    if align > 8:
+        p = align16(p)
+    funcinst(f, ISTOREL, 0, add(p, n8), add(ap, 8))
+    funcinst(f, ISTOREL, 0, p, slot)
+    funclabel(f, bjoin)
+    return load(ILOADL, 'l', slot)
+
+
 def funcvaargstruct(f, t, ap):
     """cimo (vastruct): va_arg(ap, t) for a struct or union t: its address. ap is the
     address of the va_list. As gcc's va_arg: an HFA in floating-point registers, one per
     member; else over 16 bytes, a pointer to a copy; else in general registers; never split
-    between registers and the stack."""
+    between registers and the stack. vastruct 'sysv' and 'win64' follow those ABIs instead."""
     size, align = t.size, t.align
 
     def add(p, n):
@@ -789,6 +896,14 @@ def funcvaargstruct(f, t, ap):
 
     def align16(p):
         return funcinst(f, IAND, ptrclass, add(p, 15), mkintconst(-16))
+
+    if vastruct == 'sysv':
+        return _vaargsysv(f, t, ap, add, load, align16)
+    if vastruct == 'win64':
+        # an 8-byte slot holds the value if it is 1, 2, 4 or 8 bytes, else a pointer to a copy
+        p = load(ILOADL, 'l', ap)
+        funcinst(f, ISTOREL, 0, add(p, 8), ap)
+        return p if size in (1, 2, 4, 8) else load(ILOADL, 'l', p)
 
     # an HFA is never passed by reference (AAPCS64 B.3 before B.4), except to a Windows
     # variadic function, which passes it as any other composite
@@ -1186,6 +1301,8 @@ def funcbuiltin(f, e):
         return None
     d = b.base.decl
     bit = bitops and not d.asmname and _BITBUILTINS.get(d.name)
+    if bit and bitops is not True and instname[bit[0]] not in bitops:
+        bit = None  # cimo: not one the target's backend selects (a runtime call instead)
     if bit and d.kind == DECLFUNC and d.linkage == LINKEXTERN and d.type.nparam == 1 \
             and e.args and not e.args.next and e.args.type.prop & PROPINT:
         # the prelude's declaration (a user cannot redeclare these reserved names)
@@ -1201,6 +1318,9 @@ def funcbuiltin(f, e):
         return None  # can't be seen here, as with gcc's builtins)
     if spec is None:
         return _libcall(f, e, name, d)
+    if builtins is not True and (spec[0] == IFMA and 'fma' not in builtins
+                                 or spec[0] != IFMA and instname[spec[0]] not in builtins):
+        return None  # cimo: not one the target's backend selects (a library call instead)
     op, nargs, size = spec
     t = TY.typedouble if size == 8 else TY.typefloat
     ft = d.type
@@ -1634,6 +1754,12 @@ def emittype(t):
         m = m.next
     w("type ")
     emitname(t.value)
+    if TG.targ.name == 'x86_64-sysv' and _sysv_unaligned(t, 0):
+        # cimo: a struct with an unaligned (packed) member is passed in memory on x86-64
+        # SysV, which QBE's classify does for an opaque type (its fields don't matter then)
+        w(" = align %d { %d }\n" % (t.align, t.size))
+        t.value.qalign = t.align
+        return
     if t is TG.targ.typevalist:
         w(" = align %d { %d }\n" % (t.align, t.size))
         t.value.qalign = t.align
@@ -1692,13 +1818,26 @@ def emittype(t):
     if not out:
         out.append("b 0, ")  # an empty struct (GNU C): size 0
     end = qoff if t.kind == TYPESTRUCT else usize
-    if t.size > ((end + qalign - 1) & -qalign):  # trailing padding QBE would not add
+    # QBE rounds the size up to the type's alignment, the `align` written below if larger.
+    # cimo: on x86-64 that alignment counts, since padding written as `b` fields would make an
+    # eightbyte of floats INTEGER for QBE's amd64 classify (`struct { _Alignas(16) float
+    # m[3]; }` in rdi instead of xmm1, unlike gcc); arm64 keeps the layout tested against gcc
+    qround = max(qalign, t.align) if TG.targ.name.startswith('x86_64') else qalign
+    if t.size > ((end + qround - 1) & -qround):  # trailing padding QBE would not add
         out.append("b %d, " % (t.size - end) if t.kind == TYPESTRUCT
                    else "{ b %d } " % t.size)
     align = t.align
     if t.fieldalign is not None and TG.targ.name == 'aarch64':
         align = t.fieldalign
     t.value.qalign = max(qalign, align)
+    qa = t.value.qalign
+    if TG.targ.name == 'x86_64-windows' and t.size != ((max(end, t.size) + qa - 1) & -qa):
+        # cimo: QBE rounds the size up to its alignment of the fields (a 7-byte packed struct
+        # would be 8 and go in a register); Windows x64 passes what is not 1, 2, 4 or 8 bytes
+        # by reference, which winabi does for an opaque type of C's size
+        t.value.qalign = t.align
+        w(" = align %d { %d }\n" % (t.align, t.size))
+        return
     w(" = align %d { " % align if align > qalign else " = { ")
     w("".join(out))
     w("}\n")

@@ -795,6 +795,67 @@ directions against Apple clang (`-dynamiclib`), and `tests/test_macos.py` holds 
   quoted array slice joins into one word when IFS has no space (the completion script slices
   before setting IFS).
 
+## x86-64: Linux and Windows x64 (2026-11-02)
+
+Targets `amd64_sysv` (Linux; frontend `x86_64-sysv`) and `amd64_windows` (frontend
+`x86_64-windows`), picked by `driver.TARGET` from `platform.machine()`. Intel Macs are a clear
+`CompileError`. Same pipeline, runtime and execution model as arm64; differences:
+
+- **Backend:** QBE's amd64 code (`backend/amd64/`, see its PORTING.md section), verified by
+  diffing every pass against C QBE on its 76 tests. `amd64_windows` is cimo's own target over
+  QBE's `amd64_win` (which stays as in C for the diffs): xmm6-xmm15 callee-saved (QBE clobbers
+  them, corrupting a Windows caller such as Python), stack probes for frames and allocas over
+  4 KB through r11 (reserved, as x17 on arm64), extern data through the GOT. Fixes over C QBE
+  found by `tests/test_abi.py`: Windows stack arguments of a small struct took its size, not an
+  8-byte slot; Windows stack float parameters were integer copies; SysV padding-only eightbytes
+  (`struct { _Alignas(16) char c; }`'s second half) took a register of an undefined class
+  instead of none. The frontend no longer writes tail padding QBE adds itself on x86-64 (it
+  made an eightbyte of floats INTEGER).
+- **Baseline x86-64 only** (SSE2; any x86-64 CPU): no FMA, no SSE4.1 rounding, no POPCNT. So:
+  no FMA contraction (`fma=` is accepted and ignored: results as `-ffp-contract=off`), and
+  only `sqrt`, `fabs`, `bswap`, `clz`, `ctz` become instructions (frontend `builtins=`/`bitops=`
+  take the set of IR ops a backend selects). `fma`, `floor`, `ceil`, `trunc`, `round`, `fmin`,
+  `fmax` (and float versions) are runtime code: musl's portable versions and an exact integer
+  `fma` (`runtime/internal/softfma.h`, shared with wasm), under `__CIMO_SOFT_MATH` (the runtime
+  is built without `__FP_FAST_FMA`, so musl's `pow`/`log` take their non-FMA paths, as wasm).
+  CPU feature detection for those instructions is future work.
+- **Struct `va_arg`:** SysV's register save area per eightbyte class (`vastruct='sysv'`);
+  Windows passes structs that are not 1, 2, 4 or 8 bytes by pointer (`vastruct='win64'`).
+- **Assembler:** `cimo/assembler_amd64.py`, byte for byte against GNU as 2.42 (ELF) including
+  jump relaxation and gas's multi-byte NOP padding; relocations PC32, PLT32, GOTPCREL, ABS64,
+  ABS32(S). Every relocated field holds 0 and the addend is in the relocation. ~150k lines/s.
+- **Loader:** stubs `jmp *0(%rip); .quad addr` (no register clobbered); no cache flush.
+- **Execution glue:** the context key is the thread's own control block (`%fs:0` on Linux,
+  `%gs:0x30`, the TEB, on Windows); `__cimo_find` clobbers only r10, r11 and flags, so argument
+  registers reach the kernel untouched. The entry trampoline pops the caller's return address
+  into the frame and calls the kernel from there, so stack arguments and Windows' shadow space
+  are where the caller put them, then jumps back. Windows frames add rdi, rsi and xmm6-xmm15
+  (240 bytes), so contexts there are 12 KB with the frames in the third page. CAS is
+  `lock cmpxchg`.
+- **Faults:** besides SIGSEGV/access violations, integer division traps on x86 (#DE: `x / 0`,
+  `INT_MIN / -1`), killing the process; on arm64 these return a value. Same fix as TODO 8.
+- **The optimizer on x86-64:** the target-independent passes (simplifier, known bits, SCCP,
+  ADCE, SROA, jump threading, memory passes, inlining and IPO) run as on arm64; `divconst`,
+  `bytepatterns`, `hoistcons` and sibling calls are arm64 only. They reached two more C QBE
+  bugs in the amd64 instruction selection (backend/PORTING.md): flags reused from a shift by a
+  variable count, and an integer constant converted to a float. Packed structs by value: SysV
+  passes a struct with an unaligned member in memory, Windows x64 a 7-byte one by reference;
+  the frontend emits those as opaque types (frontend/PORTING.md).
+- **Measured** (2026-11-02, Windows 11 x64 / WSL Ubuntu 24.04 on the same Intel machine): the
+  corpora pass in full on both (2267 programs: gcc torture, c-testsuite, musl libc-test math;
+  `20101011-1.c` needs `signal.h` on x86 only); `tests/test_abi.py` 2400 random signatures on
+  Linux (gcc's convention, via `zig cc`) and 1800 on Windows (MinGW-w64 gcc), 0 mismatches. The
+  corpora found three wrong-code bugs: a load elimination bug of QBE's own, reachable on every
+  target through `ext.cse` (backend/PORTING.md), 64-bit displacements, and the sign of a zero
+  `fma` result after underflow (wasm too). The bundled headers declared Linux's `wchar_t`
+  unsigned, aarch64's: on x86-64 it is `int` (`wint_t` stays unsigned).
+- **Testing:** the suite runs on both (`tests/hosts.py` says what a host can run; arm64
+  code-generation tests skip). References: gcc on Linux, MinGW-w64 gcc on Windows x64 (the
+  Windows x64 convention, LLP64). Developed on Windows 11 x64 with WSL Ubuntu 24.04 without
+  network access in WSL: packages fetched on Windows (wheels; Zig's `zig cc` as the Linux C
+  compiler, which also builds C QBE against glibc 2.39; glibc headers unpacked from the .deb).
+  `zig cc` is clang: it cannot build the runtime as a reference (`test_runtime` needs gcc).
+
 ## Preprocessor and bundled headers (2026-10-30)
 
 cproc doesn't preprocess: its driver runs `cpp -undef` with the flags in cproc's `config.h`, and
@@ -1053,7 +1114,7 @@ regenerated by `--update`), `skip` (gcc-specific behavior, written by hand), `bu
    1.2x; edit_distance, nbody_acc and rgb2gray wait on backend items (csel, sqrt, int
    constants/madd). Next for the middle stage: runtime alias checks (loop versioning on
    address ranges) for non-restrict pointers, multi-block loop bodies, `--report`.
-5. **SIMD** (vector types, then auto-vectorization), **amd64**, **WASM**, **concurrent calls** (per-thread heaps).
+5. **SIMD** (vector types, then auto-vectorization), ~~**amd64**~~ (done, see "x86-64"), **WASM**, **concurrent calls** (per-thread heaps).
 
 ## Milestones and acceptance criteria
 

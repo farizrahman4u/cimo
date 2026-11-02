@@ -3,7 +3,7 @@
 | Variable | Default | |
 |---|---|---|
 | `CIMO_CACHE_DIR` | `$XDG_CACHE_HOME/cimo`, else `~/.cache/cimo` | where compiled code is cached. If no directory is writable, cimo caches in memory. |
-| `CIMO_FMA` | `1` | `0`: no fused multiply-add contraction, for results identical to `-ffp-contract=off` |
+| `CIMO_FMA` | `1` | `0`: no fused multiply-add contraction, for results identical to `-ffp-contract=off` (x86-64 and wasm never contract) |
 | `CIMO_MIDDLE` | `1` | `0`: turn off the loop optimizer |
 | `CIMO_WRAPV` | `0` | `1`: signed integer overflow wraps, like `-fwrapv` |
 | `CIMO_COLOR` | `auto` | the command line's colors: `auto`, `always`, `never` |

@@ -8,6 +8,9 @@ import pytest
 
 import cimo
 from cimo import driver
+import hosts
+
+pytestmark = pytest.mark.skipif(not hosts.ARM64, reason='arm64 code generation')
 
 
 SYM = '_' if driver.TARGET == 'arm64_apple' else ''  # the target's symbol prefix
