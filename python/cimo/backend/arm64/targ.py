@@ -53,6 +53,7 @@ def _common(**kw):
         ngpr=NGPR,
         fpr0=V0,
         nfpr=NFPR,
+        rqavoid=sum(BIT(V0 + n) for n in range(8, 16)),  # a call keeps only the low 64 bits of v8 to v15
         rglob=RGLOB,
         nrglob=4,
         rsave=arm64_rsave,

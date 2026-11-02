@@ -37,7 +37,7 @@ def kind(i):
     """('l'|'s', register letter) for a pairable access, else None."""
     op = i.op
     if op == Oload:
-        return 'l', _LOADK[i.cls]
+        return ('l', _LOADK[i.cls]) if i.cls in _LOADK else None
     if op == Oloaduw or (op == Oloadsw and i.cls == Kw):
         return 'l', 'w'
     k = _STOREK.get(op)

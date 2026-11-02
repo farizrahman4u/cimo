@@ -285,7 +285,7 @@ def _backend_ext(target=None):
     layout, isel) only on arm64."""
     arm = not _is_amd64(target)
     return dict(fma=arm, ldp=arm, layout=arm, math=True, trap=True, volatile=True, vla=True,
-                cse=True, isel=arm, nowrap=True)
+                cse=True, isel=arm, nowrap=True, vector=arm)
 
 
 def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):

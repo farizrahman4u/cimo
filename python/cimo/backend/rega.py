@@ -138,6 +138,8 @@ def ralloctry(m, t, try_):
             return R
         regs = tmp[phicls(t, tmp)].hint_m
         regs |= m.b.t & M64
+        if tmp[t].cls == D.Kq:  # cimo (ext.vector)
+            regs |= T.rqavoid
         # cimo (ext.isel): not the register of a phi whose life t's overlaps, or the phi waits in another one and
         # needs a copy to get to its own. After the phi's last read t can have it: iir's two phis alternate that way
         at = curdefs.get(t, -1)

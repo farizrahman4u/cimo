@@ -1077,6 +1077,14 @@ def callable(r, fn):
 
 def sel(i, fn):
     """i is a copy (C passes Ins by value)."""
+    if D.isqop(i.op):  # cimo (ext.vector): registers, and a plain address
+        emiti(i)
+        iarg = D.insb[D.curi].arg
+        for n in (0, 1):
+            if iarg[n] != R and argcls(i, n) != D.Kx and not (i.op >= D.Oqshlb and i.op <= D.Oqsarl and n == 1) \
+                    and not (i.op >= D.Oqgetb and i.op <= D.Oqgetd and n == 1):
+                fixarg(iarg, n, argcls(i, n), 0, fn)
+        return
     if INRANGE(i.op, Oalloc, Oalloc1):
         i0 = D.curi - 1
         salloc(i.to, i.arg[0], fn)
@@ -1390,6 +1398,89 @@ def sinkinc(fn):
                 b.ins[n:last + 1] = b.ins[n + 1:last + 1] + [b.ins[n]]
             n -= 1
         b = b.link
+
+
+def qacrosscalls(fn):
+    """cimo (ext.vector): a call keeps at most 64 bits of any FP register, so a 128-bit temporary live across one
+    goes to memory: stored where it's defined, loaded before each use. Needs rpo, use; breaks use."""
+    from ..live import filllive
+    if not any(i.cls == D.Kq and rtype(i.to) == RTmp for b in fn.rpo[:fn.nblk] for i in b.ins[:b.nins]) \
+            and not any(p.cls == D.Kq for b in fn.rpo[:fn.nblk] for p in _philist(b)):
+        return
+    filllive(fn)
+    across = set()
+    for b in fn.rpo[:fn.nblk]:
+        live = set(t for t in _elems(b.out) if fn.tmp[t].cls == D.Kq)
+        for r in (b.jmp.arg,):
+            if rtype(r) == RTmp and rval(r) >= Tmp0 and fn.tmp[rval(r)].cls == D.Kq:
+                live.add(rval(r))
+        for x in reversed(b.ins[:b.nins]):
+            if rtype(x.to) == RTmp:
+                live.discard(rval(x.to))
+            if x.op == Ocall:
+                across |= live
+            for a in x.arg[:2]:
+                if rtype(a) == RTmp and rval(a) >= Tmp0 and fn.tmp[rval(a)].cls == D.Kq:
+                    live.add(rval(a))
+    if not across:
+        return
+    slots = {}
+    allocs = []
+    for t in sorted(across):
+        s = newtmp('qs', Kl, fn)
+        slots[t] = s
+        allocs.append(Ins(Oalloc + 2, Kl, s, getcon(16, fn), R))
+    for b in fn.rpo[:fn.nblk]:
+        new = []
+        p = b.phi
+        while p:
+            if rval(p.to) in slots:
+                new.append(Ins(D.Oqstore, D.Kq, R, p.to, slots[rval(p.to)]))
+            for n in range(p.narg):
+                a = p.arg[n]
+                if rtype(a) == RTmp and rval(a) in slots:
+                    q = p.blk[n]
+                    r = newtmp('qr', D.Kq, fn)
+                    q.ins = q.ins[:q.nins] + [Ins(D.Oqload, D.Kq, r, slots[rval(a)], R)]
+                    q.nins = len(q.ins)
+                    p.arg[n] = r
+            p = p.link
+        b.ins = new + b.ins[:b.nins]
+        b.nins = len(b.ins)
+    for b in fn.rpo[:fn.nblk]:
+        new = []
+        for x in b.ins[:b.nins]:
+            isslotop = x.op == D.Oqload and x.arg[0] in slots.values() or x.op == D.Oqstore and x.arg[1] in slots.values()
+            if not isslotop:
+                for n in (0, 1):
+                    a = x.arg[n]
+                    if rtype(a) == RTmp and rval(a) in slots:
+                        r = newtmp('qr', D.Kq, fn)
+                        new.append(Ins(D.Oqload, D.Kq, r, slots[rval(a)], R))
+                        x.arg[n] = r
+            new.append(x)
+            if not isslotop and rtype(x.to) == RTmp and rval(x.to) in slots:
+                new.append(Ins(D.Oqstore, D.Kq, R, x.to, slots[rval(x.to)]))
+        b.ins = new
+        b.nins = len(new)
+        a = b.jmp.arg
+        if rtype(a) == RTmp and rval(a) in slots:
+            die("a 128-bit value in a jump")
+    s0 = fn.start
+    s0.ins = [x for x in s0.ins[:s0.nins] if D.ispar(x.op)] + allocs + [x for x in s0.ins[:s0.nins] if not D.ispar(x.op)]
+    s0.nins = len(s0.ins)
+
+
+def _philist(b):
+    p = b.phi
+    while p:
+        yield p
+        p = p.link
+
+
+def _elems(bs):
+    from ..util import bselems
+    return bselems(bs, Tmp0)
 
 
 def arm64_isel(fn):

@@ -108,6 +108,7 @@ NCmp = NCmpI + NCmpF
 
 # classes
 Kx, Kw, Kl, Ks, Kd = -1, 0, 1, 2, 3
+Kq = 5  # cimo (ext.vector): 128 bits, in the FP registers; odd, so wide
 Ke = -2
 Km = Kl
 
@@ -117,7 +118,7 @@ def KWIDE(k):
 
 
 def KBASE(k):
-    return k >> 1
+    return k >> 1 if k != Kq else 1
 
 
 # generated from QBE ops.h; (name, argcls, canfold, hasid, idval, commutes, assoc, idemp, cmpeqwl, cmplgtewl, eqval, pinned)
@@ -357,13 +358,42 @@ class Op:
 
     def __init__(self, name, argcls, *flags):
         self.name = name
-        self.argcls = argcls
+        # room for class q, whose ops write their own tables
+        self.argcls = tuple(a if len(a) == 6 else (a + (Ke, Kq if name in ('copy', 'swap') else Ke)) for a in argcls)
         (self.canfold, self.hasid, self.idval, self.commutes, self.assoc, self.idemp,
          self.cmpeqwl, self.cmplgtewl, self.eqval, self.pinned) = flags
 
+# cimo (ext.vector): operations on a 128-bit value (class q), their lanes in the name: b, h, w, l of 8 to 64
+# bits and s, d of floats: qaddw is 4 x i32. Pure, except qload and qstore, which passes treat as volatile.
+# qfma0 %c, then %r =q qfma1%lane %a, %b, as fma0 and fma1. qsel0 %mask, then %r =q qsel1 %a, %b: bits of a
+# where the mask has them, else of b. qdup: all lanes. qget %v, lane: one lane. Shifts by a constant.
+_QQ = lambda: ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Kq))
+_Q1 = lambda: ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6)
+_QS = lambda: ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Kw))
+_QOPS = [(n + x, _QQ()) for n, lanes in (('qadd', 'bhwlsd'), ('qsub', 'bhwlsd'), ('qmul', 'bhwsd'), ('qdiv', 'sd'),
+                                         ('qmin', 'bhwsd'), ('qmax', 'bhwsd'), ('qumin', 'bhw'), ('qumax', 'bhw'),
+                                         ('qceq', 'bhwlsd'), ('qcgt', 'bhwlsd'), ('qcge', 'bhwlsd'),
+                                         ('qcugt', 'bhwl'), ('qcuge', 'bhwl')) for x in lanes]
+_QOPS += [(n + x, _Q1()) for n, lanes in (('qneg', 'bhwlsd'), ('qabs', 'sd'), ('qsqrt', 'sd')) for x in lanes]
+_QOPS += [(n + x, _QS()) for n in ('qshl', 'qshr', 'qsar') for x in 'bhwl']
+_QOPS += [('qand', _QQ()), ('qor', _QQ()), ('qxor', _QQ()), ('qnot', _Q1()), ('qsel1', _QQ()),
+          ('qdupb', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6)), ('qduph', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6)),
+          ('qdupw', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6)), ('qdupl', ((Ke, Ke, Ke, Ke, Ke, Kl), (Kx,) * 6)),
+          ('qdups', ((Ke, Ke, Ke, Ke, Ke, Ks), (Kx,) * 6)), ('qdupd', ((Ke, Ke, Ke, Ke, Ke, Kd), (Kx,) * 6))]
+_QOPS += [('qget' + x, ((Kq if k == Kw else Ke, Kq if k == Kl else Ke, Kq if k == Ks else Ke, Kq if k == Kd else Ke, Ke, Ke),
+                        (Kw, Kw, Kw, Kw, Ke, Ke)))
+          for x, k in (('b', Kw), ('h', Kw), ('w', Kw), ('l', Kl), ('s', Ks), ('d', Kd))]
+_OPS += [(n, a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) for n, a in _QOPS]
+_OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qfma0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qfma1s', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1), ('qfma1d', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qload', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qstore', ((Kq,) * 6, (Km,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)]
+del _QQ, _Q1, _QS
+
 
 Oxxx = 0
-optab = [Op(None, ((Ke,) * 4, (Ke,) * 4), *([0] * 10))]
+optab = [Op(None, ((Ke,) * 6, (Ke,) * 6), *([0] * 10))]
 for _o in _OPS:
     globals()['O' + _o[0]] = len(optab)
     optab.append(Op(*_o))
@@ -405,8 +435,9 @@ def INRANGE(x, l, u):
 
 def isstore(o): return Ostoreb <= o <= Ostored
 def isload(o): return Oloadsb <= o <= Oload
-def isvload(o): return Ovloadsb <= o <= Ovload
-def isvstore(o): return Ovstoreb <= o <= Ovstored
+def isvload(o): return Ovloadsb <= o <= Ovload or o == Oqload  # vector memory: as careful as volatile, for now
+def isvstore(o): return Ovstoreb <= o <= Ovstored or o == Oqstore
+def isqop(o): return Oqaddb <= o <= Oqstore
 
 
 def unvolatile(fn, sink=None):
@@ -458,9 +489,10 @@ def isxsel(o): return Oxsel <= o <= Oxsel1
 class Target:
     __slots__ = ('name', 'apple', 'windows', 'gpr0', 'ngpr', 'fpr0', 'nfpr', 'rglob',
                  'nrglob', 'rsave', 'nrsave', 'retregs', 'argregs', 'memargs', 'abi0',
-                 'abi1', 'isel', 'emitfn', 'emitfin', 'asloc', 'assym', 'cansel')
+                 'abi1', 'isel', 'emitfn', 'emitfin', 'asloc', 'assym', 'cansel', 'rqavoid')
 
     def __init__(self, **kw):
+        self.rqavoid = 0  # cimo (ext.vector): registers of which a call keeps only part
         self.name = ''
         self.apple = 0
         self.windows = 0

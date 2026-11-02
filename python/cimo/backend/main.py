@@ -211,6 +211,11 @@ class _Driver:
         # cimo: volatile accesses are plain ones from here on (ext.volatile)
         D.unvolatile(fn, D.TMP(_IP1) if T.name.startswith('arm64') else
                      'use' if T.name.startswith('amd64') else None)
+        if ext.vector and T.name.startswith('arm64'):
+            from .arm64.isel import qacrosscalls
+            qacrosscalls(fn)
+            cfg.fillcfg(fn)
+            ssa.filluse(fn)
         T.isel(fn)
         cfg.fillcfg(fn)
         live.filllive(fn)

@@ -99,9 +99,9 @@ def igroup(b, i):
         return i, i + 2
     if op == Oblit1:
         return i - 1, i + 1
-    if op == D.Ofma0:  # cimo extension, see ext.py
+    if op in (D.Ofma0, D.Oqfma0, D.Oqsel0):  # cimo extension, see ext.py
         return i, i + 2
-    if op == D.Ofma1:
+    if op in (D.Ofma1, D.Oqfma1s, D.Oqfma1d, D.Oqsel1):
         return i - 1, i + 1
     if ispar(op):
         while i > ib and ispar(ins[i - 1].op):

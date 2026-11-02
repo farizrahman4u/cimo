@@ -923,6 +923,81 @@ def _regoffset(ops, sz):
     return rm[1] << 16 | _OPTION[how] << 13 | s << 12 | base[1] << 5
 
 
+# cimo (ext.vector): NEON on 128 bits. (opcode, 's' if the lane size goes in bits 23:22, 'f' if bit 22 says double)
+_NEON3 = {'add': (0x4e208400, 's'), 'sub': (0x6e208400, 's'), 'mul': (0x4e209c00, 's'), 'cmeq': (0x6e208c00, 's'),
+          'cmgt': (0x4e203400, 's'), 'cmge': (0x4e203c00, 's'), 'cmhi': (0x6e203400, 's'), 'cmhs': (0x6e203c00, 's'),
+          'smin': (0x4e206c00, 's'), 'smax': (0x4e206400, 's'), 'umin': (0x6e206c00, 's'), 'umax': (0x6e206400, 's'),
+          'fadd': (0x4e20d400, 'f'), 'fsub': (0x4ea0d400, 'f'), 'fmul': (0x6e20dc00, 'f'), 'fdiv': (0x6e20fc00, 'f'),
+          'fminnm': (0x4ea0c400, 'f'), 'fmaxnm': (0x4e20c400, 'f'), 'fmla': (0x4e20cc00, 'f'), 'fcmeq': (0x4e20e400, 'f'),
+          'fcmge': (0x6e20e400, 'f'), 'fcmgt': (0x6ea0e400, 'f'), 'and': (0x4e201c00, ''), 'orr': (0x4ea01c00, ''),
+          'eor': (0x6e201c00, ''), 'bsl': (0x6e601c00, '')}
+_NEON2 = {'neg': (0x6e20b800, 's'), 'fneg': (0x6ea0f800, 'f'), 'fabs': (0x4ea0f800, 'f'), 'fsqrt': (0x6ea1f800, 'f'),
+          'mvn': (0x6e205800, '')}
+_NEONSH = {'shl': 0x4f005400, 'ushr': 0x6f000400, 'sshr': 0x4f000400}
+_LANES = {'16b': 0, '8h': 1, '4s': 2, '2d': 3}
+_VREG = re.compile(r'v(\d+)\.(16b|8h|4s|2d)$')
+_VELEM = re.compile(r'v(\d+)\.([bhsd])\[(\d+)\]$')
+
+
+def _isneon(ops):
+    return bool(ops) and ops[0].strip().lower()[:1] == 'v' and _VREG.match(ops[0].strip().lower()) is not None
+
+
+def _v(s):
+    m = _VREG.match(s.strip().lower())
+    if m is None:
+        raise AssemblerError('expected a vector register, got %r' % s)
+    return int(m[1]), m[2]
+
+
+def _neon(mn, ops):
+    """The word of a NEON instruction whose first operand is a vector register."""
+    d, lane = _v(ops[0])
+    size = _LANES[lane]
+    if mn == 'mov':
+        n, _ = _v(ops[1])
+        return 0x4ea01c00 | n << 16 | n << 5 | d
+    if mn == 'dup':
+        s = ops[1].strip().lower()
+        e = _VELEM.match(s)
+        if e:
+            imm5 = {'b': 1, 'h': 2, 's': 4, 'd': 8}[e[2]] | int(e[3]) << ({'b': 1, 'h': 2, 's': 3, 'd': 4}[e[2]])
+            return 0x4e000400 | imm5 << 16 | int(e[1]) << 5 | d
+        r = _reg(s, 'wx')
+        return 0x4e000c00 | (1 << size) << 16 | r[1] << 5 | d
+    if mn in _NEONSH:
+        n, _ = _v(ops[1])
+        amount = _imm(ops[2], True)
+        bits = 8 << size
+        immhb = bits + amount if mn == 'shl' else 2 * bits - amount
+        return _NEONSH[mn] | immhb << 16 | n << 5 | d
+    if mn in _NEON2:
+        op, kind = _NEON2[mn]
+        n, _ = _v(ops[1])
+        w = op | n << 5 | d
+        return w | (size << 22 if kind == 's' else (lane == '2d') << 22 if kind == 'f' else 0)
+    if mn in _NEON3:
+        op, kind = _NEON3[mn]
+        n, _ = _v(ops[1])
+        m, _ = _v(ops[2])
+        w = op | m << 16 | n << 5 | d
+        return w | (size << 22 if kind == 's' else (lane == '2d') << 22 if kind == 'f' else 0)
+    raise AssemblerError('unsupported vector instruction %r' % mn)
+
+
+def _i_vscalar(a, mn, ops):
+    """umov Wd, Vn.T[i]; dup Sd, Vn.s[i] (and Dd)."""
+    e = _VELEM.match(ops[1].strip().lower())
+    if e is None:
+        raise AssemblerError('expected a vector element, got %r' % ops[1])
+    imm5 = {'b': 1, 'h': 2, 's': 4, 'd': 8}[e[2]] | int(e[3]) << ({'b': 1, 'h': 2, 's': 3, 'd': 4}[e[2]])
+    if mn == 'umov':
+        r = _reg(ops[0], 'wx')
+        return (0x4e003c00 if r[0] == 'x' else 0x0e003c00) | imm5 << 16 | int(e[1]) << 5 | r[1]
+    r = _reg(ops[0], 'sd')
+    return 0x5e000400 | imm5 << 16 | int(e[1]) << 5 | r[1]
+
+
 def _i_ldst(a, mn, ops):
     if len(ops) < 2:
         raise AssemblerError('%s needs 2 operands' % mn)
@@ -1373,12 +1448,17 @@ class _Asm:
                 if mn[0] == '.':
                     self.directive(mn, rest)
                     continue
+                ops = _split(rest)
                 f = insns.get(mn)
+                if _isneon(ops):
+                    f = lambda a, mn, ops: _neon(mn, ops)
+                elif mn in ('umov', 'dup') and ops:
+                    f = _i_vscalar
                 if f is None:
                     raise AssemblerError('unsupported instruction %r' % parts[0])
                 if self.sec.nobits:
                     raise AssemblerError('instruction in nobits section %s' % self.sec.name)
-                word = f(self, mn, _split(rest))
+                word = f(self, mn, ops)
                 if self.sec.size % 4:
                     raise AssemblerError('misaligned instruction')
                 self.sec.align = max(self.sec.align, 4)

@@ -40,6 +40,10 @@ _VOLOPS = {optab[o].name: o for o in range(D.Ovloadsb, D.Ovstored + 1)}
 _VOLOPS.update(vloadw=D.Ovloadsw, vloadl=D.Ovload, vloads=D.Ovload, vloadd=D.Ovload)
 Tsp = Ntok + 3  # cimo extension: getsp and setsp, keywords when ext.vla is on
 Tbits = Ntok + 4  # cimo extension: the bit builtins, keywords when ext.math is on
+Tqc = Ntok + 7  # cimo extension: the class letter
+_KQTEXT = 99  # what parsecls says for it: Kq's number means something else among the size classes here
+Tq = Ntok + 6  # cimo extension: class q and its instructions, keywords when ext.vector is on
+_QNAMES = {optab[o].name: o for o in range(D.Oqaddb, D.Oqstore + 1) if optab[o].name not in ('qsel0', 'qfma0')}
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
 _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
 _BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16')
@@ -243,6 +247,11 @@ def lex():
         if _ext.volatile and S.tokval_str in _VOLOPS:
             S.mathop = _VOLOPS[S.tokval_str]
             return Tvol
+        if _ext.vector and S.tokval_str == 'q':
+            return Tqc
+        if _ext.vector and S.tokval_str in _QNAMES:
+            S.mathop = _QNAMES[S.tokval_str]
+            return Tq
         if _ext.nowrap and S.tokval_str in _NSWOPS:
             S.mathop = _NSWOPS[S.tokval_str]
             return Tnsw
@@ -358,6 +367,8 @@ def parsecls():
     m = {Tsb: Ksb, Tub: Kub, Tsh: Ksh, Tuh: Kuh, Tw: Kw, Tl: Kl, Ts: Ks, Td: Kd}
     if t in m:
         return m[t], None
+    if t == Tqc:
+        return _KQTEXT, None
     err("invalid class specifier")
 
 
@@ -552,6 +563,10 @@ def parseline(ps):
         r = R
         k = Kl
         op = Tsp
+    elif t == Tq and S.mathop == D.Oqstore:
+        r = R
+        k = _KQTEXT
+        op = Tq
     else:
         err("label, instruction or jump expected")
 
@@ -575,7 +590,9 @@ def parseline(ps):
         op = D.Oalloc
     if op == D.Ovastart and not curf.vararg:
         err("cannot use vastart in non-variadic function")
-    if k >= Ksb:
+    if k == _KQTEXT:
+        k = D.Kq
+    elif k >= Ksb:
         err("size class must be w, l, s, or d")
     i = 0
     if peek() != Tnl:
@@ -617,6 +634,17 @@ def parseline(ps):
         _put(Ins(D.Ofma1, k, r, arg[0], arg[1]))
         return PIns
     elif op == Tvol:
+        return _ins(S.mathop, k, r, arg)
+    elif op == Tq:
+        if S.mathop in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1):  # %r =q qfma1s %a, %b, %c, as fma; qsel1 %a, %b, %mask
+            if i != 3:
+                err("%s needs three arguments", optab[S.mathop].name)
+            if D.curi + 2 > NIns:
+                err("too many instructions")
+            first = D.Oqsel0 if S.mathop == D.Oqsel1 else D.Oqfma0
+            _put(Ins(first, k, R, arg[2], R))
+            _put(Ins(S.mathop, k, r, arg[0], arg[1]))
+            return PIns
         return _ins(S.mathop, k, r, arg)
     elif op == Tnsw:
         if i != 2 or KBASE(k) != 0:
@@ -1147,7 +1175,7 @@ def printref(r, fn, f):
         f.write("R")
 
 
-_ktoc = "wlsd"
+_ktoc = "wlsdxq"
 _clsops = None
 
 

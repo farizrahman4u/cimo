@@ -522,9 +522,9 @@ WSL2, mains, tok/s:
   so a standalone module on shared memory), quantized kernels (a 1B float32 model doesn't fit in
   wasm32's 4 GB).
 
-## Vector code (planned, 2026-11-02)
+## Vector code (2026-11-02)
 
-Nothing here is built. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
+Stage 1 is built: class `q` on arm64 (`ext.vector`), from IR text only; nothing emits it yet. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
 Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorization (`rgb2gray` up to 6.6x; `saxpy`, `jacobi2d`,
 `conv3x3` 3 to 4x).
 
@@ -540,6 +540,10 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   consecutive accesses gets one vector operation and the scalar loop as the remainder.
 - **What can't vectorize:** FP reductions (`dot`, `prefix_sum`): C fixes their order, as for gcc and clang without `-ffast-math`.
   scramjit needs numpy's pairwise order for its sums, which is a loop it writes itself (`TODO.md`).
+- **A call keeps at most 64 bits of an FP register on arm64:** a `q` temporary live across one lives in memory
+  (`isel.qacrosscalls`), and `q` temporaries stay out of v8 to v15 (`rqavoid`), whose low halves the function must keep.
+- **Memory:** `qload` and `qstore` count as volatile in the memory passes, so nothing forwards across them. Safe, and
+  to be tightened once something depends on it.
 - **Measure on EC2:** Neoverse N1, V1 and V2 as well as this machine, whose Snapdragon hid the 52% cost of a copy in `dot`.
 
 ## GPU (planned, 2026-11-02)

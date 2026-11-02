@@ -39,7 +39,7 @@ def _storesz(i):
 
 
 class E:
-    __slots__ = ('f', 'fn', 'frame', 'padding', 'tbzok')
+    __slots__ = ('f', 'fn', 'frame', 'padding', 'tbzok', 'qthird')
 
     def __init__(self, f, fn):
         self.f = f
@@ -468,9 +468,115 @@ def _table(i, e):
     emitf(fmt, i, e)
 
 
+_QLANE = {'b': '16b', 'h': '8h', 'w': '4s', 'l': '2d', 's': '4s', 'd': '2d'}
+_QINT = {'qadd': 'add', 'qsub': 'sub', 'qmul': 'mul', 'qmin': 'smin', 'qmax': 'smax', 'qumin': 'umin', 'qumax': 'umax',
+         'qceq': 'cmeq', 'qcgt': 'cmgt', 'qcge': 'cmge', 'qcugt': 'cmhi', 'qcuge': 'cmhs', 'qneg': 'neg'}
+_QFP = {'qadd': 'fadd', 'qsub': 'fsub', 'qmul': 'fmul', 'qdiv': 'fdiv', 'qmin': 'fminnm', 'qmax': 'fmaxnm',
+        'qceq': 'fcmeq', 'qcgt': 'fcmgt', 'qcge': 'fcmge', 'qneg': 'fneg', 'qabs': 'fabs', 'qsqrt': 'fsqrt'}
+
+
+def _qv(r, lane='16b'):
+    return 'v%d.%s' % (rval(r) - V0, lane)
+
+
+def _qaddr(r, e):
+    """The memory operand of a 128-bit access: a slot's offset may not fit, so through x17."""
+    if rtype(r) == RSlot:
+        off = slot(r, e)
+        base = "x29"
+        if off < 4096:
+            e.f.write("\tadd\tx17, %s, #%d\n" % (base, off))
+        else:
+            e.f.write("\tmov\tx17, #%d\n\tadd\tx17, %s, x17\n" % (off, base))
+        return "[x17]"
+    return "[%s]" % rname(rval(r), Kl)
+
+
+def _qins(i, e):
+    """cimo (ext.vector): one instruction on 128 bits; True if it was one."""
+    f = e.f
+    op = i.op
+    if op == Ocopy and i.cls == D.Kq:
+        if rtype(i.to) == RSlot or rtype(i.arg[0]) == RSlot:
+            die("128-bit copy through memory")
+        if not req(i.to, i.arg[0]):
+            f.write("\tmov\t%s, %s\n" % (_qv(i.to), _qv(i.arg[0])))
+        return True
+    if op == Oswap and i.cls == D.Kq:
+        a, b = _qv(i.arg[0]), _qv(i.arg[1])
+        f.write("\tmov\tv31.16b, %s\n\tmov\t%s, %s\n\tmov\t%s, v31.16b\n" % (a, a, b, b))
+        return True
+    if (op == D.Oload and i.cls == D.Kq) or op == D.Oqload:
+        f.write("\tldr\tq%d, %s\n" % (rval(i.to) - V0, _qaddr(i.arg[0], e)))
+        return True
+    if op == D.Oqstore:
+        f.write("\tstr\tq%d, %s\n" % (rval(i.arg[0]) - V0, _qaddr(i.arg[1], e)))
+        return True
+    if not D.isqop(op):
+        return False
+    name = optab[op].name
+    if name in ('qsel0', 'qfma0'):
+        return True  # with the next one
+    if name in ('qand', 'qor', 'qxor'):
+        f.write("\t%s\t%s, %s, %s\n" % ({'qand': 'and', 'qor': 'orr', 'qxor': 'eor'}[name], _qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
+        return True
+    if name == 'qnot':
+        f.write("\tmvn\t%s, %s\n" % (_qv(i.to), _qv(i.arg[0])))
+        return True
+    if name in ('qsel1', 'qfma1s', 'qfma1d'):
+        third = e.qthird
+        l = _QLANE[name[-1]] if name != 'qsel1' else '16b'
+        mn = 'bsl' if name == 'qsel1' else 'fmla'
+        if name == 'qsel1':  # bsl: the mask is the destination
+            if rval(i.to) in (rval(i.arg[0]), rval(i.arg[1])) or not req(i.to, third):
+                f.write("\tmov\tv31.16b, %s\n\tbsl\tv31.16b, %s, %s\n\tmov\t%s, v31.16b\n" % (_qv(third), _qv(i.arg[0]), _qv(i.arg[1]), _qv(i.to)))
+            else:
+                f.write("\tbsl\t%s, %s, %s\n" % (_qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
+            return True
+        if req(i.to, third):  # fmla: the addend is the destination
+            f.write("\tfmla\t%s, %s, %s\n" % (_qv(i.to, l), _qv(i.arg[0], l), _qv(i.arg[1], l)))
+        elif rval(i.to) in (rval(i.arg[0]), rval(i.arg[1])):
+            f.write("\tmov\tv31.16b, %s\n\tfmla\tv31.%s, %s, %s\n\tmov\t%s, v31.16b\n" % (_qv(third), l, _qv(i.arg[0], l), _qv(i.arg[1], l), _qv(i.to)))
+        else:
+            f.write("\tmov\t%s, %s\n\tfmla\t%s, %s, %s\n" % (_qv(i.to), _qv(third), _qv(i.to, l), _qv(i.arg[0], l), _qv(i.arg[1], l)))
+        return True
+    x = name[-1]
+    base = name[:-1]
+    l = _QLANE[x]
+    if base == 'qdup':
+        if x in 'sd':
+            f.write("\tdup\t%s, v%d.%s[0]\n" % (_qv(i.to, l), rval(i.arg[0]) - V0, x))
+        else:
+            f.write("\tdup\t%s, %s\n" % (_qv(i.to, l), rname(rval(i.arg[0]), Kl if x == 'l' else Kw)))
+        return True
+    if base == 'qget':
+        n = e.fn.con[rval(i.arg[1])].i
+        if x in 'sd':
+            f.write("\tdup\t%s, v%d.%s[%d]\n" % (rname(rval(i.to), i.cls), rval(i.arg[0]) - V0, x, n))
+        else:
+            lane = {'b': 'b', 'h': 'h', 'w': 's', 'l': 'd'}[x]
+            f.write("\tumov\t%s, v%d.%s[%d]\n" % (rname(rval(i.to), i.cls), rval(i.arg[0]) - V0, lane, n))
+        return True
+    if base in ('qshl', 'qshr', 'qsar'):
+        n = e.fn.con[rval(i.arg[1])].i
+        f.write("\t%s\t%s, %s, #%d\n" % ({'qshl': 'shl', 'qshr': 'ushr', 'qsar': 'sshr'}[base], _qv(i.to, l), _qv(i.arg[0], l), n))
+        return True
+    mn = (_QFP if x in 'sd' else _QINT)[base]
+    if i.arg[1] == R:
+        f.write("\t%s\t%s, %s\n" % (mn, _qv(i.to, l), _qv(i.arg[0], l)))
+    else:
+        f.write("\t%s\t%s, %s, %s\n" % (mn, _qv(i.to, l), _qv(i.arg[0], l), _qv(i.arg[1], l)))
+    return True
+
+
 def emitins(i, e):
     T = D.T
     op = i.op
+    if i.cls == D.Kq or D.isqop(op):
+        if op == D.Oqsel0 or op == D.Oqfma0:
+            e.qthird = i.arg[0]
+        if _qins(i, e):
+            return
     if op == Onop:
         pass
     elif op == Ocopy:

@@ -114,7 +114,12 @@ def slot(t):
         # one hole and slot4 points to it
         #
         # invariant: slot4 <= slot8
-        if KWIDE(tmp[t].cls):
+        if tmp[t].cls == D.Kq:  # cimo (ext.vector): 16 bytes
+            s = slot8
+            if slot4 == slot8:
+                slot4 += 4
+            slot8 += 4
+        elif KWIDE(tmp[t].cls):
             s = slot8
             if slot4 == slot8:
                 slot4 += 2
@@ -189,7 +194,8 @@ def reloads(u, v):
 
 def store(r, s):
     if s != -1:
-        emit(Ostorew + tmp[rval(r)].cls, 0, R, r, SLOT(s))
+        k = tmp[rval(r)].cls
+        emit(D.Oqstore if k == D.Kq else Ostorew + k, D.Kq if k == D.Kq else 0, R, r, SLOT(s))
 
 
 def regcpy(i):
