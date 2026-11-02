@@ -10,10 +10,16 @@ import os
 import re
 import sys
 
+import pytest
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
 from cimo import driver  # noqa: E402
+sys.path.insert(0, HERE)
+import hosts  # noqa: E402
+
+pytestmark = pytest.mark.skipif(not hosts.ARM64, reason="counts arm64's instructions")
 
 BASELINE = os.path.join(HERE, 'bench_gate.json')
 KERNELS = os.path.join(os.path.dirname(os.path.dirname(HERE)), 'scratch', 'qbe_eval', 'kernels.c')
