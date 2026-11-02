@@ -522,6 +522,26 @@ WSL2, mains, tok/s:
   so a standalone module on shared memory), quantized kernels (a 1B float32 model doesn't fit in
   wasm32's 4 GB).
 
+## Vector code (planned, 2026-11-02)
+
+Nothing here is built. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
+Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorization (`rgb2gray` up to 6.6x; `saxpy`, `jacobi2d`,
+`conv3x3` 3 to 4x).
+
+- **128 bits everywhere:** NEON, x86-64's baseline SSE2 and wasm SIMD all have it, so one IR class fits all three and nothing
+  needs CPU dispatch. 256-bit AVX2 can come later, behind a check at load.
+- **IR:** one class for a 128-bit value, in the FP registers, and operations that name their lanes (4 x i32, 2 x f64...), so the
+  class doesn't multiply. Spill slots are 16 bytes.
+- **Order:** (1) the IR class through register allocation, spilling, parsing and arm64's selection and assembler; (2) x86-64;
+  (3) GNU vector types in the frontend (`vector_size`, operators, subscripts, `__builtin_shuffle`), which give all of it a user
+  with no analysis in the way; (4) the auto-vectorizer; (5) wasm SIMD; (6) SLP.
+- **Auto-vectorizer:** `middle/inner.py` already proves what LLVM's `LoopVectorizationLegality` checks: trip count, overlap and
+  overflow checks at run time, affine addresses, one versioned fast path. Where it emits 4 scalar copies, a loop with
+  consecutive accesses gets one vector operation and the scalar loop as the remainder.
+- **What can't vectorize:** FP reductions (`dot`, `prefix_sum`): C fixes their order, as for gcc and clang without `-ffast-math`.
+  scramjit needs numpy's pairwise order for its sums, which is a loop it writes itself (`TODO.md`).
+- **Measure on EC2:** Neoverse N1, V1 and V2 as well as this machine, whose Snapdragon hid the 52% cost of a copy in `dot`.
+
 ## GPU (planned, 2026-11-02)
 
 Nothing here is built. Plain C runs on any GPU the machine has, including in a browser tab, with no vendor
