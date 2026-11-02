@@ -21,7 +21,7 @@ Writing pages:
 
 Preview locally: `python3 -m http.server -d docs` and open http://localhost:8000/docs/.
 
-The Prompt for Agents corner here links to the landing page, whose banner peels back to show the prompt
+The Prompt for Agents corner here links to the landing page (closing the prompt comes back here), whose banner peels back to show the prompt
 (`../agent-prompt.txt`). Both use `../agent.js` and `../agent.css`; after changing those, update their `?v=`
 in both `index.html` files. `../llms.txt` indexes these raw pages for agents; add new pages there too
 (`python/tests/test_site.py` checks it).
