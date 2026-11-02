@@ -9,11 +9,11 @@ Docs (raw Markdown): https://www.cimo.dev/llms.txt
 ## Install
 pip install cimo
 Or no install: put this one file on sys.path and `import cimo`: https://github.com/farizrahman4u/cimo/releases/download/onefile/cimo.py
-CPython 3.9+ on arm64 Linux, macOS and Windows, or Pyodide. On x86-64, compile raises CompileError. numpy is only needed for arrays.
+CPython 3.9+ on Linux and Windows (arm64, x86-64), macOS on Apple silicon, or Pyodide. On other machines, compile raises CompileError. numpy is only needed for arrays.
 
 ## When
 Use: native kernels without a compiler on the target; replacing wheel matrices or C extensions with C shipped as source; generating C at runtime (formulas, codegen); browsers and locked-down machines.
-Skip: x86-64 targets; numpy already does it fast; you need SIMD intrinsics or auto-vectorization (cimo emits scalar code); untrusted C (no sandbox, full process privileges).
+Skip: numpy already does it fast; you need SIMD intrinsics, or vectorized code beyond straight arm64 loops over 4- and 8-byte elements (the rest is scalar); untrusted C (no sandbox, full process privileges).
 
 ## API
 import numpy as np, cimo
