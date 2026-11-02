@@ -34,10 +34,8 @@ without copying, and compiled code releases the GIL.
 
 ## Install
 
-The package on PyPI is a placeholder for now. Install from GitHub:
-
 ```
-pip install "cimo @ git+https://github.com/farizrahman4u/cimo#subdirectory=python"
+pip install cimo
 ```
 
 or download one file to put on `sys.path`:
