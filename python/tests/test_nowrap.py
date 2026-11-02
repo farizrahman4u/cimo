@@ -19,7 +19,7 @@ def asm(src):
 
 
 def body(text, name):
-    m = re.search(r'^%s:\n(.*?)^/\* end function' % name, text, re.S | re.M)
+    m = re.search(r'^_?%s:\n(.*?)^/\* end function' % name, text, re.S | re.M)  # Apple's symbols have a _
     return m.group(1)
 
 
@@ -200,3 +200,10 @@ def test_extension_stays_when_the_step_may_wrap():
     long g(int n) { long s = 0; int i = 2147483646; for (int k = 0; k < n; k++) { s += (long)i; i = (int)((unsigned)i + 1); } return s; }'''
     m = cimo.compile(src, cache=False)
     assert m.g(3) == INT_MAX - 1 + INT_MAX + INT_MIN
+
+
+def test_promise_survives_every_target():
+    from cimo.backend import ext
+    ssa = 'export function w $f(w %x) {\n@s\n\t%y =w addnsw %x, 1\n\t%c =w csgtw %y, %x\n\tret %c\n}\n'
+    for target in ('arm64', 'arm64_apple', 'arm64_win'):
+        assert 'cmp' not in driver._qbe(ssa, target=target), target
