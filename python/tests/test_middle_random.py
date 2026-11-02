@@ -9,6 +9,7 @@ import pytest
 np = pytest.importorskip('numpy')
 
 from test_middle import pytestmark, _compile, _buffers, _call, CC  # noqa: E402,F401
+import hosts  # noqa: E402
 import middle_gen  # noqa: E402
 import cimo  # noqa: E402
 
@@ -26,6 +27,33 @@ _r = os.environ.get('CIMO_RANDOM_SEEDS', '0:6').split(':')
 SEEDS = list(range(int(_r[0]), int(_r[1])))
 CALLS = [(n, k, None) for n in (0, 1, 2, 3, 4, 5, 7, 8, 13, 31, 64, 100) for k in (0, -3, 4)]
 ALIAS = [(n, 1, d) for n in (3, 9, 33) for d in (-2, 0, 1, 3)]
+
+
+def _same(a, b):
+    """Bit for bit. On x86-64 a NaN's own bits aren't compared: with two NaNs addss keeps the first, so commuting an add,
+    as gcc and clang do too, picks another. C doesn't fix them, and a NaN is still needed on both sides."""
+    if a == b:
+        return True
+    if not hosts.AMD64:
+        return False
+    def floats(res):
+        r = [np.frombuffer(res[0], np.float64)]
+        fa, fb, ia, ib, da, ua = _buffers(0)
+        at = 0
+        for b0 in (fa, fb, ia, ib, da, ua):
+            size = b0.size * b0.itemsize
+            r.append(np.frombuffer(res[1][at:at + size], b0.dtype))
+            at += size
+        return r
+    for x, y in zip(floats(a), floats(b)):
+        if x.dtype.kind == 'f':
+            nan = np.isnan(x)
+            if not np.array_equal(nan, np.isnan(y)):
+                return False
+            x, y = x[~nan], y[~nan]
+        if x.tobytes() != y.tobytes():
+            return False
+    return True
 
 
 @pytest.mark.parametrize('seed', SEEDS)
@@ -57,10 +85,10 @@ def test_random_loops(tmp_path, seed):
         for j, (n, k, alias) in enumerate(cases):
             res = [_call(f, n, k, _buffers(j), alias)
                    for f in (getattr(on, name), getattr(off or on, name), fr)]
-            if res[1] != res[2]:
+            if not _same(res[1], res[2]):
                 bad.append('%s n=%d k=%d alias=%r: middle end off differs' % (name, n, k, alias))
                 break
-            if res[0] != res[2]:
+            if not _same(res[0], res[2]):
                 bad.append('%s n=%d k=%d alias=%r: middle end on differs' % (name, n, k, alias))
                 break
     assert not bad, '\n'.join(bad) + '\n(source: %s)' % path

@@ -94,6 +94,16 @@ class _Driver:
         cfg.filldom(fn)
         ssa.ssacheck(fn)
 
+    @staticmethod
+    def _qlower(fn, ssa):
+        """cimo (ext.vector): what SSE2 has no instruction for, in what it has. Before the cleanup when loops made
+        some, so that a mask becomes one temporary outside the loop."""
+        from . import ext
+        if ext.vector and D.T.name.startswith('amd64'):
+            from .amd64 import qlower
+            if qlower.run(fn):
+                ssa.filluse(fn)
+
     def compile(self, fn):
         T = D.T
         err = sys.stderr
@@ -187,9 +197,11 @@ class _Driver:
             # cleanup passes again over the new code
             cfg.filldom(fn)
             if middle.run(fn):
+                self._qlower(fn, ssa)
                 self._cleanup(fn, cfg, ssa, gvn, gcm)
                 if ext.cse and T.name.startswith('arm64') and cse.bytepatterns(fn):  # reads made by loops
                     self._cleanup(fn, cfg, ssa, gvn, gcm)
+        self._qlower(fn, ssa)
         if ext.cse and T.name.startswith('arm64'):
             cfg.fillloop(fn)
             if cse.hoistcons(fn):

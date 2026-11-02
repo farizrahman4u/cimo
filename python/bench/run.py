@@ -7,6 +7,7 @@ Configurations (all called in-process through ctypes and the same C timing loops
   gcc-nofma   gcc -O3 -mcpu=native -fno-tree-vectorize -ffp-contract=off  (like-for-like scalar)
   gcc-novec   gcc -O3 -mcpu=native -fno-tree-vectorize                    (default FMA contraction)
   gcc-O3      gcc -O3 -mcpu=native                                         (vectorized)
+On x86-64 no -mcpu: baseline SSE2 on both sides, as cimo emits.
 
 `--cimo NAME=FLAGS` adds a cimo build with explicit extension flags instead of the driver's
 choice: FLAGS is a comma list of fma, ldp, layout (or `none`), e.g.
@@ -42,10 +43,12 @@ KERNELS = ['saxpy', 'gemm', 'jacobi2d', 'conv3x3', 'rgb2gray', 'dot', 'isum', 'p
            'sieve']
 
 GCC = os.environ.get('CC', 'gcc')
+# arm64: this CPU. x86-64: what cimo emits for, the baseline, so the same 128 bits on both sides
+_CPU = ['-mcpu=native'] if platform.machine().lower() in ('arm64', 'aarch64') else []
 GCC_CONFIGS = [
-    ('gcc-nofma', ['-O3', '-mcpu=native', '-fno-tree-vectorize', '-ffp-contract=off']),
-    ('gcc-novec', ['-O3', '-mcpu=native', '-fno-tree-vectorize']),
-    ('gcc-O3', ['-O3', '-mcpu=native']),
+    ('gcc-nofma', ['-O3'] + _CPU + ['-fno-tree-vectorize', '-ffp-contract=off']),
+    ('gcc-novec', ['-O3'] + _CPU + ['-fno-tree-vectorize']),
+    ('gcc-O3', ['-O3'] + _CPU),
 ]
 FLAGS = ('fma', 'ldp', 'layout')
 
@@ -164,8 +167,8 @@ def main(argv=None):
                     help='gcc configs to run (comma list of nofma, novec, O3)')
     args = ap.parse_args(argv)
 
-    if platform.machine().lower() not in ('arm64', 'aarch64'):
-        raise SystemExit('arm64 only')
+    if platform.machine().lower() not in ('arm64', 'aarch64', 'x86_64', 'amd64'):
+        raise SystemExit('arm64 and x86-64 only')
     kernels = args.kernels or KERNELS
     for k in kernels:
         if k not in KERNELS:

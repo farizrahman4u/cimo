@@ -129,12 +129,22 @@ def fixarg(lst, idx, k, i, fn):
             r2 = newtmp("isel", Kl, fn)
             cc = Con(CBits, c.i)
             r3 = newcon(cc, fn)
-            if noimm(r3, fn):  # fix over C QBE: an add's immediate is 32 bits
+            # fix over C QBE: lea, not add. For a phi's argument this comes after the block's last instruction, between
+            # a compare and the jump that reads its flags (YARPGen: extern_array + 4 went the wrong way, then crashed)
+            a = Addr()
+            a.base = r2
+            if noimm(r3, fn):  # an address's offset is 32 bits
                 r4 = newtmp("isel", Kl, fn)
-                emit(Oadd, Kl, r1, r2, r4)
-                emit(Ocopy, Kl, r4, r3, R)
+                a.index = r4
+                a.scale = 1
             else:
-                emit(Oadd, Kl, r1, r2, r3)
+                a.offset = cc
+            fn.nmem += 1
+            vgrow(fn.mem, fn.nmem, Addr)
+            fn.mem[fn.nmem - 1] = a
+            emit(Oaddr, Kl, r1, MEM(fn.nmem - 1), R)
+            if noimm(r3, fn):
+                emit(Ocopy, Kl, r4, r3, R)
         else:
             r2 = r1
         if D.T.apple and (c.sym.type & SThr):
@@ -275,7 +285,9 @@ def sel(i, tn, fn):
     i0 = D.curi
     k = i.cls
     op = i.op
-    if op in (Odiv, Orem, Oudiv, Ourem):
+    if D.isqop(op):
+        _qsel(i, tn, fn)
+    elif op in (Odiv, Orem, Oudiv, Ourem):
         if KBASE(k) == 1:
             _emit_fix(i, fn)
         else:
@@ -479,6 +491,35 @@ _EMIT = frozenset((Odbgloc, Ocall, Osalloc, Ocopy, Oadd, Osub, Oneg, Omul, Oand,
 
 _EXTINT = frozenset((D.Obclz, D.Obctz, D.Obswap, D.Obswap16))
 _EXTOPS = _EXTINT | frozenset((D.Ogetsp, D.Osetsp, D.Ofsqrt, D.Ofabs))
+
+
+def _qsel(i, tn, fn):
+    """cimo (ext.vector): registers, a whole addressing mode, and a constant for shifts, shuffles and lanes."""
+    op = i.op
+    if op == D.Oqload:
+        seladdr(i.arg, 0, tn, fn)
+    elif op == D.Oqstore:
+        seladdr(i.arg, 1, tn, fn)
+    if D.Oqdupb <= op <= D.Oqdupd and rtype(i.arg[0]) == RCon:
+        c = fn.con[rval(i.arg[0])]
+        if c.type == CBits and c.i in (0, -1) and op not in (D.Oqdups, D.Oqdupd):
+            emiti(i)  # pxor, pcmpeqd
+            return
+        k = argcls(i, 0)
+        r = newtmp("isel", k, fn)
+        a = i.arg[0]
+        i.arg[0] = r
+        emiti(i)
+        emit(Ocopy, k, r, a, R)
+        ci = D.insb[D.curi]
+        fixarg(ci.arg, 0, k, ci, fn)
+        return
+    emiti(i)
+    i1 = D.insb[D.curi]
+    keep1 = D.Oqshlb <= op <= D.Oqsarl or D.Oqgetb <= op <= D.Oqgetd or op == D.Oqxshufd
+    fixarg(i1.arg, 0, argcls(i, 0), i1, fn)
+    if i1.arg[1] != R and argcls(i, 1) != D.Kx and not keep1:
+        fixarg(i1.arg, 1, argcls(i, 1), i1, fn)
 
 
 def _emit_fix(i, fn):

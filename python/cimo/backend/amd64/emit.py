@@ -232,6 +232,19 @@ def getarg(c, i):
         die("invalid arg letter %c", c)
 
 
+_FALSEDEP = frozenset((Ofsqrt, Oswtof, Osltof, Oexts, Otruncd))
+
+
+def _xreg(r):
+    return rtype(r) == RTmp and isreg(r) and rval(r) >= XMM0
+
+
+def _xcopy(to, a, e):
+    """cimo: movss and movsd between registers keep the destination's upper bits, so they wait for what last wrote it,
+    which behind a division or a square root is most of the loop (nbody_acc on Intel). movaps doesn't, as gcc and clang."""
+    e.f.write("\tmovaps %%xmm%d, %%xmm%d\n" % (rval(a) - XMM0, rval(to) - XMM0))
+
+
 def emitcopy(r1, r2, k, e):
     icp = Ins(Ocopy, k, r1, r2)
     emitins(icp, e)
@@ -369,11 +382,161 @@ def _table(i, e):
     die("no match for %s(%c)", optab[i.op].name, "wlsd"[i.cls])
 
 
+_QX15 = "%xmm15"
+# (mnemonic, commutes). Two addresses: dest = dest op source
+_QTWO = {'qaddb': ('paddb', 1), 'qaddh': ('paddw', 1), 'qaddw': ('paddd', 1), 'qaddl': ('paddq', 1),
+         'qadds': ('addps', 1), 'qaddd': ('addpd', 1), 'qsubb': ('psubb', 0), 'qsubh': ('psubw', 0),
+         'qsubw': ('psubd', 0), 'qsubl': ('psubq', 0), 'qsubs': ('subps', 0), 'qsubd': ('subpd', 0),
+         'qmulh': ('pmullw', 1), 'qmuls': ('mulps', 1), 'qmuld': ('mulpd', 1), 'qdivs': ('divps', 0), 'qdivd': ('divpd', 0),
+         'qand': ('pand', 1), 'qor': ('por', 1), 'qxor': ('pxor', 1), 'qxandn': ('pandn', 0),
+         'qminh': ('pminsw', 1), 'qmaxh': ('pmaxsw', 1), 'qumin' + 'b': ('pminub', 1), 'qumaxb': ('pmaxub', 1),
+         'qceqb': ('pcmpeqb', 1), 'qceqh': ('pcmpeqw', 1), 'qceqw': ('pcmpeqd', 1),
+         'qcgtb': ('pcmpgtb', 0), 'qcgth': ('pcmpgtw', 0), 'qcgtw': ('pcmpgtd', 0),
+         'qxmuludq': ('pmuludq', 1), 'qxlo': ('punpckldq', 0), 'qxhi': ('punpckhdq', 0),
+         'qxmins': ('minps', 0), 'qxmind': ('minpd', 0), 'qxmaxs': ('maxps', 0), 'qxmaxd': ('maxpd', 0),
+         'qceqs': ('cmpps $0,', 1), 'qceqd': ('cmppd $0,', 1), 'qxunords': ('cmpps $3,', 1), 'qxunordd': ('cmppd $3,', 1)}
+_QSWAPPED = {'qcgts': 'cmpps $1,', 'qcgtd': 'cmppd $1,', 'qcges': 'cmpps $2,', 'qcged': 'cmppd $2,'}  # b < a, b <= a
+_QSHIFT = {'qshlh': 'psllw', 'qshlw': 'pslld', 'qshll': 'psllq', 'qshrh': 'psrlw', 'qshrw': 'psrld', 'qshrl': 'psrlq',
+           'qsarh': 'psraw', 'qsarw': 'psrad'}
+
+
+def _qx(r):
+    return "%%xmm%d" % (rval(r) - XMM0)
+
+
+def _qr(r, sz):
+    return "%%%s" % regtoa(rval(r), sz)
+
+
+def _qtwo(mn, to, a, b, commutes, f):
+    """to = a op b, in two addresses, through xmm15 if b is in the way."""
+    if to == b and to != a:
+        if commutes:
+            a, b = b, a
+        else:
+            f.write("\tmovaps %s, %s\n\tmovaps %s, %s\n" % (_qx(b), _QX15, _qx(a), _qx(to)))
+            f.write("\t%s %s, %s\n" % (mn, _QX15, _qx(to)))
+            return
+    if to != a:
+        f.write("\tmovaps %s, %s\n" % (_qx(a), _qx(to)))
+    f.write("\t%s %s, %s\n" % (mn, _qx(b), _qx(to)))
+
+
+def _qcopy(i, e):
+    f = e.f
+    to, a = i.to, i.arg[0]
+    if to == R or a == R or to == a:
+        return
+    if rtype(to) == RSlot and rtype(a) == RSlot:
+        f.write("\tmovups %d(%%%s), %s\n" % (slot(a, e), regtoa(e.fp, SLong), _QX15))
+        f.write("\tmovups %s, %d(%%%s)\n" % (_QX15, slot(to, e), regtoa(e.fp, SLong)))
+    elif rtype(to) == RSlot:
+        emitf("movups %0, %M=", i, e)
+    elif rtype(a) == RSlot:
+        emitf("movups %M0, %=", i, e)
+    else:
+        f.write("\tmovaps %s, %s\n" % (_qx(a), _qx(to)))
+
+
+def _qins(i, e):
+    """cimo (ext.vector): one instruction on 128 bits; amd64/qlower.py has left only those SSE2 has. True if it was one."""
+    f = e.f
+    op = i.op
+    if op == Ocopy and i.cls == D.Kq:
+        _qcopy(i, e)
+        return True
+    if op == Oswap and i.cls == D.Kq:
+        a, b = _qx(i.arg[0]), _qx(i.arg[1])
+        f.write("\tmovaps %s, %s\n\tmovaps %s, %s\n\tmovaps %s, %s\n" % (a, _QX15, b, a, _QX15, b))
+        return True
+    if (op == Oload and i.cls == D.Kq) or op == D.Oqload:
+        emitf("movups %M0, %=", i, e)
+        return True
+    if op == D.Oqstore:
+        emitf("movups %0, %M1", i, e)
+        return True
+    if not D.isqop(op):
+        return False
+    name = optab[op].name
+    if name in _QTWO:
+        mn, commutes = _QTWO[name]
+        _qtwo(mn, i.to, i.arg[0], i.arg[1], commutes, f)
+    elif name in _QSWAPPED:
+        _qtwo(_QSWAPPED[name], i.to, i.arg[1], i.arg[0], 0, f)
+    elif name in _QSHIFT:
+        if i.to != i.arg[0]:
+            f.write("\tmovaps %s, %s\n" % (_qx(i.arg[0]), _qx(i.to)))
+        f.write("\t%s $%d, %s\n" % (_QSHIFT[name], e.fn.con[rval(i.arg[1])].i, _qx(i.to)))
+    elif name == 'qxshufd':
+        f.write("\tpshufd $%d, %s, %s\n" % (e.fn.con[rval(i.arg[1])].i, _qx(i.arg[0]), _qx(i.to)))
+    elif name in ('qsqrts', 'qsqrtd'):
+        f.write("\tsqrtp%s %s, %s\n" % (name[-1], _qx(i.arg[0]), _qx(i.to)))
+    elif name.startswith('qdup'):
+        _qdup(name[-1], i, e)
+    elif name.startswith('qget'):
+        _qget(name[-1], i, e)
+    else:
+        die("no x86-64 instruction for %s", name)
+    return True
+
+
+def _qdup(x, i, e):
+    f = e.f
+    to = _qx(i.to)
+    a = i.arg[0]
+    if rtype(a) == RCon:  # isel: 0 and -1 only
+        f.write("\t%s %s, %s\n" % ("pxor" if e.fn.con[rval(a)].i == 0 else "pcmpeqd", to, to))
+    elif x in 'sd':
+        f.write("\tpshufd $%d, %s, %s\n" % (0 if x == 's' else 0x44, _qx(a), to))
+    elif x == 'l':
+        f.write("\tmovq %s, %s\n\tpunpcklqdq %s, %s\n" % (_qr(a, SLong), to, to, to))
+    else:
+        f.write("\tmovd %s, %s\n" % (_qr(a, SWord), to))
+        if x == 'b':
+            f.write("\tpunpcklbw %s, %s\n" % (to, to))
+        if x in 'bh':
+            f.write("\tpshuflw $0, %s, %s\n" % (to, to))
+        f.write("\tpshufd $0, %s, %s\n" % (to, to))
+
+
+def _qget(x, i, e):
+    f = e.f
+    n = e.fn.con[rval(i.arg[1])].i
+    a = _qx(i.arg[0])
+    if x == 's':
+        f.write("\tpshufd $%d, %s, %s\n" % (n, a, _qx(i.to)))
+    elif x == 'd':
+        f.write("\tpshufd $%d, %s, %s\n" % (0xee if n else 0x44, a, _qx(i.to)))
+    elif x == 'w':
+        if n:
+            f.write("\tpshufd $%d, %s, %s\n" % (n, a, _QX15))
+            a = _QX15
+        f.write("\tmovd %s, %s\n" % (a, _qr(i.to, SWord)))
+    elif x == 'l':
+        if n:
+            f.write("\tpshufd $238, %s, %s\n" % (a, _QX15))
+            a = _QX15
+        f.write("\tmovq %s, %s\n" % (a, _qr(i.to, SLong)))
+    elif x == 'h':
+        f.write("\tpextrw $%d, %s, %s\n" % (n, a, _qr(i.to, SWord)))
+    else:
+        f.write("\tpextrw $%d, %s, %s\n" % (n >> 1, a, _qr(i.to, SWord)))
+        if n & 1:
+            f.write("\tshrl $8, %s\n" % _qr(i.to, SWord))
+        else:
+            f.write("\tmovzbl %s, %s\n" % (_qr(i.to, SByte), _qr(i.to, SWord)))
+
+
 def emitins(i, e):
     """i: passed by value (copied here)."""
     i = i.copy()
     f = e.f
     op = i.op
+    if (i.cls == D.Kq or D.isqop(op)) and _qins(i, e):
+        return
+    if op in _FALSEDEP and _xreg(i.to) and i.to != i.arg[0]:  # as _xcopy: these keep the upper bits too, as gcc's pxor
+        x = rval(i.to) - XMM0
+        f.write("\txorps %%xmm%d, %%xmm%d\n" % (x, x))
     if op == Onop:
         # just do nothing for nops, they are inserted
         # by some passes
@@ -402,7 +565,7 @@ def emitins(i, e):
             _table(i, e)
     elif op == Oneg:
         if i.to != i.arg[0]:
-            emitf("mov%k %0, %=", i, e)
+            emitcopy(i.to, i.arg[0], i.cls, e)
         if KBASE(i.cls) == 0:
             emitf("neg%k %=", i, e)
         else:
@@ -414,8 +577,8 @@ def emitins(i, e):
         # conversion to 2-address in emitf() would fail
         if i.to == i.arg[1]:
             i.arg[1] = TMP(XMM0 + 15)
-            emitf("mov%k %=, %1", i, e)
-            emitf("mov%k %0, %=", i, e)
+            emitcopy(i.arg[1], i.to, i.cls, e)
+            emitcopy(i.to, i.arg[0], i.cls, e)
             i.arg[0] = i.to
         _table(i, e)
     elif op == Ocopy:
@@ -447,6 +610,9 @@ def emitins(i, e):
             i.arg[1] = TMP(XMM0 + 15)
             emitf("mov%k %0, %1", i, e)
             emitf("mov%k %1, %=", i, e)
+            return
+        if _xreg(i.to) and _xreg(i.arg[0]):
+            _xcopy(i.to, i.arg[0], e)
             return
         # conveniently, the assembler knows if it
         # should use movabsq when reading movq
@@ -545,7 +711,7 @@ def emitins(i, e):
         emitf("sqrt%k %0, %=", i, e)
     elif op == Ofabs:
         if i.to != i.arg[0]:
-            emitf("mov%k %0, %=", i, e)
+            emitcopy(i.to, i.arg[0], i.cls, e)
         f.write("\tandp%c %sfp%d(%%rip), %%%s\n" % (
             "xxsd"[i.cls], D.T.asloc, stashbits(absmask[i.cls], 16),
             regtoa(rval(i.to), SLong)))
@@ -596,6 +762,8 @@ def _usesxmm15(fn):
     b = fn.start
     while b:
         for i in b.ins[:b.nins]:
+            if i.cls == D.Kq or D.isqop(i.op):  # ext.vector: moves, lanes, operands in the way
+                return True
             if i.op == Odiv and KBASE(i.cls) == 1 and i.to == i.arg[1]:
                 return True
             if i.op == Ocopy and rtype(i.to) == RSlot and rtype(i.arg[0]) in (RSlot, RMem):
@@ -710,7 +878,8 @@ def _emitjmp(b, fn, e, id0, rclob, nclr, win):
     else:
         c = jt - Jjf
         if 0 <= c <= NCmp:
-            if b.link is b.s2 or (win and c >= NCmpI):
+            # cimo: a loop's back edge is the conditional jump, not a jump after one that's rarely taken
+            if b.link is b.s2 or (win and c >= NCmpI) or (b.s1 is not b.link and b.s1.id <= b.id < b.s2.id):
                 s = b.s1
                 b.s1 = b.s2
                 b.s2 = s

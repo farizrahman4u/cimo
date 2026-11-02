@@ -32,7 +32,7 @@ Flags:
           (cimo.backend.thread)
   inline  0, or a size: copy functions of at most that many instructions into the callers
           that follow them in the module (cimo.backend.inline)
-  vector  accept class q and the q instructions in the IR text: 128-bit values (defs.py), arm64
+  vector  accept class q and the q instructions in the IR text: 128-bit values (defs.py), arm64 and x86-64
   nowrap  accept addnsw, subnsw and mulnsw in the IR text: add, sub and mul whose signed result C
           says doesn't overflow, which cimo.frontend emits for signed integers unless
           compile(wrapv=True). Only cimo.backend.nowrap reads the promise, and it removes it

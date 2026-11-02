@@ -592,7 +592,7 @@ void f(int n, const double *restrict x, double *restrict y) {
 }''')
     body = re.split(r'^_?f:$', text, flags=re.M)[1]  # Apple's symbols have a _
     if driver.TARGET.startswith('amd64'):
-        assert body.count('sqrtsd') >= 4 and 'call' not in body  # unrolled by 4
+        assert 'sqrtpd' in body and 'call' not in body  # vectorized
         return
     assert 'fsqrt\tv' in body  # vectorized
     assert '\tbl\t' not in body

@@ -76,8 +76,8 @@ alias checks) and an instruction-selecting backend. On scalar code it runs close
 <sub>cimo time ÷ reference time; lower is better. Scalar code on both sides, with FMA contraction off.
 Results are bit-identical to the reference compiler.</sub>
 
-On arm64, cimo also auto-vectorizes straight counted loops over 4- and 8-byte elements, 128 bits at a
-time. Floating-point sums, loops with conditions, narrower elements, x86-64 and WebAssembly stay scalar, so the
+On arm64 and x86-64, cimo also auto-vectorizes straight counted loops over 4- and 8-byte elements, 128 bits at a
+time. Floating-point sums, loops with conditions, narrower elements and WebAssembly stay scalar, so the
 reference compilers are ahead where they vectorize those. See [`requirements.md`](requirements.md) for
 the full measurements.
 
@@ -209,7 +209,7 @@ differential-tested against gcc on randomly generated programs.
 
 Pre-release. Planned:
 
-- Auto-vectorization of more loops, and on x86-64 and WebAssembly
+- Auto-vectorization of more loops, and on WebAssembly
 - GNU vector types (`__attribute__((vector_size(16)))`)
 - `debug=True`: bounds checks on every access, and detection of use-after-free, double free and leaks
 - `cimo report`: which loops were optimized, and why the others weren't

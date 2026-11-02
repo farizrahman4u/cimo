@@ -385,6 +385,10 @@ _QOPS += [('qand', _QQ()), ('qor', _QQ()), ('qxor', _QQ()), ('qnot', _Q1()), ('q
 _QOPS += [('qget' + x, ((Kq if k == Kw else Ke, Kq if k == Kl else Ke, Kq if k == Ks else Ke, Kq if k == Kd else Ke, Ke, Ke),
                         (Kw, Kw, Kw, Kw, Ke, Ke)))
           for x, k in (('b', Kw), ('h', Kw), ('w', Kw), ('l', Kl), ('s', Ks), ('d', Kd))]
+# x86-64's own, which amd64/qlower.py writes what SSE2 lacks with; not in the IR text. qxshufd %v, imm: pshufd. qxmuludq: 2 x
+# (low 32 bits of each 64 multiplied). qxandn %a, %b: ~a & b. qxlo/qxhi %a, %b: the low or high 2 x i32 of a and b, interleaved.
+_QOPS += [('qxshufd', _QS())]
+_QOPS += [(n, _QQ()) for n in ('qxmuludq', 'qxandn', 'qxlo', 'qxhi', 'qxunords', 'qxunordd', 'qxmins', 'qxmind', 'qxmaxs', 'qxmaxd')]
 _OPS += [(n, a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) for n, a in _QOPS]
 _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qfma0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),

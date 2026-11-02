@@ -1,4 +1,4 @@
-"""128-bit values (ext.vector): IR text through arm64, each instruction against a model in Python, and what register
+"""128-bit values (ext.vector): IR text through arm64 and x86-64, each instruction against a model in Python, and what register
 allocation has to get right: copies, spills, phis and values live across calls."""
 
 import array
@@ -12,9 +12,9 @@ import cimo
 from cimo import driver
 import hosts
 
-pytestmark = pytest.mark.skipif(not hosts.ARM64, reason='arm64 only so far')
+pytestmark = pytest.mark.skipif(not hosts.RUNS, reason='needs a target with q')
 
-_SIG = driver._build('void f(void *d, void *a, void *b) {}')[1] if hosts.ARM64 else None
+_SIG = driver._build('void f(void *d, void *a, void *b) {}')[1] if hosts.RUNS else None
 
 
 def run(body, a, b, tail=''):
@@ -138,6 +138,7 @@ def test_logic_and_select():
     assert got == b
 
 
+@pytest.mark.skipif(not hosts.ARM64, reason='SSE2 has no fused multiply-add')
 @pytest.mark.parametrize('x', 'sd')
 def test_fused_multiply_add_rounds_once(x):
     # a*b+c where the product alone rounds away what the sum keeps
@@ -226,18 +227,19 @@ def test_loop_with_a_phi():
 def test_phis_under_pressure(rotate):
     """Vector phis that rotate, more of them than registers: the moves between them go through stack slots."""
     names = ['p%d' % k for k in range(rotate)]
+    turns = 2 * rotate + 3  # round more than once: the values have to reach the ones in stack slots
     phis = ''.join('\t%%%s =q phi @s %%x, @l %%%s\n' % (names[k], ('n' if k == 0 else names[k - 1])) for k in range(rotate))
     summed = ['\t%%t0 =q qaddw %%y, %%%s\n' % names[0]]
     summed += ['\t%%t%d =q qaddw %%t%d, %%%s\n' % (k, k - 1, names[k]) for k in range(1, rotate)]
-    body = LOADS + '\tjmp @h\n@h\n\t%i =w phi @s 0, @l %j\n' + phis + '\t%c =w csltw %i, 7\n\tjnz %c, @l, @e\n@l\n' \
+    body = LOADS + '\tjmp @h\n@h\n\t%i =w phi @s 0, @l %j\n' + phis + '\t%%c =w csltw %%i, %d\n\tjnz %%c, @l, @e\n@l\n' % turns \
         + ''.join(summed) + '\t%%n =q qaddw %%t%d, %%y\n\t%%j =w add %%i, 1\n\tjmp @h\n@e\n\t%%r =q qaddw %%%s, %%%s\n\tqstore %%r, %%d' % (rotate - 1, names[0], names[-1])
     a, b = [1, 2, 3, 4], [10, 20, 30, 40]
     got = struct.unpack('<4i', run(body, struct.pack('<4i', *a), struct.pack('<4i', *b)))
     want = []
     for x, y in zip(a, b):
         ps = [x] * rotate
-        for _ in range(7):
-            ps = [y + sum(ps) + y] + ps[:-1]
+        for _ in range(turns):
+            ps = [wrap('w', y + sum(ps) + y)] + ps[:-1]
         want.append(wrap('w', ps[0] + ps[-1]))
     assert list(got) == want
 
@@ -278,8 +280,50 @@ def test_callee_saved_low_halves_stay_kept():
     assert struct.unpack('<d', d[:8])[0] == 3.0
 
 
+@pytest.mark.skipif(not hosts.ARM64, reason='SSE2 has no fused multiply-add')
 def test_text_form():
     from cimo.backend import ext, parse
     import io
     ssa = 'export function $f(l %a, l %d) {\n@s\n\t%x =q qload %a\n\t%r =q qfma1s %x, %x, %x\n\tqstore %r, %d\n\tret\n}\n'
     assert 'fmla' in driver._qbe(ssa)
+
+
+@pytest.mark.parametrize('x', 'sd')
+@pytest.mark.parametrize('op', ['qmin', 'qmax'])
+def test_float_min_max_is_fminnm(op, x):
+    """A number beats a quiet NaN whichever side it's on, and -0 is below +0 whichever comes first."""
+    nan, big = float('nan'), 5.0
+    cases = [(nan, 1.5), (1.5, nan), (nan, nan), (-0.0, 0.0), (0.0, -0.0), (1.0, big), (big, 1.0), (-big, -1.0)]
+    for n in range(0, len(cases), COUNT[x]):
+        part = cases[n:n + COUNT[x]]
+        part += [(1.0, 2.0)] * (COUNT[x] - len(part))
+        body = LOADS + '\t%%r =q %s%s %%x, %%y\n\tqstore %%r, %%d' % (op, x)
+        got = unpack(x, run(body, pack(x, [p[0] for p in part]), pack(x, [p[1] for p in part])))
+        for (a, b), r in zip(part, got):
+            if a != a or b != b:
+                want = b if a != a else a
+            elif a == b:
+                want = (-0.0 if op == 'qmin' else 0.0) if a == 0 else a
+            else:
+                want = min(a, b) if op == 'qmin' else max(a, b)
+            assert (r != r and want != want) or (r == want and math.copysign(1, r) == math.copysign(1, want)), (a, b, r)
+
+
+@pytest.mark.parametrize('x,k', [('b', 'w'), ('h', 'w'), ('w', 'w'), ('l', 'l')])
+def test_get_every_integer_lane(x, k):
+    vals = [wrap(x, (n + 1) * 0x0123456789abcdef) for n in range(COUNT[x])]
+    bits = BITS[x]
+    for n in range(COUNT[x]):
+        store = 'storel' if k == 'l' else 'storew'
+        body = '\t%%x =q qload %%a\n\t%%r =%s qget%s %%x, %d\n\t%s %%r, %%d' % (k, x, n, store)
+        got = int.from_bytes(run(body, pack(x, vals), bytes(16))[:8 if k == 'l' else 4], 'little')
+        assert got == vals[n] & ((1 << bits) - 1)  # zero-extended
+
+
+@pytest.mark.parametrize('x', 'sd')
+def test_get_every_float_lane(x):
+    vals = [1.5 + n for n in range(COUNT[x])]
+    for n in range(COUNT[x]):
+        body = '\t%%x =q qload %%a\n\t%%r =%s qget%s %%x, %d\n\tstore%s %%r, %%d' % (x, x, n, x)
+        got = struct.unpack('<' + FMT[x], run(body, pack(x, vals), bytes(16))[:struct.calcsize(FMT[x])])[0]
+        assert got == vals[n]

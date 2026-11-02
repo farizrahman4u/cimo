@@ -12,11 +12,11 @@ import cimo
 from cimo import driver, middle
 import hosts
 
-pytestmark = pytest.mark.skipif(not hosts.ARM64, reason='arm64 only so far')
+pytestmark = pytest.mark.skipif(not hosts.RUNS, reason='needs a target with q')
 
 
 def vectorized(src):
-    return bool(re.search(r'\t(ldr|str)\tq\d+', driver._build(src)[0]))
+    return bool(re.search(r'\t(ldr|str)\tq\d+|\tmovups ', driver._build(src)[0]))
 
 
 _n = [0]
@@ -175,6 +175,8 @@ KERNELS = {
 @pytest.mark.parametrize('name', sorted(KERNELS))
 def test_bit_for_bit_the_scalar_loop(name):
     src, ctype = KERNELS[name]
+    if name == 'minmax' and hosts.AMD64:
+        pytest.skip('fmin and fmax are calls on x86-64')
     assert vectorized(src), driver._build(src)[0]
     on, off = both(src)
     a = 3 if ctype in (ctypes.c_int, ctypes.c_int64) else 1.25
@@ -255,3 +257,98 @@ def test_reduction_reaches_the_values_the_loop_leaves_with():
         c = ctypes.c_int64()
         assert m.f(ctypes.addressof(x), n, ctypes.addressof(c)) == sum(x[:n])
         assert c.value == n
+
+
+def _x86(src, target='amd64_sysv'):
+    pp = driver._preprocess(src, 'x.c', (), False, ())
+    ssa, params = driver._frontend(pp, 'x.c', target=target)
+    return driver._qbe(ssa, params, target=target)
+
+
+_ALLOPS = 'void f(int *restrict c, const int *restrict a, const int *restrict b, long n) { for (long i = 0; i < n; i++) c[i] = (a[i] * b[i]) >> 3; }\n' \
+          'long g(const int *a, long n) { long s = 0; for (long i = 0; i < n; i++) s += a[i]; return s; }\n' \
+          'unsigned long h(const unsigned *a, long n) { unsigned long s = 0; for (long i = 0; i < n; i++) s += a[i]; return s; }\n' \
+          'void k(double *restrict y, const double *restrict x, double a, long n) { for (long i = 0; i < n; i++) y[i] = a * x[i] + y[i]; }\n' \
+          'void m(long *restrict y, const long *restrict x, long n) { for (long i = 0; i < n; i++) y[i] = (x[i] >> 3) + 5; }\n'
+
+
+@pytest.mark.parametrize('target', ['amd64_sysv', 'amd64_windows'])
+def test_x86_code_runs_on_any_x86_64(target):
+    """No CPU check guards these, so nothing past SSE2; the instructions below are what's easiest to reach for."""
+    text = _x86(_ALLOPS, target)
+    assert 'movups' in text and 'pmuludq' in text and 'punpckhdq' in text
+    later = re.findall(r'\t(pmulld|pmovsx\w+|pmovzx\w+|pcmpgtq|pcmpeqq|pminsd|pmaxsd|pminud|pmaxud|pextr[bdq]|pinsr\w|movddup|haddp\w|phadd\w|pabs\w|blendv\w+|pblend\w+|v\w+|\w*fmadd\w*)\b', text)
+    assert not later
+
+
+def test_x86_back_edge_is_one_jump():
+    """The conditional jump goes back, so an iteration doesn't take one jump over another."""
+    text = _x86('void f(float *restrict y, const float *restrict x, float a, long n) { for (long i = 0; i < n; i++) y[i] += a * x[i]; }')
+    at = text.index('mulps')
+    head = re.findall(r'^(\.Lbb\d+):', text[:at], re.M)[-1]
+    assert re.search(r'\tj(?!mp)\w+ ' + re.escape(head) + r'\n', text[at:at + 300]), text
+
+
+def test_x86_windows_keeps_the_scratch_register():
+    """xmm15 is the scratch register for 128-bit moves, and on Windows a callee has to keep it, all 128 bits."""
+    src = 'int f(const int *a, long n) { int s = 0; for (long i = 0; i < n; i++) s += a[i]; return s; }'
+    text = _x86(src, 'amd64_windows')
+    assert 'xmm15' in text and re.search(r'movdqu %xmm15, \d+\(%rsp\)', text) and re.search(r'movdqu \d+\(%rsp\), %xmm15', text)
+
+
+def test_x86_mask_leaves_the_loop():
+    """gvn and gcm see what SSE2 lacks already written out: one all-zero register, made before the loop."""
+    text = _x86('long g(const int *a, long n) { long s = 0; for (long i = 0; i < n; i++) s += a[i]; return s; }')
+    assert text.count('pcmpgtd') == 1
+    head = text[: text.index('pcmpgtd')]
+    assert 'pxor' in head and head.rindex('pxor') < head.rindex('.p2align')
+
+
+def test_x86_float_moves_wait_for_nothing():
+    """movss and movsd between registers keep the destination's upper bits, and wait for whatever last wrote them: 6.5x on
+    nbody_acc on Intel. The same goes for what's written by a square root or a conversion, so the destination is cleared."""
+    text = _x86('double f(double *x, int n) { double s = 1, t = 2; for (int i = 0; i < n; i++) { double u = s * t + i; t = s; s = u / (t + x[i]); } return s + t; }\n'
+                'double r(double a, double b) { return __builtin_sqrt(a) + b * a; }')
+    assert not re.search(r'\tmovs[sd] %xmm\d+, %xmm\d+', text), text
+    assert 'movaps' in text
+    for m in re.finditer(r'\t(cvtsi2sd\w*|sqrtsd) (\S+), %(xmm\d+)\n', text):
+        if m[2] != '%' + m[3]:
+            before = text[: m.start()].rstrip().rsplit('\n', 1)[-1]
+            assert 'xorps %%%s, %%%s' % (m[3], m[3]) in before, text
+
+
+_FLAGS = re.compile(r'\t(add|sub|and|or|xor|neg|inc|dec|shl|shr|sar|imul|cmp|test|ucomis[sd])[a-z]* ')
+
+
+def _flags_reach_their_jump(text):
+    """Nothing that writes flags between a compare and the jump that reads them."""
+    lines = text.split('\n')
+    for n, l in enumerate(lines):
+        if re.match(r'\tj(?!mp)\w+ ', l):
+            for back in range(n - 1, max(n - 40, -1), -1):
+                m = lines[back]
+                if m.endswith(':') or re.match(r'\t(jmp|ret|callq)', m):
+                    break
+                if _FLAGS.match(m):
+                    assert re.match(r'\t(cmp|test|ucomis|add|sub|and|or|xor|neg|shl|shr|sar)', m), m
+                    if re.match(r'\t(cmp|test|ucomis)', m):
+                        break
+                    # an add whose flags the jump means to read has no compare above it in this block
+                    for up in range(back - 1, max(back - 40, -1), -1):
+                        k = lines[up]
+                        if k.endswith(':') or re.match(r'\t(jmp|ret|callq|j)', k):
+                            break
+                        assert not re.match(r'\t(cmp|test|ucomis)', k), '\n'.join(lines[up:n + 1])
+                    break
+
+
+@pytest.mark.parametrize('target', ['amd64_sysv', 'amd64_windows'])
+def test_x86_address_for_a_phi_leaves_the_flags(target):
+    """extern_array + 2 as a phi's argument is made at the end of the block before, after the compare the jump reads."""
+    src = '''extern short arr[]; extern short brr[]; void use(short *p);
+    long f(long n, long m) { short *p = brr + 3; long s = 0;
+        for (long i = 0; i < m; i++) { s += *p; p += 1; if (n > 4) { p = arr + 2; continue; } if (i > 9) break; p = brr + 5; }
+        use(p); return s; }'''
+    text = _x86(src, target)
+    assert re.search(r'lea\w* \d+\(%\w+\), %\w+', text), text
+    _flags_reach_their_jump(text)

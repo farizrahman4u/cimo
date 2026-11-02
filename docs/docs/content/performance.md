@@ -51,7 +51,7 @@ Compiling a kernel file takes well under a second. Results are cached by a hash 
 | `CIMO_FMA=0` | no fused multiply-add contraction (for one compile: `cimo.compile(src, fma=False)`) |
 | `CIMO_INLINE=<n>` | largest function inlined, in IR instructions (default 40, `0` turns it off) |
 
-On arm64, straight counted loops over 4- and 8-byte elements are auto-vectorized, 128 bits at a time, including integer sums, and arrays that might overlap are compared when the loop runs. Other code is scalar, and so are floating-point sums: C fixes their order.
+On arm64 and x86-64, straight counted loops over 4- and 8-byte elements are auto-vectorized, 128 bits at a time, including integer sums, and arrays that might overlap are compared when the loop runs. Other code is scalar, and so are floating-point sums: C fixes their order.
 
 > [!PLANNED]
-> SIMD: auto-vectorization of more loops (conditions, narrower elements), and on x86-64 and WebAssembly. This is the remaining gap to gcc and clang with vectorization on.
+> SIMD: auto-vectorization of more loops (conditions, narrower elements), and on WebAssembly. This is the remaining gap to gcc and clang with vectorization on.

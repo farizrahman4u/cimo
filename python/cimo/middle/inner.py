@@ -692,7 +692,7 @@ def _replace_outside(fn, lp, H, newexit, E, env, newblocks):
 
 
 def _lanes(fn, lp, sh, A, ctl, rts):
-    if not (_ext.vector and D.T.name.startswith('arm64') and M.vectorizing):
+    if not (_ext.vector and D.T.name.startswith(('arm64', 'amd64')) and M.vectorizing):
         return 0
     probe = Fast(fn, lp, sh, A, rts)
     probe.ctl = ctl
@@ -703,7 +703,7 @@ def _lanes(fn, lp, sh, A, ctl, rts):
 
 def vectorizable(fn, lp, rts):
     """Whether transform() would vectorize innermost loop lp (for jam, which would take that from it)."""
-    if not (_ext.vector and D.T.name.startswith('arm64') and M.vectorizing):
+    if not (_ext.vector and D.T.name.startswith(('arm64', 'amd64')) and M.vectorizing):
         return False
     sh = Shape(fn, lp)
     A = Analysis(fn, lp, sh.order)

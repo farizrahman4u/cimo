@@ -43,7 +43,7 @@ Tbits = Ntok + 4  # cimo extension: the bit builtins, keywords when ext.math is 
 Tqc = Ntok + 7  # cimo extension: the class letter
 _KQTEXT = 99  # what parsecls says for it: Kq's number means something else among the size classes here
 Tq = Ntok + 6  # cimo extension: class q and its instructions, keywords when ext.vector is on
-_QNAMES = {optab[o].name: o for o in range(D.Oqaddb, D.Oqstore + 1) if optab[o].name not in ('qsel0', 'qfma0')}
+_QNAMES = {optab[o].name: o for o in range(D.Oqaddb, D.Oqstore + 1) if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
 _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
 _BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16')

@@ -12,13 +12,13 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    `compile`, `onefile`, `cache`, `completion`) except `cimo report kernels.c`: per-loop
    optimization remarks from the middle end (README promises it). zsh/fish completion
    scripts are untested.
-3. ~~**amd64 backend.**~~ **Done** (branch `amd64-backend`): Linux x86-64 and Windows x64 run end to end. Corpora and `tests/test_abi.py` pass on both (see "x86-64" in `requirements.md`). Open: sibling calls (arm64's `b` for a tail call; mutual tail recursion still uses stack on x86-64), and the arm64-only `ext.cse` passes (`divconst`, `bytepatterns`, `hoistcons`) for x86-64; SSE4.1/POPCNT/FMA with CPU detection; hardware faults (#DE on INT_MIN/-1 or x/0 kills the process, as SIGSEGV does).
+3. ~~**amd64 backend.**~~ **Done** (branch `amd64-backend`): Linux x86-64 and Windows x64 run end to end. Corpora and `tests/test_abi.py` pass on both (see "x86-64" in `requirements.md`). Open: sibling calls (arm64's `b` for a tail call; mutual tail recursion still uses stack on x86-64), and the arm64-only `ext.cse` passes (`divconst`, `bytepatterns`, `hoistcons`) for x86-64; SSE4.1/POPCNT/FMA with CPU detection; `edit_distance` and `conv3x3`'s scalar path, 2 to 4x behind gcc's; hardware faults (#DE on INT_MIN/-1 or x/0 kills the process, as SIGSEGV does).
 4. ~~**WASM backend + Pyodide loading.**~~ **Done:** `cimo.backend.wasm`, `cimo.wasm` (see "WASM
    backend" in `requirements.md`). Open: host JS libraries via `link=`, async loading for large
    modules on a browser main thread, wasm SIMD.
-5. **SIMD.** Auto-vectorizer **running on arm64** (`middle/vectorize.py`; see "Vector code" in `requirements.md`). Open, in
-   order: reductions through a chain (`s += x * x + 3`), byte and short lanes with widening and narrowing, interleaved access (`rgb2gray`),
-   conditions, downward steps; then x86-64, GNU vector types (`vector_size`, currently a clear error), wasm, SLP.
+5. **SIMD.** Auto-vectorizer **running on arm64 and x86-64** (`middle/vectorize.py`; see "Vector code" in `requirements.md`). Open, in
+   order: reductions through a chain (`s += x * x + 3`), in-order FP reductions (`nbody_acc`), byte and short lanes with widening and narrowing (scramjit's `image[i] + k` on `uint8`: 0.24 ns per element, `int32` 0.12), interleaved access (`rgb2gray`),
+   conditions, downward steps; then GNU vector types (`vector_size`, currently a clear error), wasm, SLP; AVX2 behind a check at load.
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.
 7. ~~**macOS (Apple silicon).**~~ **Done:** the suite, corpora and examples pass on an M-series
@@ -115,6 +115,7 @@ in Python.
   limits 40, 100 and 225 (only 0 is worse: scramjit's viewshed 3.48 against 4.05 ms), so 40 stays for now.
 
 **Tier 3, loops** (`middle/`, which has unrolling, unroll-and-jam, scalar replacement, strength reduction):
+- **A local assigned a constant in a loop stops vectorizing** (found by scramjit, whose flag says a variable is now a numpy scalar). `for (...) { s += x[i]; f = 1; }` on `int32_t`: 0.367 ns per element against 0.195 without `f` (100,000 elements, arm64). LLVM's `LICM` sinks it out of the loop. When done, note it in scramjit's `TODO.md`.
 - `LoopRotate`, `IndVarSimplify`/GCC `iv_canon`, `LoopSimplifyCFG`, `LICM` scalar promotion. ~~`LoopDeletion`~~
   **Done** for loops that count (`scalar._deadloops`).
 - `LoopIdiomRecognize`: memset, memcpy, popcount, ctz. GCC `crc_optimization`.

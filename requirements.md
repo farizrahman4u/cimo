@@ -528,7 +528,7 @@ WSL2, mains, tok/s:
 
 ## Vector code (2026-11-02)
 
-Built on arm64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes. x86-64, GNU vector types and wasm aren't. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
+Built on arm64 and x86-64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes. GNU vector types and wasm aren't. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
 Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorization (`rgb2gray` up to 6.6x; `saxpy`, `jacobi2d`,
 `conv3x3` 3 to 4x).
 
@@ -553,6 +553,20 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
 - **Memory:** `qload` and `qstore` count as volatile in the memory passes, so nothing forwards across them. Safe, and
   to be tightened once something depends on it.
 - **Measure on EC2:** Neoverse N1, V1 and V2 as well as this machine, whose Snapdragon hid the 52% cost of a copy in `dot`.
+- **x86-64 is baseline SSE2:** no CPU check guards the code, so nothing later (`pmulld`, `pcmpgtq`, `pmovsx`, FMA). `amd64/qlower.py`
+  writes the missing operations in what's there before the last cleanup, so gvn and gcm merge their masks and take them out of
+  the loop. `qfma` has no form: faking it would round differently, and without `ext.fma` nothing makes one.
+- **x86-64 float moves:** QBE's `movss`/`movsd` between registers keep the destination's upper bits, so they wait for whatever last
+  wrote it. `movaps`, and a cleared destination before `sqrtsd` and conversions, as gcc: `nbody_acc` 6.5x to 1.0x against gcc's
+  scalar code on Sapphire Rapids, `jacobi2d` 7.4x to 1.08x. Zen 4 hid most of the first.
+- **Flags on x86-64:** `extern_array + 4` as a phi's argument is made at the end of the block before, after the compare the jump
+  reads, so it's a `lea`, never an `add` (YARPGen: a wrong branch, then a crash). A random-loop seed differed only in a NaN's bits:
+  with two NaNs `addss` keeps the first, and commuting an add picks another. C doesn't fix them, so that test ignores them on x86-64.
+- **Fuzzing on EC2:** an ssh silent for 18 minutes never came back, from here, so run detached and poll, as `fuzz_aws.py`. A timeout under
+  900 s fails YARPGen's largest programs for being slow: their compile takes about 300 s on 16 workers.
+- **x86-64 result (Ice Lake, Sapphire Rapids, Zen 4; gcc -O3 also baseline):** geomean 1.61, 1.53, 1.74x with the vectorizer off, 1.18,
+  1.15, 1.20x on. Left: `edit_distance` 2.1 to 2.4x and `conv3x3`'s scalar path 2 to 4x (both scalar), `nbody_acc` 2x (gcc does the sums
+  in order on vectors), `gemm` 1.3 to 1.5x, `rgb2gray` 1.0x because SSE2 gcc doesn't vectorize it either.
 
 ## GPU (planned, 2026-11-02)
 

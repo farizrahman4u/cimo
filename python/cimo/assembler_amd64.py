@@ -962,6 +962,36 @@ def _h_round(a, ops, sz, op):
          imm=(1, None, v, None))
 
 
+def _h_sseimm(a, ops, sz, arg):
+    """$imm, xmm/mem -> xmm: arg = (mandatory prefix, opcode)."""
+    _nops(ops, 3)
+    imm, src, dst = ops
+    sym, v = _immop(imm, 1)
+    if sym is not None:
+        raise AssemblerError('expected a constant')
+    _enc(a, arg[1], _xmm(dst), _xmm(src, True), 0, mand=arg[0], imm=(1, None, v, None))
+
+
+def _h_pshift(a, ops, sz, arg):
+    """$imm, xmm: arg = (opcode, /digit)."""
+    _nops(ops, 2)
+    imm, dst = ops
+    sym, v = _immop(imm, 1)
+    if sym is not None:
+        raise AssemblerError('expected a constant')
+    _enc(a, bytes([0x0f, arg[0]]), arg[1], _xmm(dst), 0, mand=b'\x66', imm=(1, None, v, None))
+
+
+def _h_pextrw(a, ops, sz, _):
+    _nops(ops, 3)
+    imm, src, dst = ops
+    sym, v = _immop(imm, 1)
+    if sym is not None or src[0] != 'x':
+        raise AssemblerError('bad operands')
+    _gpr(dst, (4, 8))
+    _enc(a, b'\x0f\xc5', dst, src, 0, mand=b'\x66', imm=(1, None, v, None))
+
+
 # mnemonic table: name -> (handler, suffix size, argument)
 
 _SFX = {'b': 1, 'w': 2, 'l': 4, 'q': 8}
@@ -1054,6 +1084,18 @@ for _n, _p, _op in (('andps', b'', 0x54), ('andpd', b'\x66', 0x54), ('andnps', b
                     ('unpcklpd', b'\x66', 0x14), ('cvtps2pd', b'', 0x5a),
                     ('cvtpd2ps', b'\x66', 0x5a)):
     _INSNS[_n] = (_h_sse, 0, (_p, bytes([0x0f, _op])))
+for _n, _op in (('paddb', 0xfc), ('paddw', 0xfd), ('paddd', 0xfe), ('paddq', 0xd4), ('psubb', 0xf8), ('psubw', 0xf9),
+                ('psubd', 0xfa), ('psubq', 0xfb), ('pmullw', 0xd5), ('pmuludq', 0xf4), ('pcmpeqb', 0x74), ('pcmpeqw', 0x75),
+                ('pcmpeqd', 0x76), ('pcmpgtb', 0x64), ('pcmpgtw', 0x65), ('pcmpgtd', 0x66), ('pminub', 0xda), ('pmaxub', 0xde),
+                ('pminsw', 0xea), ('pmaxsw', 0xee), ('pandn', 0xdf), ('punpcklbw', 0x60), ('punpcklwd', 0x61),
+                ('punpckldq', 0x62), ('punpckhdq', 0x6a), ('punpcklqdq', 0x6c)):
+    _INSNS[_n] = (_h_sse, 0, (b'\x66', bytes([0x0f, _op])))
+for _n, _p, _o in (('pshufd', b'\x66', 0x70), ('pshuflw', b'\xf2', 0x70), ('cmpps', b'', 0xc2), ('cmppd', b'\x66', 0xc2)):
+    _INSNS[_n] = (_h_sseimm, 0, (_p, bytes([0x0f, _o])))
+for _n, _op, _d in (('psllw', 0x71, 6), ('pslld', 0x72, 6), ('psllq', 0x73, 6), ('psrlw', 0x71, 2), ('psrld', 0x72, 2),
+                    ('psrlq', 0x73, 2), ('psraw', 0x71, 4), ('psrad', 0x72, 4)):
+    _INSNS[_n] = (_h_pshift, 0, (_op, _d))
+_INSNS['pextrw'] = (_h_pextrw, 0, None)
 for _n, _p, _ld, _st in (('movss', b'\xf3', 0x10, 0x11), ('movsd', b'\xf2', 0x10, 0x11),
                          ('movups', b'', 0x10, 0x11), ('movupd', b'\x66', 0x10, 0x11),
                          ('movaps', b'', 0x28, 0x29), ('movapd', b'\x66', 0x28, 0x29),
