@@ -152,6 +152,10 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   (no pointers means no list; no stdout means no `finally`). In Pyodide a call is about 13 us, not broken down;
   the JavaScript wrapper converting i64 parameters to BigInt is a suspect. Reproduce with a loop over
   `kernel(1, 2, addr)`. **When done, note it in scramjit's `TODO.md`.**
+- **Large `malloc` on wasm** (found by scramjit, 2026-11-02, Pyodide 0.27.7). `__cimo_wasm_grow` takes an `unsigned long` and passes it to `__cimo_js_grow(unsigned bytes, ...)`, so a request of 4 GiB or more is
+  truncated and `malloc` returns a block far too small: `calloc(1, 1ULL << 43)` then a write gives "memory access out of bounds", which is a fatal Pyodide error. Requests just under 2 GiB trap instead:
+  `Array length must be >= 0, not -2147483632`, from `_grow`'s `create_string_buffer`. Both should return NULL. scramjit's `[0.0] * 2**29` in a kernel still kills Pyodide this way ("null function or function signature mismatch");
+  its arrays stop at `sys.maxsize` bytes first, so only just under 2 GiB reaches this. **`module.free` also exists only natively:** scramjit exports its own `sj_release` from the C. When done, note it in scramjit's `TODO.md`.
 - **Say whether a compile came from the cache** (requested by scramjit, 2026-11-01): a public attribute on the
   module, or a compile time. `scramjit preflight --run` wants to show `disk` instead of a time, and can't tell.
   **When done, note it in scramjit's `TODO.md`.**
