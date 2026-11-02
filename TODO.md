@@ -49,7 +49,7 @@ in Python.
 **Tier 1, instruction selection and peepholes** (seen in today's output; no analysis needed):
 - ~~Frame only when needed, shifts by an immediate, register-offset addressing, `madd`, `msub`,
   `cbz`, `cbnz`~~ **Done** (`ext.isel`).
-- ~~Pre/post-index addressing~~ **Done** (`isel.sinkinc`, `emit._writeback`). Open: `ldp`/`stp` with write-back.
+- ~~Pre/post-index addressing, `ldp`/`stp` with write-back~~ **Done** (`isel.sinkinc`, `emit._writeback`).
 - ~~Shifted and extended operands~~ **Done, outside loops only:** folded, `add`/`sub`/`eor` take 2 cycles
   from every input here (`s += x[i] << 3`: 0.72 ns folded, 0.38 not; through the shifted value 12%
   better; off any chain the same). Measure on other CPUs: LLVM always folds single uses.
@@ -65,10 +65,11 @@ in Python.
   (`inline.selftail`), `csetm`, `ccmp` also for values and for `&&` through a flag variable
   (`thread._ifcombine`, `isel._ccmp`), `bfi`, `bfxil` (`isel.selbfi`), flags from `ands`/`adds`/`subs`
   (`emit._flagsfrom`), `tbz`/`tbnz` on the sign. Open: `mi`/`pl` after `subs`/`adds`.
-- Redundant extensions (`ldrb` then `uxtb`; GCC `ree`, `ext_dce`).
+- ~~Redundant extensions (GCC `ree`)~~ **Done** where a `w` write already cleared the top (`isel._DEF32`), and
+  logical immediates on `w`, which went through a register. Open: demanded bits (`BDCE`, GCC `ext_dce`).
 - ~~Division by a constant~~ **Done** (`cse.divconst`). `mul` by 2^n+-1 as `add`/`sub` with a shift.
-  Multipliers are built outside loops (`cse.hoistcons`); the same for other large constants and FP
-  constants (`MachineLICM`, GCC `rtl_move_loop_invariants`), rematerializing when out of registers.
+  ~~Large constants and global addresses built outside loops~~ **Done** (`cse.hoistcons`, `MachineLICM`, GCC
+  `rtl_move_loop_invariants`): `H[i] += G[i]` 0.68 to 0.34 ns. Open: rematerializing when out of registers.
 - Tail calls and sibling calls (`TailCallElim`, GCC `tail_recursion`, `tail_calls`), loops for
   self-recursion. ~~Jump tables for dense `switch`~~ **Done**, from 16 cases, not LLVM's 4: per element, tree /
   table, random cases: 4 cases 5.0 / 6.5 ns, 8 cases 7.5 / 7.2, 16 cases 9.0 / 7.6, 32 cases 11.3 / 7.8; a few
@@ -95,8 +96,9 @@ in Python.
 - ~~GCC `optimize_bswap`, load combining~~ **Done** on arm64 (`cse.bytepatterns`); wasm could have the loads.
   Open: GCC `cse_reciprocals`, `cse_sincos`, `expand_pow`.
 - ~~`DeadArgumentElimination`, `IPSCCP`, `GlobalDCE`, readonly from `FunctionAttrs`~~ **Done** (`inline.ipo`,
-  `inline.expand_all`). Open: inlining with a real cost model (`InlineCost`), nocapture, `ModRef`/GCC `ipa_modref`,
-  `PartialInliner`, `ConstantMerge`, `MergeFunctions`/GCC `ipa_icf`.
+  `inline.expand_all`). Open: nocapture, `ModRef`/GCC `ipa_modref`, `PartialInliner`, `ConstantMerge`,
+  `MergeFunctions`/GCC `ipa_icf`. Inlining with a cost model (`InlineCost`): no benchmark moves between size
+  limits 40, 100 and 225 (only 0 is worse: scramjit's viewshed 3.48 against 4.05 ms), so 40 stays for now.
 
 **Tier 3, loops** (`middle/`, which has unrolling, unroll-and-jam, scalar replacement, strength reduction):
 - `LoopRotate`, `IndVarSimplify`/GCC `iv_canon`, `LoopSimplifyCFG`, `LICM` scalar promotion. ~~`LoopDeletion`~~

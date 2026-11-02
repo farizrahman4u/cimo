@@ -31,6 +31,9 @@ from .ssa import filluse
 
 _DIVOPS = (D.Odiv, D.Orem, D.Oudiv, D.Ourem)
 _MULS = (D.Omul, D.Osmulh, D.Oumulh)
+_LOGIC = (D.Oand, D.Oor, D.Oxor)
+MAXHOISTED = 16  # addresses kept in registers across a function's loops
+_ARITH = (D.Oadd, D.Osub) + _LOGIC
 
 
 def nload(fn):
@@ -224,30 +227,53 @@ def _bigcon(c):
 
 
 def hoistcons(fn):
-    """arm64: a multiplier that takes several instructions to build, used in a loop, is built once
+    """arm64: a constant that takes several instructions to build, used in a loop, is built once
     at the end of the start block, which dominates every loop (MachineLICM). isel would build it
     at each use, once per unrolled copy, since gvn folds copies of constants: so this runs after
     the last gvn. Requires rpo and loop depths; breaks use. Returns True if anything changed."""
+    from .arm64.isel import arm64_logimm
     regs = {}
     for b in fn.rpo[1:fn.nblk]:
         if b.loop <= 1:
             continue
         for i in b.ins[:b.nins]:
-            if i.op not in _MULS or KBASE(i.cls) != 0:
+            if D.isload(i.op) or D.isstore(i.op) or i.op == D.Oadd:  # a global's address: adrp, and a GOT load
+                for n in range(2):
+                    r = i.arg[n]
+                    if D.rtype(r) != D.RCon:
+                        continue
+                    c = fn.con[r & D.VMASK]
+                    if c.type == D.CAddr and c.sym.type in (D.SGlo, D.SExt) and (r, D.Kl) not in regs \
+                            and len(regs) < MAXHOISTED:
+                        regs[(r, D.Kl)] = newtmp('con', D.Kl, fn)
+                    if (r, D.Kl) in regs and c.type == D.CAddr:
+                        i.arg[n] = regs[(r, D.Kl)]
+            if KBASE(i.cls) != 0 or not (i.op in _MULS or i.op in _ARITH or D.Ocmpw <= i.op <= D.Ocmpw1
+                                         or D.Ocmpl <= i.op <= D.Ocmpl1):
                 continue
             for n in range(2):
                 r = i.arg[n]
                 if D.rtype(r) != D.RCon:
                     continue
                 c = fn.con[r & D.VMASK]
-                if c.type != D.CBits or not _bigcon(c):
+                if c.type != D.CBits or not _bigcon(c) or (i.op in _LOGIC and arm64_logimm(c.i, i.cls)):
                     continue
-                k = (r, i.cls)
+                cc = iscmp(i.op)  # a comparison's own class is its result's
+                k = (r, cc[0] if cc else i.cls)
                 if k not in regs:
-                    regs[k] = newtmp('con', i.cls, fn)
+                    regs[k] = newtmp('con', k[1], fn)
                 i.arg[n] = regs[k]
     if not regs:
         return False
+    for b in fn.rpo[1:fn.nblk]:  # now that it's in a register, the other uses of an address too
+        if b.loop > 1:
+            continue
+        for i in b.ins[:b.nins]:
+            if D.isload(i.op) or D.isstore(i.op) or i.op == D.Oadd:
+                for n in range(2):
+                    r = i.arg[n]
+                    if D.rtype(r) == D.RCon and (r, D.Kl) in regs and fn.con[r & D.VMASK].type == D.CAddr:
+                        i.arg[n] = regs[(r, D.Kl)]
     st = fn.start
     st.ins = st.ins[:st.nins] + [D.Ins(D.Ocopy, k, t, r, D.R) for (r, k), t in regs.items()]
     st.nins = len(st.ins)

@@ -171,6 +171,7 @@ V31 = 0x1fffffff  # local name for V31
 _FMA = {Oafmadd: "fmadd", Oafmsub: "fmsub", Oafnmadd: "fnmadd", Oafnmsub: "fnmsub"}
 
 
+_LOGICOPS = frozenset((Oand, Oor, Oxor, D.Oaands))
 _POSTINDEX, _PREINDEX = -1, -2  # Mem.scale of an access that also updates its base (_writeback)
 
 
@@ -307,7 +308,11 @@ def emitf(s, i, e):
                 pc = e.fn.con[rval(r)]
                 n = pc.i & M64
                 assert pc.type == CBits
-                if n >> 24:
+                if _ext.isel and i.op in _LOGICOPS:
+                    n &= 0xffffffff if k == Kw else M64
+                    assert _logimm(n, k)
+                    f.write("#%d" % n)
+                elif n >> 24:
                     assert _logimm(n, k)
                     f.write("#%d" % n)
                 elif n & 0xfff000:
@@ -665,7 +670,7 @@ def _paddr(r, e):
     return None
 
 
-def emitpair(i1, i2, e):
+def emitpair(i1, i2, e, after=()):
     """Emit i1; i2 as one ldp/stp if they fit one; returns 1 if done."""
     from .pair import kind, inrange, SIZE
     k1 = kind(i1)
@@ -690,6 +695,19 @@ def emitpair(i1, i2, e):
         r1, r2, a1 = r2, r1, a2
     k = _PK[k1[1]]
     base = "x29" if a1[0] == FP else rname(a1[0], Kl)
+    c = None
+    if _ext.isel and a1[1] == 0 and after and a1[0] != FP and a1[0] != SP and rval(r1) != a1[0] and rval(r2) != a1[0]:
+        for j in after:  # the next that touches the base, if it's an add to it
+            if j.op == Ocall:
+                break
+            if _refers(j, a1[0], e):
+                c = _incby(j, a1[0], e, sz)
+                if c is not None:  # it goes in too (LLVM's AArch64LoadStoreOpt)
+                    j.set(Ins(Onop))
+                break
+    if c is not None:
+        e.f.write("\t%s\t%s, %s, [%s], %d\n" % ("ldp" if ld else "stp", rname(rval(r1), k), rname(rval(r2), k), base, c))
+        return 1
     off = (", %d" % a1[1]) if a1[1] else ""
     e.f.write("\t%s\t%s, %s, [%s%s]\n" % ("ldp" if ld else "stp", rname(rval(r1), k),
                                            rname(rval(r2), k), base, off))
@@ -701,7 +719,7 @@ def emitinsl(ins, e):
     k = 0
     n = len(ins)
     while k < n:
-        if _ext.ldp and not e.fn.hasvolatile and k + 1 < n and emitpair(ins[k], ins[k + 1], e):
+        if _ext.ldp and not e.fn.hasvolatile and k + 1 < n and emitpair(ins[k], ins[k + 1], e, ins[k + 2:k + 10]):
             k += 2
             continue
         emitins(ins[k], e)
@@ -810,13 +828,16 @@ def _refers(i, r, e):
     return False
 
 
-def _incby(i, r, e):
-    """The constant of "r = r + c" or "r = r - c" on 64 bits, if i is one and c fits an access."""
+def _incby(i, r, e, pair=0):
+    """The constant of "r = r + c" or "r = r - c" on 64 bits, if i is one and c fits an access (for a pair:
+    a multiple of the size pair, in 7 bits)."""
     if i.op not in (Oadd, Osub) or i.cls != Kl or not req(i.to, D.TMP(r)) or not req(i.arg[0], D.TMP(r)) \
             or rtype(i.arg[1]) != RCon or e.fn.con[rval(i.arg[1])].type != CBits:
         return None
     c = e.fn.con[rval(i.arg[1])].i
     c = c if i.op == Oadd else -c
+    if pair:
+        return c if c % pair == 0 and -64 <= c // pair <= 63 else None
     return c if -256 <= c <= 255 else None
 
 

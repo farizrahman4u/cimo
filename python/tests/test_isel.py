@@ -955,3 +955,90 @@ def test_value_tables_from_the_cache(cached, tmp_path):
     if cached:  # again, from the rebased image
         m = cimo.compile(src)
     assert m.full(4) == 31 and m.wide(0) == 1 << 40 and m.full(100) == -7
+
+
+CONSTS = r"""
+long big1(const long *p, int n) { long s = 0; for (int i = 0; i < n; i++) s ^= p[i] + 0x123456789abcL; return s; }
+int big2(const long *p, int n) { int c = 0; for (int i = 0; i < n; i++) c += p[i] == 0x123456789abcL; return c; }
+int big3(const int *p, int n) { int c = 0; for (int i = 0; i < n; i++) c += p[i] < 0x12345678; return c; }
+long G[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+static int S[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+long sumg(int n) { long s = 0; for (int i = 0; i < n; i++) s += G[i] + S[i]; return s; }
+void setg(int n) { for (int i = 0; i < n; i++) { G[i] = i; S[i] = i * 2; } }
+long pairs(const long *p, long n) { long s = 0; while (n--) { s += p[0] * p[1]; p += 2; } return s; }
+void spairs(long *p, long n) { while (n--) { p[0] = n; p[1] = n + 1; p += 2; } }
+unsigned short lowand(unsigned a) { return a & 0xff00; }
+unsigned logicw(unsigned a) { return (a & 0xffff00ff) ^ 0x0f0f0f0f; }
+unsigned long logicl(unsigned long a) { return (a | 0xff00ff00ff00ff00UL) & 0x0ffffffffffffff0UL; }
+long zext1(unsigned a, unsigned b) { return (unsigned long)(a + b); }
+long zext2(unsigned a) { return (unsigned long)(a >> 3); }
+unsigned long zext3(unsigned a) { return a; }
+unsigned long zext4(int a) { return (unsigned)a; }
+int shifted(unsigned char a) { return (unsigned char)(a >> 1); }
+int shiftedh(unsigned short a) { return (unsigned short)a >> 9; }
+"""
+
+
+def test_constants_out_of_loops():
+    b = body(CONSTS, 'big1')
+    assert re.search(r'mov[^\n]*#\d+[^\n]*\n[^\n]*movk', b)
+    loop = b[b.rindex('.L'):] if '.L' in b else b
+    m = cimo.compile(CONSTS)
+    p = array.array('q', [0x123456789abc, 5, 0x123456789abc, 0x123456789abc + (1 << 40)])
+    want = 0
+    for x in p:
+        want ^= x + 0x123456789abc
+    assert m.big1(p, 4) == want and m.big2(p, 4) == 2
+    assert m.big3(array.array('i', [0x12345677, 0x12345678, -1]), 3) == 2
+    assert m.sumg(8) == 72
+    m.setg(8)
+    assert m.sumg(8) == sum(i * 3 for i in range(8))
+
+
+def test_global_addresses_out_of_loops():
+    src = 'long G[8];\nlong f(int n) { long s = 0; for (int i = 0; i < n; i++) s += G[i]; return s; }'
+    b = body(src)
+    labels = {m.group(1): m.start() for m in re.finditer(r'^(\.?\w+):', b, re.M)}
+    loops = 0
+    for m in re.finditer(r'^\s+\w+(?:\.\w+)?\s+(?:[wx]\d+, )*(\.?L\w+)$', b, re.M):
+        if labels.get(m.group(1), m.start()) < m.start():  # a branch back: the loop's body
+            loops += 1
+            assert 'adrp' not in b[labels[m.group(1)]:m.start()], b
+    assert loops
+
+
+def test_pairs_with_write_back():
+    assert re.search(r'ldp\s+x\d+, x\d+, \[x\d+\], 16', body(CONSTS, 'pairs')), body(CONSTS, 'pairs')
+    assert re.search(r'stp\s+x\d+, x\d+, \[x\d+\], 16', body(CONSTS, 'spairs')), body(CONSTS, 'spairs')
+    m = cimo.compile(CONSTS)
+    p = array.array('q', [2, 3, 4, 5, 6, 7])
+    assert m.pairs(p, 3) == 6 + 20 + 42
+    q = array.array('q', [0] * 7)
+    m.spairs(q, 3)
+    assert list(q) == [2, 3, 1, 2, 0, 1, 0]
+
+
+def test_logic_immediates():
+    for name in ('lowand', 'logicw', 'logicl'):
+        assert 'mov' not in body(CONSTS, name), body(CONSTS, name)
+    m = cimo.compile(CONSTS)
+    for a in (0, 0xdeadbeef, 0xffffffff, 0x12345678):
+        assert m.lowand(a) == a & 0xff00
+        assert m.logicw(a) == (a & 0xffff00ff) ^ 0x0f0f0f0f
+        A = a * 0x100000001
+        assert m.logicl(A) == (A | 0xff00ff00ff00ff00) & 0x0ffffffffffffff0
+
+
+def test_redundant_extensions():
+    for name in ('zext1', 'zext2'):
+        assert 'mov' not in body(CONSTS, name) and 'uxtw' not in body(CONSTS, name), body(CONSTS, name)
+    assert 'ubfx' in body(CONSTS, 'shifted') and 'uxtb' not in body(CONSTS, 'shifted')
+    m = cimo.compile(CONSTS)
+    M = 2 ** 32 - 1
+    for a, b in ((M, 1), (M, M), (5, 7), (2 ** 31, 2 ** 31)):
+        assert m.zext1(a, b) == (a + b) & M
+        assert m.zext2(a) == a >> 3
+        assert m.zext3(a) == a
+        assert m.shifted(a & 255) == (a & 255) >> 1
+        assert m.shiftedh(a & 65535) == (a & 65535) >> 9
+    assert m.zext4(-1) == M
