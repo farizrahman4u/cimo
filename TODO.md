@@ -168,13 +168,11 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   Every cimo user has this. scramjit is adding a check of its own to the C it generates; if cimo offers a
   general way (an interruptible loop flag in the execution context, set from the entry path), scramjit would
   use that instead.
-- **A public way to save a compiled module and load it without compiling** (requested by scramjit, 2026-11-02). For any program
-  that compiles in one place and runs in another: a worker that compiles for one that runs, a browser cache between visits, a build
-  step that ships kernels with no compiler. For example `module.save()` giving bytes, and `cimo.load_compiled(bytes)` that refuses
-  another target or version with a clear error. scramjit's LLM demo does this today by listing the files that change in
-  `CIMO_CACHE_DIR` and copying them across workers, which depends on the cache's layout. A test single-HTML app shows what it can save:
-  a kernel of 1,199 bytes of WebAssembly, against a compiler of about 340 KB compressed and 0.7 s per launch to import it and compile.
-  `Module._image_bytes` and `_from_image` may be the start of it natively. **When done, note it in scramjit's `TODO.md`.**
+- **Public cache export and import** (requested by scramjit, 2026-11-02). Get a compiled module's cache entry as bytes, and put one back, for a
+  worker that compiles for another or a browser keeping compiles between visits, where the cache's folder doesn't persist. An entry is
+  used only when `compile()` is given the source it was built from, so the source is always required and nothing runs from a blob alone
+  (see "Compiled code is a cache" in `requirements.md`). scramjit's LLM demo does this today by listing the files that change in `CIMO_CACHE_DIR`,
+  which depends on the cache's layout. **When done, note it in scramjit's `TODO.md`.**
 - **A public way to get a module's WebAssembly** (requested by scramjit): its site demo shows the
   compiled kernel's disassembly and calls `cimo.wasm.build` for the bytes, as cimo's own demo does,
   which isn't documented API. For example `module.wasm` (bytes, in Pyodide) and making

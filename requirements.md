@@ -27,6 +27,9 @@ applied) and cproc at `~/code/cproc`.
 
 - **Pure Python, standard library only** at runtime. No native extensions, no third-party
   dependencies. Supports CPython 3.9+ (macOS Command Line Tools still ship 3.9) and Pyodide.
+- **Compiled code is a cache** (decided 2026-11-02). It's built on the machine that runs it, from source, and can always be built
+  again. It is never distributed, in a package or otherwise: that would bring back binaries and a build per platform, which is what
+  this project removes. A cache entry is used only with the source it was built from.
 - **Port faithfully first, refactor later.** Ported code (QBE, cproc) must reproduce the C
   original's output exactly, checked by diffing IR text, before any redesign.
 - **Differential testing from day one:** against the C originals for IR, and against gcc/clang for
