@@ -169,3 +169,9 @@ def test_entry_and_unwind_under_a_shadow_stack():
     if p.returncode == 77:
         pytest.skip('the kernel did not enable the shadow stack')
     assert p.returncode == 0, (p.returncode, p.stderr[-2000:])
+
+
+def test_the_machine_is_this_process_on_windows():
+    if sys.platform != 'win32':
+        pytest.skip('Windows')
+    assert ('AMD64' in sys.version) == loader._X86 and ('ARM64' in sys.version) == loader._ARM64

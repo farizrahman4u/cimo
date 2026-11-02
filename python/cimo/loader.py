@@ -36,6 +36,7 @@ import os
 import platform
 import struct
 import sys
+import sysconfig
 import threading
 
 __all__ = ['Image', 'LoadError', 'flush_icache']
@@ -48,8 +49,11 @@ MAP_ANON = 0x1000 if _MAC else 0x20
 MAP_JIT = 0x800
 MAP_FIXED = 0x10
 PAGE = _mmap.PAGESIZE
-_MACHINE = platform.machine().lower()
-# platform.machine() names the OS's architecture: a 32-bit Python on a 64-bit OS is neither of these
+# platform.machine() names the OS's architecture, not this process's. On Windows they differ for x64
+# Python emulated on arm64 (it reports ARM64), so ask the build; a 32-bit Python on a 64-bit OS is
+# neither of these anywhere.
+_MACHINE = (sysconfig.get_platform().rpartition('-')[2] if sys.platform == 'win32'
+            else platform.machine()).lower()
 _64BIT = ctypes.sizeof(ctypes.c_void_p) == 8
 _ARM64 = _64BIT and _MACHINE in ('arm64', 'aarch64')
 _X86 = _64BIT and _MACHINE in ('x86_64', 'amd64', 'x64')
