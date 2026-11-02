@@ -14,13 +14,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
 from cimo import preprocessor  # noqa: E402
+import hosts
+from cimo import driver
 
+# cpp is this machine's: its char and wchar_t decide #if '\\377' == 255, whatever we define
+HOST = driver.TARGET if hosts.AMD64 else 'arm64'
 CPROC_DIR = os.environ.get('CIMO_CPROC_DIR', os.path.expanduser('~/code/cproc'))
 REPO = os.path.dirname(os.path.dirname(HERE))
 CASES = os.path.join(HERE, 'preprocessor_cases')
 
 
-def gcc_flags(target='arm64'):
+def gcc_flags(target=HOST):
     """`cpp` flags equivalent to cimo.preprocessor's predefines (cproc's config.h list)."""
     flags = ['-undef', '-ffreestanding', '-U__STDC_VERSION__', '-D__STDC_VERSION__=201112L']
     for name, val in preprocessor.TARGETS[target]:
@@ -54,13 +58,13 @@ def tokens(text):
     return [t.value for t in preprocessor.lex('\n'.join(lines), preprocessor.FileInfo('<out>'))]
 
 
-def run_gcc(path, include_dirs=(), target='arm64'):
+def run_gcc(path, include_dirs=(), target=HOST):
     cmd = ['cpp'] + gcc_flags(target) + ['-I%s' % d for d in include_dirs] + [path]
     p = subprocess.run(cmd, capture_output=True, text=True, errors='surrogateescape')
     return p.returncode, p.stdout, p.stderr
 
 
-def run_ours(path, include_dirs=(), target='arm64'):
+def run_ours(path, include_dirs=(), target=HOST):
     with open(path, 'rb') as f:
         src = f.read().decode('utf-8', 'surrogateescape')
     try:

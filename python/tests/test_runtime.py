@@ -95,6 +95,8 @@ def refs(tmp_path_factory):
     # the runtime's sqrt.c is itself
     common = ['-O2', '-fPIC', '-ffp-contract=off', '-fno-builtin', '-fno-math-errno', '-w',
               '-std=gnu11', '-U_FORTIFY_SOURCE']
+    if hosts.AMD64:  # as cimo's own build of it: else floor, round, ... are calls to themselves
+        common.append('-D__CIMO_SOFT_MATH=1')
     objs = []
     for rel in linker.runtime_sources():
         if rel in NOT_IN_REF:
@@ -123,6 +125,14 @@ def refs(tmp_path_factory):
 # ---------------------------------------------------------------------------------------------
 # differential tests
 
+def _nan_sign(text):
+    """x86-64: SSE's default NaN is negative, and which operand's NaN an operation keeps depends on
+    the register allocation (gcc folds 0.0/0.0 to a positive one). IEEE 754 leaves the sign open."""
+    if not hosts.AMD64:
+        return text
+    return text.replace('fff8000000000000', '7ff8000000000000').replace('ffc00000', '7fc00000')
+
+
 def _diff(a, b, n=8):
     la, lb = a.splitlines(), b.splitlines()
     d = [(i, x, y) for i, (x, y) in enumerate(zip(la, lb)) if x != y]
@@ -135,8 +145,9 @@ def _diff(a, b, n=8):
 @pytest.mark.parametrize('t', TESTS)
 def test_same_as_musl_built_by_gcc(t, cimo_out, refs):
     assert len(cimo_out[t]) > 1000
-    if cimo_out[t] != refs['musl'][t]:  # (not assert ==: pytest would diff megabytes)
-        pytest.fail(repr(_diff(cimo_out[t], refs['musl'][t])))
+    got, want = _nan_sign(cimo_out[t]), _nan_sign(refs['musl'][t])
+    if got != want:  # (not assert ==: pytest would diff megabytes)
+        pytest.fail(repr(_diff(got, want)))
 
 
 @need_cc
