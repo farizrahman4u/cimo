@@ -21,7 +21,7 @@ applied) and cproc at `~/code/cproc`.
 - `examples/`: example kernels and the demos (see "Demos").
 - `scratch/`: research code and spikes (benchmarks, hand-optimized IR, loading tests). Not part of
   the package.
-- `requirements.md`: this spec. `AGENTS.md`: rules for coding agents.
+- `requirements.md`: this spec.
 
 ## Engineering rules
 

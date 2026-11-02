@@ -20,3 +20,4 @@ scratch/**/build/
 *.o
 *.log
 docs/cimo.py
+AGENTS.md
