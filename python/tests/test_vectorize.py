@@ -53,7 +53,7 @@ def same(src, ctype=ctypes.c_float, sizes=(0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17
 
 
 @pytest.mark.parametrize('d', range(-9, 10))
-@pytest.mark.parametrize('ty,ctype', [('float', ctypes.c_float), ('double', ctypes.c_double), ('int', ctypes.c_int), ('long', ctypes.c_long)])
+@pytest.mark.parametrize('ty,ctype', [('float', ctypes.c_float), ('double', ctypes.c_double), ('int', ctypes.c_int), ('long', ctypes.c_int64)])
 def test_a_store_and_a_load_any_distance_apart(d, ty, ctype):
     """a[i + d] = a[i] * 3 + 1 for every d around the number of lanes, with the load first."""
     src = 'void f(%s *a, long n) { for (long i = 0; i < n; i++) a[i + %d] = a[i] * 3 + 1; }' % (ty, d)
@@ -166,7 +166,7 @@ KERNELS = {
     'sqrt': ('#include <math.h>\nvoid f(double *restrict y, const double *restrict x, double a, long n) { for (long i = 0; i < n; i++) y[i] = sqrt(fabs(x[i])) + a; }', ctypes.c_double),
     'minmax': ('#include <math.h>\nvoid f(float *restrict y, const float *restrict x, float a, long n) { for (long i = 0; i < n; i++) y[i] = fmaxf(fminf(x[i], a), y[i]); }', ctypes.c_float),
     'ints': ('void f(int *restrict y, const int *restrict x, int a, long n) { for (long i = 0; i < n; i++) y[i] = ((x[i] * a) ^ (y[i] >> 2)) + (x[i] & 255) - (y[i] | 1); }', ctypes.c_int),
-    'long': ('void f(long *restrict y, const long *restrict x, long a, long n) { for (long i = 0; i < n; i++) y[i] = ((x[i] + a) ^ (y[i] >> 3)) - ((unsigned long)x[i] >> 7); }', ctypes.c_long),
+    'long': ('void f(long *restrict y, const long *restrict x, long a, long n) { for (long i = 0; i < n; i++) y[i] = ((x[i] + a) ^ (y[i] >> 3)) - ((unsigned long)x[i] >> 7); }', ctypes.c_int64),
     'stencil': ('void f(double *restrict y, const double *restrict x, double a, long n) { for (long i = 2; i < n - 2; i++) y[i] = a * (x[i - 2] + x[i - 1] + x[i] + x[i + 1] + x[i + 2]); }', ctypes.c_double),
     'int_counter': ('void f(float *restrict y, const float *restrict x, float a, int n) { for (int i = 0; i < n; i++) y[i] = x[i] * x[i] + a; }', ctypes.c_float),
 }
@@ -177,7 +177,7 @@ def test_bit_for_bit_the_scalar_loop(name):
     src, ctype = KERNELS[name]
     assert vectorized(src), driver._build(src)[0]
     on, off = both(src)
-    a = 3 if ctype in (ctypes.c_int, ctypes.c_long) else 1.25
+    a = 3 if ctype in (ctypes.c_int, ctypes.c_int64) else 1.25
     for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 63, 64, 65, 200):
         x = buf(ctype, n + 8, n)
         y1, y2 = buf(ctype, n + 8, n + 1), buf(ctype, n + 8, n + 1)

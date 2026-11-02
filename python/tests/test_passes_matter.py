@@ -13,7 +13,7 @@ import hosts
 
 pytestmark = pytest.mark.skipif(not hosts.ARM64, reason='arm64 code generation')
 
-BUF = (ctypes.c_long * 64)(*[(i * 37 + 5) % 23 - 7 for i in range(64)])
+BUF = (ctypes.c_int64 * 64)(*[(i * 37 + 5) % 23 - 7 for i in range(64)])
 A = ctypes.addressof(BUF)
 END = A + 8 * 20
 
