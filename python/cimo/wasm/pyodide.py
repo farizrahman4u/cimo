@@ -19,6 +19,7 @@ import js  # noqa: F401  (Pyodide)
 import pyodide_js
 from pyodide.ffi import create_proxy, to_js
 
+from ..introspect import Introspection
 from ..execution import (KernelError, E_ABORT, E_ASSERT, E_TRAP, E_EXIT)
 
 _ids = itertools.count()
@@ -67,7 +68,7 @@ def _cstr(p):
     return ctypes.string_at(p).decode('utf-8', 'replace') if p else None
 
 
-class WasmModule:
+class WasmModule(Introspection):
     """A compiled module in Pyodide. Non-static functions are attributes (cimo.Module's
     interface); `exports` is the JavaScript object of the wasm exports."""
 

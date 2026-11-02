@@ -238,6 +238,8 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
 
 ## Python interop API (to be designed)
 
+Built: a module says what it was made from (`module.source`, `module.options`, `module.signature(name)`, `module.mutable_data`, `kernel.module`), found by running the front end when asked, so the cache format stays as it is. scramjit puts a module's source in the same C file as what it generates, so a kernel calling `k.f(x)` inlines it. Calling across modules by `kernel.address` isn't an alternative: it crashes once the callee uses `malloc`, since the runtime expects its own module's context, and wasm kernels have no address.
+
 Ergonomic Python-side sugar is what makes this feel native rather than "ctypes with extra steps".
 The exact design is still open. Areas to cover:
 

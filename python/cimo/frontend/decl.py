@@ -1198,7 +1198,7 @@ def stringdecl(expr):
     if d is None:
         d = mkdecl("string", DECLOBJECT, expr.type, QUALNONE, LINKNONE)
         d.value = Q.mkglobal(d)
-        Q.emitdata(d, IN.mkinit(0, expr.type.size, BITS0, expr))
+        Q.emitdata(d, IN.mkinit(0, expr.type.size, BITS0, expr), literal=True)
         strings[key] = d
     return d
 

@@ -24,6 +24,8 @@ import struct
 import sys
 import threading
 import warnings
+
+from .introspect import Introspection
 import zlib
 
 from . import assembler as _asm
@@ -545,6 +547,16 @@ def _address(x, keep):
     return ctypes.addressof(ctypes.c_char.from_buffer(mv))
 
 
+def describe(src, filename, options):
+    """(signatures, data that isn't const) of C source, from the front end alone (cimo.introspect)."""
+    target = ('arm64',) if _PYODIDE else ()
+    pp = _preprocess(src, filename, tuple(options.get('include_dirs', ())), options.get('host_headers', False),
+                     tuple(options.get('defines', ())), *target)
+    with _compile_lock:
+        _, params = _ir(pp, filename, options.get('host_headers', False))
+    return params.get('#signatures', {}), params.get('#mutable', [])
+
+
 class Kernel:
     """A C function. Calls go through its entry trampoline (cimo.execution), so abort(),
     assert and traps raise KernelError; `address` is the function itself."""
@@ -596,7 +608,7 @@ class Kernel:
         return '<cimo kernel %s>' % self.__name__
 
 
-class Module:
+class Module(Introspection):
     """Compiled C. Each non-static function is an attribute. Calling the module calls `main`,
     or the only function if there is just one."""
 
@@ -722,7 +734,12 @@ def _module(src, filename, include_dirs, link, host_headers, defines, cache=True
     ftoken = _fma.set(None if fma is None else bool(fma))
     vtoken = _wrapv.set(None if wrapv is None else bool(wrapv))
     try:
-        return _module1(src, filename, include_dirs, link, host_headers, defines)
+        m = _module1(src, filename, include_dirs, link, host_headers, defines)
+        options = {k: v for k, v in (('include_dirs', tuple(include_dirs)), ('link', (link,) if isinstance(link, str) else tuple(link)),
+                                     ('host_headers', host_headers), ('defines', tuple(defines.items() if hasattr(defines, 'items') else defines)),
+                                     ('fma', fma), ('wrapv', wrapv)) if v not in ((), False, None)}
+        m._record(src, filename, options)
+        return m
     finally:
         _wrapv.reset(vtoken)
         _fma.reset(ftoken)

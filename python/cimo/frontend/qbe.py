@@ -1943,6 +1943,32 @@ def emitjump(b):
 paraminfo = None
 
 
+def _ctypename(t):
+    """A C type by what it is, for Module.signature (cimo.introspect)."""
+    from .cc import QUALCONST, TYPEARRAY, TYPEBOOL, TYPEDOUBLE, TYPEFLOAT, TYPELDOUBLE, TYPEPOINTER, TYPEUNION, TYPESTRUCT, TYPEVOID
+    if t.kind == TYPEPOINTER:
+        const, base = t.qual & QUALCONST, t.base
+        while base.kind == TYPEARRAY:
+            const |= base.qual & QUALCONST
+            base = base.base
+        return ('const ' if const else '') + _ctypename(base) + ' *'
+    names = {TYPEVOID: 'void', TYPEBOOL: '_Bool', TYPEFLOAT: 'float', TYPEDOUBLE: 'double', TYPELDOUBLE: 'long double', TYPESTRUCT: 'struct', TYPEUNION: 'union'}
+    if t.kind in names:
+        return names[t.kind]
+    if t.prop & PROPINT:
+        return '%sint%d_t' % ('' if t.issigned else 'u', 8 * t.size)
+    return 'function'
+
+
+def _isconst(d):
+    from .cc import QUALCONST, TYPEARRAY
+    t, const = d.type, d.qual & QUALCONST
+    while t.kind == TYPEARRAY:
+        const |= t.qual & QUALCONST
+        t = t.base
+    return const
+
+
 def _recordparams(f):
     from .cc import QUALRESTRICT
     out = []
@@ -1955,6 +1981,13 @@ def _recordparams(f):
         p = p.next
         vi += 1
     paraminfo[f.decl.value.name] = out
+    p, params = f.type.params, []
+    while p:
+        params.append(_ctypename(p.type))
+        p = p.next
+    if f.type.isvararg:
+        params.append('...')
+    paraminfo.setdefault('#signatures', {})[f.decl.value.name] = (_ctypename(f.type.base), tuple(params))
     # for the Python bindings: QBE's classes don't say that a w or l result is unsigned. A narrower
     # unsigned type is zero extended into its w, so it reads the same either way
     r = f.type.base
@@ -2088,7 +2121,9 @@ def dataitem(expr, size):
         error(tok.loc, "initializer is not a constant expression")
 
 
-def emitdata(d, init):
+def emitdata(d, init, literal=False):
+    if paraminfo is not None and not literal and not _isconst(d) and d.value.name:
+        paraminfo.setdefault('#mutable', []).append(d.value.name)
     offset = 0
     bits = 0
     align = d.align

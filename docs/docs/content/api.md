@@ -42,6 +42,10 @@ What `compile` and `load` return. Every function in the source that isn't `stati
 | `module.free(ptr)` | `free()` a pointer a kernel returned from `malloc` and friends |
 | `module.reset_heap()` | free every block of the module's heap at once; no kernel of the module may be running |
 | `module.heap_bytes()` | bytes currently mapped for the module's heap |
+| `module.source` | the C text it was compiled from |
+| `module.options` | the arguments of `compile()` or `load()` that weren't the defaults |
+| `module.signature(name)` | a function's C types: `('double', ('const double *', 'int64_t'))`. Integers by size, a VLA as a pointer to its elements |
+| `module.mutable_data` | names of data that isn't `const`, static locals included: what compiling the source again wouldn't share with this module |
 
 ## Kernels
 
@@ -66,6 +70,7 @@ The call releases the GIL. A function that is variadic, or passes or returns a s
 | `kernel.address` | the function's address, as an `int` (native builds) |
 | `kernel.function` | the WebAssembly export, callable from JavaScript (Pyodide) |
 | `kernel.__name__` | the C name |
+| `kernel.module` | its module |
 
 ## CompileError
 
