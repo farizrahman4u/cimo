@@ -12,7 +12,6 @@ applied) and cproc at `~/code/cproc`.
 
 - `python/cimo/`: the compiler and the Python runtime (the PyPI package).
 - `js/`: reserved for a later JS port of the compiler and browser glue. Empty for now.
-- `gpu/`: planned. C that runs on the GPU or calls a driver, compiled by cimo on demand (see "GPU").
 - `docs/`: the website (GitHub Pages serves `main:/docs` at www.cimo.dev). The user documentation
   lives in `docs/docs/` (www.cimo.dev/docs/): Markdown pages in `docs/docs/content/`, ordered and
   grouped by `docs/docs/nav.json`, rendered in the browser by `docs/docs/docs.js` (no build step).
@@ -535,33 +534,35 @@ per GPU generation. Its plain-loop path exists only as a fallback.
 
 ### Layout
 
-C that runs on the GPU or calls a driver lives in `gpu/` at the repo root, compiled by cimo on demand, as
-`python/cimo/runtime/` already is. Code generators stay in Python.
+Everything GPU lives in `python/cimo/gpu/`, so one directory is all onefile has to leave out. C that runs on the GPU
+or calls a driver is compiled by cimo on demand, as `python/cimo/runtime/` already is. Code generators stay in Python.
 
-| Path | Holds | Language |
+| Path, under `python/cimo/` | Holds | Language |
 |---|---|---|
 | `gpu/include/cimo/gpu.h` | what kernels see: thread ids, barriers, shared memory, target instructions | C |
 | `gpu/lib/` | device math (`exp`, `log`, `sin`, softmax) | C |
 | `gpu/kernels/<target>/` | tuned kernels (`ptx/gemm_sm90.c`) | C |
 | `gpu/host/` | device discovery, buffers, dispatch: `cuda.c`, `vulkan.c`, `hip.c`, `metal.c` | C |
-| `python/cimo/backend/{wgsl,spirv,ptx,msl,hip}/` | IR to target code | Python |
-| `python/cimo/wasm/` | WebGPU host, through Pyodide's `js` module; a tab has no driver for C to call | Python |
+| `gpu/host/webgpu.py` | the browser host, through Pyodide's `js` module; a tab has no driver for C to call | Python |
+| `gpu/backend/{wgsl,spirv,ptx,msl,hip}/` | IR to target code | Python |
+| `backend/` | loop structuring shared with wasm, moved out of `backend/wasm/emit.py` | Python |
 
-- **Generators stay in Python** because they read the compiler's IR, which is Python objects, and share code with
-  the wasm backend. In C they would need the IR marshalled, and would have to compile before any kernel could:
-  on every cold start, and at about 1.5k lines per 2.5 s in a tab (1,611 lines measured through scramjit), a
-  noticeable wait. Revisit only if emission shows up as the bottleneck.
-- **Packaging:** `gpu/` sits outside `python/`, the current project root, so it can't reach a wheel or sdist from
-  there. Move `pyproject.toml` to the repo root with `package-dir` mapping `cimo` to `python/cimo` and
-  `cimo.gpu` to `gpu`. No symlinks (Windows checkouts). `cimo.resources` finds `gpu/` next to the package or at the
-  repo root, `cimo.onefile` embeds it, and its sources join the cache key. Install docs drop their subdirectory
-  (`docs/agent-prompt.txt`).
+- **Generators stay in Python** because they read the compiler's IR, which is Python objects. In C they would need
+  the IR marshalled, and would have to compile before any kernel could: on every cold start, and at about 1.5k lines
+  per 2.5 s in a tab (1,611 lines measured through scramjit), a noticeable wait. Revisit only if emission shows up as
+  the bottleneck.
+- **Packaging:** wheels and sdists include `gpu/` (`package-data`).
+- **Onefile leaves it out by default:** `cimo onefile --gpu` puts it in. CPU users keep a small `cimo.py`, and a page
+  using GPU builds with the flag. Without it, `cimo.gpu` raises an error naming the flag. `import cimo` never imports
+  `cimo.gpu` until it's used (module `__getattr__`), so CPU users pay nothing in either build.
+- **Cache keys:** `gpu/` sources go into the key of GPU kernels only, so editing them doesn't invalidate CPU kernels,
+  and a CPU kernel has the same key in both builds.
 - `cimo` stays pure Python: drivers are reached from C compiled by cimo, resolved with `dlsym` at load.
 
 ### Using it
 
 ```python
-gpu = cimo.gpu()                     # finds a driver; no toolkit
+gpu = cimo.gpu.device()              # finds a driver; no toolkit
 k = cimo.compile(r"""
 void matmul(int n, int m, int p,
             const float a[n][m], const float b[m][p], float c[n][p]) {
@@ -688,7 +689,7 @@ Through cimo's public API only:
 1. **WGSL, plain.** The `matmul` above compiles and runs on WebGPU in a tab. Results match the CPU within rounding. Same GPU,
    against hand-written WGSL: speed, and compile time with passes on and off. Target: a 50-line kernel edit to dispatch
    in under 1 s. Proves type recovery, and how far plain loops get.
-2. **Host in C and SPIR-V.** `gpu/host/vulkan.c` and the same kernel natively, packaging moved. Cold-start cost of compiling
+2. **Host in C and SPIR-V.** `gpu/host/vulkan.c` and the same kernel natively. Cold-start cost of compiling
    the host measured.
 3. **Cooperative matrix.** One explicit GEMM on an RDNA3 or newer card, against the plain loop.
 4. **PTX and one tuned GEMM.** `gpu/host/cuda.c`, `__gpu_asm`, one generation, one format. Same rented card: plain loop,
