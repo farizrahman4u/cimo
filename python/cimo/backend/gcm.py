@@ -274,6 +274,8 @@ def schedblk(fn):
 def cheap(i):
     if KBASE(i.cls) != 0:
         return 0
+    if i.op == Omul and _ext.cse:  # cimo: several cycles, so not one to compute again to save a register
+        return 0
     if i.op in (Oneg, Oadd, Osub, Omul, Oand, Oor, Oxor, Osar, Oshr, Oshl):
         return 1
     return int(iscmp(i.op) is not None)

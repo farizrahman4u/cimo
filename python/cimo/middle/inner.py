@@ -189,7 +189,7 @@ class Group:
 
 class Chain:
     """Loads of one array at positions qmin..qmax (stride S apart) in every iteration."""
-    __slots__ = ('op', 'cls', 'Lr', 'S', 'qmin', 'qmax', 'pos', 'fresh')
+    __slots__ = ('idx', 'op', 'cls', 'Lr', 'S', 'qmin', 'qmax', 'pos', 'fresh')
 
 
 class Fast:
@@ -365,6 +365,7 @@ class Fast:
             if len(qs) < 2 or qs[-1] - qs[0] + 1 != len(qs) or len(qs) > SR_MAXSPAN:
                 continue
             ch = Chain()
+            ch.idx = len(self.chains)  # not id(ch): the state's variables are ordered by their names, and code follows
             ch.op, ch.cls, ch.S = op, cls, S
             f0 = lst[0][1]
             q0 = (f0.L.c - r) // S
@@ -456,10 +457,10 @@ class Fast:
                 if t is not None and t in self.srload:
                     ch, q = self.srload[t]
                     if q != ch.qmax:
-                        env[t] = state[('sr', id(ch), q)]
+                        env[t] = state[('sr', ch.idx, q)]
                         continue
-                    if id(ch) in fresh:
-                        env[t] = fresh[id(ch)]
+                    if ch.idx in fresh:
+                        env[t] = fresh[ch.idx]
                         continue
                 args = [self.opmap(a, k, env, state, closed) if a != R else R for a in i.arg]
                 if i.op == D.Osel0:  # goes right before its sel1, after what opmap adds for it
@@ -475,7 +476,7 @@ class Fast:
                     if v is not None:
                         env[t] = v
                         if t in self.srload:
-                            fresh[id(self.srload[t][0])] = v
+                            fresh[self.srload[t][0].idx] = v
                         continue
                 if t is None:
                     em.ins(Ins(i.op, i.cls, R, args[0], args[1]))
@@ -486,7 +487,7 @@ class Fast:
                     v = em.raw(i.op, i.cls, args[0], args[1])
                 env[t] = v
                 if t in self.srload:
-                    fresh[id(self.srload[t][0])] = v
+                    fresh[self.srload[t][0].idx] = v
             if final:
                 break
             # loop-carried values for the next iteration
@@ -497,7 +498,7 @@ class Fast:
                     new[('phi', t)] = self.opmap(ir.phiargof(p, sh.latch), k, env, state,
                                                  closed)
             for ch in self.chains:
-                c = id(ch)
+                c = ch.idx
                 for q in range(ch.qmin, ch.qmax - 1):
                     new[('sr', c, q)] = state[('sr', c, q + 1)]
                 new[('sr', c, ch.qmax - 1)] = fresh[c]
@@ -886,7 +887,7 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
     for ch in fast.chains:
         for q in range(ch.qmin, ch.qmax):
             addr = fast.lin(Lin(ch.Lr.t, ch.Lr.c + q * ch.S), 64)
-            state0[('sr', id(ch), q)] = ef.raw(ch.op, ch.cls, addr)
+            state0[('sr', ch.idx, q)] = ef.raw(ch.op, ch.cls, addr)
     # hoisted invariant loads are materialized lazily into FP while copying
     kc = Kw if ctlg.W == 32 else Kl
     T4 = ef.op(D.Oand, Kl, T, ef.con(-U)) if U > 1 else T
@@ -1009,7 +1010,7 @@ def _svcls(fn, sv, fast, vals):
     if sv[0] == 'phi':
         return fn.tmp[sv[1]].cls
     if sv[0] == 'sr':
-        ch = [c for c in fast.chains if id(c) == sv[1]][0]
+        ch = [c for c in fast.chains if c.idx == sv[1]][0]
         return ch.cls
     raise AssertionError(sv)
 

@@ -1067,3 +1067,16 @@ def test_extension_of_a_load_stays_in_the_load():
     for f in ('sext', 'sext1'):
         assert 'ldrsw' in body(LOOPFOLDS, f) and 'sxtw\n' not in body(LOOPFOLDS, f)
         assert not re.search(r'add\s.*, sxtw', body(LOOPFOLDS, f))
+
+
+def test_accumulator_stays_on_its_way_round_the_loop():
+    """No copy on the chain: one fmov in `s += x[i] * y[i]` cost 52 to 56% on Neoverse."""
+    src = 'double f(int n, const double *restrict x, const double *restrict y) { double s = 0.0; for (int i = 0; i < n; i++) s += x[i] * y[i]; return s; }'
+    text = body(src, 'f')
+    loops = [m.group(2) for m in re.finditer(r'^(\.?L\d+):\n((?:(?!^\.?L\d+:).*\n)*?\tb\w*\t\1\n)', text, re.M)]
+    assert any('fmadd' in x for x in loops), text
+    assert not any('fmadd' in x and 'fmov' in x for x in loops), text
+    x = (ctypes.c_double * 9)(*[i + 0.5 for i in range(9)])
+    y = (ctypes.c_double * 9)(*[2.0 * i - 1 for i in range(9)])
+    m = cimo.compile(src, cache=False)
+    assert m.f(9, ctypes.addressof(x), ctypes.addressof(y)) == sum(a * b for a, b in zip(x, y))

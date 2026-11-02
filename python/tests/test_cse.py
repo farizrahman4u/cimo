@@ -546,3 +546,12 @@ def test_bit_test_has_no_chain():
         b = _bitbody(text, f)
         assert 'lsr' in b and 'ccmp' not in b, b
     assert 'lsr' not in _bitbody(text, 'far')  # 64 apart: no word holds them
+
+
+def test_a_multiply_is_not_computed_twice_to_save_a_register():
+    from cimo import driver
+    import cimo
+    src = 'int f(int a, int b, int c) { int x = a * b; if (c) return a * b + 1; return x; }'
+    assert driver._build(src)[0].count('mul\t') == 1
+    m = cimo.compile(src, cache=False)
+    assert (m.f(3, 4, 0), m.f(3, 4, 1)) == (12, 13)

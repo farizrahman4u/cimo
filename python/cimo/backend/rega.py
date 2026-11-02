@@ -11,6 +11,14 @@ from .cfg import newblk
 from .parse import printfn
 
 
+from . import ext as _ext
+
+curphis = []  # the block being allocated: its phis, with the position of their last read
+curdefs = {}  # and where its temporaries are defined
+# Measured on `s += x[i] * y[i]` (kernel dot): one fmov on the accumulator's way to the next fmadd cost 52 to 56% on
+# Neoverse N1, V1 and V2, and nothing on Snapdragon X
+
+
 class RMap:
     __slots__ = ('t', 'r', 'w', 'b', 'n')
 
@@ -130,6 +138,14 @@ def ralloctry(m, t, try_):
             return R
         regs = tmp[phicls(t, tmp)].hint_m
         regs |= m.b.t & M64
+        # cimo (ext.isel): not the register of a phi whose life t's overlaps, or the phi waits in another one and
+        # needs a copy to get to its own. After the phi's last read t can have it: iir's two phis alternate that way
+        at = curdefs.get(t, -1)
+        for p, last in curphis:
+            if last > at and KBASE(tmp[t].cls) == 1:
+                h = hint(p)
+                if h != -1:
+                    regs |= BIT(h)
         if KBASE(tmp[t].cls) == 0:
             r0 = T.gpr0
             r1 = r0 + T.ngpr
@@ -335,7 +351,37 @@ def insert(r, rs, p):
 
 
 def doblk(b, cur):
-    global stmov
+    global stmov, curphis, curdefs
+    curphis = []
+    curdefs = {}
+    if _ext.isel and b.phi:
+        last = {}
+        for n, x in enumerate(b.ins[:b.nins]):
+            if rtype(x.to) == RTmp:
+                curdefs[rval(x.to)] = n
+            for a in x.arg[:2]:
+                if rtype(a) == RTmp:
+                    last[rval(a)] = n
+                elif rtype(a) == RMem:
+                    for y in (mem[rval(a)].base, mem[rval(a)].index):
+                        if rtype(y) == RTmp:
+                            last[rval(y)] = n
+        shared = {}
+        p = b.phi
+        while p:
+            if rtype(p.to) == RTmp:
+                k = phicls(rval(p.to), tmp)
+                shared[k] = shared.get(k, 0) + 1
+            p = p.link
+        p = b.phi
+        while p:
+            # phis that feed each other have one hint between them, and which of them it's for isn't known here
+            if rtype(p.to) == RTmp and KBASE(p.cls) == 1 and shared[phicls(rval(p.to), tmp)] == 1:
+                t = rval(p.to)
+                # read later than the block's end, as far as this goes: by a jump, a successor or the next time round
+                live = bshas(b.out, t) or (rtype(b.jmp.arg) == RTmp and rval(b.jmp.arg) == t)
+                curphis.append((t, b.nins if live else last.get(t, -1)))
+            p = p.link
     T = D.T
     insb = D.insb
     ra = [None] * 4
