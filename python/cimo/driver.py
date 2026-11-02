@@ -736,8 +736,8 @@ def _module(src, filename, include_dirs, link, host_headers, defines, cache=True
     try:
         m = _module1(src, filename, include_dirs, link, host_headers, defines)
         options = {k: v for k, v in (('include_dirs', tuple(include_dirs)), ('link', (link,) if isinstance(link, str) else tuple(link)),
-                                     ('host_headers', host_headers), ('defines', tuple(defines.items() if hasattr(defines, 'items') else defines)),
-                                     ('fma', fma), ('wrapv', wrapv)) if v not in ((), False, None)}
+                                     ('host_headers', host_headers or ()), ('defines', tuple(defines.items() if hasattr(defines, 'items') else defines)),
+                                     ('fma', () if fma is None else fma), ('wrapv', () if wrapv is None else wrapv)) if v != ()}
         m._record(src, filename, options)
         return m
     finally:

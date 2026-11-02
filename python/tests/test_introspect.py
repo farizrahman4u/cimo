@@ -29,6 +29,7 @@ def test_source_and_options():
     assert m.source == SOURCE and m.options == {'defines': (('N', '3'),)}
     assert cimo.compile('int f(void) { return 1; }').options == {}
     assert m.dsum.module is m
+    assert cimo.compile('int f(void) { return 1; }', fma=False, wrapv=True).options == {'fma': False, 'wrapv': True}
 
 
 def test_signatures():
