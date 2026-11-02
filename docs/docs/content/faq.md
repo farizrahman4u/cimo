@@ -6,7 +6,7 @@ Most often the array's dtype doesn't match the C type: a `float64` array passed 
 
 ### Results differ slightly from gcc
 
-cimo contracts `a * b + c` into a fused multiply-add by default. Set `CIMO_FMA=0` to compare with `gcc -ffp-contract=off`; results are then bit-identical on the benchmarks.
+On arm64 cimo contracts `a * b + c` into a fused multiply-add by default (x86-64 and wasm never do). Set `CIMO_FMA=0` to compare with `gcc -ffp-contract=off`; results are then bit-identical on the benchmarks.
 
 ### The first compile is slow
 
@@ -20,9 +20,9 @@ cimo's bundled C library has no files, clocks or sockets. Link the host's: `cimo
 
 Pass a pointer to the struct instead. Struct values from Python are [planned](arrays.md#structs).
 
-### "cimo generates arm64 code only"
+### "cimo generates arm64 and x86-64 code only"
 
-See [Platforms](platforms.md): arm64 and x86-64 Linux and Windows are supported.
+The machine is neither. See [Platforms](platforms.md) for what is supported; on an Intel Mac the error says so.
 
 ### My process crashed
 

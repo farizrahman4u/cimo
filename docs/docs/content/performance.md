@@ -9,8 +9,8 @@ cimo is an optimizing compiler. On loops it can analyze it runs close to gcc and
 - strength-reduces array indexing into pointers that step forward
 - replaces repeated loads with registers (scalar replacement)
 - adds runtime checks where two pointers might overlap, with a fast path when they don't
-- contracts `a * b + c` into fused multiply-adds
-- selects arm64 instructions with their addressing modes, and pairs adjacent loads and stores
+- contracts `a * b + c` into fused multiply-adds (arm64)
+- selects arm64 or x86-64 instructions with their addressing modes; on arm64 it also pairs adjacent loads and stores
 
 ## Write loops it can see through
 
@@ -30,7 +30,7 @@ cimo is an optimizing compiler. On loops it can analyze it runs close to gcc and
 ## Look at the generated code
 
 ```console
-$ cimo compile -S kernels.c          # arm64 assembly
+$ cimo compile -S kernels.c          # assembly for this machine (arm64 or x86-64)
 $ cimo compile --ir kernels.c        # the intermediate representation (QBE IR)
 ```
 

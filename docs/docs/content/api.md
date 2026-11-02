@@ -20,7 +20,7 @@ Compiles C source and returns a [module](#module). Raises [`CompileError`](#comp
 | `host_headers` | also search the host's C headers. Not in Pyodide. |
 | `defines` | macros: a dict or `(name, value)` pairs; `None` means `1` |
 | `cache` | `False`: read the compile cache but write nothing to disk |
-| `fma` | `False`: no fused multiply-add contraction, for results identical to `-ffp-contract=off`. `True`: contract `a*b+c` within one expression. `None` (default): on, unless `CIMO_FMA=0`. wasm never contracts. |
+| `fma` | `False`: no fused multiply-add contraction, for results identical to `-ffp-contract=off`. `True`: contract `a*b+c` within one expression. `None` (default): on, unless `CIMO_FMA=0`. wasm and x86-64 never contract. |
 
 ## cimo.load
 
