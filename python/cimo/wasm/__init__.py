@@ -40,7 +40,7 @@ def compile_object(src, filename='<string>', include_dirs=(), defines=(), runtim
                                   diagnostics=not runtime, prune=True, vastruct='slots', bitops=False)
     except FrontendError as e:
         raise d.CompileError(str(e)) from None
-    return d._qbe_wasm(ssa, params), ssa
+    return d._qbe_wasm(ssa, params), ssa, params
 
 
 class Runtime:
@@ -140,8 +140,8 @@ def build(src, filename='<string>', include_dirs=(), defines=()):
     hit = _cache_get(key)
     if hit is not None:
         return hit
-    obj, ssa = compile_object(src, filename, include_dirs, defines)
-    sigs = d._sigs(ssa)
+    obj, ssa, params = compile_object(src, filename, include_dirs, defines)
+    sigs = d._sigs(ssa, params)
     names = [line.split(' ')[0] for line in sigs.splitlines()]
     try:
         objs, undefined = _link.resolve([obj, glue()], runtime().provide)

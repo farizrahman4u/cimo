@@ -12,6 +12,7 @@ from cimo.backend import ext
 FLAGS = ('fma', 'ldp', 'layout')
 APPLE = sys.platform == 'darwin'
 TARGET = driver.TARGET  # this machine's: arm64, arm64_apple or arm64_win
+SYM = '_' if TARGET == 'arm64_apple' else ''  # its symbol prefix, for finding labels in asm
 
 
 def ir(src, fma=False, filename='t.c'):

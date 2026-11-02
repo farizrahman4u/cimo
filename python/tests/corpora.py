@@ -128,8 +128,9 @@ def fetch(name):
     # converts to CRLF by default)
     subprocess.check_call(git + ['config', 'core.autocrlf', 'false'])
     subprocess.check_call(git + ['sparse-checkout', 'set', sub])
-    subprocess.check_call(git + ['fetch', '-q', '--depth', '1', '--filter=blob:none', 'origin',
-                                 commit])
+    if subprocess.call(git + ['fetch', '-q', '--depth', '1', '--filter=blob:none', 'origin', commit]):
+        # repo.or.cz serves no commit by its hash, or partial clones: the whole history there
+        subprocess.check_call(git + ['fetch', '-q', 'origin'])
     subprocess.check_call(git + ['checkout', '-q', commit])
     harness(name, 'math/')  # generate it now (libc-test)
     print('%s: %d programs in %s' % (name, len(files(name)), root(name)))

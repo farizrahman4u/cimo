@@ -6,6 +6,10 @@ line to the original stdout:
     PASS | COMPILE <message> | ABORT <message> | STATUS <n> | OUTPUT <repr> | ERROR <message>
 
 A crash or hang kills only this process; the test runner records it and starts another.
+
+Each main() starts on a stack filled with garbage (a large positive number in every int, an invalid
+address in every pointer): on a clean stack, a program reading the wrong memory often reads 0 and
+passes. gcc-torture's 20011008-3 hit a miscompiled load that way, and only failed on Windows.
 """
 
 import contextlib
@@ -21,28 +25,36 @@ from cimo.driver import CompileError, KernelError  # noqa: E402
 
 
 INCLUDE = [d for d in os.environ.get('CIMO_INCLUDE', '').split(os.pathsep) if d]
+# in the program itself: Python's own frames would overwrite the part main's locals land on
+WRAPPER = '''
+void __cimo_poison(void) {
+    volatile unsigned char b[1 << 17];
+    for (long i = 0; i < sizeof b; i++) b[i] = 0x5a;
+}
+long __cimo_main(int c, char **v) {
+    __cimo_poison();
+    return ((long (*)(int, char **))main)(c, v);
+}
+'''
 
 
 def run(line):
     path, prelude, inc = (line.split('\t') + ['', ''])[:3]
     inc = [d for d in inc.split(os.pathsep) if d] + INCLUDE
     try:
-        if prelude:
-            m = cimo.compile('#include "%s"\n#include "%s"\n' % (prelude, path),
-                             include_dirs=inc)
-        else:
-            m = cimo.load(path, include_dirs=inc)
+        first = '#include "%s"\n' % prelude.replace(os.sep, '/') if prelude else ''
+        m = cimo.compile(first + '#include "%s"\n' % path.replace(os.sep, '/') + WRAPPER,
+                         include_dirs=inc)
     except CompileError as e:
         return 'COMPILE ' + str(e).replace(os.path.dirname(path) + os.sep, '').splitlines()[0]
     k = m._kernels.get('main')
     if k is None:
         return 'ERROR no main()'
     argv = (ctypes.c_char_p * 2)(b'prog', None)
-    args = [1, ctypes.addressof(argv), 0][:len(k._params)]
     out = io.StringIO()
     try:
         with contextlib.redirect_stdout(out):
-            r = k(*args)
+            r = m._kernels['__cimo_main'](1, ctypes.addressof(argv))
         status = r if k._ret is not None else 0
     except KernelError as e:
         if e.kind != 'exit':

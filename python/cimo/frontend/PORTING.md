@@ -124,6 +124,17 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   no field for a flexible or zero-length array (`b 0` for an empty struct); cproc's types
   were too small, so calls copied part of the struct. `zero()` indexed its store table with 16
   for a 16-byte aligned local (crash). Found with `va_arg` of structs and `tests/test_abi.py`.
+  Packed members at offsets QBE wouldn't place their type at are emitted as bytes; `{ b, w, h }`
+  for a 7-byte packed struct was 12 bytes to QBE, so it took two registers instead of one.
+- Target `aarch64-apple`: `char` and `short` parameters and named call arguments use QBE's
+  sub-word ABI classes (`sb`, `ub`, `sh`, `uh`; cproc emits `w`), because Apple packs stack
+  arguments at their own size and the backend can only tell from the class (`abiclass`).
+- Accepted as gcc and clang do (the macOS SDK's headers have both): a stray `;` at file scope,
+  and GNU attributes after a struct or union body: `packed` lays the members out again without
+  padding but keeps a member's own specified alignment, as gcc does (`_repack`; bit-fields stay
+  errors there, as with a leading `packed`), `aligned(N)` raises the type's alignment and rounds
+  its size. On Linux that `aligned(N)` isn't passed on to QBE: AAPCS64 picks registers by the
+  members' alignment, so it doesn't change how the struct is passed. Stock cproc rejects both.
 - Target `aarch64-windows`: a call to a variadic function gets the `...` marker even when no
   variadic argument follows (cproc emits it before the first one), since Windows passes all
   arguments of a variadic call its own way. Found by `tests/test_abi.py`.

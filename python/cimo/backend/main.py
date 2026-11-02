@@ -33,9 +33,17 @@ class _Driver:
         self.outf = outf
         self.dbg = dbg
         self.pending = []  # cimo (ext.inline): the module's functions, compiled by finish()
+        self.datarefs = set()  # cimo (ext.inline): symbols the module's data refers to
+        self.dataitems = {}  # cimo (ext.inline): static data's initial bytes, by name (inline.recorddata)
 
     def data(self, d):
         from .emit import emitdat
+        if d.isref:
+            self.datarefs.add(d.ref_name)
+        from . import ext as _x
+        if _x.inline:
+            from . import inline
+            inline.recorddata(self.dataitems, d)
         if self.dbg:
             return
         if D.T.name == 'wasm':  # cimo: the wasm target collects an object, not assembly
@@ -62,8 +70,10 @@ class _Driver:
         fns, self.pending = self.pending, []
         if not fns:
             return
-        inline.expand_all(fns, ext.inline)
-        for fn in fns:
+        inline.constglobals(fns, self.dataitems, self.datarefs)
+        live = inline.expand_all(fns, ext.inline, self.datarefs)
+        inline.ipo(live, self.datarefs)
+        for fn in live:
             self.compile(fn)
 
     @staticmethod
@@ -76,6 +86,12 @@ class _Driver:
         cfg.filldom(fn)
         gcm.gcm(fn)
         ssa.filluse(fn)
+        ssa.ssacheck(fn)
+
+    @staticmethod
+    def _cleanup_fill(fn, cfg, ssa):
+        ssa.filluse(fn)
+        cfg.filldom(fn)
         ssa.ssacheck(fn)
 
     def compile(self, fn):
@@ -92,6 +108,11 @@ class _Driver:
         T.abi0(fn)
         cfg.fillcfg(fn)
         ssa.filluse(fn)
+        from . import ext as _x
+        if _x.cse:
+            from . import sroa
+            if sroa.sroa(fn):
+                ssa.filluse(fn)
         mem.promote(fn)
         ssa.filluse(fn)
         ssa.ssa(fn)
@@ -117,15 +138,40 @@ class _Driver:
         if ext.cse:  # cimo: gvn made equal addresses one temporary: their loads can merge
             loads = cse.nload(fn)
             cfg.filldom(fn)
+            from . import scalar, thread
+            if scalar.sccp(fn):
+                cfg.fillcfg(fn)
+                self._cleanup_fill(fn, cfg, ssa)
+            if scalar.adce(fn):
+                self._cleanup_fill(fn, cfg, ssa)
+            threaded = thread.run(fn)
             merged = cse.domcse(fn)
-            if T.name.startswith('arm64') and cse.divrem(fn):
-                merged = True
+            merged = cse.reassoc(fn) or merged
+            merged = cse.ranges(fn) or merged
+            ssa.filluse(fn)
+            if T.name.startswith('arm64'):
+                merged = cse.divconst(fn) or merged
+                merged = cse.divrem(fn) or merged
+                merged = cse.bytepatterns(fn) or merged
             ssa.filluse(fn)
             alias.fillalias(fn)
             load.loadopt(fn)
             ssa.filluse(fn)
             ssa.ssacheck(fn)
-            if merged or cse.nload(fn) != loads:
+            from . import memopt
+            cfg.fillcfg(fn)
+            ssa.filluse(fn)
+            moved = memopt.hoist(fn)
+            moved = memopt.sink(fn) or moved
+            moved = memopt.dse(fn) or moved
+            moved = memopt.merge(fn) or moved
+            cfg.fillloop(fn)
+            ssa.filluse(fn)
+            moved = memopt.pre(fn) or moved
+            if moved:
+                ssa.filluse(fn)
+                ssa.ssacheck(fn)
+            if merged or threaded or moved or cse.nload(fn) != loads:
                 cfg.filldom(fn)
                 self._cleanup(fn, cfg, ssa, gvn, gcm)
         from .. import middle
@@ -135,6 +181,12 @@ class _Driver:
             cfg.filldom(fn)
             if middle.run(fn):
                 self._cleanup(fn, cfg, ssa, gvn, gcm)
+                if ext.cse and T.name.startswith('arm64') and cse.bytepatterns(fn):  # reads made by loops
+                    self._cleanup(fn, cfg, ssa, gvn, gcm)
+        if ext.cse and T.name.startswith('arm64'):
+            cfg.fillloop(fn)
+            if cse.hoistcons(fn):
+                ssa.filluse(fn)
         if T.name == 'wasm':  # cimo: no machine lowering; the engine allocates registers
             D.unvolatile(fn)
             T.emitfn(fn, self.outf)

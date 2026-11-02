@@ -39,11 +39,12 @@ VALUE_QUOTE = 1 << 6
 
 class Value(object):
     """struct value; union u is name / i / f."""
-    __slots__ = ('kind', 'id', 'name', 'i', 'f')
+    __slots__ = ('kind', 'id', 'name', 'i', 'f', 'qalign')
 
     def __init__(self, kind=VALUE_NONE):
         self.kind = kind
         self.id = 0
+        self.qalign = 1  # VALUE_TYPE: the alignment QBE gives the type
         self.name = None
         self.i = 0
         self.f = 0.0
@@ -372,6 +373,17 @@ def qbetype(t):
     if sz == 16:
         U.fatal("long double is not yet supported")
     assert 0
+
+
+def abiclass(t):
+    """cimo: the QBE class of a parameter or named argument of type t. Apple arm64 packs
+    stack arguments at their own size (a char takes 1 byte, not an 8-byte slot), so there a
+    char or short goes as QBE's sub-word ABI class (sb, ub, sh, uh), which tells the backend
+    its size; elsewhere, and for everything else, as cproc: the base class."""
+    qt = qbetype(t)
+    if qt.data in ('b', 'h') and TG.targ.name == 'aarch64-apple':
+        return ('s' if t.issigned else 'u') + qt.data
+    return qt.base
 
 
 # functions
@@ -1032,6 +1044,10 @@ def funcbranch(f, e, bt, bf):
             funcexpr(f, e)
             e = e.next
         return funcbranch(f, e, bt, bf)
+    v = _memcmpzero(f, e) if k == EXPRCALL else None  # only zero or not matters here
+    if v is not None:
+        funcjnz(f, v, TY.typeint, bt, bf)
+        return v
     v = funcexpr(f, e)
     funcjnz(f, v, e.type, bt, bf)
     return v
@@ -1122,6 +1138,128 @@ def funcfma(f, e):
     return inst.res
 
 
+# LLVM's LibCallSimplifier, and its inline memcpy and memset: sizes it expands fit in 64 bytes
+_INLINEMEM = 64
+_CHUNKS = ((8, ILOADL, ISTOREL, 'l'), (4, ILOADW, ISTOREW, 'w'), (2, ILOADUH, ISTOREH, 'w'),
+           (1, ILOADUB, ISTOREB, 'w'))
+
+
+def _stripcast(x):
+    while x.kind == EXPRCAST:
+        x = x.base
+    return x
+
+
+def _argcount(e):
+    n = 0
+    a = e.args
+    while a:
+        n += 1
+        a = a.next
+    return n
+
+
+def _chunks(n):
+    off = 0
+    for size, load, store, cls in _CHUNKS:
+        while n - off >= size:
+            yield off, size, load, store, cls
+            off += size
+
+
+def _memcmpzero(f, e):
+    """cimo extension, LLVM's ExpandMemCmp: memcmp(a, b, n) of a small constant n where only zero or
+    not matters, as a word 0 or 1 for "differs" from loads and xors; or None. e is the call."""
+    if not builtins or e.kind != EXPRCALL:
+        return None
+    b = e.base
+    if not (b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT):
+        return None
+    d = b.base.decl
+    name = d.asmname.lstrip('_') if d.asmname else d.name
+    if name != 'memcmp' or d.kind != DECLFUNC or d.linkage != LINKEXTERN or d.defined or _argcount(e) != 3:
+        return None
+    c = _stripcast(e.args.next.next)
+    if c.kind != EXPRCONST or not c.type.prop & PROPINT or not 0 <= c.u <= 32:
+        return None
+    x = funcexpr(f, e.args)
+    y = funcexpr(f, e.args.next)
+    diff = None
+    for off, size, load, store, cls in _chunks(c.u):
+        p = funcinst(f, IADD, 'l', x, mkintconst(off)) if off else x
+        q = funcinst(f, IADD, 'l', y, mkintconst(off)) if off else y
+        v = funcinst(f, IXOR, cls, funcinst(f, load, cls, p, None), funcinst(f, load, cls, q, None))
+        if cls == 'w':
+            v = funcinst(f, IEXTUW, 'l', v, None)
+        diff = v if diff is None else funcinst(f, IOR, 'l', diff, v)
+    if diff is None:
+        return mkintconst(0)
+    return funcinst(f, ICNEL, 'w', diff, mkintconst(0))
+
+
+def _libcall(f, e, name, d):
+    """A call of a C library function with constant arguments, as simple instructions; or None. The
+    callee is the external function of that name (funcbuiltin), and these names are reserved."""
+    ft = d.type
+    nargs = _argcount(e)
+    if name in ('pow', 'powf') and nargs == 2:
+        t = TY.typedouble if name == 'pow' else TY.typefloat
+        y = _stripcast(e.args.next)
+        sign = 1.0
+        if y.kind == EXPRUNARY and y.op == TSUB:
+            y = _stripcast(y.base)
+            sign = -1.0
+        if ft.base is not t or ft.isvararg or y.kind != EXPRCONST or e.type is not t \
+                or e.args.type is not t:
+            return None
+        cls = qbetype(t).base
+        p = sign * (y.f if y.type.prop & PROPFLOAT else float(y.i))
+        if p == 2.0:
+            x = funcexpr(f, e.args)
+            return funcinst(f, IMUL, cls, x, x)
+        if p == 1.0:
+            return funcexpr(f, e.args)
+        if p == -1.0:
+            one = mkfltconst(VALUE_DBLCONST if cls == 'd' else VALUE_FLTCONST, 1.0)
+            return funcinst(f, IDIV, cls, one, funcexpr(f, e.args))
+        return None
+    if name == 'strlen' and nargs == 1:
+        s = _stripcast(e.args)
+        if s.kind == EXPRUNARY and s.op == TBAND:
+            s = s.base
+        if s.kind != EXPRSTRING or s.type.base.size != 1 or e.type.size != 8:
+            return None
+        data = bytes(s.sdata)
+        n = data.find(0)
+        return mkintconst(len(data) if n < 0 else n)
+    if name == 'memcpy' and nargs == 3 and e.type.kind == TYPEPOINTER:
+        c = _stripcast(e.args.next.next)
+        if c.kind != EXPRCONST or not c.type.prop & PROPINT or not 0 <= c.u <= _INLINEMEM:
+            return None
+        dst = funcexpr(f, e.args)
+        src = funcexpr(f, e.args.next)
+        for off, size, load, store, cls in _chunks(c.u):
+            a = funcinst(f, IADD, 'l', src, mkintconst(off)) if off else src
+            v = funcinst(f, load, cls, a, None)
+            a = funcinst(f, IADD, 'l', dst, mkintconst(off)) if off else dst
+            funcinst(f, store, 0, v, a)
+        return dst
+    if name == 'memset' and nargs == 3 and e.type.kind == TYPEPOINTER:
+        c = _stripcast(e.args.next.next)
+        v = _stripcast(e.args.next)
+        if c.kind != EXPRCONST or v.kind != EXPRCONST or not c.type.prop & PROPINT \
+                or not v.type.prop & PROPINT or not 0 <= c.u <= _INLINEMEM:
+            return None
+        dst = funcexpr(f, e.args)
+        byte = v.u & 0xff
+        for off, size, load, store, cls in _chunks(c.u):
+            a = funcinst(f, IADD, 'l', dst, mkintconst(off)) if off else dst
+            pat = int.from_bytes(bytes([byte]) * size, 'little')
+            funcinst(f, store, 0, mkintconst(pat), a)
+        return dst
+    return None
+
+
 def funcbuiltin(f, e):
     """cimo extension: a call of sqrt, fabs, fmin, fmax, floor, ceil, trunc, round, rint,
     nearbyint, fma (or
@@ -1144,9 +1282,14 @@ def funcbuiltin(f, e):
         return funcinst(f, op, cls, convert(f, d.type.params.type, e.args.type,
                                             funcexpr(f, e.args)), None)
     # by its symbol name: __builtin_sqrt is declared as sqrt's alias (the driver's prelude)
-    spec = _BUILTINS.get(d.asmname.lstrip('_') if d.asmname else d.name)
-    if spec is None or d.kind != DECLFUNC or d.linkage != LINKEXTERN:
+    name = d.asmname.lstrip('_') if d.asmname else d.name
+    spec = _BUILTINS.get(name)
+    if d.kind != DECLFUNC or d.linkage != LINKEXTERN:
         return None
+    if d.defined:  # the program's own, which beats the runtime's (one defined after this call
+        return None  # can't be seen here, as with gcc's builtins)
+    if spec is None:
+        return _libcall(f, e, name, d)
     if builtins is not True and (spec[0] == IFMA and 'fma' not in builtins
                                  or spec[0] != IFMA and instname[spec[0]] not in builtins):
         return None  # cimo: not one the target's backend selects (a library call instead)
@@ -1243,7 +1386,8 @@ def funcexpr(f, e):
             if ftype.isvararg and i == ftype.nparam:
                 funcinst(f, IVARARG, 0, None, None)
             t = arg.type
-            funcinst(f, IARG, qbetype(t).base, argvals[i], t.value)
+            funcinst(f, IARG, abiclass(t) if i < ftype.nparam else qbetype(t).base,
+                     argvals[i], t.value)
             arg = arg.next
             i += 1
         if ftype.isvararg and i <= ftype.nparam and TG.targ.name == 'aarch64-windows':
@@ -1297,6 +1441,12 @@ def funcexpr(f, e):
             v = funcfma(f, e)
             if v is not None:
                 return v
+        if (e.op == TEQL or e.op == TNEQ) and e.l.kind == EXPRCALL:
+            r = _stripcast(e.r)
+            if r.kind == EXPRCONST and r.type.prop & PROPINT and r.u == 0:
+                v = _memcmpzero(f, e.l)
+                if v is not None:
+                    return v if e.op == TNEQ else funcinst(f, ICEQW, 'w', v, mkintconst(0))
         l = funcexpr(f, e.l)
         r = funcexpr(f, e.r)
         t = e.l.type
@@ -1552,7 +1702,11 @@ def _classstr(cls, v):
 def emittype(t):
     """cimo: padding and `align` are emitted where QBE's layout of the fields would differ from
     C's (_Alignas, or a struct aligned beyond its members): cproc's XXX, which left such a
-    struct too small and under-aligned for QBE, so calls passed it wrong."""
+    struct too small and under-aligned for QBE, so calls passed it wrong. A packed member at an
+    offset QBE would not place its type at goes as bytes: QBE aligns every field, so such a
+    struct came out bigger than in C and took the wrong registers. AAPCS64 (gcc, clang) picks
+    registers by the members' alignment, not an `aligned(N)` on the struct itself, so on Linux
+    QBE isn't told about that one; Apple and Windows do go by the type's alignment."""
     global _typeid
     if t.value or t.kind != TYPESTRUCT and t.kind != TYPEUNION:
         return
@@ -1571,6 +1725,7 @@ def emittype(t):
     emitname(t.value)
     if t is TG.targ.typevalist:
         w(" = align %d { %d }\n" % (t.align, t.size))
+        t.value.qalign = t.align
         return
     out = []
     m = t.members
@@ -1597,16 +1752,22 @@ def emittype(t):
         sub = m.type
         while sub.kind == TYPEARRAY:
             sub = sub.base
-        qalign = max(qalign, sub.align)
-        if t.kind == TYPESTRUCT:
-            if m.offset > ((qoff + sub.align - 1) & -sub.align):
-                out.append("b %d, " % (m.offset - qoff))
+        # sub.align is C's; a packed struct has align 1 but QBE aligns it by its fields
+        al = sub.value.qalign if sub.value and sub.value.kind == VALUE_TYPE else sub.align
+        if t.kind == TYPESTRUCT and m.offset & (al - 1):
+            out.append("b %d" % (off - qoff))
             qoff = off
         else:
-            usize = max(usize, m.type.size)
-        out.append(_classstr(qbetype(sub).data, sub.value))
-        if m.type.size > sub.size:
-            out.append(" %d" % (m.type.size // sub.size))
+            qalign = max(qalign, al)
+            if t.kind == TYPESTRUCT:
+                if m.offset > ((qoff + al - 1) & -al):
+                    out.append("b %d, " % (m.offset - qoff))
+                qoff = off
+            else:
+                usize = max(usize, m.type.size)
+            out.append(_classstr(qbetype(sub).data, sub.value))
+            if m.type.size > sub.size:
+                out.append(" %d" % (m.type.size // sub.size))
         if t.kind == TYPESTRUCT:
             out.append(", ")
             # skip subsequent members contained within the same storage unit
@@ -1628,7 +1789,11 @@ def emittype(t):
     if t.size > ((end + qround - 1) & -qround):  # trailing padding QBE would not add
         out.append("b %d, " % (t.size - end) if t.kind == TYPESTRUCT
                    else "{ b %d } " % t.size)
-    w(" = align %d { " % t.align if t.align > qalign else " = { ")
+    align = t.align
+    if t.fieldalign is not None and TG.targ.name == 'aarch64':
+        align = t.fieldalign
+    t.value.qalign = max(qalign, align)
+    w(" = align %d { " % align if align > qalign else " = { ")
     w("".join(out))
     w("}\n")
 
@@ -1735,6 +1900,11 @@ def _recordparams(f):
         p = p.next
         vi += 1
     paraminfo[f.decl.value.name] = out
+    # for the Python bindings: QBE's classes don't say that a w or l result is unsigned. A narrower
+    # unsigned type is zero extended into its w, so it reads the same either way
+    r = f.type.base
+    if r.prop & PROPINT and not r.issigned and r.size >= 4:
+        paraminfo.setdefault('#unsigned', set()).add(f.decl.value.name)
 
 
 def emitfunc(f, glob):
@@ -1771,7 +1941,7 @@ def emitfunc(f, glob):
     while p:
         if p is not f.type.params:
             w(", ")
-        emitclass(qbetype(p.type).base, p.type.value)
+        emitclass(abiclass(p.type), p.type.value)
         w(' ')
         emitname(f.paramtemps[vi])
         p = p.next

@@ -225,8 +225,18 @@ def tagspec(s):
         if not t.members:
             error(tok.loc, "struct/union has no members")
         next()
-        if not b.pack:
-            t.size = ALIGNUP(t.size, t.align)
+        # cimo: GNU attributes after the body, `struct {...} __attribute__((packed))` and
+        # `aligned(N)` (the macOS SDK's headers have both): as in gcc they apply to the type,
+        # packed lays the members out again and aligned raises (never lowers) the alignment
+        ta = Attr()
+        ta.kind = 0
+        if A.gnuattr(ta, allowedattr | ATTRALIGNED):
+            if ta.kind & ATTRPACKED and not b.pack:
+                _repack(t)
+            t.fieldalign = t.align  # what the members ask for, without this attribute
+            if ta.kind & ATTRALIGNED and ta.align > t.align:
+                t.align = ta.align
+        t.size = ALIGNUP(t.size, t.align)  # packed: align is 1, unless an attribute raised it
     elif t.kind == TYPEENUM:
         enumconsts = None
         if et:
@@ -800,6 +810,7 @@ def addmember(b, mt, name, align, width):
         before = 0
         after = 0
         m.bits = BITS0
+        m.alignas = align
         if align < mt.type.align:
             if align:
                 error(tok.loc, "specified alignment of struct member '%s' is less strict than is required by type", name)
@@ -845,6 +856,34 @@ def addmember(b, mt, name, align, width):
                 t.size = mt.type.size
     if m and t.align < align:
         t.align = align
+
+
+def _repack(t):
+    """cimo: a `packed` attribute after the body of struct or union t: lay the members out
+    again as addmember does with b.pack from the start: no padding, except what a member's own
+    specified alignment (_Alignas, aligned(N)) asks for, which packed doesn't override."""
+    end = 0
+    size = 0
+    align = 1
+    m = t.members
+    while m:
+        if m.bits != BITS0:
+            error(tok.loc, "bit-field '%s' in packed struct is not supported", m.name)
+        al = m.alignas or 1
+        if t.kind == TYPESTRUCT:
+            if m.offset != ALIGNUP(end, max(al, m.type.align)):  # an unnamed bit-field before it
+                error(tok.loc, "bit-field padding before member '%s' in packed struct is not "
+                      "supported", m.name)
+            end = m.offset + m.type.size
+            m.offset = ALIGNUP(size, al)
+            size = m.offset + m.type.size
+        elif size < m.type.size:
+            size = m.type.size
+        if align < al:
+            align = al
+        m = m.next
+    t.size = size
+    t.align = align
 
 
 def _short(v):

@@ -365,6 +365,18 @@ def _same(*regs):
             raise AssemblerError('operand size mismatch')
 
 
+_SHIFTOP = {'lsl': 0, 'lsr': 1, 'asr': 2, 'ror': 3}
+_EXTOP = {'uxtw': 2, 'sxtw': 6}
+
+
+def _shiftop(rest):
+    """('lsl', 3) from ['lsl #3'] or ('sxtw', 0) from ['sxtw']."""
+    m = re.fullmatch(r'(lsl|lsr|asr|ror|sxtw|uxtw)(?:\s*#?\s*(\d+))?', rest[0].strip().lower())
+    if m is None or len(rest) != 1:
+        raise AssemblerError('bad shift %r' % rest[0])
+    return m.group(1), int(m.group(2) or 0)
+
+
 _ADDSUB = {'add': (0, 0), 'adds': (0, 1), 'sub': (1, 0), 'subs': (1, 1)}
 
 
@@ -373,7 +385,19 @@ def _addsub(a, op, s, rd, rn, ops3, ops_rest):
     if _isreg(ops3):
         rm = _reg(ops3)
         if ops_rest:
-            raise AssemblerError('shifted/extended register operands are not supported')
+            how, n = _shiftop(ops_rest)
+            if how in _SHIFTOP:
+                if how == 'ror' or rd[2] or rn[2]:
+                    raise AssemblerError('bad shift %r' % ops_rest[0])
+                _same(rd, rn, rm)
+                if not 0 <= n < (64 if rd[0] == 'x' else 32):
+                    raise AssemblerError('shift amount out of range')
+                return (0x0b000000 | _sf(rd) | op << 30 | s << 29 | _SHIFTOP[how] << 22
+                        | rm[1] << 16 | n << 10 | rn[1] << 5 | rd[1])
+            if how not in _EXTOP or rm[0] != 'w' or rd[0] != 'x' or not 0 <= n <= 4:
+                raise AssemblerError('bad extended register %r' % ops_rest[0])
+            return (0x0b200000 | _sf(rd) | op << 30 | s << 29 | rm[1] << 16 | _EXTOP[how] << 13
+                    | n << 10 | rn[1] << 5 | rd[1])
         if rd[2] or rn[2]:
             # extended register form (needed when sp is involved): UXTX / UXTW
             _same(rd, rn)
@@ -449,18 +473,25 @@ def _i_neg(a, mn, ops):
 
 
 _LOGIC = {'and': (0x0a000000, 0x12000000), 'orr': (0x2a000000, 0x32000000),
-          'eor': (0x4a000000, 0x52000000), 'ands': (0x6a000000, 0x72000000)}
+          'eor': (0x4a000000, 0x52000000), 'ands': (0x6a000000, 0x72000000),
+          'bic': (0x0a200000, None), 'orn': (0x2a200000, None), 'eon': (0x4a200000, None)}
 
 
 def _i_logic(a, mn, ops):
-    if len(ops) != 3:
+    if len(ops) not in (3, 4):
         raise AssemblerError('%s needs 3 register/immediate operands' % mn)
     reg_op, imm_op = _LOGIC[mn]
     rn = _reg(ops[1])
     if _isreg(ops[2]):
         rd, rm = _reg(ops[0]), _reg(ops[2])
         _same(rd, rn, rm)
-        return reg_op | _sf(rd) | rm[1] << 16 | rn[1] << 5 | rd[1]
+        how, n = _shiftop(ops[3:]) if len(ops) == 4 else ('lsl', 0)
+        if how not in _SHIFTOP or not 0 <= n < (64 if rd[0] == 'x' else 32):
+            raise AssemblerError('bad shift %r' % ops[3])
+        return (reg_op | _sf(rd) | _SHIFTOP[how] << 22 | rm[1] << 16 | n << 10 | rn[1] << 5
+                | rd[1])
+    if imm_op is None or len(ops) != 3:
+        raise AssemblerError('%s takes registers' % mn)
     rd = _reg(ops[0], sp=mn != 'ands')
     _same(rd, rn)
     width = 64 if rd[0] == 'x' else 32
@@ -495,6 +526,65 @@ def _i_shift(a, mn, ops):
     return base | _sf(rd) | n << 22 | immr << 16 | imms << 10 | rn[1] << 5 | rd[1]
 
 
+def _i_bitfield(a, mn, ops):
+    """ubfx, sbfx rd, rn, #lsb, #width."""
+    if len(ops) != 4:
+        raise AssemblerError('%s needs 4 operands' % mn)
+    rd, rn = _reg(ops[0]), _reg(ops[1])
+    _same(rd, rn)
+    w = 64 if rd[0] == 'x' else 32
+    lsb, width = _imm(ops[2], True), _imm(ops[3], True)
+    if not (0 <= lsb < w and 1 <= width <= w - lsb):
+        raise AssemblerError('bad bit field in %s' % mn)
+    base = 0x53000000 if mn == 'ubfx' else 0x13000000
+    return (base | _sf(rd) | (w == 64) << 22 | lsb << 16 | (lsb + width - 1) << 10 | rn[1] << 5
+            | rd[1])
+
+
+def _i_bfm(a, mn, ops):
+    """bfi, bfxil rd, rn, #lsb, #width."""
+    if len(ops) != 4:
+        raise AssemblerError('%s needs 4 operands' % mn)
+    rd, rn = _reg(ops[0]), _reg(ops[1])
+    _same(rd, rn)
+    w = 64 if rd[0] == 'x' else 32
+    lsb, width = _imm(ops[2], True), _imm(ops[3], True)
+    if not (0 <= lsb < w and 1 <= width <= w - lsb):
+        raise AssemblerError('bad bit field in %s' % mn)
+    if mn == 'bfi':
+        immr, imms = -lsb % w, width - 1
+    else:
+        immr, imms = lsb, lsb + width - 1
+    return 0x33000000 | _sf(rd) | (w == 64) << 22 | immr << 16 | imms << 10 | rn[1] << 5 | rd[1]
+
+
+def _i_ubfiz(a, mn, ops):
+    """ubfiz rd, rn, #lsb, #width."""
+    if len(ops) != 4:
+        raise AssemblerError('ubfiz needs 4 operands')
+    rd, rn = _reg(ops[0]), _reg(ops[1])
+    _same(rd, rn)
+    w = 64 if rd[0] == 'x' else 32
+    lsb, width = _imm(ops[2], True), _imm(ops[3], True)
+    if not (0 <= lsb < w and 1 <= width <= w - lsb):
+        raise AssemblerError('bad bit field in ubfiz')
+    return (0x53000000 | _sf(rd) | (w == 64) << 22 | ((-lsb) % w) << 16 | (width - 1) << 10
+            | rn[1] << 5 | rd[1])
+
+
+def _i_ror(a, mn, ops):
+    """ror rd, rn, #n: extr rd, rn, rn, #n."""
+    if len(ops) != 3:
+        raise AssemblerError('ror needs 3 operands')
+    rd, rn = _reg(ops[0]), _reg(ops[1])
+    _same(rd, rn)
+    n = _imm(ops[2], True)
+    if not 0 <= n < (64 if rd[0] == 'x' else 32):
+        raise AssemblerError('ror amount out of range')
+    return (0x13800000 | _sf(rd) | (rd[0] == 'x') << 22 | rn[1] << 16 | n << 10 | rn[1] << 5
+            | rd[1])
+
+
 def _i_dp2(a, mn, ops):
     base = {'sdiv': 0x1ac00c00, 'udiv': 0x1ac00800, 'mul': 0x1b007c00}[mn]
     if len(ops) != 3:
@@ -502,6 +592,25 @@ def _i_dp2(a, mn, ops):
     rd, rn, rm = _reg(ops[0]), _reg(ops[1]), _reg(ops[2])
     _same(rd, rn, rm)
     return base | _sf(rd) | rm[1] << 16 | rn[1] << 5 | rd[1]
+
+
+_WIDEMUL = {'smaddl': 0x9b200000, 'smsubl': 0x9b208000, 'umaddl': 0x9ba00000, 'umsubl': 0x9ba08000}
+
+
+def _i_widemul(a, mn, ops):
+    """smull, umull rd, wn, wm; smaddl, smsubl, umaddl, umsubl rd, wn, wm, xa."""
+    rd, rn, rm = _reg(ops[0], 'x'), _reg(ops[1], 'w'), _reg(ops[2], 'w')
+    if mn in ('smull', 'umull'):
+        if len(ops) != 3:
+            raise AssemblerError('%s needs 3 operands' % mn)
+        ra = 31
+        base = _WIDEMUL['smaddl' if mn == 'smull' else 'umaddl']
+    else:
+        if len(ops) != 4:
+            raise AssemblerError('%s needs 4 operands' % mn)
+        ra = _reg(ops[3], 'x')[1]
+        base = _WIDEMUL[mn]
+    return base | rm[1] << 16 | ra << 10 | rn[1] << 5 | rd[1]
 
 
 def _i_madd(a, mn, ops):
@@ -589,7 +698,7 @@ def _ftype(r):
 
 
 _FP3 = {'fadd': 0x1e202800, 'fsub': 0x1e203800, 'fmul': 0x1e200800, 'fdiv': 0x1e201800,
-        'fmaxnm': 0x1e206800, 'fminnm': 0x1e207800}
+        'fmaxnm': 0x1e206800, 'fminnm': 0x1e207800, 'fnmul': 0x1e208800}
 
 
 def _i_fp3(a, mn, ops):
@@ -652,9 +761,31 @@ def _i_simd(a, mn, ops):  # cnt Vd.8B, Vn.8B / addv Bd, Vn.8B (the popcount buil
     return (0x0e205800 if mn == 'cnt' else 0x0e31b800) | int(n.group(1)) << 5 | int(d.group(1))
 
 
+def _fpimm8(v):
+    """abcdefgh such that v is (-1)^a * (16 + efgh) / 16 * 2^n, with n from bcd: 000 is 1, 011 is
+    4, 100 is -3, 111 is 0; or None."""
+    for imm in range(256):
+        sign = -1.0 if imm & 0x80 else 1.0
+        bcd = (imm >> 4) & 7
+        n = bcd + 1 if bcd < 4 else bcd - 7
+        if sign * (16 + (imm & 15)) / 16 * 2.0 ** n == v:
+            return imm
+    return None
+
+
 def _i_fmov(a, mn, ops):
     if len(ops) != 2:
         raise AssemblerError('fmov needs 2 operands')
+    if not _isreg(ops[1]):
+        rd = _reg(ops[0], 'sd')
+        t = ops[1].strip().lstrip('#')
+        try:
+            imm = _fpimm8(float(t))
+        except ValueError:
+            imm = None
+        if imm is None:
+            raise AssemblerError('fmov immediate %r has no encoding' % t)
+        return 0x1e201000 | _ftype(rd) << 22 | imm << 13 | rd[1]
     rd, rn = _reg(ops[0], 'wxsd'), _reg(ops[1], 'wxsd')
     fd, fn = rd[0] in 'sd', rn[0] in 'sd'
     if fd and fn:
@@ -879,7 +1010,54 @@ def _i_csel(a, mn, ops):
         raise AssemblerError('bad condition %r' % ops[3])
     if mn == 'fcsel':
         return 0x1e200c00 | _ftype(rd) << 22 | rm[1] << 16 | c << 12 | rn[1] << 5 | rd[1]
-    return 0x1a800000 | _sf(rd) | rm[1] << 16 | c << 12 | rn[1] << 5 | rd[1]
+    base = {'csel': 0x1a800000, 'csinc': 0x1a800400, 'csinv': 0x5a800000, 'csneg': 0x5a800400}[mn]
+    return base | _sf(rd) | rm[1] << 16 | c << 12 | rn[1] << 5 | rd[1]
+
+
+def _i_mulh(a, mn, ops):
+    if len(ops) != 3:
+        raise AssemblerError('%s needs 3 operands' % mn)
+    rd, rn, rm = [_reg(o, 'x') for o in ops]
+    return (0x9bc07c00 if mn == 'umulh' else 0x9b407c00) | rm[1] << 16 | rn[1] << 5 | rd[1]
+
+
+def _i_ccmp(a, mn, ops):
+    """ccmp rn, rm or #imm5, #nzcv, cond."""
+    if len(ops) != 4:
+        raise AssemblerError('ccmp needs 4 operands')
+    rn = _reg(ops[0])
+    nzcv = _imm(ops[2], True)
+    c = _COND.get(ops[3].strip().lower())
+    if c is None or not 0 <= nzcv <= 15:
+        raise AssemblerError('bad ccmp operands')
+    if _isreg(ops[1]):
+        rm = _reg(ops[1])
+        _same(rn, rm)
+        return 0x7a400000 | _sf(rn) | rm[1] << 16 | c << 12 | rn[1] << 5 | nzcv
+    n = _imm(ops[1], True)
+    if not 0 <= n <= 31:
+        raise AssemblerError('ccmp immediate out of range')
+    return 0x7a400800 | _sf(rn) | n << 16 | c << 12 | rn[1] << 5 | nzcv
+
+
+def _i_tbz(a, mn, ops):
+    if len(ops) != 3:
+        raise AssemblerError('%s needs 3 operands' % mn)
+    rt = _reg(ops[0])
+    n = _imm(ops[1], True)
+    if not 0 <= n < (64 if rt[0] == 'x' else 32):
+        raise AssemblerError('bit number out of range')
+    sym, add, mod = _expr(ops[2])
+    if sym is None or mod is not None:
+        raise AssemblerError('bad branch target %r' % ops[2])
+    a.fixup('TSTBR14', sym, add)
+    return ((0x37000000 if mn == 'tbnz' else 0x36000000) | (n >> 5) << 31 | (n & 31) << 19 | rt[1])
+
+
+def _i_tst(a, mn, ops):
+    """tst rn, rm or #imm: ands zr, rn, ..."""
+    rn = _reg(ops[0])
+    return _i_logic(a, 'ands', ['wzr' if rn[0] == 'w' else 'xzr'] + list(ops))
 
 
 def _i_cbz(a, mn, ops):
@@ -950,13 +1128,19 @@ _INSNS = {
     'add': _i_addsub, 'adds': _i_addsub, 'sub': _i_addsub, 'subs': _i_addsub,
     'cmp': _i_cmp, 'cmn': _i_cmp, 'neg': _i_neg,
     'and': _i_logic, 'orr': _i_logic, 'eor': _i_logic, 'ands': _i_logic,
+    'bic': _i_logic, 'orn': _i_logic, 'eon': _i_logic, 'ubfx': _i_bitfield, 'sbfx': _i_bitfield,
+    'ror': _i_ror, 'ubfiz': _i_ubfiz, 'bfi': _i_bfm, 'bfxil': _i_bfm,
     'lsl': _i_shift, 'lsr': _i_shift, 'asr': _i_shift,
     'mul': _i_dp2, 'sdiv': _i_dp2, 'udiv': _i_dp2, 'madd': _i_madd, 'msub': _i_madd,
+    'smull': _i_widemul, 'umull': _i_widemul, 'smaddl': _i_widemul, 'smsubl': _i_widemul,
+    'umaddl': _i_widemul, 'umsubl': _i_widemul,
     'cbz': _i_cbz, 'cbnz': _i_cbz, 'csel': _i_csel, 'fcsel': _i_csel,
+    'csinc': _i_csel, 'csinv': _i_csel, 'csneg': _i_csel, 'tbz': _i_tbz, 'tbnz': _i_tbz, 'tst': _i_tst, 'ccmp': _i_ccmp,
+    'smulh': _i_mulh, 'umulh': _i_mulh,
     'sxtb': _i_ext, 'sxth': _i_ext, 'sxtw': _i_ext, 'uxtb': _i_ext, 'uxth': _i_ext,
     'mov': _i_mov, 'movk': _i_movk, 'movz': _i_movk, 'movn': _i_movk, 'cset': _i_cset,
     'fadd': _i_fp3, 'fsub': _i_fp3, 'fmul': _i_fp3, 'fdiv': _i_fp3, 'fneg': _i_fneg,
-    'fminnm': _i_fp3, 'fmaxnm': _i_fp3, 'fabs': _i_fneg, 'fsqrt': _i_fneg, 'frintp': _i_fneg,
+    'fminnm': _i_fp3, 'fmaxnm': _i_fp3, 'fnmul': _i_fp3, 'fabs': _i_fneg, 'fsqrt': _i_fneg, 'frintp': _i_fneg,
     'frintm': _i_fneg, 'frintz': _i_fneg, 'frinta': _i_fneg, 'frintx': _i_fneg,
     'frinti': _i_fneg,
     'clz': _i_dp1, 'rbit': _i_dp1, 'rev16': _i_dp1, 'rev': _i_dp1, 'cnt': _i_simd,
@@ -1329,18 +1513,18 @@ class _Asm:
             s = syms.get(name)
             if s is None:
                 s = syms[name] = Symbol(name)
-            if kind in ('JUMP26', 'CALL26', 'CONDBR19') and s.section is sec and not s.globl:
+            if kind in ('JUMP26', 'CALL26', 'CONDBR19', 'TSTBR14') and s.section is sec and not s.globl:
                 d = s.value + add - off
                 if d & 3:
                     raise AssemblerError('line %d: misaligned branch target %s' % (lineno, name))
-                bits = 26 if kind != 'CONDBR19' else 19
+                bits = {'CONDBR19': 19, 'TSTBR14': 14}.get(kind, 26)  # tbz: 32 KB either way
                 if not -(1 << (bits + 1)) <= d < 1 << (bits + 1):
                     raise AssemblerError('line %d: branch out of range: %s' % (lineno, name))
                 w = struct.unpack_from('<I', sec.data, off)[0]
                 if bits == 26:
                     w |= (d >> 2) & 0x3ffffff
                 else:
-                    w |= ((d >> 2) & 0x7ffff) << 5
+                    w |= ((d >> 2) & ((1 << bits) - 1)) << 5
                 struct.pack_into('<I', sec.data, off, w)
             else:
                 sec.relocs.append(Reloc(off, kind, name, add))

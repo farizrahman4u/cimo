@@ -85,7 +85,8 @@ output for these is broken, so no comparison test depends on it):
   port keeps an index (`Fn.concache`), same results (constants are only appended). A 125 KB
   local initializer took 223 s, now 18 s.
 - `load.load`: `rebase` moves a load's constant offset into `Slice.off`, which the address of
-  an inserted load ignored, so a load of `p+24` hoisted out of a loop read `p`. Reachable once
+  an inserted load ignored (as it did a blit source's offset), so a load of `p+24` hoisted out
+  of a loop read `p`. Reachable once
   `ext.cse` runs load elimination after gvn (gcc's `20011008-3.c` on every target; on arm64 it
   only made a loop run with a garbage bound). No QBE test exercises it: the dumps still match.
 - `load.def`: `vaarg`/`vastart` (lowered only by `abi1`, after load elimination) were not seen
@@ -112,6 +113,10 @@ output for these is broken, so no comparison test depends on it):
   remaining registers is split between them and the stack (x7 is saved right below the
   stack arguments, so the callee sees it whole), as clang's and cimo's `va_arg` read it; it
   was an error. A struct parameter split that way in a variadic function is still an error.
+- `arm64/abi.argsclass` (Apple, as C QBE's `arm64_apple` had it): a struct argument after the
+  `...` of a call went in registers; Apple passes every variadic argument on the stack. And a
+  16-byte aligned composite skipped to an even register pair (the AAPCS64 fix above), which
+  Apple does not do. Found by `tests/test_abi.py` against Apple clang and `va_arg` of structs.
 
 ## amd64 (`amd64/`, 2026-11-01)
 

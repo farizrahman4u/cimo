@@ -2,10 +2,13 @@
 always matches the installed command tree; a last line `__file__` or `__dir__` asks the shell
 to complete paths."""
 
-BASH = r'''# cimo completion for bash: add to ~/.bashrc, or: source <(cimo completion bash)
+BASH = r'''# cimo completion for bash: add to ~/.bashrc, or: eval "$(cimo completion bash)"
 _cimo() {
-    local cur=${COMP_WORDS[COMP_CWORD]} IFS=$'\n' kind=
-    local out=($(cimo __complete "${COMP_WORDS[@]:1:COMP_CWORD}" 2>/dev/null))
+    local cur=${COMP_WORDS[COMP_CWORD]} kind= out
+    # sliced before IFS changes: bash 3.2 (macOS's) joins a quoted slice into one word
+    # when IFS has no space
+    local words=("${COMP_WORDS[@]:1:COMP_CWORD}") IFS=$'\n'
+    out=($(cimo __complete "${words[@]}" 2>/dev/null))
     if (( ${#out[@]} )) && [[ ${out[${#out[@]}-1]} == __*__ ]]; then
         kind=${out[${#out[@]}-1]}
         unset "out[${#out[@]}-1]"

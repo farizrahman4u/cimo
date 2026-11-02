@@ -221,3 +221,61 @@ def test_csel():
                   'fcsel d1, d2, d3, %s' % c, 'fcsel s4, s5, s6, %s' % c]
     d = A.compare('\n'.join(lines) + '\n')
     assert not d, '\n'.join(d)
+
+
+def test_mulh():
+    d = A.compare('smulh x1, x2, x3\numulh x29, x30, x0\n')
+    assert not d, '\n'.join(d)
+
+
+def test_shifted_operands_and_bit_fields():
+    lines = []
+    for mn in ('add', 'sub'):
+        for sh in ('lsl', 'lsr', 'asr'):
+            lines += ['%s x1, x2, x3, %s #%d' % (mn, sh, n) for n in (1, 13, 63)]
+            lines += ['%s w1, w2, w3, %s #%d' % (mn, sh, n) for n in (1, 13, 31)]
+        for ex in ('sxtw', 'uxtw'):
+            lines += ['%s x1, x2, w3, %s #%d' % (mn, ex, n) for n in range(5)]
+            lines += ['%s x1, x2, w3, %s' % (mn, ex)]
+    for mn in ('and', 'orr', 'eor', 'bic', 'orn', 'eon'):
+        lines += ['%s x1, x2, x3' % mn, '%s w1, w2, w3' % mn]
+        for sh in ('lsl', 'lsr', 'asr', 'ror'):
+            lines += ['%s x1, x2, x3, %s #7' % (mn, sh), '%s w1, w2, w3, %s #7' % (mn, sh)]
+    lines += ['orn x1, xzr, x3', 'orn w1, wzr, w3', 'msub x1, x2, x3, xzr', 'msub w1, w2, w3, wzr',
+              'str xzr, [x1]', 'str wzr, [x1, 4]', 'strb wzr, [x1, x2]', 'strh wzr, [x1, x2, lsl #1]',
+              'fnmul d1, d2, d3', 'fnmul s1, s2, s3', 'fmov d1, xzr', 'fmov s1, wzr']
+    for mn in ('ubfx', 'sbfx'):
+        lines += ['%s x1, x2, #%d, #%d' % (mn, a, b) for a, b in ((0, 1), (8, 8), (63, 1), (1, 63), (20, 44))]
+        lines += ['%s w1, w2, #%d, #%d' % (mn, a, b) for a, b in ((0, 1), (8, 8), (31, 1), (1, 31), (5, 27))]
+    lines += ['ror x1, x2, #%d' % n for n in (1, 13, 63)] + ['ror w1, w2, #%d' % n for n in (1, 13, 31)]
+    for v in ('2.0', '1.0', '0.5', '-1.0', '0.125', '31.0', '0.1875', '-0.25', '10.0', '3.0', '17.0'):
+        lines += ['fmov d1, #%s' % v, 'fmov s2, #%s' % v]
+    d = A.compare('\n'.join(lines) + '\n')
+    assert not d, '\n'.join(d)
+
+
+def test_conditional_forms_and_bit_tests():
+    lines = []
+    for mn in ('csinc', 'csinv', 'csneg'):
+        lines += ['%s x1, x2, x3, lt' % mn, '%s w1, w2, w3, eq' % mn, '%s w1, wzr, w3, ne' % mn]
+    lines += ['csel x1, xzr, x3, lt', 'csel w1, wzr, w3, hi']
+    lines += ['tst x1, x2', 'tst w1, w2', 'tst x1, #8', 'tst w1, #1', 'tst x1, #0xff00', 'tst x1, #0x8000000000000000']
+    lines += ['ubfiz x1, x2, #4, #8', 'ubfiz w1, w2, #4, #8', 'ubfiz x1, x2, #60, #4', 'ubfiz w1, w2, #1, #31']
+    lines += ['.Lq:', 'tbz x1, #3, .Lq', 'tbnz x1, #63, .Lq', 'tbz w2, #31, .Lq', 'tbnz w2, #0, .Lr', '.Lr:']
+    d = A.compare('\n'.join(lines) + '\n')
+    assert not d, '\n'.join(d)
+
+
+def test_ccmp():
+    lines = []
+    for c in 'eq ne cs cc hi ls ge lt gt le mi'.split():
+        lines += ['ccmp x1, x2, #4, %s' % c, 'ccmp w1, w2, #8, %s' % c, 'ccmp x3, #17, #0, %s' % c, 'ccmp w3, #31, #2, %s' % c]
+    d = A.compare('\n'.join(lines) + '\n')
+    assert not d, '\n'.join(d)
+
+
+def test_widening_multiplications():
+    lines = ['smull x1, w2, w3', 'umull x4, w5, w6', 'smaddl x1, w2, w3, x4', 'smsubl x1, w2, w3, x4',
+             'umaddl x5, w6, w7, x8', 'umsubl x5, w6, w7, x8']
+    d = A.compare('\n'.join(lines) + '\n')
+    assert not d, '\n'.join(d)

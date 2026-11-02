@@ -374,9 +374,10 @@ BITS0 = Bitfield(0, 0)
 
 
 class Member(object):
-    __slots__ = ('name', 'type', 'qual', 'offset', 'bits', 'next')
+    __slots__ = ('name', 'type', 'qual', 'offset', 'bits', 'next', 'alignas')
 
     def __init__(self):
+        self.alignas = 0  # cimo: the alignment specified for it (_Alignas, aligned(N)), if any
         self.name = None
         self.type = None
         self.qual = 0
@@ -411,7 +412,7 @@ class Type(object):
     """struct type. Union members: arith (issigned, iscomplex, width), array (length,
     ptrqual, asize = u.array.size), func (isvararg, params, nparam), structunion (tag,
     members). Fields that C leaves uninitialized default to zero/None."""
-    __slots__ = ('kind', 'prop', 'align', 'size', 'value', 'base', 'link', 'qual', 'incomplete',
+    __slots__ = ('fieldalign', 'kind', 'prop', 'align', 'size', 'value', 'base', 'link', 'qual', 'incomplete',
                  'issigned', 'iscomplex', 'width', 'length', 'ptrqual', 'asize',
                  'isvararg', 'params', 'nparam', 'tag', 'members')
 
@@ -419,6 +420,7 @@ class Type(object):
                  base=None, incomplete=False, tag=None):
         self.kind = kind
         self.prop = prop
+        self.fieldalign = None  # cimo: a struct's alignment before `aligned(N)` after its body
         self.align = align
         self.size = size
         self.value = None

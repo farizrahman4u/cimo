@@ -15,6 +15,9 @@ applied) and cproc at `~/code/cproc`.
 - `docs/`: the website (GitHub Pages serves `main:/docs` at www.cimo.dev). The user documentation
   lives in `docs/docs/` (www.cimo.dev/docs/): Markdown pages in `docs/docs/content/`, ordered and
   grouped by `docs/docs/nav.json`, rendered in the browser by `docs/docs/docs.js` (no build step).
+  `docs/agent-prompt.txt` is the Prompt for Agents, behind the banner's peeling corner: it reads as for the
+  released product, but agents act on it, so every instruction must work today (the GitHub install until the
+  PyPI release). Update it when the API, CLI or C support changes.
 - `examples/`: example kernels and the demos (see "Demos").
 - `scratch/`: research code and spikes (benchmarks, hand-optimized IR, loading tests). Not part of
   the package.
@@ -214,7 +217,7 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
     `pthread_get_stackaddr_np`) unwinds with "stack overflow". Non-recursive code pays nothing.
     Not covered: VLAs/`alloca`, single frames over 128 KB.
   - Hardware faults (SIGSEGV, SIGBUS) still kill the process: catching them needs signal
-    handlers, which fight the interpreter. Untested on macOS (key register, stack bounds).
+    handlers, which fight the interpreter.
 - **Debug mode:** Python knows every buffer's size, the allocator knows every heap allocation's
   size, and the compiler tracks each pointer's base. So debug builds bounds-check every access
   ("compute-sanitizer for CPU kernels"), and detect use-after-free, double free, and leaks
@@ -281,7 +284,14 @@ functions and VLAs keep the call; the callee's own definition is always kept.
 Repeated work QBE leaves goes too (`backend/cse.py`, `ext.cse`): repeated loads, divisions (pure on
 arm64, where `sdiv` never traps; wasm's trap, so only a dominating one merges there), a remainder from
 its division, a repeated branch condition and a select written twice. Costs 13-27% compile time on
-`t_printf` and `t_math`. The plan for the rest of LLVM's and GCC's optimizations is in `TODO.md`.
+`t_printf` and `t_math`. Also from LLVM and GCC, under the same flag: algebra and known bits
+(`backend/simplify.py`; IR integers wrap, so nothing assumes signed overflow can't happen), facts from
+dominating branches (same file), jump threading (`backend/thread.py`), memory (`backend/memopt.py`),
+reassociation (`backend/cse.py`), unswitching (`middle/unswitch.py`). **Load hoisting runs for the first
+time here:** C QBE's `loadopt` runs before
+any `fillloop`, so every loop depth is 0 and its insert-a-load path (`LLoad`) never executes; the
+second `loadopt` has real depths. That path had never run: it dropped `sl.off` (fixed; harmless in C
+QBE, where it is dead code, as of `e786f06`, master's tip on 2026-11-01). Treat it as new code. The plan for the rest of LLVM's and GCC's optimizations is in `TODO.md`.
 
 Everything else compiles at "QBE quality" (measured 1-4x behind gcc on scalar code, see below).
 `--report` explains why a loop wasn't optimized ("base of `p` depends on a runtime branch"), like
@@ -483,6 +493,35 @@ inbound rules needed.
 - **Tests:** `tests/test_wasm.py` runs modules under Node in a stand-in loader
   (`tests/wasm/host.mjs`); with `PYODIDE_JS` set, also in real Pyodide.
 
+## LLM inference spike (2026-11-01)
+
+karpathy's `llama2.c` (MIT, 1k lines, float32, Llama-2 architecture) compiles and generates correct
+text in Pyodide with no compiler change; only file I/O, `sscanf` and `stderr` had to go (weights arrive
+as a buffer). Compile: 4.5 s first, 0.7 s once the runtime is cached. Single thread, Node 22, aarch64
+WSL2, mains, tok/s:
+
+| Model | cimo wasm (Pyodide) | cimo arm64 |
+|---|---|---|
+| stories15M | 75 | 70 |
+| stories110M | 9.0 | |
+
+- Throughput scales with parameters: about 1 G params x tok/s today, 4-4.7 with 128-bit SIMD and
+  reassociation (the ceiling at this vector width).
+- Strict FP blocks vectorizing the dot-product reductions, so these loops need explicit SIMD, not
+  only an auto-vectorizer.
+- wasm beats our arm64 backend on this workload; unexplained.
+- ggml is not an option without C++ (`gguf.cpp`, `ggml-cpu/ops.cpp`, `ggml-backend.cpp`).
+- **Through scramjit:** the same forward pass as ~100 lines of plain Python (no helpers or slices, since
+  neither compiles yet) runs in Pyodide at 88 tok/s, with default options or with
+  `boundscheck=False, parity=False`, against 0.117 undecorated: about 750x. A
+  one-line edit recompiles in 1.75 s there. It runs as float64 because scramjit rejects float32
+  arithmetic. Native arm64 gets 90 to 92. It got 28 until scramjit's one-line wrapping
+  helpers became macros: `CALLER_LIMIT` stopped inlining them partway through this function (see
+  `TODO.md`), and wasm's defaults dropped to 13.5 the same way.
+- Blockers for a real chat model: wasm SIMD, threads (Pyodide has none and its memory isn't shared,
+  so a standalone module on shared memory), quantized kernels (a 1B float32 model doesn't fit in
+  wasm32's 4 GB).
+
 ## Windows arm64 (2026-10-31)
 
 Target `arm64_win` (preprocessor/backend/linker; frontend `aarch64-windows`), picked by
@@ -523,6 +562,49 @@ Target `arm64_win` (preprocessor/backend/linker; frontend `aarch64-windows`), pi
   and the Windows codegen on any host; on Windows, calls into msvcrt's `_snprintf`/`sscanf`,
   calls both ways with clang-built code (variadic, HFA, mixed and stack arguments), probes on
   a 1.6 MB frame. The gcc-based differential tests skip on Windows; the rest of the suite passes.
+
+## macOS on Apple silicon (2026-11-01)
+
+First run of `python/tests` on an M-series Mac (macOS 26.1, Apple CLT Python 3.9 and Python
+3.13): the suite, the corpora and the examples pass; `test_abi.py` checks calls in both
+directions against Apple clang (`-dynamiclib`), and `tests/test_macos.py` holds the checks below
+(codegen ones run on any host). CI: `macos-15`. What it took:
+
+- **ABI (Apple's arm64 differs from AAPCS64; the C QBE `arm64_apple` target had all three):**
+  - Every *variadic* argument goes on the stack, structs included (by value, HFAs too; over 16
+    bytes a pointer to a copy). `argsclass` did this for scalars only and put structs in x/v
+    registers.
+  - Stack arguments are packed at their own size and alignment (a `char` takes 1 byte), not 8-byte
+    slots. cproc emits `w` for `char`/`short` parameters and arguments, so the backend couldn't
+    tell; on Apple the frontend now emits QBE's sub-word classes (`sb`, `ub`, `sh`, `uh`), which
+    the backend already lays out by size (`frontend.qbe.abiclass`; other targets keep cproc's IR).
+    Python bindings map them to `c_int8`..`c_uint16` so libffi packs them the same way.
+  - A 16-byte aligned composite takes the next two registers: no rounding up to an even register
+    (AAPCS64 C.8); on the stack it is still 16-byte aligned.
+- **Loader:** a hint alone doesn't put the data mapping after the `MAP_JIT` code in a busy
+  process (the pages after a code-sized hole are taken), so the image was never snapshotted and the
+  image cache always recompiled. Now one `MAP_JIT` mapping of both sizes, its tail replaced by RW
+  memory with `MAP_FIXED` (`MAP_JIT` itself refuses `MAP_FIXED`: `EINVAL`).
+- **`host_headers=True` with the SDK** (`xcrun --show-sdk-path`): `sys/cdefs.h` needs
+  `__arm64__` (clang's names `__arm64__`, `__arm64`, `__AARCH64EL__`, `__LITTLE_ENDIAN__` are
+  predefined on Apple); `_OSSwapInt16/32/64` (htonl & co.) are defined for arm64 only under
+  `__GNUC__`, which cimo doesn't claim, so the `arm64_apple` target predefines them as
+  `__builtin_bswap*`; the SDK has `struct {...} __attribute__((packed))` (112 times) and
+  `aligned(N)` after struct bodies and stray `;` at file scope, all now accepted (as gcc/clang
+  do); its "Unsupported compiler detected" `#warning` is dropped on that target. Claiming
+  `__GNUC__` instead was rejected: the SDK would then use statement expressions, `__asm` and
+  builtins cimo doesn't have.
+- **Test references:** macOS `cc`/`cpp`/`gcc` are Apple clang (`cpp` is a traditional one, not
+  GNU: the GNU cpp comparisons skip). clang vectorizes reductions such as `s += x[i] * y[i]`
+  into a multiply and a separate add even with `-ffp-contract=fast`, so the fused reference is
+  built with `-fno-vectorize -fno-slp-vectorize`. Asm checks use the `_` symbol prefix and `L`
+  local labels.
+- `corpora_expect.txt` is generated on Linux: on macOS `long double` is `double`, so 29 more
+  torture programs pass there and `--update` would list different reasons. The two frontend fixes
+  above made 7 Linux entries pass too (regenerated).
+- macOS's bash is 3.2: `source <(...)` doesn't work (use `eval "$(cimo completion bash)"`), and a
+  quoted array slice joins into one word when IFS has no space (the completion script slices
+  before setting IFS).
 
 ## x86-64: Linux and Windows x64 (2026-11-02)
 
@@ -826,7 +908,7 @@ regenerated by `--update`), `skip` (gcc-specific behavior, written by hand), `bu
    scalar `-O3` on all 4 kernels tried on Linux arm64 (threshold was 1.2x). On Apple M4 vs clang,
    3 of 4 are within 1.11x; saxpy is at 1.43x until `ldp`/`stp` pairing lands. See "Architecture check".
 2. ~~Check loading in each environment~~ **Done** for Linux arm64/x86-64, Windows x64 and
-   arm64 (cimo runs end to end on Windows arm64), macOS arm64 and Pyodide. Still open: locked-down Windows (AppLocker/WDAC/EDR), notarized macOS apps
+   arm64 (cimo runs end to end on Windows arm64 and macOS arm64) and Pyodide. Still open: locked-down Windows (AppLocker/WDAC/EDR), notarized macOS apps
    that embed Python without `allow-jit`.
 3. **Port QBE (arm64 first) with `qbe-arm64-isel.patch` applied** (done, see M1), **then cproc**, verified by IR
    diffs against the C originals, plus differential testing against gcc using generated random programs.
@@ -867,7 +949,8 @@ kernels with these defaults: 1.07x of gcc nofma, 1.13x of novec, 1.69x of `-O3` 
 for Linux and macOS (strategies under "Platform loading findings").
 - All 15 kernels compile and run in-process from Python, with results matching gcc's.
 - `scratch/qbe_eval/edge.c` cases are bit-exact.
-- **Done 2026-10-30 on Linux arm64; macOS path written but untested.** `python/cimo/assembler.py`
+- **Done 2026-10-30 on Linux arm64, 2026-11-01 on macOS (see "macOS on Apple silicon").**
+  `python/cimo/assembler.py`
   assembles QBE's GNU-syntax output (both `arm64` and `arm64_apple` syntax) into an in-memory
   object; `python/cimo/loader.py` links it into the process. No `cc`, and no `dlopen` of generated code, for practical
   reasons: Apple Silicon kills unsigned file-backed code (anonymous JIT memory needs only
@@ -894,10 +977,9 @@ for Linux and macOS (strategies under "Platform loading findings").
 - Loader layout: code sections, then 16-byte stubs (`ldr x16, 8; br x16; .quad addr`) for calls
   to external functions; then a RW region with GOT slots, data, bss and commons. External
   data is always reached through a GOT slot (see M5), so library distance doesn't matter.
-- macOS: code goes in a `MAP_JIT` mapping, data in a separate RW mapping hinted right after it
-  (a `MAP_JIT` page is RX for the thread while kernels run, so writable data can't share it);
-  if that fails or lands beyond `adrp` range, fall back to one W^X mapping. Untested: needs a
-  run of `python/tests` on an M-series Mac.
+- macOS: code goes in a `MAP_JIT` mapping, data in a separate RW mapping right after it (a
+  `MAP_JIT` page is RX for the thread while kernels run, so writable data can't share it); if
+  that fails, fall back to one W^X mapping.
 
 **M3: cproc in Python.** Port cproc `d1c53dd`, restricted to freestanding C.
 - QBE IR text identical to C cproc on cproc's tests and on `kernels.c`.
