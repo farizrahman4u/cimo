@@ -121,11 +121,20 @@ def fixarg(lst, idx, k, i, fn):
     elif (op != Ocall and _hascon_ext(r0, fn)):
         c = hascon(r0, fn)
         r1 = newtmp("isel", Kl, fn)
-        if c.i:
+        # cimo: the offset of a memory access stays its displacement, not an add of its own
+        disp = (c.i and INT32_MIN <= c.i <= INT32_MAX and not _bigaddend(c) and i is not None
+                and lst is i.arg and (rtype(r0) == RMem or (isload(op) and idx == 0)
+                                      or (isstore(op) and idx == 1)))
+        if c.i and not disp:
             r2 = newtmp("isel", Kl, fn)
             cc = Con(CBits, c.i)
             r3 = newcon(cc, fn)
-            emit(Oadd, Kl, r1, r2, r3)
+            if noimm(r3, fn):  # fix over C QBE: an add's immediate is 32 bits
+                r4 = newtmp("isel", Kl, fn)
+                emit(Oadd, Kl, r1, r2, r4)
+                emit(Ocopy, Kl, r4, r3, R)
+            else:
+                emit(Oadd, Kl, r1, r2, r3)
         else:
             r2 = r1
         if D.T.apple and (c.sym.type & SThr):
@@ -141,9 +150,17 @@ def fixarg(lst, idx, k, i, fn):
         emit(Oaddr, Kl, r2, r3, R)
         if rtype(r0) == RMem:
             m = fn.mem[rval(r0)]
-            m.offset.type = CUndef
+            m.offset = Con(CBits, c.i) if disp else Con(CUndef, 0)
             m.base = r1
             r1 = r0
+        elif disp:
+            a = Addr()
+            a.offset = Con(CBits, c.i)
+            a.base = r1
+            fn.nmem += 1
+            vgrow(fn.mem, fn.nmem, Addr)
+            fn.mem[fn.nmem - 1] = a
+            r1 = MEM(fn.nmem - 1)
     elif (not (isstore(op) and i is not None and lst is i.arg and idx == 1)
           and not isload(op) and op != Ocall and rtype(r0) == RCon
           and fn.con[rval(r0)].type == CAddr):
@@ -167,10 +184,17 @@ def fixarg(lst, idx, k, i, fn):
     lst[idx] = r1
 
 
+def _bigaddend(c):
+    """Whether a symbol's addend can't be relocated: rip-relative reaches 2 GB, of which the image
+    takes some. Fix over C QBE (gcc's pr94734.c with a symbol as the base): the addend goes in a
+    register instead, as for a constant base."""
+    return c.type == CAddr and not -(1 << 30) <= c.i < 1 << 30
+
+
 def _hascon_ext(r0, fn):
     c = hascon(r0, fn)
     return (c is not None and c.type == CAddr
-            and ((c.sym.type & SExt) or (D.T.apple and c.sym.type == SThr)))
+            and ((c.sym.type & SExt) or (D.T.apple and c.sym.type == SThr) or _bigaddend(c)))
 
 
 def seladdr(lst, idx, tn, fn):
@@ -179,7 +203,8 @@ def seladdr(lst, idx, tn, fn):
         a = Addr()
         if not amatch(a, tn, r0, fn):
             return
-        if a.offset.type == CBits and not INT32_MIN <= a.offset.i <= INT32_MAX:
+        if ((a.offset.type == CBits and not INT32_MIN <= a.offset.i <= INT32_MAX)
+                or _bigaddend(a.offset)):
             # fix over C QBE: a displacement is a signed 32-bit field (gcc's pr94734.c,
             # arr[0xdeadbeefbeefdead] once inlined); the address stays an add, whose constant
             # fixarg loads into a register

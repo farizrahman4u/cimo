@@ -56,8 +56,8 @@ __all__ = ['KernelError', 'glue', 'stack_checked', 'State']
 CTX_SIZE = 8192
 # Windows x64 frames also hold rdi, rsi and xmm6-xmm15 (240 bytes): they go after the stdout
 # buffer, in a third page (_glue_amd64)
-_WIN_X64 = sys.platform == 'win32' and _jit.platform.machine().lower() in ('amd64', 'x86_64')
-WFRAMES, WFRAMESZ = 8192, 240
+_WIN_X64 = sys.platform == 'win32' and _jit._X86
+WFRAMES, WFRAMESZ = 8192, 248
 if _WIN_X64:
     CTX_SIZE = 12288
 ERR, MSG, FILE, LINE, FUNC, PC, DEPTH, LIMIT, TID = range(0, 72, 8)
@@ -233,6 +233,11 @@ def glue(names, apple=False, windows=False, target=None):
     return ''.join(o)
 
 
+_RDSSP_R10 = '\t.byte\t0xf3, 0x49, 0x0f, 0x1e, 0xca\n'  # rdsspq %r10
+_RDSSP_RCX = '\t.byte\t0xf3, 0x48, 0x0f, 0x1e, 0xc9\n'  # rdsspq %rcx
+_INCSSP_RCX = '\t.byte\t0xf3, 0x48, 0x0f, 0xae, 0xe9\n'  # incsspq %rcx
+
+
 def _glue_amd64(names, windows):
     """glue() for x86-64 (System V on Linux, Windows x64): the same routines and context layout.
 
@@ -243,7 +248,12 @@ def _glue_amd64(names, windows):
 
     Entry: the trampoline pops the caller's return address into the frame, so the kernel,
     called from there, sees its stack arguments (and Windows' shadow space) where its caller put
-    them, then jumps back to the saved address."""
+    them, then pushes the saved address back and returns to it, so calls and returns stay paired.
+
+    Under a CET shadow stack (Windows' hardware-enforced stack protection, Linux's user shadow
+    stacks) the same pairing has to survive an unwind: the frame keeps the shadow stack pointer
+    from entry, 0 when shadow stacks are off (rdssp is a nop then, and on CPUs without CET), and
+    the unwind pops what the kernel's abandoned calls left on it before its ret."""
     key = '\tmovq\t%gs:0x30, %r10\n' if windows else '\tmovq\t%fs:0, %r10\n'
     if windows:
         frames, framesz = WFRAMES, WFRAMESZ
@@ -255,6 +265,7 @@ def _glue_amd64(names, windows):
         regs = [('rbx', 0), ('rbp', 8), ('r12', 16), ('r13', 24), ('r14', 32), ('r15', 40)]
         xregs = []
     RET, RSP = 64, 72
+    SSP = 240 if windows else 80
 
     def fn(name):
         return '\t.globl\t%s\n\t.p2align\t4\n%s:\n' % (name, name)
@@ -288,10 +299,11 @@ def _glue_amd64(names, windows):
     o.append('\tmovq\t%%r11, %%r13\n\tmovq\t%%r10, %%r12\n'   # r13 = ctx, r12 = frame
              '\tpopq\t%%r11\n\tpopq\t%%r10\n'                # kernel, return address
              '\tmovq\t%%r10, %d(%%r12)\n\tmovq\t%%rsp, %d(%%r12)\n'
+             '\txorl\t%%r10d, %%r10d\n%s\tmovq\t%%r10, %d(%%r12)\n'
              '\tcallq\t*%%r11\n'
              '\tsubq\t$1, %d(%%r13)\n\tmovq\t%d(%%r12), %%r10\n'
-             '\tmovq\t24(%%r12), %%r13\n\tmovq\t16(%%r12), %%r12\n\tjmp\t*%%r10\n'
-             % (RET, RSP, DEPTH, RET))
+             '\tmovq\t24(%%r12), %%r13\n\tmovq\t16(%%r12), %%r12\n\tpushq\t%%r10\n\tret\n'
+             % (RET, RSP, _RDSSP_R10, SSP, DEPTH, RET))
     o.append('.Lcimo_deep:\n\tmovq\t$%d, (%%r11)\n\taddq\t$8, %%rsp\n\tjmp\t.Lcimo_ret0\n'
              % E_DEPTH)
     # unwind: r11 = ctx with the error stored; back to the innermost trampoline's caller
@@ -301,6 +313,12 @@ def _glue_amd64(names, windows):
              % (DEPTH, DEPTH, framesz, frames))
     o += ['\tmovq\t%d(%%r10), %%%s\n' % (off, r) for r, off in regs]
     o += ['\tmovdqu\t%d(%%r10), %%%s\n' % (off, r) for r, off in xregs]
+    # incssp takes the low 8 bits of its count: at most 255 entries at a time
+    o.append('\tmovq\t%d(%%r10), %%rax\n\ttestq\t%%rax, %%rax\n\tjz\t.Lcimo_nossp\n'
+             % SSP + _RDSSP_RCX + '\tsubq\t%rcx, %rax\n\tshrq\t$3, %rax\n'
+             '\tjz\t.Lcimo_nossp\n.Lcimo_ssp:\n\tmovl\t$255, %ecx\n\tcmpq\t%rcx, %rax\n'
+             '\tcmovbq\t%rax, %rcx\n' + _INCSSP_RCX + '\tsubq\t%rcx, %rax\n\tjnz\t.Lcimo_ssp\n'
+             '.Lcimo_nossp:\n')
     o.append('\tmovq\t%d(%%r10), %%rsp\n\tmovq\t%d(%%r10), %%r10\n\tpushq\t%%r10\n' % (RSP, RET))
     o.append('.Lcimo_ret0:\n\txorl\t%eax, %eax\n\txorl\t%edx, %edx\n\tpxor\t%xmm0, %xmm0\n'
              '\tpxor\t%xmm1, %xmm1\n\tret\n.Lcimo_noframe:\n\tud2\n')

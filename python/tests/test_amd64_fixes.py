@@ -1,0 +1,171 @@
+"""x86-64 code generation, loading and entry, checked on any host where it doesn't need to run."""
+
+import os
+import re
+import subprocess
+import sys
+import textwrap
+
+import pytest
+
+import cimo
+import hosts
+from cimo import assembler_amd64, driver, execution, linker, loader
+from cimo.frontend import qbe
+
+TARGETS = ('amd64_sysv', 'amd64_windows')
+
+
+def asm(src, target):
+    ssa, params = driver._frontend(src, 't.c', target=target, fma=False, nowrap=True, builtins=True)
+    return driver._qbe(ssa, params=params, target=target)
+
+
+def test_the_assembler_is_part_of_the_compiler_key():
+    assert any(p.endswith('assembler_amd64.py') for p in linker._compiler_paths())
+
+
+@pytest.mark.parametrize('target', TARGETS)
+@pytest.mark.parametrize('src', [
+    'long a[10]; long f(void) { return a[0x100000000]; }',
+    'long a[10]; long f(long i) { return a[i + 0x100000000]; }',
+    'static long a[10]; long f(void) { return a[0x100000000]; }',
+    'static long a[10]; long *f(void) { return a + 0x100000000; }',
+    'static long a[10]; void f(long v) { a[0x100000000] = v; }',
+])
+def test_an_offset_a_relocation_cannot_hold_goes_in_a_register(src, target):
+    text = asm(src, target)
+    assert '$34359738368' in text and 'addq $34359738368' not in text
+    assert 'a+34359738368' not in text
+    assembler_amd64.assemble(text)
+
+
+@pytest.mark.parametrize('target', TARGETS)
+@pytest.mark.parametrize('src, want', [
+    ('long a[10]; long f(void) { return a[2]; }', r'movq 16\(%\w+\), %\w+'),
+    ('long a[10]; void f(long v) { a[2] = v; }', r'movq %\w+, 16\(%\w+\)'),
+])
+def test_the_offset_of_a_global_is_a_displacement(src, want, target):
+    text = asm(src, target)
+    assert re.search(want, text) and 'addq' not in text
+
+
+@pytest.mark.parametrize('decl, want', [
+    ('struct s { long a; double b; }', ['i', 's']),
+    ('struct s { double a; long b; }', ['s', 'i']),
+    ('struct s { float a, b; int c; }', ['s', 'i']),
+    ('struct s { float a; int b; }', ['i']),
+    ('union s { float a; int b; }', ['i']),
+    ('struct s { double a[2]; }', ['s', 's']),
+    ('struct s { int f : 3; double d; }', ['i', 's']),
+    ('struct s { _Alignas(16) char c; }', ['i', 'n']),
+    ('struct s { long a, b, c; }', None),
+    ('struct s { char big[1 << 20]; }', None),
+    ('struct __attribute__((packed)) s { char c; long l; }', None),
+])
+def test_va_arg_classes_are_the_backends(decl, want, monkeypatch):
+    seen = []
+    real = qbe._sysv_classes
+    monkeypatch.setattr(qbe, '_sysv_classes', lambda t: seen.append(real(t)) or seen[-1])
+    pp = decl + ''';
+    typedef __builtin_va_list va_list;
+    struct s2 { int x; };
+    void f(int n, ...) { __builtin_va_list ap; __builtin_va_start(ap, n);
+        %s s v = __builtin_va_arg(ap, %s s); (void)v; __builtin_va_end(ap); }
+    ''' % ((decl.split()[0],) * 2)
+    driver._frontend(pp, 't.c', target='amd64_sysv', fma=False, builtins=True)
+    assert seen == [want]
+
+
+def test_a_32_bit_python_is_refused(monkeypatch):
+    monkeypatch.setattr(loader, '_64BIT', False)
+    with pytest.raises(driver.CompileError, match='64-bit Python'):
+        driver._check_machine()
+
+
+@pytest.mark.parametrize('windows', [False, True])
+def test_entry_keeps_calls_and_returns_paired(windows):
+    text = execution._glue_amd64(['f'], windows)
+    assert 'jmp\t*%r10' not in text
+    assert text.count(execution._RDSSP_R10) == 1 and text.count(execution._INCSSP_RCX) == 1
+    assembler_amd64.assemble(text)
+
+
+def test_windows_frames_fit_their_page():
+    assert execution.WFRAMES + execution.MAXDEPTH * execution.WFRAMESZ <= 12288
+
+
+HOST_X86_LINUX = hosts.AMD64 and sys.platform.startswith('linux')
+
+
+@pytest.mark.skipif(not hosts.AMD64 or sys.platform == 'darwin', reason='runs x86-64 code')
+def test_a_global_in_the_image_is_reached_without_the_got():
+    m = cimo.compile('long a[4] = {1, 2, 3, 4}; long *p(void) { return a; } long f(void) { return a[2]; }',
+                     cache=False)
+    assert m.f() == 3
+
+
+def _shstk():
+    try:
+        with open('/proc/cpuinfo') as f:
+            return re.search(r'^flags.*\buser_shstk\b', f.read(), re.M) is not None
+    except OSError:
+        return False
+
+
+# Enables the shadow stack, which can't be returned out of, and exits the process from there:
+#   rdi = ok, rsi = deep; ok(41) must be 42; deep(n) unwinds; ok(41) must still be 42.
+_SHSTK_CHILD = r'''
+import ctypes, mmap, os, sys
+import cimo
+m = cimo.compile("""
+int ok(int x) { return x + 1; }
+int deep(int n);
+int (*volatile again)(int) = deep;
+int deep(int n) { if (n == 0) __builtin_trap(); return again(n - 1) + 1; }
+""", cache=False)
+assert m.ok(1) == 2  # this thread's context exists from here
+code = bytes.fromhex(
+    '4989fc'              # mov %rdi, %r12
+    '4989f5'              # mov %rsi, %r13
+    'b89e000000'          # mov $158, %eax    arch_prctl
+    'bf01500000'          # mov $0x5001, %edi ARCH_SHSTK_ENABLE
+    'be01000000'          # mov $1, %esi      ARCH_SHSTK_SHSTK
+    '0f05'                # syscall
+    '85c0'                # test %eax, %eax
+    'bf4d000000'          # mov $77, %edi     (not enabled: skip)
+    '7535'                # jne exit
+    '4883e4f0'            # and $-16, %rsp
+    'bf29000000'          # mov $41, %edi
+    '41ffd4'              # call *%r12
+    '83f82a'              # cmp $42, %eax
+    'bf01000000'          # mov $1, %edi
+    '751f'                # jne exit
+    'bf2c010000'          # mov $300, %edi
+    '41ffd5'              # call *%r13
+    'bf29000000'          # mov $41, %edi
+    '41ffd4'              # call *%r12
+    '83f82a'              # cmp $42, %eax
+    'bf02000000'          # mov $2, %edi
+    '7505'                # jne exit
+    'bf00000000'          # mov $0, %edi
+    'b8e7000000'          # exit: mov $231, %eax  exit_group
+    '0f05'                # syscall
+)
+buf = mmap.mmap(-1, 4096, prot=mmap.PROT_READ | mmap.PROT_WRITE | mmap.PROT_EXEC)
+buf.write(code)
+addr = ctypes.addressof(ctypes.c_char.from_buffer(buf))
+fn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)(addr)
+sys.stdout.flush()
+fn(m.ok._image.address('__cimo_entry_ok'), m.deep._image.address('__cimo_entry_deep'))
+'''
+
+
+@pytest.mark.skipif(not HOST_X86_LINUX or not _shstk(), reason='needs user shadow stacks')
+def test_entry_and_unwind_under_a_shadow_stack():
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+    p = subprocess.run([sys.executable, '-c', textwrap.dedent(_SHSTK_CHILD)], env=env,
+                       capture_output=True, text=True, timeout=120)
+    if p.returncode == 77:
+        pytest.skip('the kernel did not enable the shadow stack')
+    assert p.returncode == 0, (p.returncode, p.stderr[-2000:])

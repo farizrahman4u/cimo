@@ -48,13 +48,19 @@ MAP_ANON = 0x1000 if _MAC else 0x20
 MAP_JIT = 0x800
 MAP_FIXED = 0x10
 PAGE = _mmap.PAGESIZE
-_ARM64 = platform.machine().lower() in ('arm64', 'aarch64')
-_X86 = platform.machine().lower() in ('x86_64', 'amd64', 'x64')
+_MACHINE = platform.machine().lower()
+# platform.machine() names the OS's architecture: a 32-bit Python on a 64-bit OS is neither of these
+_64BIT = ctypes.sizeof(ctypes.c_void_p) == 8
+_ARM64 = _64BIT and _MACHINE in ('arm64', 'aarch64')
+_X86 = _64BIT and _MACHINE in ('x86_64', 'amd64', 'x64')
 _FAILED = (1 << (8 * ctypes.sizeof(ctypes.c_void_p))) - 1
 
 
 class LoadError(Exception):
     pass
+
+
+_UNSUPPORTED = 'cimo loads 64-bit arm64 and x86-64 code only; this machine is %s%s'
 
 
 class _RangeError(LoadError):
@@ -324,8 +330,7 @@ class Image:
 
     def __init__(self, obj, resolve=None, snapshot=False):
         if not (_ARM64 or _X86):
-            raise LoadError('cimo loads arm64 and x86-64 code only; this machine is %s'
-                            % platform.machine())
+            raise LoadError(_UNSUPPORTED % (platform.machine(), '' if _64BIT else ', 32-bit Python'))
         self._x86 = _X86
         self._maps = []
         self.prefix = obj.prefix
@@ -340,8 +345,7 @@ class Image:
         """An image from snapshot() bytes. make_resolve(external symbol names) returns a resolve
         function as for Image(); dlsym is the fallback."""
         if not (_ARM64 or _X86):
-            raise LoadError('cimo loads arm64 and x86-64 code only; this machine is %s'
-                            % platform.machine())
+            raise LoadError(_UNSUPPORTED % (platform.machine(), '' if _64BIT else ', 32-bit Python'))
         blob = memoryview(blob)
         if bytes(blob[:len(_MAGIC)]) != _MAGIC:
             raise LoadError('not a cimo image')
@@ -575,7 +579,12 @@ class Image:
             for r in s.relocs:
                 off = so + r.offset
                 P = base[k] + off
-                if r.type in _GOT:
+                if r.type == 'GOTPCREL' and r.sym in self.symbols and img[k][off - 2] == 0x8b:
+                    # movq sym@gotpcrel(%rip), %r of a symbol in the image: leaq sym(%rip), %r,
+                    # as linkers relax it. No load; the image's regions keep their distance.
+                    img[k][off - 2] = 0x8d
+                    S = ext(r.sym) + r.addend
+                elif r.type in _GOT:
                     S = data + self._got[r.sym] + (r.addend if r.type == 'GOTPCREL' else 0)
                 elif r.sym in self._stubs and r.type in _STUB:
                     S = code + self._stubs[r.sym] + r.addend

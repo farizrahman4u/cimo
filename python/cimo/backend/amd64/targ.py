@@ -77,13 +77,13 @@ def _elimsb(fn):
 
 
 def _common(**kw):
+    kw.setdefault('rglob', BIT(RBP) | BIT(RSP))
+    kw.setdefault('nrglob', 2)
     return Target(
         gpr0=RAX,
         ngpr=NGPR,
         fpr0=XMM0,
         nfpr=NFPR,
-        rglob=BIT(RBP) | BIT(RSP),
-        nrglob=2,
         memargs=amd64_memargs,
         abi0=_elimsb,
         isel=lambda fn: _isel().amd64_isel(fn),
@@ -116,18 +116,8 @@ T_amd64_apple = _sysv_common(
     assym="_",
 )
 
-def _common_windows(**kw):
-    kw.setdefault('rglob', BIT(RBP) | BIT(RSP))
-    kw.setdefault('nrglob', 2)
-    return Target(
-        gpr0=RAX,
-        ngpr=NGPR,
-        fpr0=XMM0,
-        nfpr=NFPR,
-        memargs=amd64_memargs,
-        abi0=_elimsb,
-        isel=lambda fn: _isel().amd64_isel(fn),
-        cansel=1,
+def _win_common(**kw):
+    return _common(
         windows=1,
         abi1=lambda fn: _winabi().amd64_winabi_abi(fn),
         retregs=lambda r, p: _winabi().amd64_winabi_retregs(r, p),
@@ -136,17 +126,12 @@ def _common_windows(**kw):
         **kw)
 
 
-T_amd64_win = _common(
+T_amd64_win = _win_common(
     name="amd64_win",
-    windows=1,
     emitfin=lambda f: _gemit().pe_emitfin(f),
     asloc="L",
-    abi1=lambda fn: _winabi().amd64_winabi_abi(fn),
     rsave=_winabi().amd64_winabi_rsave,
     nrsave=[NGPS_WIN, NFPS],
-    retregs=lambda r, p: _winabi().amd64_winabi_retregs(r, p),
-    argregs=lambda r, p: _winabi().amd64_winabi_argregs(r, p),
-    emitfn=lambda fn, f: _emit().amd64_winabi_emitfn(fn, f),
 )
 
 # cimo extension: Windows x64 as cimo runs it (not in QBE). QBE's amd64_win ABI lowering, with
@@ -154,7 +139,7 @@ T_amd64_win = _common(
 # probes for frames and allocas over a page (r11, reserved for them, is never allocated),
 # extern data through the GOT; ELF syntax and .L labels, since cimo assembles and links in
 # memory (as arm64_win).
-T_amd64_windows = _common_windows(
+T_amd64_windows = _win_common(
     name="amd64_windows",
     rglob=BIT(RBP) | BIT(RSP) | BIT(R11),
     nrglob=3,

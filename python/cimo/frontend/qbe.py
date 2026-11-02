@@ -792,15 +792,16 @@ def _sysv_unaligned(ty, off):
 
 
 def _sysv_classes(t):
-    """x86-64 SysV: the classes of the eightbytes of a struct or union ('i' INTEGER, 's'
-    SSE, 'n' all padding: no register, as gcc), or None when it is passed in memory. As QBE's
-    amd64 classify(): an eightbyte with any integer (or bit-field) in it is INTEGER, else SSE;
-    over 16 bytes (after rounding the size up to the alignment, at least 8) is memory."""
-    al = max(t.align, 8)
-    sz = (t.size + al - 1) & -al
-    if sz > 16 or sz == 0 or _sysv_unaligned(t, 0):
-        return None
-    cls = [None, None]
+    """x86-64 SysV: the class of each eightbyte of struct/union t ('i' INTEGER, 's' SSE, 'n' all
+    padding: no register, as gcc), or None when it is passed in memory. The answer is the
+    backend's own (sysv.typclass, which lowers calls and parameters): va_arg has to read the
+    registers the caller wrote. It gets each scalar of t as a union member at its offset."""
+    from ..backend import defs as BD
+    from ..backend.amd64 import sysv
+    q = BD.Typ()
+    q.size = t.size
+    q.align = t.align.bit_length() - 1
+    q.isdark = int(_sysv_unaligned(t, 0))
 
     def walk(ty, off):
         if ty.kind == TYPEARRAY:
@@ -811,18 +812,25 @@ def _sysv_classes(t):
             m = ty.members
             while m:
                 if m.bits[0] or m.bits[1]:
-                    cls[(off + m.offset) // 8] = 'i'
+                    leaf(off + m.offset, BD.Fw)
                 else:
                     walk(m.type, off + m.offset)
                 m = m.next
-        elif ty.prop & PROPFLOAT:
-            if cls[off // 8] is None:
-                cls[off // 8] = 's'
         elif ty.size:
-            cls[off // 8] = 'i'
+            leaf(off, BD.Fs if ty.prop & PROPFLOAT else BD.Fl)
 
-    walk(t, 0)
-    return [c or 'n' for c in cls[:sz // 8]]
+    def leaf(off, kind):
+        if off < 16:
+            q.fields.append([BD.Field(BD.FPad, off), BD.Field(kind, 1), BD.Field(BD.FEnd)])
+            q.nunion += 1
+
+    if t.size <= 16:  # over that it is memory, whatever an array of any length holds
+        walk(t, 0)
+    a = sysv.AClass()
+    sysv.typclass(a, q)
+    if a.inmem:
+        return None
+    return [{BD.Kl: 'i', BD.Kd: 's', BD.Kx: 'n'}[c] for c in a.cls[:a.size // 8]]
 
 
 def _vaargsysv(f, t, ap, add, load, align16):

@@ -238,8 +238,7 @@ def _image_put(key, blob):
 
 _APPLE = sys.platform == 'darwin'
 _WINDOWS = sys.platform == 'win32'
-_MACHINE = platform.machine().lower()
-_AMD64 = _MACHINE in ('x86_64', 'amd64', 'x64')
+_AMD64 = _jit._X86
 # This machine's target, as the preprocessor, backend and linker name it: Linux, Apple's ABI
 # variant, or Windows (LP64 like the others, with Windows' variadic convention), on arm64; Linux
 # (System V ABI) or Windows on x86-64.
@@ -416,12 +415,14 @@ def _host_include_dirs():
 
 
 def _check_machine():
+    if not _jit._64BIT:
+        raise CompileError('cimo needs a 64-bit Python; this one is 32-bit')
     if _AMD64:
         if _APPLE:
             raise CompileError('cimo does not support Intel Macs (x86-64 macOS); it runs on '
                                'Apple silicon, and on x86-64 Linux and Windows')
         return
-    if _MACHINE not in ('arm64', 'aarch64'):
+    if not _jit._ARM64:
         raise CompileError('cimo generates arm64 and x86-64 code only; this machine is %s'
                            % platform.machine())
 

@@ -832,6 +832,10 @@ Targets `amd64_sysv` (Linux; frontend `x86_64-sysv`) and `amd64_windows` (fronte
   are where the caller put them, then jumps back. Windows frames add rdi, rsi and xmm6-xmm15
   (240 bytes), so contexts there are 12 KB with the frames in the third page. CAS is
   `lock cmpxchg`.
+  It returns with `push; ret`, and the frame keeps the shadow stack pointer (`rdssp`, a nop without
+  CET) for the unwind's `incssp`, so entry and `KernelError` stay legal under CET shadow stacks.
+- **Globals:** the frontend marks every non-static global extern, so isel reaches it through the
+  GOT; the loader relaxes that `movq sym@gotpcrel` to `leaq sym(%rip)` for symbols in the image.
 - **Faults:** besides SIGSEGV/access violations, integer division traps on x86 (#DE: `x / 0`,
   `INT_MIN / -1`), killing the process; on arm64 these return a value. Same fix as TODO 8.
 - **The optimizer on x86-64:** the target-independent passes (simplifier, known bits, SCCP,
