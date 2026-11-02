@@ -935,7 +935,8 @@ _NEON2 = {'neg': (0x6e20b800, 's'), 'fneg': (0x6ea0f800, 'f'), 'fabs': (0x4ea0f8
           'mvn': (0x6e205800, '')}
 _NEONSH = {'shl': 0x4f005400, 'ushr': 0x6f000400, 'sshr': 0x4f000400}
 _LANES = {'16b': 0, '8h': 1, '4s': 2, '2d': 3}
-_VREG = re.compile(r'v(\d+)\.(16b|8h|4s|2d)$')
+_NEONW = {'saddw': 0x0ea01000, 'saddw2': 0x4ea01000, 'uaddw': 0x2ea01000, 'uaddw2': 0x6ea01000}  # 2d, 2d, 2s or 4s
+_VREG = re.compile(r'v(\d+)\.(16b|8h|4s|2d|2s)$')
 _VELEM = re.compile(r'v(\d+)\.([bhsd])\[(\d+)\]$')
 
 
@@ -953,10 +954,14 @@ def _v(s):
 def _neon(mn, ops):
     """The word of a NEON instruction whose first operand is a vector register."""
     d, lane = _v(ops[0])
-    size = _LANES[lane]
+    size = _LANES.get(lane, 2)
     if mn == 'mov':
         n, _ = _v(ops[1])
         return 0x4ea01c00 | n << 16 | n << 5 | d
+    if mn in _NEONW:
+        n, _ = _v(ops[1])
+        m, _ = _v(ops[2])
+        return _NEONW[mn] | m << 16 | n << 5 | d
     if mn == 'dup':
         s = ops[1].strip().lower()
         e = _VELEM.match(s)

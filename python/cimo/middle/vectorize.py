@@ -7,16 +7,18 @@ Legal when, as LoopVectorizationLegality and LoopAccessAnalysis ask:
 - each load and store steps by its own size, upwards;
 - two accesses of one base and step are far enough apart that a vector's worth of iterations can't change what
   either sees: see _distance;
-- nothing is carried round the loop but the induction variables: no reductions yet;
+- nothing is carried round the loop but the induction variables and integer reductions (_reduction), whose order C
+  doesn't fix; a float's sum depends on its order, so those stay scalar;
 - operands are computed in the loop by a vectorized instruction, or are the same on every iteration.
 
 Each lane does what the scalar instruction did, in the same rounding, so results are bit for bit the scalar loop's.
 Arrays that may overlap are compared before the loop (overlapchecks), up to MAXCHECKS pairs.
-Not yet: reductions, widening and narrowing, conditions, downward steps, SLP.
+Not yet: other widening and narrowing, conditions, downward steps, SLP.
 """
 
 from ..backend import defs as D
 from ..backend.defs import R, Kw, Kl, Ks, Kd, Kq, Ins, optab, rval
+from ..backend.util import newtmp
 from . import ir
 
 _LANE = {Ks: 's', Kd: 'd', Kw: 'w', Kl: 'l'}
@@ -70,19 +72,86 @@ def _distance(store, load, vf, storeat, loadat):
     return d < 0 and loadat < storeat
 
 
+class Reduction:
+    """s = s op v, round the loop: t is s's phi, op the instruction, v the operand, ext how v comes from 32-bit lanes."""
+    __slots__ = ('t', 'i', 'op', 'v', 'ext', 'acc0', 'in0', 'in1', 'out0', 'out1', 'cls')
+
+
+_REDOPS = {D.Oadd: 'qadd', D.Osub: 'qsub', D.Oand: 'qand', D.Oor: 'qor', D.Oxor: 'qxor'}
+
+
+def _reduction(fast, p, cloned):
+    """p as a Reduction, or None: nothing in the loop reads its value but one instruction, whose result only the phi reads."""
+    A = fast.A
+    fn = fast.fn
+    if p.cls not in (Kw, Kl):
+        return None
+    t = rval(p.to)
+    nxt = ir.phiargof(p, fast.sh.latch)
+    if not ir.istmp(nxt):
+        return None
+    i = None
+    for x in cloned:
+        if x.to == nxt:
+            i = x
+    if i is None or i.op not in _REDOPS or i.cls != p.cls:
+        return None
+    if i.arg[0] == p.to and i.arg[1] != p.to:
+        v = i.arg[1]
+    elif i.arg[1] == p.to and i.arg[0] != p.to and i.op != D.Osub:
+        v = i.arg[0]
+    else:
+        return None
+    reads = 0
+    for x in cloned:
+        reads += sum(1 for a in x.arg[:2] if a == p.to)
+        if x is not i and nxt in x.arg[:2]:
+            return None
+    if reads != 1:
+        return None
+    for q in ir.phis(fast.sh.H):
+        if q is not p and (p.to in q.arg[:q.narg] or nxt in q.arg[:q.narg]):
+            return None
+    r = Reduction()
+    r.t, r.i, r.op, r.v, r.cls = t, i, i.op, v, p.cls
+    r.ext = None
+    return r
+
+
+def _widening(fast, r, cloned):
+    """long s; s += (long)x: returns the extension if v is one, of something only this reads, for the op that adds it."""
+    if r.op != D.Oadd or r.cls != Kl or not ir.istmp(r.v):
+        return None
+    for x in cloned:
+        if x.to == r.v and x.op in (D.Oextsw, D.Oextuw) and x.cls == Kl:
+            if sum(1 for y in cloned for a in y.arg[:2] if a == r.v) == 1:
+                return x
+    return None
+
+
 def plan(fast, rts):
     """The number of lanes to vectorize this loop with, or 0. Needs fast.plan() done."""
     A = fast.A
     sh = fast.sh
+    fast.vreds = []
+    skip = set()
     for p in ir.phis(sh.H):
         if rval(p.to) not in A.biv:
-            return 0
+            r = _reduction(fast, p, fast.cloned)
+            if r is None:
+                return 0
+            x = _widening(fast, r, fast.cloned)
+            if x is not None:
+                r.ext = x
+                skip.add(id(x))
+            fast.vreds.append(r)
+            skip.add(id(r.i))
     widths = set()
     mem = []
     made = set()
     third = None
     for n, i in enumerate(fast.cloned):
-        if i.op in (D.Onop, D.Odbgloc):
+        if i.op in (D.Onop, D.Odbgloc) or id(i) in skip:
             continue
         if i.op == D.Ofma0:
             if i.cls not in (Ks, Kd):
@@ -128,7 +197,18 @@ def plan(fast, rts):
             if not _operand(fast, a, made):
                 return 0
         made.add(rval(i.to))
-    if third is not None or len(widths) != 1 or not mem:
+    if third is not None or not mem:
+        return 0
+    for r in fast.vreds:
+        if r.ext is not None:
+            if not _operand(fast, r.ext.arg[0], made):
+                return 0
+            widths.add(4)
+        else:
+            if not _operand(fast, r.v, made):
+                return 0
+            widths.add(_SIZE[r.cls])
+    if len(widths) != 1:
         return 0
     vf = 16 // widths.pop()
     far = set()
@@ -210,8 +290,13 @@ def body(fast, em, state):
             fast.memo[key] = fast.fp.raw(getattr(D, 'Oqdup' + _LANE[k]), Kq, s)
         return fast.memo[key]
 
+    skip = set()
+    for r in fast.vreds:
+        skip.add(id(r.i))
+        if r.ext is not None:
+            skip.add(id(r.ext))
     for i in fast.cloned:
-        if i.op in (D.Onop, D.Odbgloc):
+        if i.op in (D.Onop, D.Odbgloc) or id(i) in skip:
             continue
         if i.op == D.Ofma0:
             third = vec(i.arg[0], i.cls)
@@ -237,4 +322,40 @@ def body(fast, em, state):
             env[rval(i.to)] = em.raw(op, Kq, vec(i.arg[0], i.cls))
         else:
             env[rval(i.to)] = em.raw(op, Kq, vec(i.arg[0], i.cls), vec(i.arg[1], i.cls))
+    for r in fast.vreds:
+        identity = fast.fp.raw(getattr(D, 'Oqdup' + _LANE[r.cls]), Kq, fast.fp.con(-1 if r.op == D.Oand else 0))
+        r.acc0 = identity
+        r.in0 = newtmp('v', Kq, fn)
+        if r.ext is not None:
+            signed = r.ext.op == D.Oextsw
+            r.in1 = newtmp('v', Kq, fn)
+            w = vec(r.ext.arg[0], Kw)
+            low, high = (D.Oqsaddl, D.Oqsaddh) if signed else (D.Oquaddl, D.Oquaddh)
+            r.out0 = em.raw(low, Kq, r.in0, w)
+            r.out1 = em.raw(high, Kq, r.in1, w)
+            continue
+        r.in1 = None
+        op = getattr(D, 'O' + _REDOPS[r.op] + ('' if r.op in (D.Oand, D.Oor, D.Oxor) else _LANE[r.cls]))
+        r.out0 = em.raw(op, Kq, r.in0, vec(r.v, r.cls))
+        r.out1 = None
     return dict(state)
+
+
+def closeloop(fast, em, MB, FP, state):
+    """The accumulators' phis in MB, and, in em, a block after it, the scalar values with what they've collected."""
+    out = dict(state)
+    for r in fast.vreds:
+        ir.addphi(MB, Kq, r.in0, [(FP, r.acc0), (MB, r.out0)])
+        total = r.out0
+        k = r.cls
+        if r.ext is not None:
+            ir.addphi(MB, Kq, r.in1, [(FP, r.acc0), (MB, r.out1)])
+            total = em.raw(D.Oqaddl, Kq, r.out0, r.out1)
+        x = _LANE[k]
+        lanes = 16 // _SIZE[k]
+        op = D.Oadd if r.op in (D.Oadd, D.Osub) else r.op
+        v = state[('phi', r.t)]
+        for n in range(lanes):
+            v = em.raw(op, k, v, em.raw(getattr(D, 'Oqget' + x), k, total, em.con(n)))
+        out[('phi', r.t)] = v
+    return out

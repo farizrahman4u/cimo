@@ -209,6 +209,7 @@ class Fast:
         self.chk = set()       # ids of the extension checks the fast loop relies on
         self.vf = 0            # lanes, when the main loop is vectorized
         self.vchecks = ()      # and the arrays to compare before it
+        self.vreds = ()        # and the reductions it collects (vectorize.Reduction)
 
     # ---------- materialization of invariant values (in self.em, memoized)
 
@@ -697,7 +698,7 @@ def _lanes(fn, lp, sh, A, ctl, rts):
     probe.ctl = ctl
     probe.plan(1)
     vf = vectorize.plan(probe, rts)
-    return (vf, probe.vchecks) if vf else 0
+    return (vf, probe.vchecks, probe.vreds) if vf else 0
 
 
 def vectorizable(fn, lp, rts):
@@ -764,11 +765,12 @@ def transform(fn, lp, rts, done, mode='opt'):
     A, ctl, hoist, noalias_load = _hoisted(fn, lp, sh, A, ctl, rts)
 
     lanes = _lanes(fn, lp, sh, A, ctl, rts)
-    vf, vchecks = lanes or (0, ())
+    vf, vchecks, vreds = lanes or (0, (), ())
     fast = Fast(fn, lp, sh, A, rts)
     fast.ctl = ctl
     fast.vf = vf
     fast.vchecks = vchecks
+    fast.vreds = vreds
     if not vf:  # lanes read their own elements: nothing to reuse
         fast.find_chains(noalias_load)
     ncl = 0
@@ -963,7 +965,17 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
         for sv in svs:
             ir.addphi(MB, _svcls(fn, sv, fast, [(None, state0[sv])]), stM[sv],
                       [(FP, state0[sv]), (MB, out[sv])])
-        stRC = phis_for(RC, [(FP, state0), (MB, out)])
+        if fast.vreds:  # what the lanes collected, once, on the way out
+            VX = ir.newblock(fn, MB, 'vx')
+            newblocks.add(VX)
+            ev = Emitter(fn, VX)
+            outv = vectorize.closeloop(fast, ev, MB, FP, out)
+            ev.flush()
+            ir.setjnz(MB, c, MB, VX)
+            ir.setjmp(VX, RC)
+            stRC = phis_for(RC, [(FP, state0), (VX, outv)])
+        else:
+            stRC = phis_for(RC, [(FP, state0), (MB, out)])
         fast.em = ef
         ef.flush()
         ir.setjnz(FP, big, MB, RC)

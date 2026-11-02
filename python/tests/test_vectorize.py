@@ -205,3 +205,53 @@ def test_nothing_beyond_the_end_is_touched():
         m.f(ctypes.addressof(y), ctypes.addressof(x), n)
         assert list(y[:n]) == [v + 1 for v in x[:n]]
         assert list(y[n:]) == [-1] * (32 - n), n
+
+
+REDUCTIONS = {
+    'wsum': ('int f(const int *restrict x, long n) { int s = 7; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_int, True),
+    'lsum': ('long f(const long *restrict x, long n) { long s = -7; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_int64, True),
+    'widen': ('long f(const int *restrict x, long n) { long s = 3; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_int, True),
+    'uwiden': ('long f(const unsigned *restrict x, long n) { long s = 3; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_uint, True),
+    'int_i': ('long f(const int *restrict x, int n) { long s = 0; for (int i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_int, True),
+    'sub': ('int f(const int *restrict x, long n) { int s = 100; for (long i = 0; i < n; i++) s -= x[i]; return s; }', ctypes.c_int, True),
+    'xor': ('int f(const int *restrict x, long n) { int s = 5; for (long i = 0; i < n; i++) s ^= x[i]; return s; }', ctypes.c_int, True),
+    'and': ('int f(const int *restrict x, long n) { int s = -1; for (long i = 0; i < n; i++) s &= x[i] | 0xf0; return s; }', ctypes.c_int, True),
+    'or': ('long f(const long *restrict x, long n) { long s = 1; for (long i = 0; i < n; i++) s |= x[i]; return s; }', ctypes.c_int64, True),
+    'mulsum': ('int f(const int *restrict x, long n) { int s = 0; for (long i = 0; i < n; i++) s += x[i] * x[i]; return s; }', ctypes.c_int, True),
+    # reassociated into (s + x * x) + 3, a chain of two: stays scalar for now
+    'chain': ('int f(const int *restrict x, long n) { int s = 0; for (long i = 0; i < n; i++) s += x[i] * x[i] + 3; return s; }', ctypes.c_int, False),
+    'two': ('int f(const int *restrict x, long n) { int s = 0, t = 1; for (long i = 0; i < n; i++) { s += x[i]; t ^= x[i]; } return s - t; }', ctypes.c_int, True),
+    'wraps': ('int f(const unsigned *restrict x, long n) { unsigned s = 4000000000u; for (long i = 0; i < n; i++) s += x[i] * 65536; return (int)s; }', ctypes.c_uint, True),
+    # read in the loop: the running value is seen, so lanes won't do
+    'seen': ('int f(int *restrict y, const int *restrict x, long n) { int s = 0; for (long i = 0; i < n; i++) { s += x[i]; y[i] = s; } return s; }', ctypes.c_int, False),
+    'mul': ('int f(const int *restrict x, long n) { int s = 1; for (long i = 0; i < n; i++) s *= x[i]; return s; }', ctypes.c_int, False),
+    'fsum': ('float f(const float *restrict x, long n) { float s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_float, False),
+    'dsum': ('double f(const double *restrict x, long n) { double s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_double, False),
+    'wmin': ('long f(const short *restrict x, long n) { long s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_short, False),
+}
+
+
+@pytest.mark.parametrize('name', sorted(REDUCTIONS))
+def test_reductions(name):
+    src, ctype, taken = REDUCTIONS[name]
+    assert vectorized(src) == taken, driver._build(src)[0]
+    on, off = both(src)
+    for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 63, 64, 65, 200):
+        x = buf(ctype, n + 8, n)
+        y = (ctypes.c_int * (n + 8))()
+        extra = (ctypes.addressof(y),) if name == 'seen' else ()
+        args = extra + (ctypes.addressof(x), n)
+        a, b = on.f(*args), off.f(*args)
+        assert a == b or (a != a and b != b), (name, n, a, b)
+
+
+def test_reduction_reaches_the_values_the_loop_leaves_with():
+    """Lanes collected, the remainder steps on from them, and the sum leaves the loop right for every remainder."""
+    src = 'long f(const int *restrict x, long n, long *count) { long s = 0, i; for (i = 0; i < n; i++) s += x[i]; *count = i; return s; }'
+    assert vectorized(src)
+    m = cimo.compile(src, cache=False)
+    for n in range(0, 40):
+        x = buf(ctypes.c_int, 48, n)
+        c = ctypes.c_int64()
+        assert m.f(ctypes.addressof(x), n, ctypes.addressof(c)) == sum(x[:n])
+        assert c.value == n

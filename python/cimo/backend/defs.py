@@ -376,6 +376,8 @@ _QOPS = [(n + x, _QQ()) for n, lanes in (('qadd', 'bhwlsd'), ('qsub', 'bhwlsd'),
                                          ('qcugt', 'bhwl'), ('qcuge', 'bhwl')) for x in lanes]
 _QOPS += [(n + x, _Q1()) for n, lanes in (('qneg', 'bhwlsd'), ('qabs', 'sd'), ('qsqrt', 'sd')) for x in lanes]
 _QOPS += [(n + x, _QS()) for n in ('qshl', 'qshr', 'qsar') for x in 'bhwl']
+# %r =q qsaddl %a, %b: a's 2 x i64 + the sign-extended low 2 x i32 of b; h: the high ones; u: zero-extended
+_QOPS += [('qsaddl', _QQ()), ('qsaddh', _QQ()), ('quaddl', _QQ()), ('quaddh', _QQ())]
 _QOPS += [('qand', _QQ()), ('qor', _QQ()), ('qxor', _QQ()), ('qnot', _Q1()), ('qsel1', _QQ()),
           ('qdupb', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6)), ('qduph', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6)),
           ('qdupw', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6)), ('qdupl', ((Ke, Ke, Ke, Ke, Ke, Kl), (Kx,) * 6)),

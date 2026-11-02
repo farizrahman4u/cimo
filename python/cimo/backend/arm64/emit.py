@@ -533,6 +533,11 @@ def _qins(i, e):
     if name in ('qand', 'qor', 'qxor'):
         f.write("\t%s\t%s, %s, %s\n" % ({'qand': 'and', 'qor': 'orr', 'qxor': 'eor'}[name], _qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
         return True
+    if name in ('qsaddl', 'qsaddh', 'quaddl', 'quaddh'):
+        high = name[-1] == 'h'
+        mn = ('saddw' if name[1] == 's' else 'uaddw') + ('2' if high else '')
+        f.write("\t%s\t%s, %s, %s\n" % (mn, _qv(i.to, '2d'), _qv(i.arg[0], '2d'), _qv(i.arg[1], '4s' if high else '2s')))
+        return True
     if name == 'qnot':
         f.write("\tmvn\t%s, %s\n" % (_qv(i.to), _qv(i.arg[0])))
         return True

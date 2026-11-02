@@ -17,7 +17,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    backend" in `requirements.md`). Open: host JS libraries via `link=`, async loading for large
    modules on a browser main thread, wasm SIMD.
 5. **SIMD.** Auto-vectorizer **running on arm64** (`middle/vectorize.py`; see "Vector code" in `requirements.md`). Open, in
-   order: integer reductions (`isum`), byte and short lanes with widening and narrowing, interleaved access (`rgb2gray`),
+   order: reductions through a chain (`s += x * x + 3`), byte and short lanes with widening and narrowing, interleaved access (`rgb2gray`),
    conditions, downward steps; then x86-64, GNU vector types (`vector_size`, currently a clear error), wasm, SLP.
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.
