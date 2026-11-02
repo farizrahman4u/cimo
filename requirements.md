@@ -12,6 +12,7 @@ applied) and cproc at `~/code/cproc`.
 
 - `python/cimo/`: the compiler and the Python runtime (the PyPI package).
 - `js/`: reserved for a later JS port of the compiler and browser glue. Empty for now.
+- `gpu/`: planned. C that runs on the GPU or calls a driver, compiled by cimo on demand (see "GPU").
 - `docs/`: the website (GitHub Pages serves `main:/docs` at www.cimo.dev). The user documentation
   lives in `docs/docs/` (www.cimo.dev/docs/): Markdown pages in `docs/docs/content/`, ordered and
   grouped by `docs/docs/nav.json`, rendered in the browser by `docs/docs/docs.js` (no build step).
@@ -521,6 +522,193 @@ WSL2, mains, tok/s:
 - Blockers for a real chat model: wasm SIMD, threads (Pyodide has none and its memory isn't shared,
   so a standalone module on shared memory), quantized kernels (a 1B float32 model doesn't fit in
   wasm32's 4 GB).
+
+## GPU (planned, 2026-11-02)
+
+Nothing here is built. Plain C runs on any GPU the machine has, including in a browser tab, with no vendor
+toolkit and nothing to install beyond a driver. Tuned kernels are C too, shipped as source and compiled for
+the card on first use. cimo owns the targets; scramjit exposes them.
+
+**Not the goal:** beating tuned kernels on data-center GPUs from plain loops. A production stack read for this
+(`~/code/modular`; read, not run) holds about 107k lines of GPU matmul and 120k of attention, written by hand
+per GPU generation. Its plain-loop path exists only as a fallback.
+
+### Layout
+
+C that runs on the GPU or calls a driver lives in `gpu/` at the repo root, compiled by cimo on demand, as
+`python/cimo/runtime/` already is. Code generators stay in Python.
+
+| Path | Holds | Language |
+|---|---|---|
+| `gpu/include/cimo/gpu.h` | what kernels see: thread ids, barriers, shared memory, target instructions | C |
+| `gpu/lib/` | device math (`exp`, `log`, `sin`, softmax) | C |
+| `gpu/kernels/<target>/` | tuned kernels (`ptx/gemm_sm90.c`) | C |
+| `gpu/host/` | device discovery, buffers, dispatch: `cuda.c`, `vulkan.c`, `hip.c`, `metal.c` | C |
+| `python/cimo/backend/{wgsl,spirv,ptx,msl,hip}/` | IR to target code | Python |
+| `python/cimo/wasm/` | WebGPU host, through Pyodide's `js` module; a tab has no driver for C to call | Python |
+
+- **Generators stay in Python** because they read the compiler's IR, which is Python objects, and share code with
+  the wasm backend. In C they would need the IR marshalled, and would have to compile before any kernel could:
+  on every cold start, and at about 1.5k lines per 2.5 s in a tab (1,611 lines measured through scramjit), a
+  noticeable wait. Revisit only if emission shows up as the bottleneck.
+- **Packaging:** `gpu/` sits outside `python/`, the current project root, so it can't reach a wheel or sdist from
+  there. Move `pyproject.toml` to the repo root with `package-dir` mapping `cimo` to `python/cimo` and
+  `cimo.gpu` to `gpu`. No symlinks (Windows checkouts). `cimo.resources` finds `gpu/` next to the package or at the
+  repo root, `cimo.onefile` embeds it, and its sources join the cache key. Install docs drop their subdirectory
+  (`docs/agent-prompt.txt`).
+- `cimo` stays pure Python: drivers are reached from C compiled by cimo, resolved with `dlsym` at load.
+
+### Using it
+
+```python
+gpu = cimo.gpu()                     # finds a driver; no toolkit
+k = cimo.compile(r"""
+void matmul(int n, int m, int p,
+            const float a[n][m], const float b[m][p], float c[n][p]) {
+    #pragma cimo parallel
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < p; j++) {
+            float s = 0;
+            for (int t = 0; t < m; t++)
+                s += a[i][t] * b[t][j];
+            c[i][j] = s;
+        }
+}
+""", device=gpu)
+k.matmul(n, m, p, a, b, c)           # copies a, b in; runs; copies c back
+```
+
+- **Same source everywhere:** without `device=`, the pragma's loop runs on the CPU, so a kernel is testable as C.
+- **Copies follow the signature:** `const` arrays go in, the others go in and come back. `gpu.array(a)` keeps data
+  on the device across calls. Unified memory (Apple, AMD APUs) skips the copy.
+- **In a tab, reading back is asynchronous** (`mapAsync`): `await k.matmul(...)`, or a synchronous call if stack
+  switching works from Pyodide (to check).
+- **A wrong pragma is a data race.** C keeps the user's word for it; scramjit has to prove a loop safe first.
+
+### Kernel C
+
+Two forms, both ordinary C compiled by the frontend.
+
+**Parallel loops** are the easy form. `#pragma cimo parallel` covers up to 3 perfectly nested canonical loops, which
+become the dispatch grid. Scalars become uniforms, array parameters become buffers.
+
+**Explicit kernels** are the form tuned code needs: one function per thread, with the grid and block size set by the
+caller.
+
+```c
+#include <cimo/gpu.h>
+
+__gpu_kernel void gemm_block(const float *a, const float *b, float *c, int n) {
+    __gpu_shared float tile[256];
+    int x = gpu_thread_id(0), y = gpu_block_id(1);
+    /* copy to shared memory, then the matrix instruction */
+    __gpu_asm("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 ...");
+    gpu_barrier();
+}
+```
+
+`__gpu_asm` is the one place inline assembly exists. It is target text, passed through; a kernel using it builds only
+for that target (`gpu/kernels/<target>/`), so the dispatcher picks by device.
+
+Rejected in a kernel, with a clear error: recursion, `malloc` and other runtime calls, function pointers, storing a
+buffer pointer in memory, `double` or 64-bit integers on a device without them. Never narrowed silently.
+
+**Type recovery** is the first thing to prove. WGSL and SPIR-V want typed buffers, and cimo's IR has byte addresses.
+In a kernel every load and store must trace back to one buffer parameter plus an offset divisible by its width,
+which maps to `buf[i]`. What can't be traced is a compile error on those targets. Loops are rebuilt by the
+structuring in `backend/wasm/emit.py` (Ramsey, "Beyond Relooper"), moved somewhere the new backends can share.
+
+### Targets, in order
+
+| # | Target | cimo emits | Compiled by | Needed on the machine | Matrix instructions |
+|---|---|---|---|---|---|
+| 1 | Browser | WGSL | browser, then driver | a WebGPU browser | no |
+| 2 | Radeon, Intel, others | SPIR-V, through Vulkan | driver | Vulkan driver | `VK_KHR_cooperative_matrix` |
+| 3 | NVIDIA | PTX | driver (`libcuda`, `cuModuleLoadDataEx`) | NVIDIA driver | `mma.sync`, `tcgen05.mma` by `__gpu_asm` |
+| 4 | AMD Instinct | HIP source | `libhiprtc` | ROCm | `mfma` builtins, to check |
+| 5 | Apple | Metal source | OS (`newLibrary` from source) | macOS | to check |
+
+- **Browser first:** the production stack read has no WebGPU path, so that's the open ground. It also tests type
+  recovery and compile time on the hardest constraints.
+- **SPIR-V second:** one backend for several vendors. Cooperative matrix is exposed on RDNA3 and newer by RADV,
+  by Intel's Linux driver and elsewhere; confirm per card. It reuses the structuring from WGSL.
+- **PTX third:** it allows plain branches, byte addressing and 64-bit types, so it's the closest fit to cimo's IR,
+  and needs no type recovery. PTX versions are capped by the driver: emit the lowest that works.
+- **AMD:** the kernel driver has no PTX-style format, so the choices are `libhiprtc` (source to code object, loaded with
+  `hipModuleLoadData`), comgr (GPU assembly, with registers per GPU family to manage ourselves) or Vulkan. Radeon
+  takes Vulkan, the only route with nothing to install. Instinct takes `libhiprtc`, a separate library from ROCm
+  7.0 that cimo can't bundle, so the pitch there is "uses the ROCm you have". Whether Instinct has a usable
+  Vulkan driver is unchecked.
+- **Metal:** source at runtime avoids Xcode, which AIR bitcode and `xcrun metal` would need. Shares a printer with WGSL
+  and could move earlier if cheap.
+
+### What the driver optimizes
+
+Drivers compile, but not everything. `CU_JIT_OPTIMIZATION_LEVEL` buys instruction selection, scheduling, register
+allocation and local cleanups. Inlining, moving work out of loops, loop transforms and removing checks stay ours on
+PTX, since the toolkit's compiler isn't there. Nothing turns a loop into matrix instructions. Browsers and Metal
+do more, varying by vendor: measure.
+
+So kernels go through a chosen subset of cimo's passes. Picking the subset is a measurement: every pass on or off,
+compile time against speed, per target. Middle-end loop transforms mustn't touch the grid loops.
+
+### Tuned kernels
+
+No physical ceiling: equivalent PTX reaches the same compiler and the same hardware. Whether the driver's compiler
+matches NVIDIA's bundled one is unchecked (the stack read ships a cubin).
+
+- **Size for one target** is modest, from the stack read: 2.3k lines of wrappers around NVIDIA's matrix instructions, 1.6k
+  for one older-generation GEMM, 15k for all of `sm90` matmul, 3.4k of that being tuning tables.
+- **Hand-written holds up:** its dispatcher records matching AMD's vendor library within 1.8% on BF16.
+- **Tuning needs the card.** Each generation means rented time. Generating kernels from Python for the exact shape,
+  and sweeping parameters briefly on the user's own card, could replace tables: untested.
+- **Copy nothing from `~/code/modular`.** Parts aren't Apache-licensed. Write from the vendors' public docs.
+
+Dispatch is by device and shape, in `gpu/kernels/`, falling back to the plain loop.
+
+### scramjit's part
+
+Through cimo's public API only:
+
+- which Python loops are safe to run in parallel, and emitting the pragma
+- real `float32` and `int32`: WGSL has no `f64` or `i64`, Metal no `double`, and scramjit rejects `float32` arithmetic today
+- `@scram(device=...)`, and deciding which arrays to copy when
+- recognising matmul-shaped loops and calling the tuned kernel; plain loops otherwise won't reach matrix instructions
+
+### Real limits
+
+- **Browser:** as far as checked, WGSL doesn't expose matrix instructions, so tuned kernels in a tab top out below native.
+  `maxStorageBufferBindingSize` is 128 MiB by default and adapter-dependent above, so large weights split across
+  buffers. Long dispatches can trip GPU watchdogs (seconds, by OS and browser), so work gets sliced.
+- **Discrete GPUs:** copies cost PCIe bandwidth. A kernel fault can lose the whole context.
+- **ROCm** isn't part of the base driver, unlike `libcuda` on NVIDIA.
+
+### Milestones
+
+1. **WGSL, plain.** The `matmul` above compiles and runs on WebGPU in a tab. Results match the CPU within rounding. Same GPU,
+   against hand-written WGSL: speed, and compile time with passes on and off. Target: a 50-line kernel edit to dispatch
+   in under 1 s. Proves type recovery, and how far plain loops get.
+2. **Host in C and SPIR-V.** `gpu/host/vulkan.c` and the same kernel natively, packaging moved. Cold-start cost of compiling
+   the host measured.
+3. **Cooperative matrix.** One explicit GEMM on an RDNA3 or newer card, against the plain loop.
+4. **PTX and one tuned GEMM.** `gpu/host/cuda.c`, `__gpu_asm`, one generation, one format. Same rented card: plain loop,
+   ours, the stack read. This number decides how far tuned kernels go.
+5. **Instinct and Metal.** As demand says.
+
+**Testing:** software adapters (WebGPU's in headless Chromium, a software Vulkan driver) in CI for correctness; both to
+confirm on arm64 Linux. Speed only on real hardware, on mains. This machine's WSL has no usable GPU: WGSL speed runs
+in a Windows browser, the rest on rented cards.
+
+### Unknown until measured
+
+Type recovery on real kernels. Compile time through cimo's passes. The gap from plain loops to tuned. Cooperative matrix
+against direct instructions. The driver's PTX compiler against NVIDIA's bundled one. `mfma` through `libhiprtc`. Stack
+switching for synchronous calls in Pyodide.
+
+Sources: [HIP runtime compiler](https://rocm.docs.amd.com/projects/HIP/en/docs-6.4.1/how-to/hip_rtc.html),
+[RADV cooperative matrix](https://www.phoronix.com/news/RADV-VK_KHR_cooperative_matrix),
+[Intel's driver](https://www.phoronix.com/news/Intel-ANV-Cooperative-Matrix),
+[`VK_KHR_cooperative_matrix`](https://docs.vulkan.org/features/latest/features/proposals/VK_KHR_cooperative_matrix.html).
 
 ## Windows arm64 (2026-10-31)
 
