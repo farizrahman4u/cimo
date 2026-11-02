@@ -187,6 +187,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   (`ema` 5.12 to 3.33 ns, a wrapping-add sum 2.05 to 0.34 ns). Costs 13-38% compile time and about
   25-30% more code on `t_printf` and `t_math`. Open: drop a static function once every call is
   inlined (its definition is still compiled and emitted); honor `noinline`.
+- **`79d11d6` (nsw, WidenIV) slows a division loop 9%** (from scramjit): `ratio_sum` in scramjit's `bench/m1.py`, a loop of
+  checked float divisions, goes from 1.02 to 1.11 ns per element at that commit, the same on later ones. Cause not looked
+  into. Reproduce by running `bench/m1.py` against an export of `79d11d6~1` and of `79d11d6`.
 - **Inlining stops by position in a large function** (from scramjit): `inline.CALLER_LIMIT` (4000 IR
   instructions) is spent in source order, so later code keeps its calls however hot it is and however
   small the callee. A llama2.c forward pass as one function (scramjit's `bench/llm.py`) called
