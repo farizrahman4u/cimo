@@ -3,6 +3,7 @@ right where each could go wrong (register pressure, spills, widths, signs)."""
 
 import array
 import platform
+import ctypes
 import re
 
 import pytest
@@ -702,14 +703,15 @@ char sc(char c) { switch (c) { case 'a': return 'A'; case 'b': return 'B'; case 
 def test_jump_tables(monkeypatch):
     big = 'int f(int k) { switch (k) { %s default: return -1; } }' % ' '.join(
         'case %d: return %d;' % (i, i * 7 + 1) for i in range(20))
+    big = big.replace('return %d;' % 8, 'k += 3; return k;').replace('case 1: k', 'case 1: k')
     assert re.search(r'\bbr\s+x17', body(big)), body(big)
-    assert not re.search(r'\bbr\s', body(SW, 's7')), body(SW, 's7')  # few cases: the tree is faster
+    assert not re.search(r'\bbr\s', body(SW, 'a7')), body(SW, 'a7')  # few cases: the tree is faster
     m = cimo.compile(big + '\nstatic int mark_big;', cache=False)
-    assert [m.f(k) for k in (-1, 0, 7, 19, 20, 2 ** 31 - 1)] == [-1, 1, 50, 134, -1, -1]
+    assert [m.f(k) for k in (-1, 0, 1, 7, 19, 20, 2 ** 31 - 1)] == [-1, 1, 4, 50, 134, -1, -1]
     from cimo.backend.arm64 import emit
     monkeypatch.setattr(emit, 'JT_MINCASES', 4)
     src = SW + 'static int mark_small;'
-    assert re.search(r'\bbr\s+x17', body(src, 's7')), body(src, 's7')
+    assert re.search(r'\bbr\s+x17', body(src, 'a7')), body(src, 'a7')
     assert re.search(r'\bbr\s+x17', body(src, 'l6')), body(src, 'l6')
     assert not re.search(r'\bbr\s', body(src, 'sparse')), body(src, 'sparse')
 
@@ -760,3 +762,196 @@ def test_jump_tables_compute_the_same(cached, monkeypatch, tmp_path):
         else:
             s >>= 1
     assert m.loop(p, 50) == s
+
+
+WRITEBACK = r'''
+#include <stdint.h>
+long lsum(long *p, long n) { long s = 0; while (n--) s += *p++; return s; }
+long isum(int *p, long n) { long s = 0; while (n--) s += *p++; return s; }
+long usum(unsigned *p, long n) { long s = 0; while (n--) s += *p++; return s; }
+long ssum(short *p, long n) { long s = 0; while (n--) s += *p++; return s; }
+long hsum(unsigned short *p, long n) { long s = 0; while (n--) s += *p++; return s; }
+long bsum(signed char *p, long n) { long s = 0; while (n--) s += *p++; return s; }
+long csum(unsigned char *p, long n) { long s = 0; while (n--) s += *p++; return s; }
+double dsum(double *p, long n) { double s = 0; while (n--) s += *p++; return s; }
+float fsum(float *p, long n) { float s = 0; while (n--) s += *p++; return s; }
+long down(long *p, long n) { long s = 0; p += n; while (n--) s += *--p; return s; }
+void fill(int *p, long n, int v) { while (n--) *p++ = v; }
+void filld(double *p, long n, double v) { while (n--) *p++ = v; }
+void copy8(char *d, const char *s, long n) { while (n--) *d++ = *s++; }
+long self(long **p) { long *q = *p; long v = *q; q++; *p = q; return v; }
+long both(long *p) { long a = *p; p++; return a + (long)p; }
+long keep(long *p, long *out) { long a = *p; long *q = p + 1; *out = (long)p; return a + *q; }
+'''
+
+
+def test_post_index():
+    for name in ('lsum', 'isum', 'usum', 'ssum', 'hsum', 'bsum', 'csum', 'dsum', 'fsum', 'fill', 'filld', 'copy8'):
+        assert re.search(r'\], -?\d+\b', body(WRITEBACK, name)), (name, body(WRITEBACK, name))
+    m = cimo.compile(WRITEBACK)
+    n = 50
+    want = {'lsum': ('q', 'l'), 'isum': ('i', 'i'), 'usum': ('I', 'i'), 'ssum': ('h', 'h'), 'hsum': ('H', 'h'),
+            'bsum': ('b', 'b')}
+    for name, (tc, _) in want.items():
+        a = array.array(tc, [(-1) ** i * i if tc.islower() else i for i in range(n)])
+        assert getattr(m, name)(a, n) == sum(a), name
+    c = array.array('B', range(n))
+    assert m.csum(c, n) == sum(c)
+    d = array.array('d', [i / 2 for i in range(n)])
+    assert m.dsum(d, n) == sum(d)
+    f = array.array('f', [i / 2 for i in range(n)])
+    assert m.fsum(f, n) == sum(f)
+    q = array.array('q', range(n))
+    assert m.down(q, n) == sum(q)
+    w = array.array('i', [0] * (n + 1))
+    m.fill(w, n, 7)
+    assert list(w) == [7] * n + [0]
+    v = array.array('d', [0.0] * (n + 1))
+    m.filld(v, n, 1.5)
+    assert list(v) == [1.5] * n + [0.0]
+    src, dst = bytearray(range(n)), bytearray(n + 1)
+    m.copy8(dst, bytes(src), n)
+    assert dst[:n] == src and dst[n] == 0
+
+
+BITFIELDS = r'''
+unsigned bfi8(unsigned a, unsigned b) { return (a & ~0xff00u) | ((b & 0xff) << 8); }
+unsigned bfi8r(unsigned a, unsigned b) { return ((b & 0xff) << 8) | (a & ~0xff00u); }
+unsigned bfi_top(unsigned a, unsigned b) { return (a & 0xffffffu) | (b << 24); }
+unsigned bfi_low(unsigned a, unsigned b) { return (a & ~0xffu) | (b & 0xff); }
+unsigned bfxil8(unsigned a, unsigned b) { return (a & ~0xffu) | ((b >> 8) & 0xff); }
+unsigned bfxil_top(unsigned a, unsigned b) { return (a & ~0xffu) | (b >> 24); }
+unsigned long bfi64(unsigned long a, unsigned long b) { return (a & ~(0xffffUL << 16)) | ((b & 0xffff) << 16); }
+unsigned long bfi64top(unsigned long a, unsigned long b) { return (a & 0xffffffffUL) | (b << 32); }
+unsigned swapped(unsigned a, unsigned b) { return (b & ~0xff00u) | ((a & 0xff) << 8); }
+unsigned same(unsigned a) { return (a & ~0xff00u) | ((a & 0xff) << 8); }
+unsigned twice(unsigned a, unsigned b, unsigned *o) { unsigned x = a & ~0xff00u; *o = x; return x | ((b & 0xff) << 8); }
+unsigned notfield(unsigned a, unsigned b) { return (a & ~0xf0f0u) | ((b & 0xf) << 4); }
+unsigned overlap(unsigned a, unsigned b) { return (a & ~0xff00u) | ((b & 0xfff) << 8); }
+'''
+
+
+@pytest.mark.parametrize('name,want', [
+    ('bfi8', r'bfi\s'), ('bfi8r', r'bfi\s'), ('bfi_top', r'bfi\s'), ('bfi_low', r'bf(i|xil)\s'),
+    ('bfxil8', r'bfxil\s'), ('bfxil_top', r'bfxil\s'), ('bfi64', r'bfi\s'), ('bfi64top', r'bfi\s'),
+    ('swapped', r'bfi\s'), ('same', r'bfi\s'),
+])
+def test_bitfield_insert(name, want):
+    assert re.search(want, body(BITFIELDS, name)), body(BITFIELDS, name)
+
+
+def test_bitfield_insert_only_when_it_fits():
+    assert 'bf' not in body(BITFIELDS, 'notfield') and 'bf' not in body(BITFIELDS, 'overlap')
+
+
+def test_bitfield_insert_computes_the_same():
+    m = cimo.compile(BITFIELDS)
+    M = 0xffffffff
+    L = 2 ** 64 - 1
+    for a, b in [(0x12345678, 0x9abcdef0), (0, M), (M, 0), (0xdeadbeef, 0xfeedface)]:
+        assert m.bfi8(a, b) == (a & ~0xff00 & M) | ((b & 0xff) << 8)
+        assert m.bfi8r(a, b) == m.bfi8(a, b)
+        assert m.bfi_top(a, b) == (a & 0xffffff) | (b << 24 & M)
+        assert m.bfi_low(a, b) == (a & ~0xff & M) | (b & 0xff)
+        assert m.bfxil8(a, b) == (a & ~0xff & M) | (b >> 8 & 0xff)
+        assert m.bfxil_top(a, b) == (a & ~0xff & M) | (b >> 24)
+        assert m.swapped(a, b) == (b & ~0xff00 & M) | ((a & 0xff) << 8)
+        assert m.same(a) == (a & ~0xff00 & M) | ((a & 0xff) << 8)
+        assert m.notfield(a, b) == (a & ~0xf0f0 & M) | ((b & 0xf) << 4)
+        assert m.overlap(a, b) == (a & ~0xff00 & M) | ((b & 0xfff) << 8 & M)
+        o = (ctypes.c_uint * 1)()
+        assert m.twice(a, b, o) == m.bfi8(a, b) and o[0] == a & ~0xff00 & M
+        A, B = a * 0x100000001 & L, b * 0x10001 & L
+        assert m.bfi64(A, B) == (A & ~(0xffff << 16) & L) | ((B & 0xffff) << 16)
+        assert m.bfi64top(A, B) == (A & 0xffffffff) | (B << 32 & L)
+
+
+FLAGS = r'''
+int andsv(int a, int b, int *o) { int d = a & b; *o = d; return d ? 7 : 9; }
+int andslt(int a, int b, int *o) { int d = a & b; *o = d; return d < 0 ? 7 : 9; }
+int andsgt(int a, int b, int *o) { int d = a & b; *o = d; return d > 0 ? 7 : 9; }
+long subsv(long a, long b, long *o) { long d = a - b; *o = d; return d == 0 ? 7 : 9; }
+long addsv(long a, long b, long *o) { long d = a + b; *o = d; return d != 0 ? 7 : 9; }
+int subslt(int a, int b, int *o) { int d = a - b; *o = d; return d < 0 ? 7 : 9; }
+int subsgt(int a, int b, int *o) { int d = a - b; *o = d; return d > 0 ? 7 : 9; }
+int neg(long a) { if (a < 0) return 1; return 2; }
+int nonneg(int a) { if (a >= 0) return 1; return 2; }
+int aa(int a, int b, int c, int d) { return a > b && c < d; }
+int oo(int a, int b, int c, int d) { return a > b || c < d; }
+int ok(int a, int b, int c) { int k = a > 0; if (k) k = b > 0; if (k) return c; return 0; }
+'''
+
+
+def test_flags_from_the_operation():
+    assert re.search(r'\bands\s', body(FLAGS, 'andsv')) and 'cmp' not in body(FLAGS, 'andsv')
+    assert re.search(r'\bands\s', body(FLAGS, 'andsgt'))
+    assert re.search(r'\bsubs\s', body(FLAGS, 'subsv')) and 'cmp' not in body(FLAGS, 'subsv')
+    assert re.search(r'\badds\s', body(FLAGS, 'addsv')) and 'cmp' not in body(FLAGS, 'addsv')
+    # subs overflows where the comparison with 0 does not
+    assert 'cmp' in body(FLAGS, 'subsgt')
+    assert 'tbnz' in body(FLAGS, 'neg') and 'cmp' not in body(FLAGS, 'neg')
+    assert re.search(r'tb(n)?z', body(FLAGS, 'nonneg')) and 'cmp' not in body(FLAGS, 'nonneg')
+    for f in ('aa', 'oo', 'ok'):
+        assert 'ccmp' in body(FLAGS, f), body(FLAGS, f)
+    m = cimo.compile(FLAGS)
+    I = ctypes.c_int * 1
+    Q = ctypes.c_long * 1
+    M, H = 2 ** 31 - 1, -2 ** 31
+    for a, b in [(0, 0), (1, 1), (5, 3), (-1, 1), (M, -1), (H, 1), (-1, H), (H, H), (M, M), (6, 3)]:
+        assert m.andsv(a, b, I()) == (7 if a & b else 9)
+        assert m.andslt(a, b, I()) == (7 if a & b < 0 else 9)
+        assert m.andsgt(a, b, I()) == (7 if a & b > 0 else 9)
+        wrapped = (a - b + 2 ** 31) % 2 ** 32 - 2 ** 31
+        assert m.subslt(a, b, I()) == (7 if wrapped < 0 else 9), (a, b)
+        assert m.subsgt(a, b, I()) == (7 if wrapped > 0 else 9), (a, b)
+        assert m.subsv(a, b, Q()) == (7 if a == b else 9)
+        assert m.addsv(a, b, Q()) == (7 if a + b else 9)
+        assert m.neg(a) == (1 if a < 0 else 2) and m.nonneg(a) == (1 if a >= 0 else 2)
+        for c, d in [(0, 1), (1, 0)]:
+            assert m.aa(a, b, c, d) == int(a > b and c < d) and m.oo(a, b, c, d) == int(a > b or c < d)
+        assert m.ok(a, b, 11) == (11 if a > 0 and b > 0 else 0)
+
+
+LOOKUP = r"""
+int full(int k) { switch (k) { case 0: return 3; case 1: return 5; case 2: return 9; case 3: return 17;
+    case 4: return 31; case 5: return 2; default: return -7; } }
+long wide(long k) { switch (k) { case 0: return 1L << 40; case 1: return -5; case 2: return 9; case 3: return 17;
+    default: return 0; } }
+int holes(int k) { switch (k) { case 1: return 3; case 3: return 5; case 5: return 9; case 6: return 17;
+    default: return 44; } }
+int sideeffect(int k, int *p) { switch (k) { case 0: return 3; case 1: *p = 1; return 5; case 2: return 9;
+    case 3: return 17; default: return 0; } }
+int few(int k) { switch (k) { case 0: return 3; case 1: return 5; default: return 0; } }
+unsigned uns(unsigned k) { switch (k) { case 0: return 4000000000u; case 1: return 3; case 2: return 8;
+    case 3: return 1; default: return 2; } }
+int inloop(const int *p, int n) { int s = 0; for (int i = 0; i < n; i++) { int v; switch (p[i]) {
+    case 0: v = 3; break; case 1: v = 5; break; case 2: v = 7; break; case 3: v = 11; break; case 4: v = 13; break;
+    default: v = 1; } s += v; } return s; }
+"""
+
+
+def test_value_tables():
+    for name in ('full', 'wide', 'holes', 'uns', 'inloop'):
+        assert re.search(r'ldr\s+[wx]\d+, \[x17, ', body(LOOKUP, name)), (name, body(LOOKUP, name))
+    for name in ('sideeffect', 'few'):
+        assert 'x17, ' not in body(LOOKUP, name), body(LOOKUP, name)
+    m = cimo.compile(LOOKUP)
+    want = [3, 5, 9, 17, 31, 2]
+    for k in range(-3, 10):
+        assert m.full(k) == (want[k] if 0 <= k < 6 else -7)
+    assert [m.wide(k) for k in (-1, 0, 1, 2, 3, 4, 2 ** 40)] == [0, 1 << 40, -5, 9, 17, 0, 0]
+    assert [m.holes(k) for k in range(-1, 9)] == [44, 44, 3, 44, 5, 44, 9, 17, 44, 44]
+    assert [m.uns(k) for k in (0, 1, 2, 3, 4, 2 ** 32 - 1)] == [4000000000, 3, 8, 1, 2, 2]
+    p = (ctypes.c_int * 1)()
+    assert m.sideeffect(1, p) == 5 and p[0] == 1 and m.few(1) == 5 and m.few(2) == 0
+    data = array.array('i', [0, 1, 2, 3, 4, 5, -1, 2])
+    assert m.inloop(data, len(data)) == 3 + 5 + 7 + 11 + 13 + 1 + 1 + 7
+
+
+@pytest.mark.parametrize('cached', [False, True])
+def test_value_tables_from_the_cache(cached, tmp_path):
+    src = LOOKUP + 'static int mark%s;' % tmp_path.name.replace('-', '_')
+    m = cimo.compile(src, cache=cached)
+    if cached:  # again, from the rebased image
+        m = cimo.compile(src)
+    assert m.full(4) == 31 and m.wide(0) == 1 << 40 and m.full(100) == -7

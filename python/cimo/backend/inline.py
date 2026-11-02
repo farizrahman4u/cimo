@@ -474,6 +474,9 @@ _LIBM = """sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh exp
     pow sqrt cbrt hypot fmod remainder floor ceil trunc round rint nearbyint fabs copysign fmin fmax fdim fma
     erf erfc tgamma ldexp scalbn logb""".split()
 _LIBM = frozenset(_LIBM + [n + 'f' for n in _LIBM])
+# C library functions that only read (LLVM's TargetLibraryInfo): loads survive a call of them
+_READONLY = frozenset("""strlen strnlen strcmp strncmp strcasecmp strncasecmp strchr strrchr strstr strspn strcspn
+    strpbrk memcmp memchr abs labs llabs isalpha isdigit isalnum isspace isupper islower toupper tolower""".split())
 ONCE_LIMIT = 800  # LLVM's last-call bonus: a static function called once goes away when inlined
 
 
@@ -505,20 +508,27 @@ def _symrefs(fn):
     return out
 
 
-def _touchesmemory(fn, nomem):
-    """fn does something other than compute: LLVM's FunctionAttrs, for readnone. Its own stack slots
-    count too, as they're not promoted yet; what is left after promotion would be better."""
+def _writesmemory(fn, nowrite):
+    """fn may write memory that anything else can see: LLVM's FunctionAttrs, for readonly. Stores to its
+    own stack slots don't count (nothing promoted them yet). Volatile reads count, as they must happen."""
+    own = set()
     b = fn.start
     while b:
         for i in b.ins:
             o = i.op
-            if D.isload(o) or D.isstore(o) or D.isvload(o) or D.isvstore(o) or D.isalloc(o) \
-                    or o in (D.Oblit0, D.Oblit1, D.Ovastart, D.Ovaarg, D.Osalloc):
+            if D.isalloc(o):
+                own.add(i.to)
+            elif o == D.Oadd and i.arg[0] in own and rtype(i.arg[1]) == RCon:
+                own.add(i.to)
+            elif D.isstore(o):
+                if i.arg[1] not in own:
+                    return True
+            elif D.isvload(o) or D.isvstore(o) or o in (D.Oblit0, D.Oblit1, D.Ovastart, D.Ovaarg, D.Osalloc):
                 return True
-            if o == D.Ocall:
+            elif o == D.Ocall:
                 r = i.arg[0]
                 c = fn.con[rval(r)] if rtype(r) == RCon else None
-                if c is None or c.type != CAddr or c.i != 0 or c.sym.id not in nomem:
+                if c is None or c.type != CAddr or c.i != 0 or c.sym.id not in nowrite:
                     return True
         b = b.link
     return False
@@ -638,6 +648,143 @@ def constglobals(fns, items, datarefs):
     simplify.CONSTANTS = {intern(n): bytes(b) for n, b in names.items() if intern(n) not in bad}
 
 
+def _plaincalls(fn):
+    """(block, position of the call, [its arg instructions]) for every call; plain args or not."""
+    b = fn.start
+    while b:
+        args = []
+        for n, i in enumerate(b.ins):
+            if D.isarg(i.op):
+                args.append(i)
+            elif i.op == D.Ocall:
+                yield b, n, i, args
+                args = []
+            elif i.op not in (D.Onop, D.Odbgloc):
+                args = []
+        b = b.link
+
+
+def _params(fn):
+    """fn's parameter instructions, if all are plain."""
+    out = []
+    b = fn.start
+    while b:
+        for i in b.ins:
+            if i.op == D.Ovastart or (D.ispar(i.op) and i.op != D.Opar):
+                return None
+            if i.op == D.Opar:
+                out.append(i)
+        b = b.link
+    return out
+
+
+def _deadparam(fn, par, uses, slots):
+    """The parameter is never read: no uses, or only stored to a slot nothing else touches. Returns the
+    instructions that go with it, or None."""
+    n = uses.get(par.to, 0)
+    if n == 0:
+        return [par]
+    if n != 1:
+        return None
+    b = fn.start
+    while b:
+        for i in b.ins:
+            if D.isstore(i.op) and i.arg[0] == par.to:
+                return [par, i] if i.arg[1] in slots and uses.get(i.arg[1], 0) == 1 else None
+        b = b.link
+    return None
+
+
+def ipo(fns, datarefs):
+    """LLVM's IPSCCP and DeadArgumentElimination, on static functions whose every use is a direct call: a
+    parameter that all calls give the same constant is that constant, one nothing reads goes, and a result
+    that every return gives as the same constant is known at the calls."""
+    from .util import getcon, intern
+    byid = {intern(fn.name): fn for fn in fns}
+    refs = {}
+    for fn in fns:
+        for s, n in _symrefs(fn).items():
+            refs[s] = refs.get(s, 0) + n
+    data = {intern(n) for n in datarefs}
+    calls = {}
+    for fn in fns:
+        for b, n, i, args in _plaincalls(fn):
+            r = i.arg[0]
+            c = fn.con[rval(r)] if rtype(r) == RCon else None
+            if c is not None and c.type == CAddr and c.i == 0 and c.sym.id in byid:
+                calls.setdefault(c.sym.id, []).append((fn, b, i, args))
+    for s, fn in byid.items():
+        sites = calls.get(s)
+        if fn.lnk.export or s in data or not sites or refs.get(s, 0) != len(sites):
+            continue
+        pars = _params(fn)
+        if pars is None or fn.vararg or any(len(a) != len(pars) or any(x.op != D.Oarg for x in a) for _, _, _, a in sites):
+            continue
+        uses = {}
+        slots = set()
+        b = fn.start
+        while b:
+            p = b.phi
+            while p:
+                for a in p.arg[:p.narg]:
+                    uses[a] = uses.get(a, 0) + 1
+                p = p.link
+            for i in b.ins:
+                if D.isalloc(i.op):
+                    slots.add(i.to)
+                for a in i.arg:
+                    uses[a] = uses.get(a, 0) + 1
+            uses[b.jmp.arg] = uses.get(b.jmp.arg, 0) + 1
+            b = b.link
+        gone = []
+        for n, par in enumerate(pars):
+            dead = _deadparam(fn, par, uses, slots)
+            if dead is not None:
+                for i in dead:
+                    i.set(D.Ins(D.Onop))
+                gone.append(n)
+                continue
+            vals = set()
+            for f, _, _, a in sites:
+                r = a[n].arg[0]
+                c = f.con[rval(r)] if rtype(r) == RCon else None
+                vals.add(c.i if c is not None and c.type == D.CBits else None)
+            if len(vals) == 1 and None not in vals and D.KBASE(par.cls) == 0:
+                par.op, par.arg[0], par.arg[1] = D.Ocopy, getcon(vals.pop(), fn), R
+                gone.append(n)
+        for f, cb, _, a in sites:
+            for n in gone:
+                a[n].set(D.Ins(D.Onop))
+            cb.ins = [x for x in cb.ins if x.op != D.Onop]  # args stay next to their call
+            cb.nins = len(cb.ins)
+        s0 = fn.start  # parameters first, as the ABI reads them
+        s0.ins = [x for x in s0.ins if D.ispar(x.op)] + [x for x in s0.ins if not D.ispar(x.op) and x.op != D.Onop]
+        s0.nins = len(s0.ins)
+        # the result
+        v = None
+        b = fn.start
+        any_ret = False
+        while b:
+            t = b.jmp.type
+            if D.isret(t):
+                any_ret = True
+                r = b.jmp.arg
+                c = fn.con[rval(r)] if rtype(r) == RCon else None
+                if t not in (D.Jretw, D.Jretl) or c is None or c.type != D.CBits or (v is not None and v != c.i):
+                    v = None
+                    break
+                v = c.i
+            b = b.link
+        if v is None or not any_ret:
+            continue
+        for f, cb, call, _ in sites:
+            if call.to != R and D.KBASE(call.cls) == 0:
+                at = next(k for k, x in enumerate(cb.ins) if x is call)
+                cb.ins[at + 1:at + 1] = [D.Ins(D.Ocopy, call.cls, call.to, getcon(v, f), R)]
+                cb.nins = len(cb.ins)
+                call.to = R
+
+
 def expand_all(fns, limit, datarefs=()):
     """Inline small functions of the module fns into their callers, callees first (a cycle of
     calls is broken at an arbitrary function: its call stays a call), and any size of a static
@@ -672,7 +819,7 @@ def expand_all(fns, limit, datarefs=()):
                 stack.pop()
                 order.append(fn)
     bodies = {}
-    nomem = {intern(n) for n in _LIBM if intern(n) not in byid}
+    nomem = {intern(n) for n in _LIBM | _READONLY if intern(n) not in byid}
     for fn in order:
         expand(fn, bodies)
         s = intern(fn.name)
@@ -680,7 +827,7 @@ def expand_all(fns, limit, datarefs=()):
         body = snapshot(fn, ONCE_LIMIT if once else limit)
         if body is not None:
             bodies[s] = body
-        if not _touchesmemory(fn, nomem):
+        if not _writesmemory(fn, nomem):
             nomem.add(s)
     load.nomemcalls = frozenset(nomem)
     # what's still reachable (LLVM's GlobalDCE)

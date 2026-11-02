@@ -110,7 +110,7 @@ def storesz(s):
     die("unreachable")
 
 
-nomemcalls = frozenset()  # cimo: symbol ids of functions that touch no memory (inline.expand_all)
+nomemcalls = frozenset()  # cimo: symbol ids of functions that write no memory (inline.expand_all)
 
 
 def _nomem(call):

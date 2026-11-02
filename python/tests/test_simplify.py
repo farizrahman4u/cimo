@@ -5,6 +5,8 @@ import random
 import re
 
 import pytest
+import ctypes
+import array
 
 import cimo
 from cimo import driver
@@ -856,3 +858,222 @@ def test_memcmp_each_size(n):
         y = ctypes.create_string_buffer(bytes(changed), 40)
         assert m.f(x, y) == int(at >= n), (n, at)
         assert m.g(x, y) == int(at < n), (n, at)
+
+
+SCALAR = r'''
+struct P { int x, y; };
+struct V { double x, y, z; };
+union U { int i; float f; };
+extern int printf(const char *, ...);
+int sroa1(int a, int b) { struct P p; p.x = a; p.y = b; return p.x * p.y; }
+double sroa2(double a) { struct V v = {a, a + 1, a + 2}; struct V w = v; return w.x + w.y + w.z; }
+int sroa3(const int *q, int n) { struct P p = {0, 0}; for (int i = 0; i < n; i++) { p.x += q[i]; p.y ^= q[i]; } return p.x + p.y; }
+int sroa4(int a) { int t[3]; t[0] = a; t[1] = a * 2; t[2] = a * 3; return t[0] + t[1] + t[2]; }
+int unionf(float f) { union U u; u.f = f; return u.i; }
+float unioni(int i) { union U u; u.i = i; return u.f; }
+int escaped(int a) { int t[2]; int *p = t; t[0] = a; p[1] = a + 1; return t[1]; }
+int varindex(int a, int i) { int t[2]; t[0] = a; t[1] = a + 1; return t[i & 1]; }
+int overlapped(unsigned a) { union { unsigned w; unsigned char b[4]; } u; u.w = a; return u.b[1]; }
+int outofslot(int a) { char s[8]; struct P p; p.x = a; p.y = 1; s[0] = 1; return p.x + s[0]; }
+int condstore(int c, int a) { struct P p; p.x = 1; if (c) p.x = a; p.y = p.x + 1; return p.y; }
+int sccp1(int n) { int x = 1; for (int i = 0; i < n; i++) { if (x != 1) x = 2; } return x; }
+int sccp2(int n) { int x = 1, y = 5; for (int i = 0; i < n; i++) { if (x != 1) y = 9; else y = 5; } return y + x; }
+int sccp3(int n) { int x = 1; for (int i = 0; i < n; i++) { if (i == 3) x = 2; } return x; }
+int dead1(int n) { int x = 0, y = 1; for (int i = 0; i < n; i++) { x = y + 1; y = x * 2; } return n; }
+int dead2(const int *p, int n) { int s = 0, t = 0; for (int i = 0; i < n; i++) { if (p[i]) t += p[i]; s += i; } return s; }
+int alive(const int *p, int n, int *o) { int t = 0; for (int i = 0; i < n; i++) { if (p[i]) t += p[i]; } *o = t; return n; }
+int dist1(int a, int b, int c) { return a * b + a * c; }
+int dist2(int a, int b, int c) { return a * c - b * c; }
+int dist3(int a, int b, int c, int *o) { int x = a * b; *o = x; return x + a * c; }
+int half(int a) { return a / 2; }
+long halfl(long a) { return a / 2; }
+int digit(int c) { return c >= '0' && c <= '9'; }
+int notdigit(int c) { return c < '0' || c > '9'; }
+int udigit(unsigned c) { return c >= 48 && c < 58; }
+int two(int c) { return c == 7 || c == 8; }
+int cased(int c) { return c == 'a' || c == 'A'; }
+int empty(int c) { return c >= 9 && c <= 3; }
+int wide(long c) { return c > -5 && c < 1000000000000L; }
+int minbound(int c) { return c >= -2147483647 - 1 && c <= 5; }
+int maxbound(int c) { return c > 2147483647 - 1 || c < 0; }
+int edgeout(int c) { return c < -2147483647 - 1 + 1 || c > 2147483646; }
+'''
+
+
+def test_sroa():
+    for name in ('sroa1', 'sroa3', 'sroa4', 'condstore'):
+        b = body(SCALAR, name)
+        assert 'x29' not in b and '[sp' not in b, b
+    assert 'ldr' not in body(SCALAR, 'sroa2') and 'fmov\tx' not in body(SCALAR, 'sroa2')
+    m = cimo.compile(SCALAR)
+    assert m.sroa1(6, 7) == 42 and m.sroa2(1.5) == 1.5 + 2.5 + 3.5 and m.sroa4(5) == 30
+    q = array.array('i', [1, 2, 3, 4])
+    assert m.sroa3(q, 4) == 10 + (1 ^ 2 ^ 3 ^ 4)
+    assert m.unionf(1.0) == 0x3f800000 and m.unioni(0x40000000) == 2.0
+    assert m.escaped(3) == 4 and [m.varindex(3, i) for i in (0, 1)] == [3, 4]
+    assert m.overlapped(0x11223344) == 0x33 and m.outofslot(4) == 5
+    assert m.condstore(0, 9) == 2 and m.condstore(1, 9) == 10
+
+
+def test_sccp():
+    assert 'mov\tw0, #1' in body(SCALAR, 'sccp1').replace(' ', '\t') or re.search(r'mov\s+w0, #1\b', body(SCALAR, 'sccp1'))
+    m = cimo.compile(SCALAR)
+    for n in (0, 1, 3, 4, 10):
+        assert m.sccp1(n) == 1 and m.sccp2(n) == 6
+        assert m.sccp3(n) == (2 if n > 3 else 1)
+
+
+def test_adce():
+    assert 'ldr' not in body(SCALAR, 'dead2'), body(SCALAR, 'dead2')
+    assert 'mul' not in body(SCALAR, 'dead1') and 'lsl' not in body(SCALAR, 'dead1')
+    assert 'ldr' in body(SCALAR, 'alive')
+    m = cimo.compile(SCALAR)
+    p = array.array('i', [1, 0, 3, 0, 5])
+    o = (ctypes.c_int * 1)()
+    assert m.dead1(5) == 5 and m.dead2(p, 5) == 10 and m.alive(p, 5, o) == 5 and o[0] == 9
+
+
+def test_distribute():
+    assert len(re.findall(r'\bm(ul|add|sub)\b', body(SCALAR, 'dist1'))) == 1
+    assert len(re.findall(r'\bm(ul|add|sub)\b', body(SCALAR, 'dist2'))) == 1
+    m = cimo.compile(SCALAR)
+    o = (ctypes.c_int * 1)()
+    assert m.dist1(3, 4, 5) == 27 and m.dist2(9, 4, 5) == 25
+    assert m.dist3(3, 4, 5, o) == 27 and o[0] == 12
+    assert m.dist1(2 ** 30, 3, 5) == 0  # wraps the same either way
+
+
+def test_sign_fixup_of_a_half():
+    assert 'asr\tw0, w0, #31' not in body(SCALAR, 'half')
+    m = cimo.compile(SCALAR)
+    for a in (-7, -2, -1, 0, 1, 7, 2 ** 31 - 1, -2 ** 31):
+        assert m.half(a) == int(a / 2)
+        assert m.halfl(a * 2 ** 32) == a * 2 ** 31
+        assert m.halfl(a) == int(a / 2)
+
+
+def test_ranges():
+    for name in ('digit', 'notdigit', 'udigit', 'two'):
+        b = body(SCALAR, name)
+        assert b.count('cmp') == 1, b
+    assert body(SCALAR, 'cased').count('cmp') == 1
+    m = cimo.compile(SCALAR)
+    M = 2 ** 31 - 1
+    for c in (-M - 1, -M, -6, -5, -4, -1, 0, 3, 6, 7, 8, 9, 47, 48, 57, 58, 65, 97, 96, 1000, M - 1, M):
+        assert m.digit(c) == int(48 <= c <= 57), c
+        assert m.notdigit(c) == int(c < 48 or c > 57), c
+        assert m.two(c) == int(c in (7, 8)), c
+        assert m.cased(c) == int(c in (65, 97)), c
+        assert m.empty(c) == 0
+        assert m.wide(c) == int(-5 < c < 10 ** 12), c
+        assert m.minbound(c) == int(c <= 5), c
+        assert m.maxbound(c) == int(c > M - 1 or c < 0), c
+        assert m.edgeout(c) == int(c < -M or c > M - 1), c
+        if c >= 0:
+            assert m.udigit(c) == int(48 <= c < 58), c
+    assert m.udigit(2 ** 32 - 1) == 0 and m.wide(10 ** 12) == 0 and m.wide(10 ** 12 - 1) == 1 and m.wide(-5) == 0
+
+
+IPO = r"""
+int sink_;
+void use(int a) { sink_ += a; }
+int ext(int a) { sink_ ^= a; return a + 1; }
+#define T4(x) x; x; x; x
+#define BIG(a) T4(T4(T4(use(a))))
+static int deadarg(int a, int b) { BIG(a); return a; }
+int cdead(int a) { return deadarg(a, a * 7) + deadarg(a + 1, 3); }
+static long cparam(int a, long b, int c) { BIG(a); return a + b + c; }
+long ccon(int a) { return cparam(a, 1L << 40, 7) + cparam(a + 1, 1L << 40, 7); }
+static long cdiff(int a, long b) { BIG(a); return a + b; }
+long cdif(int a) { return cdiff(a, 1) + cdiff(a, 2); }
+static int retk(int a) { BIG(a); return 5; }
+int ckret(int a) { return retk(a) + retk(a + 1); }
+static int retneg(int a) { BIG(a); if (a) return -1; return -1; }
+long ckneg(int a) { return (long)retneg(a) + retneg(a + 1); }
+static int rettwo(int a) { BIG(a); if (a) return 1; return 2; }
+int cktwo(int a) { return rettwo(a) + rettwo(a + 1); }
+static int taken(int a, int b) { BIG(a); return b; }
+int (*const taker)(int, int) = taken;
+int cktaken(int a) { return taken(a, 3) + taker(a, 4); }
+static int floatpar(int a, double d) { BIG(a); return a + (int)d; }
+int ckfloat(int a) { return floatpar(a, 2.5) + floatpar(a, 2.5); }
+static void structp(int a, int b) { BIG(a); sink_ += b; }
+int ckvoid(int a) { structp(a, 2); structp(a, 2); return sink_; }
+static int rec(int a, int b) { BIG(a); return a <= 0 ? b : rec(a - 1, b); }
+int ckrec(int a) { return rec(a, 9); }
+int dse2(int *p, int c) { *p = 1; if (c) *p = 2; else *p = 3; return 0; }
+int dse3(int *p, int c, int *q) { *p = 1; if (c) { *q = *p + 3; *p = 2; } else *p = 3; return 0; }
+int dse4(int *p, int c) { *p = 1; if (c) *p = 2; return 0; }
+int dse5(int *p, int c) { *p = 1; if (c) { ext(1); *p = 2; } else *p = 3; return 0; }
+int pre1(int *p, int c) { int a = 0; if (c) a = *p; else ext(1); return a + *p; }
+int pre2(int *p, int c, int *q) { int a = 0; if (c) { *p = 5; a = 1; } else { *q = 7; } return a + *p; }
+int noloop(int n) { int x = 0; for (int i = 0; i < n; i++) x += i; return n; }
+int forever(int n) { for (;;) if (n) break; return 3; }
+int usedafter(int n) { int i; for (i = 0; i < n; i++) ; return i; }
+long rd(const char *s, long *o) { long a = *o; extern unsigned long strlen(const char *); long n = strlen(s); return a + n + *o; }
+int rd2(const int *p, int *o) { int a = *o; extern int memcmp(const void *, const void *, unsigned long); int n = memcmp(p, p + 1, 50); return a + n + *o; }
+"""
+
+
+def test_interprocedural():
+    assert not re.search(r'\b[wx]1\b', body(IPO, 'cdead')), body(IPO, 'cdead')
+    assert 'mul' not in body(IPO, 'cdead') and 'lsl' not in body(IPO, 'cdead')
+    assert re.search(r'w1\b|x1\b', body(IPO, 'cdif')) and re.search(r'mov\s+w0, #10\b', body(IPO, 'ckret'))
+    m = cimo.compile(IPO)
+    assert m.cdead(2) == 5 and m.ccon(3) == 2 * (1 << 40) + 3 + 4 + 14
+    assert m.cdif(4) == 11 and m.ckret(0) == 10 and m.ckneg(0) == -2
+    assert m.cktwo(0) == 2 + 1 and m.cktaken(1) == 7 and m.ckfloat(1) == 6
+    assert m.ckrec(2) == 9
+    before = m.ckvoid(0)
+    assert m.ckvoid(0) == before + 4
+
+
+def test_dead_stores_across_blocks():
+    assert re.search(r'mov\s+w\d, #1\b', body(IPO, 'dse2')) is None
+    assert re.search(r'mov\s+w\d, #1\b', body(IPO, 'dse4'))  # not overwritten on the way that skips it
+    m = cimo.compile(IPO)
+    p = (ctypes.c_int * 2)()
+    for c, want in ((0, 3), (1, 2)):
+        m.dse2(p, c)
+        assert p[0] == want
+        m.dse5(p, c)
+        assert p[0] == want
+    q = (ctypes.c_int * 1)()
+    m.dse3(p, 1, q)
+    assert q[0] == 4 and p[0] == 2
+    m.dse4(p, 0)
+    assert p[0] == 1
+    m.dse4(p, 1)
+    assert p[0] == 2
+
+
+def test_load_pre():
+    m = cimo.compile(IPO)
+    p = (ctypes.c_int * 1)(11)
+    q = (ctypes.c_int * 1)(0)
+    assert m.pre1(p, 1) == 22 and m.pre1(p, 0) == 11
+    assert m.pre2(p, 1, q) == 6 and p[0] == 5
+    p[0] = 8
+    assert m.pre2(p, 0, q) == 8 and q[0] == 7
+    assert m.pre2(q, 0, q) == 7 and q[0] == 7  # the store on the other way is to the same place
+
+
+def test_dead_loops():
+    assert 'cmp' not in body(IPO, 'noloop') and 'b.' not in body(IPO, 'noloop')
+    assert re.search(r'\bb\.?\w*\s|cb', body(IPO, 'forever'))  # it can run forever
+    m = cimo.compile(IPO)
+    assert m.noloop(5) == 5 and m.forever(1) == 3 and m.usedafter(5) == 5 and m.usedafter(-1) == 0
+
+
+def test_loads_survive_readonly_calls():
+    assert body(IPO, 'rd').count('ldr') <= 2  # the saved register's restore and the one load
+    m = cimo.compile(IPO)
+    o = (ctypes.c_long * 1)(4)
+    assert m.rd(b'abc', o) == 11
+
+
+def test_dead_store_is_not_one_round_a_loop():
+    src = """struct s { struct s *n; } a[4], first;
+int f(void) { struct s *next = &first; for (int i = 0; i < 4; i++) { next->n = &a[i]; next = next->n; }
+    next->n = 0; int c = 0; for (struct s *p = &first; p; p = p->n) c++; return c; }"""
+    assert cimo.compile(src).f() == 5

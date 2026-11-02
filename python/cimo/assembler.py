@@ -541,6 +541,23 @@ def _i_bitfield(a, mn, ops):
             | rd[1])
 
 
+def _i_bfm(a, mn, ops):
+    """bfi, bfxil rd, rn, #lsb, #width."""
+    if len(ops) != 4:
+        raise AssemblerError('%s needs 4 operands' % mn)
+    rd, rn = _reg(ops[0]), _reg(ops[1])
+    _same(rd, rn)
+    w = 64 if rd[0] == 'x' else 32
+    lsb, width = _imm(ops[2], True), _imm(ops[3], True)
+    if not (0 <= lsb < w and 1 <= width <= w - lsb):
+        raise AssemblerError('bad bit field in %s' % mn)
+    if mn == 'bfi':
+        immr, imms = -lsb % w, width - 1
+    else:
+        immr, imms = lsb, lsb + width - 1
+    return 0x33000000 | _sf(rd) | (w == 64) << 22 | immr << 16 | imms << 10 | rn[1] << 5 | rd[1]
+
+
 def _i_ubfiz(a, mn, ops):
     """ubfiz rd, rn, #lsb, #width."""
     if len(ops) != 4:
@@ -1112,7 +1129,7 @@ _INSNS = {
     'cmp': _i_cmp, 'cmn': _i_cmp, 'neg': _i_neg,
     'and': _i_logic, 'orr': _i_logic, 'eor': _i_logic, 'ands': _i_logic,
     'bic': _i_logic, 'orn': _i_logic, 'eon': _i_logic, 'ubfx': _i_bitfield, 'sbfx': _i_bitfield,
-    'ror': _i_ror, 'ubfiz': _i_ubfiz,
+    'ror': _i_ror, 'ubfiz': _i_ubfiz, 'bfi': _i_bfm, 'bfxil': _i_bfm,
     'lsl': _i_shift, 'lsr': _i_shift, 'asr': _i_shift,
     'mul': _i_dp2, 'sdiv': _i_dp2, 'udiv': _i_dp2, 'madd': _i_madd, 'msub': _i_madd,
     'smull': _i_widemul, 'umull': _i_widemul, 'smaddl': _i_widemul, 'smsubl': _i_widemul,

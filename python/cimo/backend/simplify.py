@@ -243,6 +243,11 @@ def simplify(fn, b, i):
     o = i.op
     if D.isload(o):
         return _constload(fn, i)
+    if o == D.Ocast:  # a word through memory as the other class and back (sroa)
+        d = _defn(fn, i.arg[0])
+        if d is not None and d.op == D.Ocast and rtype(d.arg[0]) == RTmp and fn.tmp[rval(d.arg[0])].cls == i.cls:
+            return d.arg[0]
+        return R
     if o not in _SIMPLE:
         return R
     k = i.cls
@@ -327,6 +332,10 @@ def simplify(fn, b, i):
     elif o in (D.Orem, D.Ourem):
         if n == 1:
             return getcon(0, fn)
+    elif o == D.Oshr and n == (63 if k == Kl else 31) and d0 is not None and d0.cls == k and d0.op == D.Osar \
+            and _con(fn, d0.arg[1], k) == n:  # the sign's copies down to the sign alone: x / 2's fixup
+        _set(fn, b, i, D.Oshr, d0.arg[0], c)
+        return R
     elif o == D.Oshl:
         if n is not None and d0 is not None and d0.cls == k and d0.op in (D.Oshr, D.Osar) \
                 and _con(fn, d0.arg[1], k) == n:  # (x >> n) << n
