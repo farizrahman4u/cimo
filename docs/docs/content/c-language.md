@@ -18,7 +18,7 @@ cimo ships its own C library, so a kernel behaves the same on every platform, th
 
 and the freestanding headers: `stdint.h`, `stddef.h`, `stdbool.h`, `stdarg.h`, `limits.h`, `float.h`, `stdalign.h`, `stdnoreturn.h`, `iso646.h`.
 
-`printf` writes to Python's `sys.stdout`. `sqrt`, `fabs`, `floor`, `ceil`, `trunc`, `round`, `fmin` and `fmax` compile to single instructions.
+`printf` writes to Python's `sys.stdout`. `sqrt` and `fabs` compile to single instructions; on arm64 so do `floor`, `ceil`, `trunc`, `round`, `fmin` and `fmax` (on x86-64 they are library calls).
 
 GNU bit builtins work as in gcc: `__builtin_popcount`, `__builtin_clz`, `__builtin_ctz`, `__builtin_bswap32` and their `l`/`ll` forms.
 
@@ -48,6 +48,6 @@ These are the same on every target, including WebAssembly, where cimo keeps `lon
 
 ## Floating point
 
-By default cimo contracts `a * b + c` within one expression into a fused multiply-add, as clang does with `-ffp-contract=on`. That is faster and slightly more accurate, and it means results can differ in the last bit from a compiler that doesn't contract. Set `CIMO_FMA=0` for results identical to `-ffp-contract=off`.
+By default cimo contracts `a * b + c` within one expression into a fused multiply-add, as clang does with `-ffp-contract=on`. That is faster and slightly more accurate, and it means results can differ in the last bit from a compiler that doesn't contract. Set `CIMO_FMA=0` for results identical to `-ffp-contract=off`. On x86-64 and WebAssembly cimo never contracts (it targets baseline x86-64, which has no FMA instruction), so results there are always those of `-ffp-contract=off`.
 
 There is no floating-point environment: rounding is to nearest and there are no exception flags.
