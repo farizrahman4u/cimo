@@ -4,7 +4,8 @@ what they can see: a block, or a branch and its two arms.
 
     hoist(fn)   the same load first in both arms: once, before the branch
     sink(fn)    the same store last in both arms: once, at the join, of a phi
-    dse(fn)     a store overwritten in its block, with nothing that could read it in between
+    dse(fn)     a store overwritten in its block or on every way on, with nothing that could read it
+    pre(fn)     a load known on all ways into its block but one: a load on that way and a phi
     merge(fn)   adjacent constant stores off one base: one wider store (arm64 and wasm allow unaligned)
 
 hoist and sink require rpo, preds and use; dse and merge only the instructions. Each breaks use and
@@ -114,6 +115,28 @@ def _reads(i):
     return o in (D.Ogetsp, D.Osetsp, D.Osalloc) or D.isalloc(o)
 
 
+def _overwritten(b, r, n, depth):
+    """Every way on from b stores at least n bytes at r before anything reads memory (LLVM's DSE, across
+    blocks). Few blocks are followed: this is for a store and its overwrite in the arms of a branch. Only
+    forwards: round a loop, r is the same temporary but another address."""
+    if b.jmp.type not in (D.Jjmp, D.Jjnz) or depth == 0:
+        return False
+    for s in (b.s1, b.s2):
+        if s is None:
+            continue
+        if s.id <= b.id:
+            return False
+        for i in s.ins[:s.nins]:
+            if _reads(i):
+                return False
+            if D.isstore(i.op) and i.arg[1] == r and _STORESIZE[i.op] >= n:
+                break
+        else:
+            if not _overwritten(s, r, n, depth - 1):
+                return False
+    return True
+
+
 def dse(fn):
     changed = False
     b = fn.start
@@ -122,13 +145,15 @@ def dse(fn):
         out = []
         ins = b.ins[:b.nins]
         drop = False
+        clean = True  # nothing reads memory from here to the end of the block
         for i in reversed(ins):
             if _reads(i):
                 killed = {}
+                clean = False
             elif D.isstore(i.op):
                 n = _STORESIZE[i.op]
                 r = i.arg[1]
-                if killed.get(r, 0) >= n:
+                if killed.get(r, 0) >= n or (clean and _overwritten(b, r, n, 4)):
                     drop = True
                     continue
                 killed[r] = max(killed.get(r, 0), n)
@@ -153,8 +178,12 @@ def _baseoff(fn, r):
     return r, 0
 
 
+MERGESPAN = 128  # instructions looked at from each store: a block of thousands of them was quadratic
+
+
 def merge(fn):
     changed = False
+    intstores = frozenset(_INTSTORE.values())
     b = fn.start
     while b:
         ins = b.ins[:b.nins]
@@ -163,24 +192,27 @@ def merge(fn):
         did = False
         while n < len(ins):
             i = ins[n]
+            if i.op not in intstores or rtype(i.arg[0]) != RCon or fn.con[rval(i.arg[0])].type != CBits:
+                out.append(i)
+                n += 1
+                continue
             run = []
-            between = []  # pure instructions among them, such as the addresses: they stay
             k = n
             end = n
-            while k < len(ins):
+            while k < len(ins) and k - n < MERGESPAN:
                 x = ins[k]
-                if x.op in _INTSTORE.values() and rtype(x.arg[0]) == RCon \
-                        and fn.con[rval(x.arg[0])].type == CBits:
+                if x.op in intstores and rtype(x.arg[0]) == RCon and fn.con[rval(x.arg[0])].type == CBits:
                     run.append(x)
                     k += 1
                     end = k
                     continue
                 if D.isstore(x.op) or _reads(x) or x.to == R and x.op not in (D.Onop, D.Odbgloc):
                     break
-                between.append(x)
                 k += 1
             k = end
-            between = [x for x in ins[n:end] if x not in run]
+            stores = set(map(id, run))
+            # pure instructions among them, such as the addresses, stay
+            between = [x for x in ins[n:end] if id(x) not in stores]
             if len(run) < 2:
                 out.append(i)
                 n += 1
@@ -231,4 +263,65 @@ def merge(fn):
             b.nins = len(out)
             changed = True
         b = b.link
+    return changed
+
+
+_CLOBBER = frozenset((D.Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Ovaarg))
+_STOREOF = {Kw: D.Ostorew, Kl: D.Ostorel, Ks: D.Ostores, Kd: D.Ostored}
+
+
+def _available(p, r, op, cls):
+    """What the end of block p knows is at r for a load op of class cls: a load or store there of the same
+    extent with nothing that may write after it; or None."""
+    whole = op == D.Oload or (cls == Kw and op in (D.Oloadsw, D.Oloaduw))
+    for i in reversed(p.ins[:p.nins]):
+        if i.op == op and i.cls == cls and i.arg[0] == r:
+            return i.to
+        if D.isstore(i.op):
+            return i.arg[0] if i.arg[1] == r and whole and i.op == _STOREOF[cls] else None
+        if i.op in _CLOBBER or D.isvload(i.op) or D.isvstore(i.op):
+            return None
+    return None
+
+
+def pre(fn):
+    """LLVM's GVN load PRE, GCC's pre: a block's load whose value is known on all its ways in but one. A load
+    on that way makes it a phi, so each path runs one load fewer or the same. Loads QBE's own elimination
+    leaves: it inserts them for loops, not for branches."""
+    changed = False
+    for b in fn.rpo[:fn.nblk]:
+        if b.npred < 2 or b.loop > 1:
+            continue
+        preds = b.pred[:b.npred]
+        if len(set(preds)) != len(preds) or any(p.loop > b.loop for p in preds):
+            continue
+        for i in b.ins[:b.nins]:
+            if D.isstore(i.op) or i.op in _CLOBBER or D.isvload(i.op) or D.isvstore(i.op):
+                break
+            if not D.isload(i.op) or rtype(i.arg[0]) == D.RSlot:
+                continue
+            r = i.arg[0]
+            if rtype(r) == D.RTmp and fn.tmp[rval(r)].bid == b.id:
+                continue  # its address is computed here
+            vals = [_available(p, r, i.op, i.cls) for p in preds]
+            missing = [p for p, v in zip(preds, vals) if v is None]
+            if len(missing) != 1 or len(preds) == 1:
+                continue
+            m = missing[0]
+            if m.jmp.type != D.Jjmp:
+                continue
+            t = newtmp('pre', i.cls, fn)
+            m.ins = m.ins[:m.nins] + [D.Ins(i.op, i.cls, t, r, R)]
+            m.nins = len(m.ins)
+            fn.tmp[rval(t)].bid = m.id
+            p = D.Phi()
+            p.to = i.to
+            p.cls = i.cls
+            p.arg = [t if v is None else v for v in vals]
+            p.blk = list(preds)
+            p.narg = len(preds)
+            p.link = b.phi
+            b.phi = p
+            i.set(D.Ins(D.Onop))
+            changed = True
     return changed

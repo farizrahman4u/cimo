@@ -49,7 +49,7 @@ in Python.
 **Tier 1, instruction selection and peepholes** (seen in today's output; no analysis needed):
 - ~~Frame only when needed, shifts by an immediate, register-offset addressing, `madd`, `msub`,
   `cbz`, `cbnz`~~ **Done** (`ext.isel`).
-- Pre/post-index addressing (`AArch64LoadStoreOpt`, GCC `inc_dec`).
+- ~~Pre/post-index addressing~~ **Done** (`isel.sinkinc`, `emit._writeback`). Open: `ldp`/`stp` with write-back.
 - ~~Shifted and extended operands~~ **Done, outside loops only:** folded, `add`/`sub`/`eor` take 2 cycles
   from every input here (`s += x[i] << 3`: 0.72 ns folded, 0.38 not; through the shifted value 12%
   better; off any chain the same). Measure on other CPUs: LLVM always folds single uses.
@@ -62,8 +62,9 @@ in Python.
 - ~~`bic`, `orn`, `eon`, `mvn`, `ubfx`, `sbfx`, `ror`, storing `xzr`, `fmov` immediates~~ **Done**
   (`ext.isel`), and `csinc`/`csneg`/`csinv`, `xzr` in `csel`, `ubfiz`, `tst`/`tbz`/`tbnz`, identical compares
   dropped, `mul` by constants near powers of two, sibling calls, self tail recursion as a loop
-  (`inline.selftail`), `csetm`, `ccmp` (`thread._ifcombine`, `isel._ccmp`). Open: `bfi`, `bfxil`, flags from
-  `subs`/`ands`, pre/post-index, `ccmp` for values and for `&&` that went through a flag variable.
+  (`inline.selftail`), `csetm`, `ccmp` also for values and for `&&` through a flag variable
+  (`thread._ifcombine`, `isel._ccmp`), `bfi`, `bfxil` (`isel.selbfi`), flags from `ands`/`adds`/`subs`
+  (`emit._flagsfrom`), `tbz`/`tbnz` on the sign. Open: `mi`/`pl` after `subs`/`adds`.
 - Redundant extensions (`ldrb` then `uxtb`; GCC `ree`, `ext_dce`).
 - ~~Division by a constant~~ **Done** (`cse.divconst`). `mul` by 2^n+-1 as `add`/`sub` with a shift.
   Multipliers are built outside loops (`cse.hoistcons`); the same for other large constants and FP
@@ -71,32 +72,35 @@ in Python.
 - Tail calls and sibling calls (`TailCallElim`, GCC `tail_recursion`, `tail_calls`), loops for
   self-recursion. ~~Jump tables for dense `switch`~~ **Done**, from 16 cases, not LLVM's 4: per element, tree /
   table, random cases: 4 cases 5.0 / 6.5 ns, 8 cases 7.5 / 7.2, 16 cases 9.0 / 7.6, 32 cases 11.3 / 7.8; a few
-  dominant cases 4.5 / 5.6. Measure on other CPUs. Open: value tables (`switch.table`).
+  dominant cases 4.5 / 5.6. Measure on other CPUs. ~~Value tables~~ **Done** (`emit._valuetable`), LLVM's 4 cases and 40% density: 0.85 ns
+  per element from 4 cases on against 3.8 to 7.8 for the tree. Open: bit tests for `c == 1 || c == 2 || c == 5`.
 
 **Tier 2, scalar IR passes:**
 - Algebraic simplification: `InstCombine`, `AggressiveInstCombine`, GCC `forwprop`/`match.pd`.
 - ~~Value ranges and known conditions~~ **Done** (`simplify.srange`, `simplify.decide`, known bits): facts
-  from dominating branches, counters that only grow. Open: `SCCP`/GCC `ccp`, `ADCE`/GCC `cd_dce`; `nsw` from
-  the frontend, for `x + 1 > x` and `x * 2 == 8`, which the wrapping IR can't assume.
+  from dominating branches, counters that only grow. `SCCP`, `ADCE` **done** (`backend/scalar.py`). Open: `nsw`
+  from the frontend, for `x + 1 > x` and `x * 2 == 8`, which the wrapping IR can't assume.
 - ~~Jump threading~~ **Done** (`backend/thread.py`), for joins that only branch. Open: threading through
   blocks with other work, by copying them (`DFAJumpThreading`).
 - ~~Loop unswitching~~ **Done** (`middle/unswitch.py`), small innermost loops with one exit block.
 - If-conversion with a cost model: `SimplifyCFG` (speculate at most 4 cost units), `SelectOptimize`
   (select back to a branch when predictable), `EarlyIfConversion` (trace metrics); GCC `phiopt`,
   `cselim`, `tree_ifcombine`. Replaces the one-block-body rule in `middle/ifconv.py`.
-- ~~`Reassociate`~~ **Done** for constants and sums (`cse.reassoc`). Open: `StraightLineStrengthReduce`/GCC
-  `strength_reduction`, `SpeculativeExecution`, distributing `a * b + a * c`.
+- ~~`Reassociate`~~ **Done** for constants, sums and `a * b + a * c` (`cse.reassoc`), range checks as one
+  comparison (`cse.ranges`). Open: `StraightLineStrengthReduce`/GCC `strength_reduction`, `SpeculativeExecution`.
 - ~~Local `DSE`, `MergedLoadStoreMotion`, GVN hoisting, GCC `store_merging`, small `memcpy`, `memset`, `strlen`
   of a literal, `pow(x, 2)`, `ExpandMemCmp` for `== 0`, loads of constant globals~~ **Done** (`backend/memopt.py`,
-  `frontend.qbe`, `inline.constglobals`). Open: `SROA`/GCC `sra` beyond what promotion does, `MemCpyOpt`, `GVN` load
-  PRE/GCC `pre`, `MergeICmps`, `DSE` across blocks.
-- GCC `cse_reciprocals`, `cse_sincos`, `expand_pow`, `optimize_bswap`, `optimize_widening_mul`, `strlen`.
-- Inlining with a real cost model (`InlineCost`), `DeadArgumentElimination`, `IPSCCP`, `GlobalOpt`,
-  `FunctionAttrs` (pure, nocapture: loads and stores survive calls), `ModRef`/GCC `ipa_modref`,
-  `PartialInliner`, `GlobalDCE`, `ConstantMerge`, `MergeFunctions`/GCC `ipa_icf`.
+  `frontend.qbe`, `inline.constglobals`), `SROA` (`backend/sroa.py`), load PRE for one missing way in and `DSE`
+  across a branch (`memopt.pre`, `memopt.dse`). Open: `MemCpyOpt`, `MergeICmps`.
+- ~~GCC `optimize_bswap`, load combining~~ **Done** on arm64 (`cse.bytepatterns`); wasm could have the loads.
+  Open: GCC `cse_reciprocals`, `cse_sincos`, `expand_pow`.
+- ~~`DeadArgumentElimination`, `IPSCCP`, `GlobalDCE`, readonly from `FunctionAttrs`~~ **Done** (`inline.ipo`,
+  `inline.expand_all`). Open: inlining with a real cost model (`InlineCost`), nocapture, `ModRef`/GCC `ipa_modref`,
+  `PartialInliner`, `ConstantMerge`, `MergeFunctions`/GCC `ipa_icf`.
 
 **Tier 3, loops** (`middle/`, which has unrolling, unroll-and-jam, scalar replacement, strength reduction):
-- `LoopRotate`, `IndVarSimplify`/GCC `iv_canon`, `LoopDeletion`, `LoopSimplifyCFG`, `LICM` scalar promotion.
+- `LoopRotate`, `IndVarSimplify`/GCC `iv_canon`, `LoopSimplifyCFG`, `LICM` scalar promotion. ~~`LoopDeletion`~~
+  **Done** for loops that count (`scalar._deadloops`).
 - `LoopIdiomRecognize`: memset, memcpy, popcount, ctz. GCC `crc_optimization`.
 - `LoopStrengthReduce`/GCC `iv_optimize`, with `AArch64` addressing modes as its cost.
 - Store-to-load across iterations: `LoopLoadElimination`, GCC `predcom` (scramjit's `ema`).

@@ -338,7 +338,13 @@ _OPS += [('aalu', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 
          ('accmp', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
          ('atst', ((Kw, Kl, Ke, Ke), (Kw, Kl, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
          ('asmull', ((Ke, Kw, Ke, Ke), (Ke, Kw, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-         ('aumull', ((Ke, Kw, Ke, Ke), (Ke, Kw, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
+         ('aumull', ((Ke, Kw, Ke, Ke), (Ke, Kw, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         # r = abfi a, MEM{base=b, scale=b's lsb, offset=lsb | width << 8}: a with a field from b
+         ('abfi', ((Kw, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         # add, sub, and that also set the flags (emit._flagsfrom)
+         ('aadds', ((Kw, Kl, Ke, Ke), (Kw, Kl, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('asubs', ((Kw, Kl, Ke, Ke), (Kw, Kl, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('aands', ((Kw, Kl, Ke, Ke), (Kw, Kl, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
 # r = acsel a, MEM{base=b, offset=cond}: a if the condition holds on the flags, else b. One op for
 # every combination of the result's class and the comparison's kind, unlike xsel*
 _OPS += [('acsel', ((Kw, Kl, Ks, Kd), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]

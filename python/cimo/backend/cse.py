@@ -24,7 +24,8 @@ from .defs import KBASE
 from .cfg import dom
 from .gcm import pinned
 from .gvn import replaceuses
-from .util import newtmp, getcon
+from .util import newtmp, getcon, chuse, iscmp
+from .ssa import filluse
 
 
 
@@ -285,6 +286,126 @@ def _sum(fn, r, k, leaves, depth=0):
     return _sum(fn, d.arg[0], k, leaves, depth + 1) + _sum(fn, d.arg[1], k, leaves, depth + 1)
 
 
+def _distribute(fn, i, k, out):
+    """LLVM's Reassociate: a * b + a * c as a * (b + c), each product only used here."""
+    d = []
+    for r in i.arg:
+        x = fn.tmp[r & D.VMASK].def_ if D.rtype(r) == D.RTmp and (r & D.VMASK) >= D.Tmp0 else None
+        if x is None or x.op != D.Omul or x.cls != k or fn.tmp[r & D.VMASK].nuse != 1:
+            return False
+        d.append(x)
+    for p in (0, 1):
+        for q in (0, 1):
+            if d[0].arg[p] == d[1].arg[q] and D.rtype(d[0].arg[p]) == D.RTmp:
+                u, v = d[0].arg[p ^ 1], d[1].arg[q ^ 1]
+                if D.rtype(u) == D.RCon and D.rtype(v) == D.RCon:
+                    return False
+                t = newtmp('ra', k, fn)
+                x = D.Ins(i.op, k, t, u, v)
+                out.append(x)
+                fn.tmp[t & D.VMASK].def_ = x
+                fn.tmp[t & D.VMASK].nuse = 1
+                i.op, i.arg[0], i.arg[1] = D.Omul, d[0].arg[p], t
+                return True
+    return False
+
+
+def ranges(fn):
+    """LLVM's InstCombine: k0 <= x && x <= k1 as one unsigned comparison, (unsigned)(x - k0) <= k1 - k0;
+    x < k0 || x > k1 as its opposite; x == k || x == k + 1 the same way; x == k || x == k | m, one bit
+    apart, as (x | m) == (k | m). Each comparison only used here."""
+    changed = False
+    for b in fn.rpo[:fn.nblk]:
+        if not any(i.op in (D.Oand, D.Oor) and i.cls == D.Kw for i in b.ins[:b.nins]):
+            continue
+        out = []
+        for i in b.ins[:b.nins]:
+            got = _range(fn, i) if i.op in (D.Oand, D.Oor) and i.cls == D.Kw else None
+            if got is not None:
+                out += got
+                changed = True
+            else:
+                out.append(i)
+        b.ins = out
+        b.nins = len(out)
+    return changed
+
+
+def _bound(fn, r):
+    """(x, class, condition, constant) of a single-use integer comparison with a constant, x on the left."""
+    if D.rtype(r) != D.RTmp or (r & D.VMASK) < D.Tmp0 or fn.tmp[r & D.VMASK].nuse != 1:
+        return None
+    d = fn.tmp[r & D.VMASK].def_
+    cm = iscmp(d.op) if d is not None else None
+    if cm is None or KBASE(cm[0]) != 0:
+        return None
+    c = _conof(fn, d.arg[1])
+    if c is None or D.rtype(d.arg[0]) != D.RTmp:
+        return None
+    return d.arg[0], cm[0], cm[1], c
+
+
+def _range(fn, i):
+    a, c = _bound(fn, i.arg[0]), _bound(fn, i.arg[1])
+    if a is None or c is None or a[0] != c[0] or a[1] != c[1]:
+        return None
+    x, k = a[0], a[1]
+    w = 64 if k == D.Kl else 32
+    full = (1 << w) - 1
+    if i.op == D.Oor and a[2] == D.Cieq and c[2] == D.Cieq:
+        lo, hi = sorted((a[3] & full, c[3] & full))
+        if hi == lo + 1:
+            return _inrange(fn, i, x, k, lo, hi, False, D.Ciule)
+        m = lo ^ hi
+        if m & (m - 1) == 0 and m:
+            t = newtmp('rg', k, fn)
+            return [D.Ins(D.Oor, k, t, x, getcon(m, fn)), D.Ins(_cmpop(k, D.Cieq), D.Kw, i.to, t, getcon(hi | m, fn))]
+        return None
+    if a[2] not in _BOUNDS or c[2] not in _BOUNDS or (a[2] in _SIGNED) != (c[2] in _SIGNED):
+        return None
+    signed = a[2] in _SIGNED
+    lo = hi = None
+    for cc, n in ((a[2], a[3]), (c[2], c[3])):
+        n = _sign(n, w) if signed else n & full
+        low, by = _BOUNDS[cc][i.op == D.Oor]
+        if low:
+            lo = n + by
+        else:
+            hi = n + by
+    if lo is None or hi is None or lo > hi:
+        return None
+    if (signed and not (-(1 << (w - 1)) <= lo and hi < 1 << (w - 1))) or (not signed and not (0 <= lo and hi <= full)):
+        return None
+    return _inrange(fn, i, x, k, lo, hi, i.op == D.Oor, D.Ciule)
+
+
+def _sign(v, w):
+    v &= (1 << w) - 1
+    return v - (1 << w) if v >> (w - 1) else v
+
+
+# what a comparison with n bounds: (is it the lower bound, n's distance from it), for x in the range when
+# it holds (&&) and for x out of it when it holds (||)
+_BOUNDS = {D.Cisge: ((True, 0), (False, -1)), D.Cisgt: ((True, 1), (False, 0)),
+           D.Cisle: ((False, 0), (True, 1)), D.Cislt: ((False, -1), (True, 0)),
+           D.Ciuge: ((True, 0), (False, -1)), D.Ciugt: ((True, 1), (False, 0)),
+           D.Ciule: ((False, 0), (True, 1)), D.Ciult: ((False, -1), (True, 0))}
+_SIGNED = frozenset((D.Cisge, D.Cisgt, D.Cisle, D.Cislt))
+
+
+def _cmpop(k, cc):
+    return (D.Ocmpw if k == D.Kw else D.Ocmpl) + cc
+
+
+def _inrange(fn, i, x, k, lo, hi, out, cc):
+    w = 64 if k == D.Kl else 32
+    full = (1 << w) - 1
+    t = newtmp('rg', k, fn)
+    op = _cmpop(k, D.Ciugt if out else cc)
+    return [D.Ins(D.Osub, k, t, x, getcon(D.s64(lo & full), fn)),
+            D.Ins(op, D.Kw, i.to, t, getcon(D.s64((hi - lo) & full), fn))]
+
+
 def reassoc(fn):
     """LLVM's Reassociate and InstCombine's distribution, for integers, which wrap: (x + c) * k is
     x * k + c * k, and a sum of sums is its terms in a fixed order, then the constant. So p[i + 1] and
@@ -315,6 +436,8 @@ def reassoc(fn):
                     i.arg[0] = t
                     i.arg[1] = getcon(D.s64(c * n), fn)
                     changed = True
+            elif KBASE(k) == 0 and i.op in (D.Oadd, D.Osub) and _distribute(fn, i, k, out):
+                changed = True
             elif KBASE(k) == 0 and i.op == D.Oadd:
                 nested = _adddef(fn, i.arg[0], k) or _adddef(fn, i.arg[1], k)
                 if nested is not None:
@@ -337,4 +460,215 @@ def reassoc(fn):
             out.append(i)
         b.ins = out
         b.nins = len(out)
+    return changed
+
+
+_BYTEDEAD = {D.Oor, D.Oshl, D.Oshr, D.Oand, D.Oadd, D.Oextub, D.Oextuh, D.Oextuw, D.Oextsw, D.Oloadub, D.Oloaduh, D.Oloadsw,
+             D.Oloaduw, D.Oload, D.Ocopy}
+
+
+def _byteof(fn, r, n, st):
+    """Where each of the n low bytes of r comes from (LLVM's calculateByteProvider, AggressiveInstCombine):
+    a list of 0 (known zero), ('v', tmp, byte) or ('m', base, offset, load); or None if unknown."""
+    st[0] -= 1
+    if st[0] < 0:
+        return None
+    if D.rtype(r) == D.RCon:
+        c = fn.con[D.rval(r)]
+        if c.type != D.CBits:
+            return None
+        return [0 if not c.i >> (8 * j) & 255 else None for j in range(n)]
+    if D.rtype(r) != D.RTmp or D.rval(r) < D.Tmp0:
+        return None
+    t = fn.tmp[D.rval(r)]
+    d = t.def_
+    width = 8 if t.cls == D.Kl else 4
+    leaf = [('v', r, j) if j < width else None for j in range(n)]
+    if d is None:
+        return leaf
+    op = d.op
+    if op == D.Ocopy:
+        return _byteof(fn, d.arg[0], n, st)
+    if op == D.Oor:
+        a = _byteof(fn, d.arg[0], n, st)
+        c = _byteof(fn, d.arg[1], n, st)
+        if a is None or c is None:
+            return leaf
+        out = []
+        for x, y in zip(a, c):
+            if x == 0:
+                out.append(y)
+            elif y == 0:
+                out.append(x)
+            else:
+                out.append(None)
+        return out
+    if op in (D.Oshl, D.Oshr) and D.rtype(d.arg[1]) == D.RCon:
+        s = _conof(fn, d.arg[1])
+        if s is None or s % 8 or not 0 <= s < width * 8:
+            return leaf
+        s //= 8
+        a = _byteof(fn, d.arg[0], width, st)
+        if a is None:
+            return leaf
+        if op == D.Oshl:
+            out = [0] * s + a[:width - s]
+        else:
+            out = a[s:] + [0] * s
+        return (out + [None] * n)[:n]
+    if op == D.Oand and _conof(fn, d.arg[1]) is not None:
+        m = _conof(fn, d.arg[1])
+        a = _byteof(fn, d.arg[0], width, st)
+        if a is None or any((m >> (8 * j) & 255) not in (0, 255) for j in range(width)):
+            return leaf
+        return ([x if m >> (8 * j) & 255 else 0 for j, x in enumerate(a)] + [None] * n)[:n]
+    if op in (D.Oextub, D.Oextuh, D.Oextuw, D.Oextsw):
+        src = {D.Oextub: 1, D.Oextuh: 2}.get(op, 4)
+        a = _byteof(fn, d.arg[0], src, st)
+        if a is None or (op == D.Oextsw and a[3] != 0):
+            return leaf
+        return ([a[j] if j < src else 0 for j in range(8)])[:n]
+    if (op in (D.Oloadub, D.Oloaduh, D.Oloaduw, D.Oload) or op == D.Oloadsw and d.cls == D.Kw) and KBASE(d.cls) == 0:
+        size = {D.Oloadub: 1, D.Oloaduh: 2, D.Oloaduw: 4, D.Oloadsw: 4}.get(op, width)
+        base, off = _baseoff(fn, d.arg[0])
+        if base is None:
+            return leaf
+        return ([('m', base, off + j, d, off) if j < size else 0 for j in range(8)])[:n]
+    return leaf
+
+
+def _baseoff(fn, r):
+    """An address as (what it adds up to, without constants; the constants), or (None, 0). reassoc left
+    copies of its sums for the next gvn, so the sum is compared and not the temporary."""
+    leaves = []
+    off = 0
+    todo = [r]
+    while todo:
+        x = todo.pop()
+        if D.rtype(x) == D.RCon:
+            c = fn.con[D.rval(x)]
+            if c.type == D.CBits:
+                off += c.i
+            elif c.type == D.CAddr and c.sym.type in (D.SGlo, D.SExt):
+                off += c.i
+                leaves.append(('s', c.sym.id))
+            else:
+                return None, 0
+        elif D.rtype(x) == D.RTmp and D.rval(x) >= D.Tmp0:
+            d = fn.tmp[D.rval(x)].def_
+            if d is not None and d.op == D.Oadd and d.cls == D.Kl and len(leaves) + len(todo) < 8:
+                todo += [d.arg[0], d.arg[1]]
+            else:
+                leaves.append(('t', D.rval(x)))
+        else:
+            return None, 0
+    return tuple(sorted(leaves)), off
+
+
+def _combineor(fn, b, n):
+    """Instructions replacing the or at b.ins[n], and where they go; or None."""
+    i = b.ins[n]
+    k = i.cls
+    size = 8 if k == D.Kl else 4
+    src = _byteof(fn, i.to, size, [64])
+    if src is None or None in src:
+        return None
+    w = size
+    while w and src[w - 1] == 0:
+        w -= 1
+    if w not in (2, 4, 8) or 0 in src[:w]:
+        return None
+    kinds = {s[0] for s in src[:w]}
+    if kinds == {'v'}:
+        x = src[0][1]
+        if any(s[1] != x or s[2] != w - 1 - j for j, s in enumerate(src[:w])):
+            return None
+        if w == 2 and k == D.Kw:
+            return n, [(D.Obswap16, D.Kw, i.to, x)]
+        if w == size and fn.tmp[D.rval(x)].cls == k:
+            return n, [(D.Obswap, k, i.to, x)]
+        return None
+    if kinds != {'m'} or len({id(s[3]) for s in src[:w]}) < 2 or any(s[1] != src[0][1] for s in src[:w]):
+        return None
+    lo = min(s[2] for s in src[:w])
+    if all(s[2] == lo + j for j, s in enumerate(src[:w])):
+        swap = False
+    elif all(s[2] == lo + w - 1 - j for j, s in enumerate(src[:w])):
+        swap = True
+    else:
+        return None
+    first = next(s for s in src[:w] if s[2] == lo)  # the lowest byte; its load may begin before it
+    addr, ahead = first[3].arg[0], lo - first[4]
+    pos = {}
+    for j, x in enumerate(b.ins[:n]):
+        pos[id(x)] = j
+    if any(id(s[3]) not in pos for s in src[:w]):
+        return None  # loaded in another block
+    at = [pos[id(s[3])] for s in src[:w]]
+    for x in b.ins[min(at):max(at)]:
+        if D.isstore(x.op) or x.op in (D.Ocall, D.Oblit0, D.Oblit1) or D.isvstore(x.op) or D.isvload(x.op):
+            return None
+    last = max(at) + 1
+    pre = []
+    if ahead:
+        a = newtmp('lb', D.Kl, fn)
+        pre = [(D.Oadd, D.Kl, a, addr, getcon(ahead, fn))]
+        addr = a
+    load = {2: D.Oloaduh, 4: D.Oload if k == D.Kw else D.Oloaduw, 8: D.Oload}[w]
+    if not swap:
+        return last, pre + [(load, k, i.to, addr)]
+    if w == size:
+        t = newtmp('lb', k, fn)
+        return last, pre + [(load, k, t, addr), (D.Obswap, k, i.to, t)]
+    t = newtmp('lb', D.Kw, fn)
+    if w == 2 and k == D.Kw:
+        return last, pre + [(D.Oloaduh, D.Kw, t, addr), (D.Obswap16, D.Kw, i.to, t)]
+    if w == 4:  # 32 bits, zero-extended
+        u = newtmp('lb', D.Kw, fn)
+        return last, pre + [(D.Oload, D.Kw, t, addr), (D.Obswap, D.Kw, u, t), (D.Oextuw, D.Kl, i.to, u)]
+    return None
+
+
+def bytepatterns(fn):
+    """LLVM's bswap matching and load combining, GCC's optimize_bswap: an or of bytes that are another
+    value's in reverse is rev; of bytes that are consecutive in memory is one load, perhaps then rev. Only
+    when nothing can write between the loads. Returns True if anything changed."""
+    changed = False
+    for b in fn.rpo[:fn.nblk]:
+        n = b.nins - 1
+        while n >= 0:
+            i = b.ins[n]
+            if i.op != D.Oor or KBASE(i.cls) != 0 or D.rtype(i.to) != D.RTmp:
+                n -= 1
+                continue
+            got = _combineor(fn, b, n)
+            if got is None:
+                n -= 1
+                continue
+            at, new = got
+            ins = [D.Ins(*x) if len(x) == 5 else D.Ins(x[0], x[1], x[2], x[3], D.R) for x in new]
+            b.ins = b.ins[:b.nins]
+            if at == n:
+                b.ins[n:n + 1] = ins
+            else:  # the root stays, a copy of what is loaded earlier: nothing moves past it
+                t = newtmp('lb', i.cls, fn)
+                for x in ins:
+                    if x.to == i.to:
+                        x.to = t
+                i.op, i.arg[0], i.arg[1] = D.Ocopy, t, D.R
+                b.ins[at:at] = ins
+            for x in ins:
+                fn.tmp[D.rval(x.to)].def_ = x
+            b.nins = len(b.ins)
+            changed = True
+            n = (n if at == n else at) - 1
+    if changed:  # the byte loads go now, or the next load elimination builds the new load from them again
+        filluse(fn)
+        for b in reversed(fn.rpo[:fn.nblk]):
+            for i in reversed(b.ins[:b.nins]):
+                if i.op in _BYTEDEAD and D.rtype(i.to) == D.RTmp and fn.tmp[D.rval(i.to)].nuse == 0:
+                    for a in i.arg:
+                        if D.rtype(a) == D.RTmp:
+                            chuse(a, -1, fn)
+                    i.set(D.Ins(D.Onop))
     return changed

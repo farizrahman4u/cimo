@@ -15,7 +15,8 @@ from ..defs import (R, RTmp, RCon, RSlot, RMem, CBits, CAddr, SGlo, SThr, SExt, 
                     Oafmsub, Oafnmadd, Oafnmsub)
 from ..defs import bitsd, bitsf
 from ..util import die, isreg, str_, intern
-from ..defs import Con
+from ..defs import Con, Mem
+from ..util import vgrow
 from ..emit import emitfnlnk, emitdbgloc, elf_emitfnfin
 from .regs import R0, R18, IP1, FP, LR, SP, V0, V30
 from .targ import arm64_rclob
@@ -138,6 +139,9 @@ omap = [
     (D.Osmulh, Kl, "smulh %=, %0, %1"),
     (D.Oumulh, Kl, "umulh %=, %0, %1"),
     (Oacmp, Ki, "cmp %0, %1"),
+    (D.Oaadds, Ki, "adds %=, %0, %1"),
+    (D.Oasubs, Ki, "subs %=, %0, %1"),
+    (D.Oaands, Ki, "ands %=, %0, %1"),
     (Oacmn, Ki, "cmn %0, %1"),
     (Oafcmp, Ka, "fcmpe %0, %1"),
     # cimo math builtins (ext.math)
@@ -165,6 +169,9 @@ omap = [
 V31 = 0x1fffffff  # local name for V31
 
 _FMA = {Oafmadd: "fmadd", Oafmsub: "fmsub", Oafnmadd: "fnmadd", Oafnmsub: "fnmsub"}
+
+
+_POSTINDEX, _PREINDEX = -1, -2  # Mem.scale of an access that also updates its base (_writeback)
 
 
 def _zr(r, k):
@@ -325,7 +332,11 @@ def emitf(s, i, e):
             elif t == RMem:
                 pm = e.fn.mem[rval(r)]
                 assert isreg(pm.base)
-                if not req(pm.index, R):  # cimo (ext.isel): see isel.foldindex
+                if pm.scale == _POSTINDEX:  # see _writeback
+                    f.write("[%s], %d" % (rname(rval(pm.base), Kl), pm.offset.i))
+                elif pm.scale == _PREINDEX:
+                    f.write("[%s, %d]!" % (rname(rval(pm.base), Kl), pm.offset.i))
+                elif not req(pm.index, R):  # cimo (ext.isel): see isel.foldindex
                     shift, ext = pm.scale & 15, pm.scale >> 4
                     b = rname(rval(pm.base), Kl)
                     x = rname(rval(pm.index), Kw if ext else Kl)
@@ -556,6 +567,22 @@ def emitins(i, e):
         c = e.fn.con[rval(i.arg[1])].i
         e.f.write("\t%s\t%s, %s, #%d, #%d\n" % ("ubfx" if op == D.Oaubfx else "sbfx", rname(rval(i.to), k),
                                                  rname(rval(i.arg[0]), k), c & 255, c >> 8))
+    elif op == D.Oabfi:
+        k = i.cls
+        m = e.fn.mem[rval(i.arg[1])]
+        to, a, b = rval(i.to), rval(i.arg[0]), rval(m.base)
+        if b == to and a != to:  # the field's source would be overwritten
+            e.f.write("\tmov\t%s, %s\n" % (rname(IP1, k), rname(b, k)))
+            b = IP1
+        if a != to:
+            e.f.write("\tmov\t%s, %s\n" % (rname(to, k), rname(a, k)))
+        lsb, width = m.offset.i & 255, m.offset.i >> 8
+        if m.scale:
+            e.f.write("\tbfxil\t%s, %s, #%d, #%d\n" % (rname(to, k), rname(b, k), m.scale, width))
+        elif lsb:
+            e.f.write("\tbfi\t%s, %s, #%d, #%d\n" % (rname(to, k), rname(b, k), lsb, width))
+        else:
+            e.f.write("\tbfxil\t%s, %s, #0, #%d\n" % (rname(to, k), rname(b, k), width))
     elif op == D.Oaror:
         k = i.cls
         e.f.write("\tror\t%s, %s, #%d\n" % (rname(rval(i.to), k), rname(rval(i.arg[0]), k),
@@ -633,7 +660,7 @@ def _paddr(r, e):
         return FP, slot(r, e)
     if t == RMem:
         m = e.fn.mem[rval(r)]
-        if req(m.index, R) and m.offset.type in (CBits, D.CUndef):
+        if req(m.index, R) and m.offset.type in (CBits, D.CUndef) and m.scale >= 0:
             return rval(m.base), (m.offset.i if m.offset.type == CBits else 0)
     return None
 
@@ -739,7 +766,8 @@ def _cbz(ins, jt, e):
     """cimo (ext.isel): (instructions, register) without a last "cmp x, #0" if jt tests it for
     (in)equality: cbz or cbnz does both; else (ins, None). Nothing after the jump reads flags."""
     c = jt - Jjf
-    if not _ext.isel or (c != Cieq and c != Cine):
+    sign = c == Cislt or c == Cisge
+    if not _ext.isel or (c != Cieq and c != Cine and not (sign and e.tbzok)):
         return ins, None
     n = len(ins)
     while n > 0 and ins[n - 1].op == Onop:
@@ -749,6 +777,11 @@ def _cbz(ins, jt, e):
     i = ins[n - 1]
     pc = e.fn.con[rval(i.arg[1])]
     if pc.type != CBits:
+        return ins, None
+    if sign:  # x < 0, x >= 0: the top bit, as emitcondjmp's second name is the one for "true"
+        if i.op == Oacmp and pc.i == 0:
+            at = "%s, #%d, " % (rname(rval(i.arg[0]), i.cls), 63 if i.cls == Kl else 31)
+            return ins[:n - 1], ("tbz", "tbnz", at) if c == Cislt else ("tbnz", "tbz", at)
         return ins, None
     if i.op == Oacmp and pc.i == 0:
         return ins[:n - 1], ("cbz", "cbnz", "%s, " % rname(rval(i.arg[0]), i.cls))
@@ -760,6 +793,162 @@ def _cbz(ins, jt, e):
                 bit += 1
             return ins[:n - 1], ("tbz", "tbnz", "%s, #%d, " % (rname(rval(i.arg[0]), i.cls), bit))
     return ins, None
+
+
+def _refers(i, r, e):
+    """Instruction i reads or writes register r."""
+    t = D.TMP(r)
+    if req(i.to, t):
+        return True
+    for a in i.arg:
+        if req(a, t):
+            return True
+        if rtype(a) == RMem:
+            m = e.fn.mem[rval(a)]
+            if req(m.base, t) or req(m.index, t):
+                return True
+    return False
+
+
+def _incby(i, r, e):
+    """The constant of "r = r + c" or "r = r - c" on 64 bits, if i is one and c fits an access."""
+    if i.op not in (Oadd, Osub) or i.cls != Kl or not req(i.to, D.TMP(r)) or not req(i.arg[0], D.TMP(r)) \
+            or rtype(i.arg[1]) != RCon or e.fn.con[rval(i.arg[1])].type != CBits:
+        return None
+    c = e.fn.con[rval(i.arg[1])].i
+    c = c if i.op == Oadd else -c
+    return c if -256 <= c <= 255 else None
+
+
+def _indexed(i, r, c, how, e):
+    m = Mem()
+    e.fn.nmem += 1
+    vgrow(e.fn.mem, e.fn.nmem)
+    e.fn.mem[e.fn.nmem - 1] = m
+    m.base = D.TMP(r)
+    m.scale = how
+    m.offset.type = CBits
+    m.offset.i = c
+    i.arg[0 if isload(i.op) else 1] = D.MEM(e.fn.nmem - 1)
+
+
+def _access(i, e):
+    """(address register, offset) of a plain load or store, whose data isn't that register."""
+    if not (isload(i.op) or isstore(i.op)):
+        return None
+    a = i.arg[0 if isload(i.op) else 1]
+    if rtype(a) == RTmp:
+        r, off = rval(a), 0
+    elif rtype(a) == RMem and req(e.fn.mem[rval(a)].index, R) and e.fn.mem[rval(a)].offset.type in (CBits, D.CUndef) \
+            and e.fn.mem[rval(a)].scale >= 0 and isreg(e.fn.mem[rval(a)].base):
+        m = e.fn.mem[rval(a)]
+        r, off = rval(m.base), (m.offset.i if m.offset.type == CBits else 0)
+    else:
+        return None
+    data = i.to if isload(i.op) else i.arg[0]
+    if r == SP or r == FP or not isreg(a if rtype(a) == RTmp else e.fn.mem[rval(a)].base) or req(data, D.TMP(r)) \
+            or (rtype(data) != RCon and not isreg(data)):
+        return None
+    return r, off
+
+
+def _writeback(e):
+    """cimo (ext.isel), LLVM's AArch64LoadStoreOpt: an access and an add to its base with nothing else
+    at that register between them as one instruction. ldr x, [p]; add p, p, #c is ldr x, [p], #c;
+    ldr x, [p, #c]; add p, p, #c and add p, p, #c; ldr x, [p] are ldr x, [p, #c]!."""
+    b = e.fn.start
+    while b:
+        ins = [i for i in b.ins[:b.nins] if i.op not in (Onop, D.Odbgloc)]
+        for n, i in enumerate(ins):
+            if i.op == Onop:
+                continue
+            acc = _access(i, e)
+            if acc is not None:
+                r, off = acc
+                for j in ins[n + 1:n + 9]:
+                    if j.op == Ocall:
+                        break
+                    if _refers(j, r, e):
+                        c = _incby(j, r, e)
+                        if c is not None and off == 0:
+                            _indexed(i, r, c, _POSTINDEX, e)
+                            j.set(Ins(Onop))
+                        elif c is not None and c == off:
+                            _indexed(i, r, c, _PREINDEX, e)
+                            j.set(Ins(Onop))
+                        break
+            elif i.op in (Oadd, Osub) and isreg(i.to):
+                r = rval(i.to)
+                c = _incby(i, r, e)
+                if c is None or r == SP or r == FP:
+                    continue
+                for j in ins[n + 1:n + 9]:
+                    if j.op == Ocall:
+                        break
+                    if _refers(j, r, e):
+                        acc = _access(j, e)
+                        if acc == (r, 0):
+                            _indexed(j, r, c, _PREINDEX, e)
+                            i.set(Ins(Onop))
+                        break
+        b = b.link
+
+
+_SAFEFLAGS = {Onop, Ocopy, Oadd, Osub, Oand, Oor, Oxor, Osar, Oshr, Oshl, Omul, D.Oaubfx, D.Oasbfx, D.Oaubfiz,
+              D.Oaalu, D.Oamadd, D.Oamsub, D.Odbgloc}
+
+
+def _flagsfrom(e):
+    """cimo (ext.isel), GCC's compare_elim, LLVM's optimizeCompareInstr: "cmp r, #0" after r = a + b,
+    a - b, a & b is ands, adds or subs. The flags say the same of zero; subs and adds have other carry
+    and overflow, and ands other carry, so only what reads them decides. A jump on zero alone has
+    cbz, tested first."""
+    b = e.fn.start
+    while b:
+        ins = [i for i in b.ins[:b.nins] if i.op not in (Onop, D.Odbgloc)]
+        for n, i in enumerate(ins):
+            if i.op != Oacmp or not isreg(i.arg[0]) or rtype(i.arg[1]) != RCon:
+                continue
+            pc = e.fn.con[rval(i.arg[1])]
+            if pc.type != CBits or pc.i != 0:
+                continue
+            readers = []
+            for j in ins[n + 1:]:
+                if Oflag <= j.op < Oflag + NCmp:
+                    readers.append(j.op - Oflag)
+                elif j.op == D.Oacsel:
+                    readers.append(e.fn.mem[rval(j.arg[1])].offset.i)
+                elif j.op not in _SAFEFLAGS and not isload(j.op) and not isstore(j.op):
+                    if j.op in (Oacmp, Oacmn, D.Oatst, Oafcmp):
+                        break
+                    readers = None
+                    break
+            else:
+                jt = b.jmp.type
+                if Jjf <= jt <= Jjf + NCmp - 1:
+                    readers.append(jt - Jjf)
+                    if len(readers) == 1 and readers[0] in (Cieq, Cine, Cislt, Cisge):
+                        readers = None  # cbz, cbnz, tbz, tbnz
+            if not readers:
+                continue
+            for j in reversed(ins[:n]):
+                if j.op == Onop:
+                    continue
+                if req(j.to, i.arg[0]):
+                    if j.cls == i.cls and j.op in (Oadd, Osub, Oand) and isreg(j.arg[0]):
+                        wide = {Cieq, Cine}
+                        if j.op == Oand:
+                            wide |= {Cislt, Cisge, Cisgt, Cisle}
+                        if all(c in wide for c in readers):
+                            j.op = {Oadd: D.Oaadds, Osub: D.Oasubs, Oand: D.Oaands}[j.op]
+                            i.op = Onop
+                    break
+                if j.op not in _SAFEFLAGS and not isload(j.op) and not isstore(j.op):
+                    break
+                a = j.arg[0 if isload(j.op) else 1] if isload(j.op) or isstore(j.op) else R
+                if rtype(a) == RMem and e.fn.mem[rval(a)].scale < 0 and req(e.fn.mem[rval(a)].base, i.arg[0]):
+                    break  # an access that wrote its base back is the other write there can be
+        b = b.link
 
 
 def _dropflags(e):
@@ -786,6 +975,8 @@ def _dropflags(e):
 JT_MINCASES = 16
 JT_MINDENSITY = 0.1
 JT_MAXSIZE = 4096
+VT_MINCASES = 4
+VT_MAXSIZE = 256
 _njt = 0
 
 
@@ -816,6 +1007,47 @@ def _switchnode(fn, b, reg, k, lo, hi, cases, leaves, nodes):
         return (_switchnode(fn, ne.s1, reg, k, lo, c - 1, cases, leaves, nodes)
                 and _switchnode(fn, ne.s2, reg, k, c + 1, hi, cases, leaves, nodes))
     return _switchnode(fn, ne, reg, k, lo, hi, cases, leaves, nodes)
+
+
+def _constcase(c):
+    """(register, class, value, block to go to) of a block that only sets a register to a constant."""
+    live = [x for x in c.ins[:c.nins] if x.op not in (Onop, D.Odbgloc)]
+    if len(live) != 1 or live[0].op != Ocopy or not isreg(live[0].to) or c.jmp.type != Jjmp \
+            or rtype(live[0].arg[0]) != RCon or KBASE(live[0].cls) != 0:
+        return None
+    return live[0].to, live[0].cls, live[0].arg[0], c.s1
+
+
+def _valuetable(fn, cases, d):
+    """LLVM's SwitchToLookupTable: every case only sets one register to a constant and all go on to the
+    same block: (register, class, values, where to go, the case blocks that go) or None. Holes take the
+    default's value if it is the same kind of block, or there's no table. Density as LLVM's 40%."""
+    size = max(cases) + 1
+    if len(cases) < VT_MINCASES or size > VT_MAXSIZE or len(cases) * 10 < size * 4:
+        return None
+    shapes = {v: _constcase(c) for v, c in cases.items()}
+    first = next(iter(shapes.values()))
+    if first is None:
+        return None
+    to, k, _, join = first
+    for s in shapes.values():
+        if s is None or not req(s[0], to) or s[1] != k or s[3] is not join:
+            return None
+    def bits(r):
+        c = fn.con[rval(r)]
+        return c.i if c.type == CBits else None
+    values = {v: bits(s[2]) for v, s in shapes.items()}
+    if None in values.values():
+        return None
+    dv = None
+    ds = _constcase(d)
+    if ds is not None and req(ds[0], to) and ds[1] == k and ds[3] is join:
+        dv = bits(ds[2])
+    if dv is None and len(cases) != size:
+        return None
+    mask = (1 << (64 if k == Kl else 32)) - 1
+    gone = {c for c in cases.values() if sum(1 for x in cases.values() if x is c) == c.npred}
+    return to, k, [values.get(v, dv) & mask for v in range(size)], join, gone
 
 
 def e_con(fn, r):
@@ -851,11 +1083,15 @@ def _jumptables(e):
                       and _switchnode(fn, ne.s2, i.arg[0], i.cls, c + 1, top, cases, leaves, nodes))
             else:
                 ok = _switchnode(fn, ne, i.arg[0], i.cls, 0, top, cases, leaves, nodes)
-            if ok and len(leaves) == 1 and len(cases) >= JT_MINCASES:
+            vt = _valuetable(fn, cases, next(iter(leaves))) if ok and len(leaves) == 1 else None
+            if vt is not None:
+                tables[b] = (n - 1, i.arg[0], i.cls, [next(iter(leaves)), vt[3]], next(iter(leaves)), vt)
+                dead |= nodes | vt[4]
+            elif ok and len(leaves) == 1 and len(cases) >= JT_MINCASES:
                 size = max(cases) + 1
                 if size <= JT_MAXSIZE and len(cases) >= JT_MINDENSITY * size and size - 1 <= 4095:
                     d = next(iter(leaves))
-                    tables[b] = (n - 1, i.arg[0], i.cls, [cases.get(v, d) for v in range(size)], d)
+                    tables[b] = (n - 1, i.arg[0], i.cls, [cases.get(v, d) for v in range(size)], d, None)
                     dead |= nodes
         b = b.link
     return tables, dead
@@ -866,18 +1102,25 @@ def _emitjumptable(root, jt, e):
     table. x17 is never allocated. Returns the (label, table) to emit after the function."""
     global _njt
     T = D.T
-    _, reg, k, table, default = jt
+    _, reg, k, table, default, values = jt
     _njt += 1
     name = "\"%sjt%d\"" % (T.asloc, _njt)
     r = rname(rval(reg), k)
-    e.f.write("\tcmp\t%s, #%d\n" % (r, len(table) - 1))
+    e.f.write("\tcmp\t%s, #%d\n" % (r, (len(values[2]) if values is not None else len(table)) - 1))
     e.f.write("\tb.hi\t%s%d\n" % (T.asloc, _id0 + default.id))
     c = Con(CAddr)
     c.sym.id = intern(name)
     loadaddr(c, "x17", e)
+    if values is not None:
+        to, cls, data, join, _ = values
+        sh = 3 if cls == Kl else 2
+        e.f.write("\tldr\t%s, [x17, %s]\n" % (rname(rval(to), cls), "%s, uxtw #%d" % (r, sh) if k == Kw
+                                                else "%s, lsl #%d" % (r, sh)))
+        e.f.write("\tb\t%s%d\n" % (T.asloc, _id0 + join.id))
+        return name, data, 8 if cls == Kl else 4
     e.f.write("\tldr\tx17, [x17, %s]\n" % ("%s, uxtw #3" % r if k == Kw else "%s, lsl #3" % r))
     e.f.write("\tbr\tx17\n")
-    return name, table
+    return name, table, 0
 
 
 def _siblingcall(b, e):
@@ -1026,6 +1269,8 @@ def arm64_emitfn(fn, out):
             nins += b.nins + 1
             b = b.link
         e.tbzok = nins < 1500
+        _writeback(e)
+        _flagsfrom(e)
         _dropflags(e)
         tables, deadblocks = _jumptables(e)
         for jt in tables.values():
@@ -1138,11 +1383,14 @@ def arm64_emitfn(fn, out):
             else:
                 lbl = 0
         b = b.link
-    for name, table in emitted:
+    for name, table, valsize in emitted:
         e.f.write(".section __DATA,__const\n" if T.apple else ".section .rodata\n")
         e.f.write(".p2align 3\n%s:\n" % name)
         for t in table:
-            e.f.write("\t.quad\t%s%d\n" % (T.asloc, _id0 + t.id))
+            if valsize:
+                e.f.write("\t%s\t%d\n" % (".quad" if valsize == 8 else ".int", t))
+            else:
+                e.f.write("\t.quad\t%s%d\n" % (T.asloc, _id0 + t.id))
         e.f.write(".text\n")
     _id0 += e.fn.nblk
     if not T.apple:

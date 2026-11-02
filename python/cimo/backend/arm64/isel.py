@@ -15,7 +15,7 @@ from ..defs import (R, RTmp, RCon, NIns, M64, Ins, Con, Mem, CBits, CAddr, SExt,
 from ..util import (err, newtmp, newcon, getcon, chuse, emit, emiti, idup, intern, iscmp,
                     cmpop, salloc, argcls, vgrow)
 from ..parse import printfn
-from ..defs import Tmp0, Oextsw, Oextuw, Osar, Oshr, Cieq, Cine, Kd
+from ..defs import Tmp0, Oextsw, Oextuw, Oextub, Oextuh, Osar, Oshr, Cieq, Cine, Kd, req
 from .regs import R0
 from .. import ext as _ext
 
@@ -611,6 +611,88 @@ def selalu(i, fn):
     return False
 
 
+def _insertfield(r, lsb, width, k, w, fn):
+    """How r, whose bits are all in the field at lsb, comes from a register: (b, b's lsb, its defining
+    instructions, to go), or None. Only the field's bits of b are read, so masks are dropped."""
+    d = _only(r, fn)
+    low = (1 << width) - 1
+    d = d[1] if d is not None else None
+    if d is None or (d.cls != k and d.op not in (Oextub, Oextuh)):
+        return None
+    full = (1 << w) - 1
+    if d.op == Oshl and _conbits(d.arg[1], fn) == lsb and lsb and _plain(d.arg[0], fn):
+        if lsb + width == w:
+            return d.arg[0], 0, [d]
+        inner = _only(d.arg[0], fn)
+        inner = inner[1] if inner is not None else None
+        if inner is None:
+            return None
+        if inner.op == Oand and inner.cls == k and (_conbits(inner.arg[1], fn) or 0) & full == low \
+                and _plain(inner.arg[0], fn):
+            return inner.arg[0], 0, [d, inner]
+        if (inner.op == Oextub and width == 8 or inner.op == Oextuh and width == 16) and _plain(inner.arg[0], fn):
+            return inner.arg[0], 0, [d, inner]
+        return None
+    if d.op == Oand and (_conbits(d.arg[1], fn) or 0) & full == low << lsb and _plain(d.arg[0], fn):
+        inner = _only(d.arg[0], fn)
+        inner = inner[1] if inner is not None else None
+        if inner is not None and inner.cls == k and _plain(inner.arg[0], fn):
+            if inner.op == Oshl and _conbits(inner.arg[1], fn) == lsb and lsb:
+                return inner.arg[0], 0, [d, inner]
+            s = _conbits(inner.arg[1], fn)
+            if inner.op in (Oshr, Osar) and not lsb and s is not None and 0 < s and s + width <= w:
+                return inner.arg[0], s, [d, inner]
+        return (d.arg[0], 0, [d]) if not lsb else None
+    if not lsb and (d.op == Oextub and width == 8 or d.op == Oextuh and width == 16) and _plain(d.arg[0], fn):
+        return d.arg[0], 0, [d]
+    if not lsb and d.op == Oshr and _conbits(d.arg[1], fn) == w - width and _plain(d.arg[0], fn):
+        return d.arg[0], w - width, [d]
+    return None
+
+
+def selbfi(i, fn):
+    """(a & ~field) | bits for the field, as LLVM's tryBitfieldInsertOp: one bfi or bfxil."""
+    k = i.cls
+    w = 64 if k == Kl else 32
+    for l, r in ((i.arg[0], i.arg[1]), (i.arg[1], i.arg[0])):
+        found = _only(l, fn)
+        if found is None or found[1].op != Oand or found[1].cls != k or not _plain(found[1].arg[0], fn):
+            continue
+        keep = _conbits(found[1].arg[1], fn)
+        if keep is None:
+            continue
+        field = ~keep & ((1 << w) - 1)
+        if not field:
+            continue
+        lsb = 0
+        while not field >> lsb & 1:
+            lsb += 1
+        field >>= lsb
+        if field & (field + 1):
+            continue
+        width = 0
+        while field >> width:
+            width += 1
+        got = _insertfield(r, lsb, width, k, w, fn)
+        if got is None:
+            continue
+        b, blsb, dead = got
+        a = found[1].arg[0]
+        for d in dead + [found[1]]:
+            d.set(Ins(Onop))
+        m = Mem()
+        fn.nmem += 1
+        vgrow(fn.mem, fn.nmem)
+        fn.mem[fn.nmem - 1] = m
+        m.base = b
+        m.scale = blsb
+        m.offset.type = CBits
+        m.offset.i = lsb | width << 8
+        emit(D.Oabfi, k, i.to, a, MEM(fn.nmem - 1))
+        return True
+    return False
+
+
 def selbits(i, fn):
     """cimo (ext.isel): bit fields and rotations. Returns True if selected."""
     k = i.cls
@@ -650,6 +732,8 @@ def selbits(i, fn):
         emit(D.Oasbfx if i.op == Osar else D.Oaubfx, k, i.to, x, getcon((b - a) | (w - b) << 8, fn))
         return True
     if i.op == Oor:
+        if selbfi(i, fn):
+            return True
         for l, r in ((i.arg[0], i.arg[1]), (i.arg[1], i.arg[0])):
             fl, fr = _only(l, fn), _only(r, fn)
             if fl is None or fr is None or fl[1].op != Oshl or fr[1].op != Oshr \
@@ -989,6 +1073,14 @@ def sel(i, fn):
                 return
         if i.op == Oshl and KBASE(i.cls) == 0 and selubfiz(i, fn):
             return
+        if i.op in (Oand, Oor) and i.cls == Kw:  # a value from two comparisons, as cset after ccmp
+            emit(Oflag, Kw, i.to, R, R)
+            flag = D.insb[D.curi]
+            cc = _ccmp(selblk, i, fn)
+            if cc is not None:
+                flag.op += cc
+                return
+            D.curi += 1
         if i.op in ALU and KBASE(i.cls) == 0:
             if selbits(i, fn) or selalu(i, fn):
                 return
@@ -1194,6 +1286,42 @@ def seljmp(b, fn):
         b.jmp.type = Jjfine
 
 
+def _reads(i, r, fn):
+    for a in i.arg:
+        if req(a, r):
+            return True
+        if rtype(a) == D.RMem and (req(fn.mem[rval(a)].base, r) or req(fn.mem[rval(a)].index, r)):
+            return True
+    return False
+
+
+def sinkinc(fn):
+    """cimo (ext.isel): "q = p + c" after the accesses at p that follow it, unless they read q. p then
+    dies where q starts, so they share a register (no copy in the loop) and emit._writeback can merge
+    the add into the access: *p++ reads p after its add was computed."""
+    b = fn.start
+    while b:
+        n = b.nins - 2
+        while n >= 0:
+            i = b.ins[n]
+            c = _conbits(i.arg[1], fn) if i.op in (Oadd, Osub) and i.cls == Kl else None
+            if c is None or not -256 <= c <= 255 or not _plain(i.arg[0], fn) or not _plain(i.to, fn):
+                n -= 1
+                continue
+            p, q = i.arg[0], i.to
+            last = None
+            for m in range(n + 1, b.nins):
+                j = b.ins[m]
+                if _reads(j, q, fn):
+                    break
+                if D.isload(j.op) and req(j.arg[0], p) or D.isstore(j.op) and req(j.arg[1], p):
+                    last = m
+            if last is not None:
+                b.ins[n:last + 1] = b.ins[n + 1:last + 1] + [b.ins[n]]
+            n -= 1
+        b = b.link
+
+
 def arm64_isel(fn):
     global nfcon, selblk, selpos
 
@@ -1249,6 +1377,8 @@ def arm64_isel(fn):
             break
         b = b.link
 
+    if _ext.isel:
+        sinkinc(fn)
     if _ext.ldp and not fn.hasvolatile:
         from .pair import schedule
         schedule(fn)

@@ -549,3 +549,11 @@ def test_reset_refuses_while_running(hm):
     assert m.cbk(ctypes.cast(f, ctypes.c_void_p).value) == 1
     assert seen == ['refused']
     m.reset_heap()
+
+
+def test_read_of_a_local_before_its_only_store():
+    m = cimo.compile("""int f(int c) { int x; int y = 0; if (c) y = x; x = 1; return c ? 1 : y + x; }
+int g(void) { int x; int y = x; x = 1; return y - y + x; }
+int h(int n) { int x; int s = 0; for (int i = 0; i < n; i++) { if (i) s += x; x = i; } return s; }
+""")
+    assert m.f(0) == 1 and m.f(1) == 1 and m.g() == 1 and m.h(4) == 3

@@ -196,16 +196,89 @@ def _ifcombine(fn, h):
     return False
 
 
+def _deadphis(fn):
+    """Threading leaves phis nothing reads, and their arguments would look used elsewhere."""
+    dead = False
+    for b in fn.rpo[:fn.nblk]:
+        kept = []
+        p = b.phi
+        while p:
+            if fn.tmp[rval(p.to)].nuse:
+                kept.append(p)
+            else:
+                dead = True
+            p = p.link
+        if dead:
+            for x, y in zip(kept, kept[1:] + [None]):
+                x.link = y
+            b.phi = kept[0] if kept else None
+    return dead
+
+
+def _rename(fn, old, new):
+    for b in fn.rpo[:fn.nblk]:
+        p = b.phi
+        while p:
+            p.arg = [new if a == old else a for a in p.arg]
+            p = p.link
+        for i in b.ins[:b.nins]:
+            if i.arg[0] == old:
+                i.arg[0] = new
+            if i.arg[1] == old:
+                i.arg[1] = new
+        if b.jmp.arg == old:
+            b.jmp.arg = new
+
+
+def _mergeline(fn):
+    """A block whose only successor has no other predecessor, as one block: threading leaves these, and
+    a condition behind one isn't seen as computed where it's tested."""
+    merged = False
+    for b in fn.rpo[:fn.nblk]:
+        if b.s1 is None:  # merged already
+            continue
+        while b.jmp.type == D.Jjmp and b.s1 is not b and b.s1 is not fn.start and b.s1.npred == 1:
+            s = b.s1
+            p = s.phi
+            while p:
+                _rename(fn, p.to, p.arg[0])
+                p = p.link
+            b.ins = b.ins[:b.nins] + s.ins[:s.nins]
+            b.nins = len(b.ins)
+            for i in s.ins[:s.nins]:
+                if i.to != D.R:
+                    fn.tmp[rval(i.to)].bid = b.id
+            b.jmp.type, b.jmp.arg = s.jmp.type, s.jmp.arg
+            b.s1, b.s2 = s.s1, s.s2
+            for t in (s.s1, s.s2):
+                p = t.phi if t else None
+                while p:
+                    p.blk = [b if x is s else x for x in p.blk]
+                    p = p.link
+            s.phi, s.ins, s.nins = None, [], 0
+            s.jmp.type, s.jmp.arg = D.Jhlt, D.R
+            s.s1 = s.s2 = None
+            merged = True
+    return merged
+
+
 def run(fn):
     from . import cfg, ssa
     any_ = False
     cfg.fillloop(fn)
-    for _ in range(4):
+    for _ in range(6):
         cur = False
         for b in list(fn.rpo[:fn.nblk]):
             if _thread(fn, b):
                 cur = True
         if not cur:
+            if _deadphis(fn):
+                ssa.filluse(fn)
+            if _mergeline(fn):
+                cur = True
+                cfg.fillcfg(fn)
+                ssa.filluse(fn)
+                cfg.filldom(fn)
             for b in list(fn.rpo[:fn.nblk]):
                 if _ifcombine(fn, b):
                     cur = True

@@ -29,9 +29,43 @@ def _insidx(b, i):
     raise AssertionError("instruction not in block")
 
 
+def _readbeforestore(fn, t, blocks):
+    """The slot has one store, and a load may run without it having run. blocks: by id, doms filled."""
+    stores = [u for u in t.use[:t.nuse] if isstore(u.u.op)]
+    if len(stores) != 1:
+        # several stores: SSA construction joins them, except when all is in one block
+        if any(u.bid != stores[0].bid for u in t.use[:t.nuse]):
+            return False
+        b = next(x for x in fn.rpo[:fn.nblk] if x.id == stores[0].bid)
+        for x in b.ins[:b.nins]:
+            for u in t.use[:t.nuse]:
+                if x is u.u:
+                    return not isstore(x.op)
+        return False
+    from .cfg import dom
+    if not blocks:
+        from .cfg import filldom
+        filldom(fn)
+        blocks.update((b.id, b) for b in fn.rpo[:fn.nblk])
+    sb = blocks[stores[0].bid]
+    for u in t.use[:t.nuse]:
+        if u is stores[0]:
+            continue
+        if u.bid == stores[0].bid:
+            for x in sb.ins[:sb.nins]:
+                if x is stores[0].u:
+                    break
+                if x is u.u:
+                    return True
+        elif not dom(sb, blocks[u.bid]):
+            return True
+    return False
+
+
 def promote(fn):
     """require use, maintains use counts"""
     # promote uniform stack slots to temporaries
+    blocks = {}
     b = fn.start
     for i in b.ins[:b.nins]:
         if Oalloc > i.op or i.op > Oalloc1:
@@ -44,6 +78,7 @@ def promote(fn):
         k = -1
         s = -1
         skip = False
+        _to = i.to
         for u in t.use[:t.nuse]:
             if u.type != UIns:
                 skip = True
@@ -65,8 +100,17 @@ def promote(fn):
         if skip:
             continue
         # get rid of the alloc and replace uses
+        early = _readbeforestore(fn, t, blocks) if k != -1 else False
         _nop(i)
         t.ndef -= 1
+        if early:
+            # fix over C QBE (an error): a read the only store doesn't dominate gets an indeterminate
+            # value. Defined here as well, SSA construction joins the two
+            i.op = Ocopy
+            i.cls = k
+            i.to = _to
+            i.arg[0] = CON_Z
+            t.ndef += 1
         for u in t.use[:t.nuse]:
             l = u.u
             if isstore(l.op):

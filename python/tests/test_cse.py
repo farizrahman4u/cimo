@@ -395,3 +395,99 @@ def test_a_load_through_a_blit_in_a_loop(size, k):
         parse.parse((BLIT % (size, k, k)).encode(), 'x', drv.dbgfile, drv.data, drv.func)
         drv.finish()
     assert 'f:' in out.getvalue()
+
+
+BYTES = r'''
+#include <stdint.h>
+unsigned bsw(unsigned x) { return (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24); }
+unsigned bsw16(unsigned x) { return ((x >> 8) & 0xff) | ((x & 0xff) << 8); }
+unsigned long bsw64(unsigned long x) { x = ((x & 0xff00ff00ff00ff00ul) >> 8) | ((x & 0x00ff00ff00ff00fful) << 8); x = ((x & 0xffff0000ffff0000ul) >> 16) | ((x & 0x0000ffff0000fffful) << 16); return (x >> 32) | (x << 32); }
+unsigned long bsw64b(unsigned long x) { return (x>>56)|((x>>40)&0xff00)|((x>>24)&0xff0000)|((x>>8)&0xff000000ul)|((x<<8)&0xff00000000ul)|((x<<24)&0xff0000000000ul)|((x<<40)&0xff000000000000ul)|(x<<56); }
+unsigned rd32be(const unsigned char *p) { return (unsigned)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
+unsigned rd32le(const unsigned char *p) { return p[0] | p[1] << 8 | p[2] << 16 | (unsigned)p[3] << 24; }
+unsigned rd16le(const unsigned char *p) { return p[0] | p[1] << 8; }
+unsigned rd16be(const unsigned char *p) { return p[0] << 8 | p[1]; }
+uint64_t rd64le(const unsigned char *p) { return (uint64_t)p[0] | (uint64_t)p[1] << 8 | (uint64_t)p[2] << 16 | (uint64_t)p[3] << 24 | (uint64_t)p[4] << 32 | (uint64_t)p[5] << 40 | (uint64_t)p[6] << 48 | (uint64_t)p[7] << 56; }
+uint64_t rd64be(const unsigned char *p) { uint64_t v = 0; for (int i = 0; i < 8; i++) v = v << 8 | p[i]; return v; }
+uint64_t rd32lel(const unsigned char *p) { return (uint64_t)p[0] | (uint64_t)p[1] << 8 | (uint64_t)p[2] << 16 | (uint64_t)p[3] << 24; }
+uint64_t rd32bel(const unsigned char *p) { return (uint64_t)p[0] << 24 | (uint64_t)p[1] << 16 | (uint64_t)p[2] << 8 | (uint64_t)p[3]; }
+unsigned idx(const unsigned char *p, long i) { return p[i] | p[i+1] << 8 | p[i+2] << 16 | (unsigned)p[i+3] << 24; }
+unsigned char G[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+unsigned glo(void) { return G[4] | G[5] << 8; }
+unsigned half(const unsigned short *p) { return p[0] | (unsigned)p[1] << 16; }
+uint64_t words(const unsigned *p) { return p[0] | (uint64_t)p[1] << 32; }
+unsigned stored(unsigned char *p) { unsigned a = p[0]; p[1] = 9; return a | p[1] << 8; }
+unsigned between(unsigned char *p, unsigned char *q) { unsigned a = p[0]; *q = 9; unsigned b = p[1]; return a | b << 8; }
+unsigned hole(const unsigned char *p) { return p[0] | p[2] << 8; }
+unsigned twoptr(const unsigned char *p, const unsigned char *q) { return p[0] | q[1] << 8; }
+unsigned sx(const signed char *p) { return p[0] | p[1] << 8; }
+unsigned dup(const unsigned char *p) { return p[0] | p[0] << 8; }
+unsigned overlap(const unsigned char *p) { return p[0] | p[1] << 8 | p[1] << 16; }
+unsigned nearly(unsigned x) { return (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 23); }
+unsigned shared(const unsigned char *p, unsigned *o) { unsigned a = p[0]; *o = a; return a | p[1] << 8; }
+volatile unsigned char V[2];
+unsigned vol(void) { return V[0] | V[1] << 8; }
+'''
+
+
+@pytest.mark.parametrize('name,want', [
+    ('bsw', r'\brev\s+w'), ('bsw16', r'\brev16\b'), ('bsw64', r'\brev\s+x'), ('bsw64b', r'\brev\s+x'),
+    ('rd32be', r'ldr\s+w.*\n.*\brev\s+w'), ('rd32le', r'ldr\s+w'), ('rd16le', r'ldrh\s'),
+    ('rd16be', r'ldrh\s'), ('rd64le', r'ldr\s+x'), ('rd64be', r'ldr\s+x.*\n.*\brev\s+x'),
+    ('rd32lel', r'ldr\s+w'), ('rd32bel', r'\brev\s+w'), ('idx', r'ldr\s+w'), ('glo', r'ldrh\s'),
+    ('half', r'ldr\s+w'), ('words', r'ldr\s+x'),
+])
+def test_byte_patterns(name, want):
+    b = body(BYTES, name)
+    assert re.search(want, b), b
+    assert 'ldrb' not in b and 'orr' not in b, b
+
+
+@pytest.mark.parametrize('name', ['stored', 'between', 'hole', 'twoptr', 'sx', 'dup', 'vol'])
+def test_byte_patterns_only_when_they_are(name):
+    b = body(BYTES, name)
+    assert 'ldrh' not in b and 'rev' not in b, b
+
+
+def test_byte_patterns_compute_the_same():
+    import array
+    import ctypes
+    m = cimo.compile(BYTES)
+    M = 2 ** 32 - 1
+    L = 2 ** 64 - 1
+    for x in (0x12345678, 0xdeadbeef, 0, M, 0x80000001):
+        assert m.bsw(x) == int.from_bytes(x.to_bytes(4, 'little'), 'big')
+        assert m.bsw16(x) == int.from_bytes((x & 0xffff).to_bytes(2, 'little'), 'big')
+        X = x * 0x100000007 & L
+        assert m.bsw64(X) == m.bsw64b(X) == int.from_bytes(X.to_bytes(8, 'little'), 'big')
+        assert m.nearly(x) == (x >> 24) | (x >> 8 & 0xff00) | (x << 8 & 0xff0000) | (x << 23 & M)
+    d = bytes([0xf1, 0xe2, 0xd3, 0xc4, 0xb5, 0xa6, 0x97, 0x88, 0x79])
+    for off in (0, 1):
+        p = d[off:]
+        le = lambda n: int.from_bytes(p[:n], 'little')
+        be = lambda n: int.from_bytes(p[:n], 'big')
+        assert m.rd32le(p) == le(4) and m.rd32be(p) == be(4) and m.rd16le(p) == le(2) and m.rd16be(p) == be(2)
+        assert m.rd64le(p) == le(8) and m.rd64be(p) == be(8) and m.rd32lel(p) == le(4) and m.rd32bel(p) == be(4)
+        assert m.idx(d, off) == le(4)
+    assert m.glo() == 0x0605
+    assert m.half(array.array('H', [0x1234, 0xabcd])) == 0xabcd1234
+    assert m.words(array.array('I', [0x12345678, 0x9abcdef0])) == 0x9abcdef012345678
+    b = bytearray([0x11, 0x22])
+    assert m.stored(b) == 0x0911 and b[1] == 9
+    b = bytearray([0x11, 0x22, 0x33])
+    assert m.between(b, ctypes.addressof(ctypes.c_char.from_buffer(b, 1))) == 0x0911
+    assert m.hole(d) == 0xd3f1 and m.sx(bytes([0xff, 1])) == (0xffffffff & (-1 | 1 << 8))
+    assert m.dup(d) == 0xf1f1 and m.overlap(d) == 0xf1 | 0xe2 << 8 | 0xe2 << 16
+    o = (ctypes.c_uint * 1)()
+    assert m.shared(d, o) == 0xe2f1 and o[0] == 0xf1
+
+
+def test_byte_patterns_load_inside_a_word():
+    src = r'''#include <stdint.h>
+uint64_t f(const uint32_t *p) {  /* a shifted 128 bits: its middle is one load, not at any load's address */
+    uint64_t lo = (uint64_t)p[1] << 32 | p[0];
+    uint64_t hi = (uint64_t)p[3] << 32 | p[2];
+    return lo >> 8 | hi << 56; }'''
+    m = cimo.compile(src)
+    p = array.array('I', [0x11223344, 0x55667788, 0x99aabbcc, 0xddeeff00])
+    assert m.f(p) == 0xcc55667788112233
