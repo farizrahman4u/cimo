@@ -770,6 +770,23 @@ def _tempalloc(f, size, align):
     return v
 
 
+def _sysv_unaligned(ty, off):
+    """x86-64 SysV: whether a member of ty at offset off (a packed struct's) is not at a
+    multiple of its own alignment: such a struct is passed in memory (the psABI's MEMORY class
+    for unaligned fields; gcc's classify_argument), whatever its size. Bit-fields don't count."""
+    if ty.kind == TYPEARRAY:
+        n = ty.size // ty.base.size if ty.base.size else 0
+        return any(_sysv_unaligned(ty.base, off + k * ty.base.size) for k in range(min(n, 2)))
+    if ty.kind in (TYPESTRUCT, TYPEUNION):
+        m = ty.members
+        while m:
+            if not (m.bits[0] or m.bits[1]) and _sysv_unaligned(m.type, off + m.offset):
+                return True
+            m = m.next
+        return False
+    return bool(ty.size) and off % min(ty.align, 8) != 0
+
+
 def _sysv_classes(t):
     """x86-64 SysV: the classes of the eightbytes of a struct or union ('i' INTEGER, 's'
     SSE, 'n' all padding: no register, as gcc), or None when it is passed in memory. As QBE's
@@ -777,7 +794,7 @@ def _sysv_classes(t):
     over 16 bytes (after rounding the size up to the alignment, at least 8) is memory."""
     al = max(t.align, 8)
     sz = (t.size + al - 1) & -al
-    if sz > 16 or sz == 0:
+    if sz > 16 or sz == 0 or _sysv_unaligned(t, 0):
         return None
     cls = [None, None]
 
@@ -1723,6 +1740,12 @@ def emittype(t):
         m = m.next
     w("type ")
     emitname(t.value)
+    if TG.targ.name == 'x86_64-sysv' and _sysv_unaligned(t, 0):
+        # cimo: a struct with an unaligned (packed) member is passed in memory on x86-64
+        # SysV, which QBE's classify does for an opaque type (its fields don't matter then)
+        w(" = align %d { %d }\n" % (t.align, t.size))
+        t.value.qalign = t.align
+        return
     if t is TG.targ.typevalist:
         w(" = align %d { %d }\n" % (t.align, t.size))
         t.value.qalign = t.align
@@ -1793,6 +1816,14 @@ def emittype(t):
     if t.fieldalign is not None and TG.targ.name == 'aarch64':
         align = t.fieldalign
     t.value.qalign = max(qalign, align)
+    qa = t.value.qalign
+    if TG.targ.name == 'x86_64-windows' and t.size != ((max(end, t.size) + qa - 1) & -qa):
+        # cimo: QBE rounds the size up to its alignment of the fields (a 7-byte packed struct
+        # would be 8 and go in a register); Windows x64 passes what is not 1, 2, 4 or 8 bytes
+        # by reference, which winabi does for an opaque type of C's size
+        t.value.qalign = t.align
+        w(" = align %d { %d }\n" % (t.align, t.size))
+        return
     w(" = align %d { " % align if align > qalign else " = { ")
     w("".join(out))
     w("}\n")

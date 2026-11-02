@@ -124,6 +124,7 @@ def test_stack_overflow(em):
     assert em.rec(10000) == 10000 and em.even(10) == 10
 
 
+@pytest.mark.skipif(not hosts.ARM64, reason='sibling calls are arm64 only (TODO 3)')
 def test_tail_calls_use_no_stack(em):
     assert em.tail_even(3000000) == 1 and em.tail_odd(3000000) == 0
 

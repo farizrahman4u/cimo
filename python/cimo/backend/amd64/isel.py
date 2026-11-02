@@ -389,6 +389,16 @@ def sel(i, tn, fn):
     elif isload(op):
         seladdr(i.arg, 0, tn, fn)
         _emit_fix(i, fn)
+    elif ((op in (Oswtof, Osltof) or op == Ocast and KBASE(k) == 1)
+          and rtype(i.arg[0]) == RCon and KBASE(argcls(i, 0)) == 0):
+        # fix over C QBE: an integer constant converted to a float (cvtsi2sd, movq to xmm)
+        # takes no immediate; cimo's simplifier leaves such conversions (C QBE's fold does not)
+        emiti(i)
+        r = newtmp("isel", argcls(i, 0), fn)
+        D.insb[D.curi].arg[0] = r
+        emit(Ocopy, argcls(i, 0), r, i.arg[0], R)
+        ci = D.insb[D.curi]
+        fixarg(ci.arg, 0, argcls(i, 0), ci, fn)
     elif op in _EMIT or isext(op) or isxsel(op):
         _emit_fix(i, fn)
     elif op in _EXTOPS:
@@ -451,17 +461,29 @@ def _emit_fix(i, fn):
     _fix2(i, fn)
 
 
-def flagi(ins, i0, i):
+def flagi(ins, i0, i, fn):
     """Index of the flag-setting instruction before ins[i] (scanning back to i0), or None."""
     while i > i0:
         i -= 1
         o = amd64_op[ins[i].op]
         if o.zflag:
+            if ins[i].op in (Osar, Oshr, Oshl) and not _shiftsflags(ins[i], fn):
+                return None
             return i
         if o.lflag:
             continue
         return None
     return None
+
+
+def _shiftsflags(i, fn):
+    """fix over C QBE: a shift sets the flags only if its count (masked to 5 or 6 bits) is not 0:
+    sarl %cl, %edx leaves them as the instruction before set them when %cl is 0 (gcc's
+    builtin-bitops-1.c once cimo's simplifier dropped the `& 1` between the shift and the branch)."""
+    r = i.arg[1]
+    if rtype(r) != RCon or fn.con[rval(r)].type != CBits:
+        return False
+    return fn.con[rval(r)].i & (63 if KWIDE(i.cls) else 31) != 0
 
 
 def selsel(fn, b, i, tn):
@@ -478,7 +500,7 @@ def selsel(fn, b, i, tn):
     r = ins[isel0].arg[0]
     assert rtype(r) == RTmp
     t = fn.tmp[rval(r)]
-    fi = flagi(ins, 0, isel0)
+    fi = flagi(ins, 0, isel0, fn)
     cr = [R, R]
     gencmp = gencpy = swap = 0
     k = Kw
@@ -553,7 +575,7 @@ def seljmp(b, fn):
         b.s2 = None
         return
     ins = b.ins
-    fi = flagi(ins, 0, b.nins)
+    fi = flagi(ins, 0, b.nins, fn)
     kc = iscmp(ins[fi].op) if fi is not None and ins[fi].to == r else None
     if fi is None or ins[fi].to != r:
         selcmp([r, CON_Z], Kw, 0, fn)
