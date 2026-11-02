@@ -126,6 +126,10 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   for a 16-byte aligned local (crash). Found with `va_arg` of structs and `tests/test_abi.py`.
   Packed members at offsets QBE wouldn't place their type at are emitted as bytes; `{ b, w, h }`
   for a 7-byte packed struct was 12 bytes to QBE, so it took two registers instead of one.
+  On `x86_64-sysv` a struct with a member at an offset that is not a multiple of its alignment
+  is an opaque type (`align N { size }`), which QBE passes in memory, as the psABI and gcc
+  (MEMORY for unaligned fields); on `x86_64-windows` so is a struct whose size QBE would round
+  up (a 7-byte packed struct goes by reference there, not in a register as 8 bytes).
 - Target `aarch64-apple`: `char` and `short` parameters and named call arguments use QBE's
   sub-word ABI classes (`sb`, `ub`, `sh`, `uh`; cproc emits `w`), because Apple packs stack
   arguments at their own size and the backend can only tell from the class (`abiclass`).

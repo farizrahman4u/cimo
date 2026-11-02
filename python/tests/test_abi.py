@@ -159,7 +159,7 @@ double z%(n)d(void) { return call%(n)d(f%(n)d); }''' % {'n': n} for n in range(l
     return bad
 
 
-@pytest.mark.skipif(reference() is None, reason='needs gcc (Linux arm64), clang (Windows arm64) or Apple clang (macOS)')
+@pytest.mark.skipif(reference() is None, reason='needs gcc (Linux, Windows x64: MinGW), clang (Windows arm64) or Apple clang (macOS)')
 def test_packed_structs_by_value():
     p = subprocess.run([sys.executable, os.path.abspath(__file__), 'packed'],
                        capture_output=True, universal_newlines=True, timeout=600)

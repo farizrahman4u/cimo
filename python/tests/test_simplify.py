@@ -10,10 +10,23 @@ import array
 
 import cimo
 from cimo import driver
+from hosts import ARM64
+
+
+def build(src):
+    """Assembly for arm64, which the instruction checks below are written against: this
+    machine's, or cross-compiled for arm64 Linux on another host (the programs still run
+    natively in the tests that call them)."""
+    if ARM64:
+        return driver._build(src)[0]
+    pp = driver._preprocess(src, target='arm64')
+    ssa, params = driver._frontend(pp, '<string>', target='arm64', fma=True, builtins=True,
+                                   diagnostics=True, prune=True)
+    return driver._qbe(ssa, params, target='arm64')
 
 
 def body(src, name='f'):
-    asm = driver._build(src)[0]
+    asm = build(src)
     m = re.search(r'^_?%s:\n(.*?)(?:^\.type|^/\* end function)' % name, asm, re.S | re.M)
     assert m, name
     return m.group(1)
@@ -348,7 +361,7 @@ def test_library_calls_with_constants():
     void *o(char *d) { return memset(d, 0xab, 7); }
     void *p(char *d, char *s, long n) { return memcpy(d, s, n); }
     void *q(char *d, int c) { return memset(d, c, 16); }"""
-    asm = driver._build(src)[0]
+    asm = build(src)
     for name in 'abcdeijlno':
         assert not re.search(r'\bbl?\s+_?(pow|powf|strlen|memcpy|memset)\b', body(src, name)), body(src, name)
     for name, callee in (('g', 'pow'), ('h', 'pow'), ('k', 'strlen'), ('p', 'memcpy'), ('q', 'memset')):
@@ -688,7 +701,7 @@ static long unused(long a) { return a; }
 
 
 def test_once_called_functions_inline_and_dead_ones_go():
-    asm = driver._build(ONCE)[0]
+    asm = build(ONCE)
     names = set(re.findall(r'^_?(\w+):$', asm, re.M))
     assert 'big' not in names and 'small' not in names  # inlined into their only call
     assert 'twice' in names and 'viaptr' in names and 'rec1' in names and 'unused' not in names

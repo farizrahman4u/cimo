@@ -645,6 +645,13 @@ Targets `amd64_sysv` (Linux; frontend `x86_64-sysv`) and `amd64_windows` (fronte
   `lock cmpxchg`.
 - **Faults:** besides SIGSEGV/access violations, integer division traps on x86 (#DE: `x / 0`,
   `INT_MIN / -1`), killing the process; on arm64 these return a value. Same fix as TODO 8.
+- **The optimizer on x86-64:** the target-independent passes (simplifier, known bits, SCCP,
+  ADCE, SROA, jump threading, memory passes, inlining and IPO) run as on arm64; `divconst`,
+  `bytepatterns`, `hoistcons` and sibling calls are arm64 only. They reached two more C QBE
+  bugs in the amd64 instruction selection (backend/PORTING.md): flags reused from a shift by a
+  variable count, and an integer constant converted to a float. Packed structs by value: SysV
+  passes a struct with an unaligned member in memory, Windows x64 a 7-byte one by reference;
+  the frontend emits those as opaque types (frontend/PORTING.md).
 - **Measured** (2026-11-02, Windows 11 x64 / WSL Ubuntu 24.04 on the same Intel machine): the
   corpora pass in full on both (2267 programs: gcc torture, c-testsuite, musl libc-test math;
   `20101011-1.c` needs `signal.h` on x86 only); `tests/test_abi.py` 2400 random signatures on

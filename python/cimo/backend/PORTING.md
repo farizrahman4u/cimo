@@ -142,6 +142,14 @@ ones are the same either way.
   Found by `tests/test_abi.py` once the frontend stopped writing such padding as `b` fields.
 - `isel.seladdr` (fix over C QBE): an address whose constant does not fit a signed 32-bit
   displacement stays an `add` (gcc's `pr94734.c`: `arr[0xdeadbeefbeefdead]` once inlined).
+- `isel.flagi` (fix over C QBE): a branch or select reused the zero flag of a shift, but x86
+  leaves the flags alone when the count (masked to 5 or 6 bits) is 0, so `sarl %cl, %edx; jnz`
+  tested the instruction before. Only a shift by a constant count that is not 0 is reused now
+  (`_shiftsflags`). Reachable once `ext.cse`'s simplifier dropped an `& 1` after the shift
+  (gcc's `builtin-bitops-1.c`).
+- `isel.sel` (fix over C QBE): `swtof`/`sltof`/`cast` of an integer constant to a float has no
+  immediate form (`cvtsi2sd $0, %xmm1`); the constant goes to a register first. C QBE's fold
+  never leaves such a conversion, `ext.cse`'s passes can.
 
 cimo's own Windows x64 target is `amd64_windows` (`targ.T_amd64_windows`), not QBE's
 `amd64_win`, which stays as in C for the diffs: xmm6-xmm15 are callee-saved (QBE uses them as
