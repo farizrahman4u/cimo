@@ -191,7 +191,7 @@ def test_loops_same_with_and_without_the_promise(name):
 ])
 def test_no_extension_in_the_loop(src):
     text = body(asm(src), 'f')
-    start = re.search(r'^\.L\d+:', text, re.M).start()
+    start = re.search(r'^\.?L\d+:', text, re.M).start()
     assert 'sxtw' not in text[start:]
 
 

@@ -531,13 +531,15 @@ def test_bit_test_answers_as_the_comparisons():
         assert m.wide(c) == (c in (3, 9)), c  # the high bits count
 
 
+def _bitbody(text, f):
+    b = text[re.search(r'^_?%s:' % f, text, re.M).start():]  # Apple's symbols have a _
+    return b[:b.index('/* end function')]
+
+
 def test_bit_test_has_no_chain():
     from cimo import driver
     text = driver._build(BITS)[0]
     for f in ('any6', 'none6', 'ten'):
-        b = text[text.index('\n%s:' % f):]
-        b = b[:b.index('/* end function')]
+        b = _bitbody(text, f)
         assert 'lsr' in b and 'ccmp' not in b, b
-    b = text[text.index('\nfar:'):]
-    b = b[:b.index('/* end function')]
-    assert 'lsr' not in b  # 64 apart: no word holds them
+    assert 'lsr' not in _bitbody(text, 'far')  # 64 apart: no word holds them
