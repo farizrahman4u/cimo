@@ -611,6 +611,10 @@ def selalu(i, fn):
     return False
 
 
+_DEF32 = frozenset((Oadd, Osub, Oneg, Omul, Oand, Oor, Oxor, Oshl, Oshr, Osar, Oextub, Oextuh, D.Oextsb, D.Oextsh,
+                    D.Oloadub, D.Oloadsb, D.Oloaduh, D.Oloadsh, D.Oloadsw, D.Oloaduw, Oload))
+
+
 def _insertfield(r, lsb, width, k, w, fn):
     """How r, whose bits are all in the field at lsb, comes from a register: (b, b's lsb, its defining
     instructions, to go), or None. Only the field's bits of b are read, so masks are dropped."""
@@ -718,6 +722,16 @@ def selbits(i, fn):
         found[1].set(Ins(Onop))
         emit(D.Oaubfx, k, i.to, x, getcon(lsb | width << 8, fn))
         return True
+    if i.op == Oshr and k == Kw:  # (unsigned char)x >> n
+        b = _conbits(i.arg[1], fn)
+        found = _only(i.arg[0], fn)
+        if b is not None and found is not None and found[1].op in (Oextub, Oextuh) and _plain(found[1].arg[0], fn):
+            bits = 8 if found[1].op == Oextub else 16
+            if 0 < b < bits:
+                x = found[1].arg[0]
+                found[1].set(Ins(Onop))
+                emit(D.Oaubfx, k, i.to, x, getcon(b | (bits - b) << 8, fn))
+                return True
     if i.op in (Osar, Oshr):
         b = _conbits(i.arg[1], fn)
         found = _only(i.arg[0], fn)
@@ -1091,6 +1105,11 @@ def sel(i, fn):
         elif i.op in _EXTLOAD and KBASE(i.cls) == 0 and (i.cls == Kl or i.op not in (Oextsw, Oextuw)) \
                 and selextload(i, fn):
             return
+        if i.op == Oextuw and i.cls == Kl and _plain(i.arg[0], fn):
+            # writing a w register clears the top of the x register (LLVM's isDef32, GCC's ree)
+            found = _defin(i.arg[0], selpos)
+            if found is not None and found[1].cls == Kw and found[1].op in _DEF32:
+                i.op = Ocopy
         if isstore(i.op) and _conbits(i.arg[0], fn) == 0:  # wzr, xzr; a float's zero too
             if i.op == Ostores:
                 i.op = Ostorew
@@ -1118,7 +1137,9 @@ def sel(i, fn):
                 immarg = True
         elif i.op in (Oand, Oor, Oxor):
             n = c.i
-            if i.cls == Kl and ((n >> 24) or (n & ~0xfff) == 0) \
+            if _ext.isel:
+                immarg = bool(arm64_logimm(n, i.cls))  # emitf writes these whole
+            elif i.cls == Kl and ((n >> 24) or (n & ~0xfff) == 0) \
                     and arm64_logimm(n, Kl):
                 immarg = True
         elif i.op == Omul:
