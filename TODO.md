@@ -105,7 +105,8 @@ in Python.
   **Done** for loops that count (`scalar._deadloops`).
 - `LoopIdiomRecognize`: memset, memcpy, popcount, ctz. GCC `crc_optimization`.
 - `LoopStrengthReduce`/GCC `iv_optimize`, with `AArch64` addressing modes as its cost.
-- Store-to-load across iterations: `LoopLoadElimination`, GCC `predcom` (scramjit's `ema`).
+- Store-to-load across iterations: `LoopLoadElimination`, GCC `predcom`. scramjit does the one-store case
+  itself (`ema` 3.09 to 2.39 ns, where the same loop as hand C through cimo stays at 3.06).
 - `LoopInterchange`/GCC `linterchange`, `LoopDistribute`/GCC `loop_distribution`, `LoopFuse`, `LoopFlatten`,
   `LoopVersioningLICM`/GCC `loop_versioning`, `IRCE`/GCC `loop_split`, `LoopSink`.
 - Vectorization is its own item below (`LoopVectorize`, `SLPVectorizer`, `VectorCombine`).
