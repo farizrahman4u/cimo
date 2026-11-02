@@ -115,6 +115,8 @@ def _shstk():
 
 # Enables the shadow stack, which can't be returned out of, and exits the process from there:
 #   rdi = ok, rsi = deep; ok(41) must be 42; deep(n) unwinds; ok(41) must still be 42.
+# Each call goes through a helper that returns, since an entry that leaves the shadow stack
+# unbalanced only faults at its caller's next ret.
 _SHSTK_CHILD = r'''
 import ctypes, mmap, os, sys
 import cimo
@@ -125,33 +127,37 @@ int (*volatile again)(int) = deep;
 int deep(int n) { if (n == 0) __builtin_trap(); return again(n - 1) + 1; }
 """, cache=False)
 assert m.ok(1) == 2  # this thread's context exists from here
-code = bytes.fromhex(
-    '4989fc'              # mov %rdi, %r12
-    '4989f5'              # mov %rsi, %r13
-    'b89e000000'          # mov $158, %eax    arch_prctl
-    'bf01500000'          # mov $0x5001, %edi ARCH_SHSTK_ENABLE
-    'be01000000'          # mov $1, %esi      ARCH_SHSTK_SHSTK
-    '0f05'                # syscall
-    '85c0'                # test %eax, %eax
-    'bf4d000000'          # mov $77, %edi     (not enabled: skip)
-    '7535'                # jne exit
-    '4883e4f0'            # and $-16, %rsp
-    'bf29000000'          # mov $41, %edi
-    '41ffd4'              # call *%r12
-    '83f82a'              # cmp $42, %eax
-    'bf01000000'          # mov $1, %edi
-    '751f'                # jne exit
-    'bf2c010000'          # mov $300, %edi
-    '41ffd5'              # call *%r13
-    'bf29000000'          # mov $41, %edi
-    '41ffd4'              # call *%r12
-    '83f82a'              # cmp $42, %eax
-    'bf02000000'          # mov $2, %edi
-    '7505'                # jne exit
-    'bf00000000'          # mov $0, %edi
-    'b8e7000000'          # exit: mov $231, %eax  exit_group
-    '0f05'                # syscall
-)
+def blob():
+    head = ('4989fc' '4989f5'      # mov %rdi, %r12; mov %rsi, %r13
+            'b89e000000'           # mov $158, %eax      arch_prctl
+            'bf01500000'           # mov $0x5001, %edi   ARCH_SHSTK_ENABLE
+            'be01000000'           # mov $1, %esi        ARCH_SHSTK_SHSTK
+            '0f05' '85c0'          # syscall; test %eax, %eax
+            'bf4d000000')          # mov $77, %edi       not enabled: skip
+    steps = [('bf29000000', '4c89e0', '83f82a' 'bf01000000'),  # 41, %r12; cmp $42; code 1
+             ('bf2c010000', '4c89e8', ''),                     # 300, %r13
+             ('bf29000000', '4c89e0', '83f82a' 'bf02000000')]  # 41, %r12; cmp $42; code 2
+    tail = 'bf00000000'                                        # mov $0, %edi
+    leave = 'b8e7000000' '0f05'                                # exit_group
+    helper = '4883ec08' 'ffd0' '4883c408' 'c3'                 # sub $8, %rsp; call *%rax; add; ret
+    align = '4883e4f0'                                         # and $-16, %rsp
+    size = lambda h: len(h) // 2
+    body = [size(a) + size(r) + 5 + size(c) + (2 if c else 0) for a, r, c in steps]
+    to_leave = size(align) + sum(body) + size(tail)
+    out = head + '75%02x' % to_leave + align
+    pos = size(align)
+    for (a, r, c), n in zip(steps, body):
+        pos += size(a) + size(r) + 5
+        rel = to_leave + size(leave) - pos
+        out += a + r + 'e8' + rel.to_bytes(4, 'little').hex() + c
+        pos += size(c)
+        if c:
+            pos += 2
+            out += '75%02x' % (to_leave - pos)
+    return bytes.fromhex(out + tail + leave + helper)
+
+
+code = blob()
 buf = mmap.mmap(-1, 4096, prot=mmap.PROT_READ | mmap.PROT_WRITE | mmap.PROT_EXEC)
 buf.write(code)
 addr = ctypes.addressof(ctypes.c_char.from_buffer(buf))
