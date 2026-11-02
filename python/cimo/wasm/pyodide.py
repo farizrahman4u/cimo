@@ -188,6 +188,10 @@ class WasmKernel:
         for a, k in zip(args, self._params):
             if k == 'l':
                 conv.append(a if isinstance(a, int) else _address(a, keep))
+            elif k == 'w':               # cut to 32 bits as on native: JavaScript traps on a BigInt here
+                conv.append(((int(a) + 0x80000000) & 0xffffffff) - 0x80000000)
+            elif k == 'W':
+                conv.append(int(a) & 0xffffffff)
             else:
                 conv.append(_PY[k](a))
         m = self._m
@@ -206,6 +210,8 @@ class WasmKernel:
             return int(r) & 0xffffffff
         if self._ret == 'L':
             return int(r) & 0xffffffffffffffff
+        if self._ret in ('d', 's'):      # Pyodide makes a whole number an int
+            return float(r)
         return r
 
     def __repr__(self):
