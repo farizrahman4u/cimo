@@ -31,7 +31,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 9. **`_Complex` / `complex.h`.** Not in cproc or QBE. Needs: frontend lowering (Annex G
    `__muldc3`/`__divdc3` semantics), arm64 ABI (two FP registers), musl `src/complex` in the
    runtime, numpy `complex128` binding.
-10. **GPU.** Plain C on any GPU with no vendor toolkit; tuned kernels as C in `gpu/`. WGSL, then SPIR-V, PTX, HIP
+10. **GPU.** Plain C on any GPU with no vendor toolkit; tuned kernels as C in `python/cimo/gpu/`. WGSL, then SPIR-V, PTX, HIP
    source, Metal source. Start with one `matmul` on WebGPU, which proves type recovery and compile time. See
    "GPU" in `requirements.md`.
 
