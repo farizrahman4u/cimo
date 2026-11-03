@@ -328,6 +328,10 @@ the whole function for one block, the `ext` passes that don't pay for themselves
 inputs (rule from "Optimizations to lift": drop them), and the cost of `onefile` imports in Pyodide.
 Target: a 100-line kernel in under 0.3 s warm natively and under 1 s in Pyodide.
 
+- **Compile time is quadratic in a function's size** (found by scramjit): one generated function of 60 small loops, 3,140
+  lines of C in 4.0 s and 6,020 lines in 14.7 s (about 4.1e-7 s times lines squared, arm64). scramjit caps its loop
+  versioning to stay near 3 s; when this is linear, note it in scramjit's `TODO.md` so it can raise `VERSION_TOTAL`.
+
 ## Experiments
 
 - **Compile Cython's generated C.** If cimo can build a Cython module from its C, every existing
