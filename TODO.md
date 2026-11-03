@@ -4,6 +4,27 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Big
 
+0. **A fault in a kernel must not kill the Python process.** Today SIGSEGV/SIGBUS (and on x86-64
+   `#DE` from `INT_MIN / -1` or `x / 0`) end the process, on Windows silently with exit code 5. For a
+   library that runs code the user, or an LLM, just wrote, this is the first thing anyone hits and it
+   decides whether they trust it. Design:
+   - POSIX: install handlers for SIGSEGV, SIGBUS, SIGFPE, SIGILL on first load (`sigaction` through
+     ctypes, `SA_SIGINFO | SA_ONSTACK`, on an alternate stack so a stack overflow is catchable). If the
+     faulting pc is inside a cimo module, resume at the module's unwind glue (`sigsetjmp`-style: a
+     `uc_mcontext` edit of pc, sp and the return register) so the entry trampoline returns an error
+     code and Python raises `cimo.KernelError` with the fault kind, address and the function. Otherwise
+     chain to the previous handler, so Python's own `faulthandler` and other extensions keep working.
+   - Windows: a vectored exception handler (`AddVectoredExceptionHandler`) doing the same with
+     `CONTEXT`; access violation, integer divide and stack overflow (`_resetstkoflw` afterwards).
+   - Pyodide: a trap already becomes a JS exception; make sure it reaches `KernelError` with the same
+     message shape.
+   - The module stays usable afterwards, as with `assert` today, but say in the docs that memory may be
+     half-written. Each thread needs the alternate stack; threads from `ThreadPoolExecutor` get it on
+     their first kernel call.
+   - Tests on every CI platform: null store, read past a buffer end (guard page), `INT_MIN / -1`,
+     infinite recursion, a fault inside a thread, and that a fault in a non-cimo extension still reports
+     through `faulthandler`.
+
 1. ~~**Single-file distribution.**~~ **Done:** `cimo onefile [-o cimo.py]`
    (`cimo/onefile.py`, `cimo/resources.py`; `.c`/`.h` stay real files). See "Single-file
    distribution" in `requirements.md`.
@@ -12,29 +33,92 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    `compile`, `onefile`, `cache`, `completion`) except `cimo report kernels.c`: per-loop
    optimization remarks from the middle end (README promises it). zsh/fish completion
    scripts are untested.
-3. ~~**amd64 backend.**~~ **Done** (branch `amd64-backend`): Linux x86-64 and Windows x64 run end to end. Corpora and `tests/test_abi.py` pass on both (see "x86-64" in `requirements.md`). Open: sibling calls (arm64's `b` for a tail call; mutual tail recursion still uses stack on x86-64), and the arm64-only `ext.cse` passes (`divconst`, `bytepatterns`, `hoistcons`) for x86-64; SSE4.1/POPCNT/FMA with CPU detection; `edit_distance` and `conv3x3`'s scalar path, 2 to 4x behind gcc's; hardware faults (#DE on INT_MIN/-1 or x/0 kills the process, as SIGSEGV does).
+3. ~~**amd64 backend.**~~ **Done** (branch `amd64-backend`): Linux x86-64 and Windows x64 run end to end. Corpora and `tests/test_abi.py` pass on both (see "x86-64" in `requirements.md`). Open: sibling calls (arm64's `b` for a tail call; mutual tail recursion still uses stack on x86-64), and the arm64-only `ext.cse` passes (`divconst`, `bytepatterns`, `hoistcons`) for x86-64; SSE4.1/POPCNT/FMA with CPU detection; `conv3x3`'s scalar path, 2 to 4x behind gcc's; `edit_distance` on Neoverse V2, 1.3x; hardware faults (#DE on INT_MIN/-1 or x/0 kills the process, as SIGSEGV does).
 4. ~~**WASM backend + Pyodide loading.**~~ **Done:** `cimo.backend.wasm`, `cimo.wasm` (see "WASM
    backend" in `requirements.md`). Open: host JS libraries via `link=`, async loading for large
    modules on a browser main thread, wasm SIMD.
 5. **SIMD.** Auto-vectorizer **running on arm64 and x86-64** (`middle/vectorize.py`; see "Vector code" in `requirements.md`). Open, in
-   order: reductions through a chain (`s += x * x + 3`), in-order FP reductions (`nbody_acc`), byte and short lanes with widening and narrowing (scramjit's `image[i] + k` on `uint8`: 0.24 ns per element, `int32` 0.12), interleaved access (`rgb2gray`),
+   order: reductions through a chain (`s += x * x + 3`), outer-loop vectorization (`nbody_acc`, gcc 1.3x ahead), byte and short lanes with widening and narrowing (scramjit's `image[i] + k` on `uint8`: 0.24 ns per element, `int32` 0.12), interleaved access (`rgb2gray`),
    conditions, downward steps; then GNU vector types (`vector_size`, currently a clear error), wasm, SLP; AVX2 behind a check at load.
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.
 7. ~~**macOS (Apple silicon).**~~ **Done:** the suite, corpora and examples pass on an M-series
    Mac, ABI checked against Apple clang, CI job `macos-arm64` (see "macOS on Apple silicon" in
    `requirements.md`).
-8. **SIGSEGV/SIGBUS in a kernel kills the process.** Turn faults inside module code into
-   `KernelError` (signal handler that unwinds to the entry trampoline when the pc is in a
-   module; chain to Python's handler otherwise). On Windows an access violation ends the
-   process silently (exit 5); a vectored exception handler that resumes at the unwind glue
-   would do the same job there.
+8. **Adversarial code reading before a public launch.** About 43k lines of compiler and 16k of tests
+   were written in four days and no one has read them end to end. Tests, corpora and fuzzing catch
+   wrong output; a read catches what they can't: a loader that maps memory wrongly on one platform,
+   an encoder case the fuzzers never hit, an optimizer pass that is unsound under conditions the
+   generators don't produce. Do it file by file, most dangerous first: `loader.py`, `execution.py`,
+   both assemblers, `middle/vectorize.py`, `backend/rega.py`, `backend/spill.py`, the `ext` passes.
+   Each read records what it checked and what it found here or in `requirements.md`.
 9. **`_Complex` / `complex.h`.** Not in cproc or QBE. Needs: frontend lowering (Annex G
    `__muldc3`/`__divdc3` semantics), arm64 ABI (two FP registers), musl `src/complex` in the
    runtime, numpy `complex128` binding.
 10. **GPU.** Plain C on any GPU with no vendor toolkit; tuned kernels as C in `python/cimo/gpu/`. WGSL, then SPIR-V, PTX, HIP
    source, Metal source. Start with one `matmul` on WebGPU, which proves type recovery and compile time. See
    "GPU" in `requirements.md`.
+
+## Directions (priority order; weeks each; no C original to diff against)
+
+1. **Derivatives of the bundled libm.** scramjit's autodiff (its `TODO.md`, "Directions" #1) needs
+   `d/dx` of every `math.h` function cimo provides, as C in the runtime, with the same bit-exactness
+   discipline as the functions themselves. Also an `FP_CONTRACT`-respecting way for generated
+   derivative code to opt out of reassociation. Small; blocks the item above.
+2. **Be the compiler behind tools that generate C.** Devito, CasADi/acados, OSQP's codegen,
+   PyMC/PyTensor's C backend, Brian2, libRoadRunner: each emits C and shells out to gcc/MSVC. The
+   work per tool: compile its output unchanged (expect `#pragma omp`, `restrict`, `static inline`,
+   math-heavy expressions, large files), a `CC`-shaped entry point or a drop-in for its compiler
+   hook, and a measurement against gcc on the tool's own benchmark. Start with Devito (stencils,
+   multicore, runs in a notebook) and CasADi (self-contained C, no Python API), one each. Then
+   a doc page "cimo as a backend for code generators."
+3. **GPU: WGSL first** (also Big #10). Moved up: the shape is a per-element kernel from C with an
+   index-space launch, WebGPU in the browser and wgpu natively, no vendor toolkit. First
+   milestone: one matmul and one stencil from `kernels.c`, compiled to WGSL by a new backend over
+   the same IR, with type recovery (QBE IR loses C types; WGSL needs them) as the first problem.
+   SPIR-V, PTX, HIP and Metal source only after WGSL works end to end.
+4. **Autotuning in-process.** Because a compile is milliseconds and nothing leaves the process:
+   compile a kernel in N variants over the middle end's existing knobs (unroll factor, jam depth,
+   vector width, alias-check vs. versioned, inline limit), time each on the host CPU, keep the
+   best in the cache keyed by `(source hash, CPU model)`. API: `cimo.compile(src, tune=True)`;
+   report what won. Measure on the 15 kernels first: if nothing beats the defaults by more than
+   10%, record that and stop.
+5. **Sandbox limits for untrusted kernels on the WASM target.** What scramjit's sandbox (its
+   `TODO.md`, "Directions" #5) needs from cimo: a fuel counter or epoch interruption for time
+   limits, a memory cap enforced by the `grow` hook, and no host imports beyond memory. Natively,
+   nothing: native is for trusted code only, say so.
+
+## Adoption (priority order, below Directions; what scramjit's "Adoption" items need from cimo)
+
+1. **Threads: what `@scram(parallel=True)` needs.** Nothing new in codegen; verify and document:
+   a stress test (`tests/test_threads.py`) of 8 threads × 1,000 calls into one module with
+   `malloc`/`free` crossing threads (the deferred free list) and with a `KernelError` raised in one
+   thread while others run; the same under free-threaded CPython 3.13t in CI (`python3.13t` on
+   `ubuntu-24.04-arm`): no crash, same results, and `loader` holds no state that assumes the GIL
+   (the per-thread alternate stack from Big #0 included). Record the per-call overhead with the GIL
+   released and reacquired (`ctypes` does it; measure it, expect about 1 µs).
+2. **Public cache export and import** (already in "Small" as a TODO from scramjit; promoted). API:
+   `cimo.export_cache(module, path)` writes the linked image plus the signatures, the source hash,
+   the target (`os-arch` or `wasm32`), the cimo version and the options; `cimo.import_cache(path)`
+   returns a module without compiling when the host matches, and raises `cimo.CacheMismatch` naming
+   what differs. `cimo.load(src, prebuilt=dir)` looks in `dir/<target>/<hash>.img` before compiling.
+   No code signing: documented as trusted input, same as a wheel. Tests: round trip on every CI
+   platform; a mismatch on each field; a corrupted file is a mismatch, not a crash. **Done when**
+   scramjit's packaging item can drop its use of the private cache layout.
+3. **Notebook environments.** Confirm `micropip.install("cimo")` from a stock Pyodide index resolves
+   and imports (pure-Python wheel; check the wheel has no `platform` tag and that `onefile` isn't
+   needed), in `tests/wasm/`. Then a `marimo` WASM notebook and a JupyterLite config in
+   `examples/notebooks/`, as in scramjit's item 3, with one `cimo.compile` kernel each.
+4. **Arrow buffers.** Nothing needed beyond the buffer protocol, which `execution` already accepts;
+   add a test that a `pyarrow` buffer (dev extra) is passed zero-copy, and document the validity
+   bitmap as an ordinary `const uint8_t *` parameter.
+5. **Determinism across targets.** The compiler-side half of scramjit's item 5: a `deterministic`
+   compile option (`fma=False`, no reassociation, scalar libm paths where the vector path differs),
+   and `tests/test_deterministic.py` hashing the 15 kernels' outputs on fixed inputs into
+   `tests/data/deterministic.json`, compared across all CI platforms and wasm. The first run is a
+   survey: list every function whose bits differ between arm64, x86-64 and wasm (expect
+   `pow`, `exp`, `log` between the bundled libm's scalar and vectorized code, and `sqrt`/`fma`), fix
+   or exclude each with a reason in `faq.md`. Not the host libm: `link=["libm"]` is outside the promise.
 
 ## Optimizations to lift from LLVM and GCC
 
@@ -232,7 +316,57 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 - `rgb2gray` 1.3x of gcc: constant materialization / `madd`.
 - Runtime: per-module copy of what it uses (printf ~20 KB); fine for now.
 
+## Compile time
+
+cimo compiles at run time, in Python, so its own speed is a feature. scramjit's first call is 0.5 to 3 s
+and up to 15 s on large generated functions (its `TODO.md`, "Compile time"), and most of that is cimo.
+Profile `cimo.compile` on `scratch/qbe_eval/kernels.c`, scramjit's `bench/` and its LLM forward pass
+(`cProfile`, native and Pyodide) and record the split by stage here: preprocessor, front end, middle
+end, each backend pass, encoder, link. Then, biggest first. Candidates: a per-process cache of parsed
+bundled headers and the runtime (the prelude is the same in every scramjit compile), passes that walk
+the whole function for one block, the `ext` passes that don't pay for themselves on the measured
+inputs (rule from "Optimizations to lift": drop them), and the cost of `onefile` imports in Pyodide.
+Target: a 100-line kernel in under 0.3 s warm natively and under 1 s in Pyodide.
+
+## Experiments
+
+- **Compile Cython's generated C.** If cimo can build a Cython module from its C, every existing
+  Cython package installs from source with no compiler on the machine: no "Microsoft Visual C++ 14.0
+  or greater is required," no wheel matrix, Windows arm64 included. A distribution story, not a
+  performance one: typed Cython loops are plain C on unboxed data and would run near gcc's speed
+  as the kernels do; the `PyObject` glue runs once per call; untyped loops are slow under any
+  compiler. It does nothing for scramjit, which never boxes inside a loop. What it needs, in order:
+  1. Parse the host's `Python.h` (`host_headers=True`) on Linux, macOS and Windows (MSVC-isms), and
+     link `libpython` / `python3.dll` (`link=`). Measure how much of the C API's header surface cimo
+     accepts; `__attribute__`, `__builtin_expect`, `inline`, `__int128` are the likely compile errors.
+  2. Build one small typed module (a `cdef` loop over a memoryview) from `cython`'s `.c` output,
+     map it, call `PyInit_<name>`, and import it through a `sys.meta_path` hook that replaces
+     `build_ext`. Compare its results and speed with the MSVC/gcc build.
+  3. Then a real package without Windows arm64 wheels. Record compile time: Cython modules are tens
+     of thousands of lines, so expect tens of seconds, cached after the first install. If that's
+     unusable, the experiment ends here with a number.
+  Not a product claim until step 2 works on all three OSes.
+
 ## Small
+
+- **Show the full support matrix everywhere.** The README's platform table lists OS and loader; the
+  site and `platforms.md` differ from it and from each other. One source of truth, generated into
+  README, `docs/docs/content/platforms.md` and the site's index: rows for Linux x86-64, Linux arm64,
+  macOS Apple silicon, macOS Intel (unsupported: say so), Windows x64, Windows arm64, Pyodide / browsers
+  (which browsers, main thread vs worker), Node; columns for backend, loader, what CI runs, what is run
+  by hand, and the Python versions (3.9 to 3.14, PyPy unsupported). Mark FreeBSD, musl/Alpine, Android
+  (Termux) and iOS (no executable memory: wasm only, untested) explicitly rather than leaving them out.
+
+- **The compile cache is checked for integrity, not authenticity.** `.img` files in `CIMO_CACHE_DIR`
+  are machine code mapped executable, protected by a CRC32 (`driver._image_get`). Anyone who can
+  write to the user's cache directory can run code in the process, the same threat model as
+  `site-packages`. Say so in `files-and-cache.md`, and keep the cache directory's permissions to the
+  user (`0700`) when creating it.
+- **The README's performance table predates the vectorizer** (scalar numbers from 2026-10-30;
+  the x86-64 vectorizer landed 2026-11-02 with 1.15 to 1.20x of `gcc -O3`). Regenerate the table
+  from `bench/` with the vectorizer on, on arm64 and x86-64, and quote the geomeans against `-O3`.
+- **Commit subjects are paragraphs.** `git log --oneline` is unreadable. One line of at most 72
+  characters, then a blank line, then the detail (add the rule to `AGENTS.md`).
 
 - **Backend speed on huge functions:** a Csmith function with a 125 KB initializer compiles in
   18 s (spill, liveness bitsets, `filluse`); C QBE takes well under a second.
