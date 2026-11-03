@@ -141,6 +141,11 @@ omap = [
     (Oxcmp, Kd, "ucomisd %D0, %D1"),
     (Oxcmp, Ki, "cmp%k %0, %1"),
     (Oxtest, Ki, "test%k %0, %1"),
+    (D.Oxaddm, Ki, "add%k %0, %M1"),
+    (D.Oxsubm, Ki, "sub%k %0, %M1"),
+    (D.Oxandm, Ki, "and%k %0, %M1"),
+    (D.Oxorm, Ki, "or%k %0, %M1"),
+    (D.Oxxorm, Ki, "xor%k %0, %M1"),
 ]
 omap += [(Oflag + c, Ki, "set" + s + " %B=\n\tmovzb%k %B=, %=") for c, s, _ in _CMP]
 omap += [

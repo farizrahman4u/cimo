@@ -546,8 +546,12 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   Unroll-and-jam leaves alone a loop that vectorizes, as LLVM has it off by default.
 - **First result (Neoverse N1, V1, V2):** 2 to 3.4x on `saxpy`, `jacobi2d`, `conv3x3`; geomean against gcc `-O3` 1.50 to 1.53x
   down to 1.21 to 1.28x before `gemm`.
-- **What can't vectorize:** FP reductions (`dot`, `prefix_sum`): C fixes their order, as for gcc and clang without `-ffast-math`.
-  scramjit needs numpy's pairwise order for its sums, which is a loop it writes itself (`TODO.md`).
+- **Float sums in C's order:** the vector loop adds its lanes one by one (gcc's fold-left reductions), only where the rest of the
+  loop is worth more than those adds' latency (`vectorize._worth`), so `dot` and `prefix_sum` stay scalar. A vector division or
+  square root counts as one a lane on arm64: Neoverse N1, V1, V2 ran `nbody_acc` no faster that way (V1 1.35 to 1.46x of gcc), and
+  x86-64 ran it 1.4 to 1.5x faster. Polynomial sums measured on Graviton: float 0.63 to 0.66x the scalar loop's time, double 0.79 to 0.85x.
+  gcc gets `nbody_acc`'s other 1.3x from vectorizing the outer loop, each lane its own sum. scramjit needs numpy's pairwise order
+  for its sums, which is a loop it writes itself (`TODO.md`).
 - **A call keeps at most 64 bits of an FP register on arm64:** a `q` temporary live across one lives in memory
   (`isel.qacrosscalls`), and `q` temporaries stay out of v8 to v15 (`rqavoid`), whose low halves the function must keep.
 - **Memory:** `qload` and `qstore` count as volatile in the memory passes, so nothing forwards across them. Safe, and
@@ -562,11 +566,24 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
 - **Flags on x86-64:** `extern_array + 4` as a phi's argument is made at the end of the block before, after the compare the jump
   reads, so it's a `lea`, never an `add` (YARPGen: a wrong branch, then a crash). A random-loop seed differed only in a NaN's bits:
   with two NaNs `addss` keeps the first, and commuting an add picks another. C doesn't fix them, so that test ignores them on x86-64.
+- **gcm's order within a block** keeps pinned instructions (calls, loads, stores) where they are and makes a pure one wait for
+  what it reads; QBE pulled the definition up instead. gvn moves the pure instructions of a branch that folded away to the start
+  block, simplcfg merges a call's block into it, and the call, then a load, went up past stores they read: wrong Csmith checksums
+  on both targets once small functions were inlined (`tests/test_gcm_order.py`). A select whose condition folded to a constant
+  becomes copies on x86-64, as on arm64.
+- **Three more from Csmith and the random loops:** the value of an assignment, a compound assignment or an increment of a
+  bit-field promotes as the bit-field does (`(s.f7 = 0) >= -5` is 1 for `unsigned f7 : 2`; cproc kept `unsigned int`, in C
+  cproc too); jump threading refills loop depths when it changed blocks (loadopt asserted on x86-64; gcc-torture's
+  `loop-12.c` shows the stale ones); a cycle of register moves with a `q` value in it swaps all 128 bits (`q | s` was 7).
+  gcc `-O0` on arm64 compiles `0.0f - x` as `fneg`, -0 for x = 0, so the random-loop generator doesn't write it.
 - **Fuzzing on EC2:** an ssh silent for 18 minutes never came back, from here, so run detached and poll, as `fuzz_aws.py`. A timeout under
   900 s fails YARPGen's largest programs for being slow: their compile takes about 300 s on 16 workers.
-- **x86-64 result (Ice Lake, Sapphire Rapids, Zen 4; gcc -O3 also baseline):** geomean 1.61, 1.53, 1.74x with the vectorizer off, 1.18,
-  1.15, 1.20x on. Left: `edit_distance` 2.1 to 2.4x and `conv3x3`'s scalar path 2 to 4x (both scalar), `nbody_acc` 2x (gcc does the sums
-  in order on vectors), `gemm` 1.3 to 1.5x, `rgb2gray` 1.0x because SSE2 gcc doesn't vectorize it either.
+- **x86-64 scalar:** the middle end's if-conversion selects on x86-64 too, `cmov` as QBE's ifopt (`edit_distance` 2.1 to 2.4x of gcc
+  down to 0.93 to 1.20x); a load, an operation and a store to one address are one instruction, and an extended load extends in the
+  load (`histogram` on Zen 4 1.56 to 1.03x; gcc's own `addl $1, (mem)`).
+- **x86-64 result (Ice Lake, Sapphire Rapids, Zen 4; gcc -O3 also baseline):** geomean 1.46, 1.47, 1.61x with the vectorizer off,
+  1.07, 1.05, 1.08x on. Left: `nbody_acc` 1.3 to 1.4x, `gemm` 1.3 to 1.5x, `saxpy` 1.2 to 1.7x, `conv3x3`'s scalar path 2 to 4x,
+  `rgb2gray` 1.0x because SSE2 gcc doesn't vectorize it either.
 
 ## GPU (planned, 2026-11-02)
 

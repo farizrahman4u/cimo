@@ -108,7 +108,10 @@ class Gen:
         if x < 0.5 and ivs:
             return '(float)%s' % self.pick(*[n for n, _, _ in ivs])
         op = self.pick('+', '-', '*', '+', '*')
-        return '(%s %s %s)' % (self.fexpr(ivs, d + 1), op, self.fexpr(ivs, d + 1))
+        lhs = self.fexpr(ivs, d + 1)
+        if op == '-' and lhs == '0.0f':
+            lhs = '0.5f'  # gcc -O0 on arm64 makes 0.0f - x an fneg, -0 for x = 0 (seed 85644)
+        return '(%s %s %s)' % (lhs, op, self.fexpr(ivs, d + 1))
 
     def iexpr(self, ivs, d=0):
         r = self.r

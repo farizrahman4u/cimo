@@ -415,6 +415,9 @@ def sel(i, tn, fn):
             fixarg(ci.arg, 0, Kl, ci, fn)
     elif op == Onop:
         pass
+    elif op in _RMW.values():
+        seladdr(i.arg, 1, tn, fn)
+        _emit_fix(i, fn)
     elif op in (Ostored, Ostores, Ostorel, Ostorew, Ostoreh, Ostoreb):
         if rtype(i.arg[0]) == RCon:
             if i.op == Ostored:
@@ -564,6 +567,15 @@ def selsel(fn, b, i, tn):
         isel0 -= 1
     assert ins[isel0].op == Osel0
     r = ins[isel0].arg[0]
+    if rtype(r) == RCon:  # cimo: the middle end's if-conversion, its condition folded since: copies
+        yes = fn.con[rval(r)].type != CBits or fn.con[rval(r)].i != 0
+        isel1 = i
+        while isel0 < isel1:
+            x = ins[isel1]
+            sel(Ins(Ocopy, x.cls, x.to, x.arg[0] if yes else x.arg[1], R), tn, fn)
+            isel1 -= 1
+        ins[isel0] = Ins(Onop)
+        return isel0
     assert rtype(r) == RTmp
     t = fn.tmp[rval(r)]
     fi = flagi(ins, 0, isel0, fn)
@@ -907,6 +919,76 @@ def amatch(a, tn, r, fn):
     return 1
 
 
+_RMW = {Oadd: D.Oxaddm, Osub: D.Oxsubm, Oand: D.Oxandm, Oor: D.Oxorm, Oxor: D.Oxxorm}
+# an extension to 64 bits: the loads of a word it can be, and the load that does both. A 32-bit load is any of three, its
+# extension says which half it means
+_W = (Oload, D.Oloadsw, D.Oloaduw)
+_ZEXT = {D.Oextub: ((D.Oloadub,), D.Oloadub), D.Oextuh: ((D.Oloaduh,), D.Oloaduh), D.Oextuw: (_W, D.Oloaduw),
+         D.Oextsb: ((D.Oloadsb,), D.Oloadsb), D.Oextsh: ((D.Oloadsh,), D.Oloadsh), D.Oextsw: (_W, D.Oloadsw)}
+
+
+def _writes(op):
+    """Whether op may write memory."""
+    return isstore(op) or op in _RMW.values() or op in (Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Oqstore)
+
+
+def _loadsfold(fn):
+    """cimo: what x86-64 does in the load or the store itself, as gcc. A load extended to 64 bits extends to 64 bits
+    (movzbl and then movzbq of its byte: 8.8 to 7.2 ms on Zen 4's histogram). A load, an operation on it and a store
+    of the result to the same address, nothing in between that may write memory, are one instruction (addl $1, (mem):
+    5.9 ms, gcc's 6.3). Needs use counts."""
+    tmp = fn.tmp
+    b = fn.start
+    while b:
+        ins = b.ins[:b.nins]
+        defs = {}
+        for k, i in enumerate(ins):
+            if rtype(i.to) == RTmp:
+                defs[rval(i.to)] = k
+        for k, i in enumerate(ins):
+            if i.op in _ZEXT and i.cls == Kl and rtype(i.arg[0]) == RTmp:
+                d = defs.get(rval(i.arg[0]))
+                if d is not None and d < k and ins[d].op in _ZEXT[i.op][0] and ins[d].cls == Kw \
+                        and tmp[rval(i.arg[0])].nuse == 1:
+                    ld = ins[d]
+                    ld.op = _ZEXT[i.op][1]
+                    ld.cls = Kl
+                    ld.to = i.to
+                    ins[k] = Ins(Onop)
+        for k, st in enumerate(ins):
+            k2 = {Ostorew: Kw, Ostorel: Kl}.get(st.op)
+            if k2 is None or rtype(st.arg[0]) != RTmp or fn.hasvolatile:  # a volatile access stays as written
+                continue
+            o = defs.get(rval(st.arg[0]))
+            if o is None or o >= k or ins[o].op not in _RMW or ins[o].cls != k2 or tmp[rval(st.arg[0])].nuse != 1:
+                continue
+            op = ins[o]
+            for n in (0, 1):
+                a = op.arg[n]
+                if rtype(a) != RTmp:
+                    continue
+                d = defs.get(rval(a))
+                if d is None or d >= o or tmp[rval(a)].nuse != 1:
+                    continue
+                ld = ins[d]
+                if not ((ld.op == Oload or (k2 == Kw and ld.op in (D.Oloadsw, D.Oloaduw))) and ld.cls == k2
+                        and ld.arg[0] == st.arg[1]):
+                    continue
+                if n == 1 and op.op == Osub:
+                    continue
+                if any(_writes(x.op) for x in ins[d + 1:k] if x is not op):
+                    continue
+                v = op.arg[1 - n]
+                ins[k] = Ins(_RMW[op.op], k2, R, v, st.arg[1])
+                ins[o] = Ins(Onop)
+                ins[d] = Ins(Onop)
+                tmp[rval(st.arg[1])].nuse -= 1 if rtype(st.arg[1]) == RTmp else 0
+                break
+        b.ins = ins
+        b.nins = len(ins)
+        b = b.link
+
+
 def amd64_isel(fn):
     """instruction selection
     requires use counts (as given by parsing)"""
@@ -932,6 +1014,8 @@ def amd64_isel(fn):
                 fn.salign = 2 + al - Oalloc
                 b.ins[k] = Ins(Onop)
         n *= 2
+
+    _loadsfold(fn)
 
     # process basic blocks
     b = fn.start

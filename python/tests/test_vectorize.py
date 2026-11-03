@@ -227,8 +227,20 @@ REDUCTIONS = {
     # read in the loop: the running value is seen, so lanes won't do
     'seen': ('int f(int *restrict y, const int *restrict x, long n) { int s = 0; for (long i = 0; i < n; i++) { s += x[i]; y[i] = s; } return s; }', ctypes.c_int, False),
     'mul': ('int f(const int *restrict x, long n) { int s = 1; for (long i = 0; i < n; i++) s *= x[i]; return s; }', ctypes.c_int, False),
+    # float sums keep C's order: lane by lane, and only where the rest of the loop is worth it, not a plain sum or dot
     'fsum': ('float f(const float *restrict x, long n) { float s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_float, False),
     'dsum': ('double f(const double *restrict x, long n) { double s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_double, False),
+    'ddot': ('double f(const double *restrict x, long n) { double s = 0; for (long i = 0; i < n; i++) s += x[i] * x[i]; return s; }', ctypes.c_double, False),
+    'fdot': ('float f(const float *restrict x, long n) { float s = 0; for (long i = 0; i < n; i++) s += x[i] * (x[i] + 1); return s; }', ctypes.c_float, False),
+    'dheavy': ('#include <math.h>\ndouble f(const double *restrict x, long n) { double s = 0.5; for (long i = 0; i < n; i++) s += 1.0 / sqrt(x[i] * x[i] + 1.0); return s; }', ctypes.c_double, hosts.AMD64),
+    'fheavy': ('#include <math.h>\nfloat f(const float *restrict x, long n) { float s = 3; for (long i = 0; i < n; i++) s -= sqrtf(fabsf(x[i]) + 2.0f) / x[i]; return s; }', ctypes.c_float, hosts.AMD64),
+    'swapped': ('#include <math.h>\nfloat f(const float *restrict x, long n) { float s = 1e7f; for (long i = 0; i < n; i++) s = 1.0f / sqrtf(x[i] * x[i] + 1.0f) + s; return s; }', ctypes.c_float, hosts.AMD64),
+    'fmaheavy': ('#include <math.h>\ndouble f(const double *restrict x, long n) { double s = 0; for (long i = 0; i < n; i++) s += x[i] * (1.0 / sqrt(x[i] * x[i] + 2.0)); return s; }', ctypes.c_double, hosts.AMD64),
+    'three': ('#include <math.h>\ndouble f(const double *restrict x, long n) { double a = 0, b = 1, c = 2; for (long i = 0; i < n; i++) { double r = 1.0 / sqrt(x[i] * x[i] + 1e-9); a += x[i] * r; b -= r; c += r * r; } return a + 3 * b + 9 * c; }', ctypes.c_double, hosts.AMD64),
+    # cheap arithmetic is worth it on both: the lanes do it at once, and only the adds wait for each other
+    'poly': ('float f(const float *restrict x, long n) { float s = 0; for (long i = 0; i < n; i++) { float t = x[i] * 0.01f; s += (((((t * 3 - 1) * t + 2) * t - 5) * t + 7) * t - 11) * t * t + 13 * t; } return s; }', ctypes.c_float, True),
+    'dpoly': ('double f(const double *restrict x, long n) { double s = 1; for (long i = 0; i < n; i++) { double t = x[i] * 0.01; s -= (((((t * 3 - 1) * t + 2) * t - 5) * t + 7) * t - 11) * t * t + 13 * t * t * t; } return s; }', ctypes.c_double, True),
+    'fseen': ('#include <math.h>\nfloat f(float *restrict y, const float *restrict x, long n) { float s = 0; for (long i = 0; i < n; i++) { s += sqrtf(fabsf(x[i])) / 3.0f; y[i] = s; } return s; }', ctypes.c_float, False),
     'wmin': ('long f(const short *restrict x, long n) { long s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_short, False),
 }
 
@@ -241,7 +253,9 @@ def test_reductions(name):
     for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 63, 64, 65, 200):
         x = buf(ctype, n + 8, n)
         y = (ctypes.c_int * (n + 8))()
-        extra = (ctypes.addressof(y),) if name == 'seen' else ()
+        if name == 'fseen':
+            y = (ctypes.c_float * (n + 8))()
+        extra = (ctypes.addressof(y),) if name in ('seen', 'fseen') else ()
         args = extra + (ctypes.addressof(x), n)
         a, b = on.f(*args), off.f(*args)
         assert a == b or (a != a and b != b), (name, n, a, b)
@@ -352,3 +366,94 @@ def test_x86_address_for_a_phi_leaves_the_flags(target):
     text = _x86(src, target)
     assert re.search(r'lea\w* \d+\(%\w+\), %\w+', text), text
     _flags_reach_their_jump(text)
+
+
+def test_x86_min_in_a_loop_is_cmov():
+    """The middle end's if-conversion selects, as QBE's own ifopt does on x86-64: cmov, not a mask of six instructions
+    on the chain through cur[j - 1] (edit_distance 2.1 to 2.4x of gcc)."""
+    src = '''void f(int m, const unsigned char *restrict a, const unsigned char *restrict b, const int *restrict prev, int *restrict cur) {
+        for (int j = 1; j <= m; j++) { int s = prev[j - 1] + (a[0] != b[j - 1]), d = prev[j] + 1, i = cur[j - 1] + 1;
+            int v = s < d ? s : d; cur[j] = v < i ? v : i; } }'''
+    text = _x86(src)
+    assert 'cmov' in text and 'negl' not in text, text
+    on, off = both(src)
+    for m in (0, 1, 5, 17, 40):
+        a, b = (ctypes.c_ubyte * 1)(3), (ctypes.c_ubyte * 48)(*[(k * 7) % 5 for k in range(48)])
+        prev = buf(ctypes.c_int, 48, m)
+        cur1, cur2 = (ctypes.c_int * 48)(9), (ctypes.c_int * 48)(9)
+        on.f(m, a, b, prev, cur1)
+        off.f(m, a, b, prev, cur2)
+        assert list(cur1) == list(cur2)
+
+
+_RMWSRC = '''
+void hist(int n, const unsigned char *restrict x, int *restrict h) { for (int i = 0; i < n; i++) h[x[i]]++; }
+void between(int *a, int *b) { int t = a[0]; b[0] = 7; a[0] = t + 1; }
+void back(int *a) { a[1] = 5 - a[1]; }
+void ops(long *a, int *b, long v) { a[0] -= v; a[1] &= v; a[2] |= 6; a[3] ^= v; b[0] += (int)v; b[1] = b[1] - 9; }
+void vol(volatile int *a) { a[0] += 3; }
+void other(int *a) { a[1] = a[0] + 3; }
+'''
+
+
+def test_x86_read_modify_write():
+    """A load, one operation and a store to the same address are one x86 instruction, as gcc's (histogram on Zen 4: 8.8 to
+    5.9 ms against gcc's 6.3), and a byte extended to an index is loaded so, once. Not past a store that may be to the
+    same place, not 5 - x as x - 5, and never on a volatile."""
+    text = _x86(_RMWSRC)
+    def body(f):
+        t = text[text.index('\n%s:\n' % f):]
+        return t[:t.index('end function')]
+    assert re.search(r'\taddl \$1, \(%\w+, %\w+, 4\)', body('hist')) and not re.search(r'movzbq %\w+, ', body('hist'))
+    assert not re.search(r'\taddl [^,]+, \(', body('between'))
+    assert not re.search(r'\tsubl [^,]+, \d*\(', body('back'))
+    ops = body('ops')
+    for mn in ('subq', 'andq', 'orq', 'xorq', 'addl', 'subl'):
+        assert re.search(r'\t%s [^,]+, \d*\(%%\w+\)' % mn, ops), (mn, ops)
+    assert not re.search(r'\taddl [^,]+, \(', body('vol'))
+    assert not re.search(r'\taddl [^,]+, \d*\(', body('other'))
+
+
+@pytest.mark.skipif(not hosts.AMD64, reason='runs x86-64 code')
+def test_x86_read_modify_write_runs():
+    m = cimo.compile(_RMWSRC, cache=False)
+    a = (ctypes.c_int * 4)(10, 20, 0, 0)
+    m.between(a, a)
+    assert a[0] == 11
+    m.back(a)
+    assert a[1] == -15
+    la, b = (ctypes.c_int64 * 4)(100, 0xff, 1, 0xf0), (ctypes.c_int * 2)(5, 3)
+    m.ops(la, b, 12)
+    assert list(la) == [88, 12, 7, 0xf0 ^ 12] and list(b) == [17, -6]
+    x = (ctypes.c_ubyte * 300)(*[(k * 37) % 256 for k in range(300)])
+    h = (ctypes.c_int * 256)()
+    m.hist(300, x, h)
+    want = [0] * 256
+    for k in range(300):
+        want[(k * 37) % 256] += 1
+    assert list(h) == want
+    v = (ctypes.c_int * 1)(4)
+    m.vol(v)
+    assert v[0] == 7
+    o = (ctypes.c_int * 2)(4, 0)
+    m.other(o)
+    assert list(o) == [4, 7]
+
+
+@pytest.mark.parametrize('load,ext', [(l, e) for l in ('int', 'unsigned') for e in ('long', 'unsigned long')] +
+                         [(l, e) for l in ('signed char', 'unsigned char', 'short', 'unsigned short') for e in ('long',)])
+def test_x86_extended_load(load, ext):
+    """The load does the extension, and its signedness is the extension's: (unsigned long)(int)x zero-extends."""
+    src = '%s f(const %s *p) { return (%s)p[1]; }' % (ext, load, ext)
+    text = _x86(src)
+    body = text[text.index('\nf:\n'):]
+    assert not re.search(r'\tmov[sz]\w+ %\w+, %\w+', body[:body.index('ret')]), body
+    if hosts.AMD64:
+        m = cimo.compile(src, cache=False)
+        ct = {'int': ctypes.c_int, 'unsigned': ctypes.c_uint, 'signed char': ctypes.c_byte, 'unsigned char': ctypes.c_ubyte,
+              'short': ctypes.c_short, 'unsigned short': ctypes.c_ushort}[load]
+        a = (ct * 2)(0, -3 if load in ('int', 'signed char', 'short') else 0xfffd & ((1 << 8 * ctypes.sizeof(ct)) - 1) | 0x80)
+        v = a[1]
+        want = v & ((1 << 64) - 1) if ext == 'unsigned long' else v
+        m.f.restype = ctypes.c_uint64 if ext == 'unsigned long' else ctypes.c_int64
+        assert m.f(a) == want, (m.f(a), want)

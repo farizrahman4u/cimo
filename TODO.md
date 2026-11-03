@@ -4,6 +4,13 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Big
 
+- **High priority: x86-64 for this machine's CPU.** cimo compiles on the machine that runs the code, so it can
+  target that CPU (as `-march=native`) instead of baseline SSE2, which has no FMA. Detect features with `cpuid`
+  run through cimo's own JIT (Linux and Windows alike) and put them in the cache key, so a cached module never
+  runs on a CPU without them. Then, measured on Ice Lake, Sapphire Rapids and Zen 4: FMA contraction (`saxpy`,
+  `gemm`, `nbody_acc`; off with `fma=False` / `CIMO_FMA=0` as on arm64), `popcnt`/`lzcnt`/`tzcnt`, then 256-bit
+  AVX2 vectors. Results then differ between FMA and older x86-64 machines, as they already do between arm64 and x86-64.
+
 0. **A fault in a kernel must not kill the Python process.** Today SIGSEGV/SIGBUS (and on x86-64
    `#DE` from `INT_MIN / -1` or `x / 0`) end the process, on Windows silently with exit code 5. For a
    library that runs code the user, or an LLM, just wrote, this is the first thing anyone hits and it
@@ -33,7 +40,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    `compile`, `onefile`, `cache`, `completion`) except `cimo report kernels.c`: per-loop
    optimization remarks from the middle end (README promises it). zsh/fish completion
    scripts are untested.
-3. ~~**amd64 backend.**~~ **Done** (branch `amd64-backend`): Linux x86-64 and Windows x64 run end to end. Corpora and `tests/test_abi.py` pass on both (see "x86-64" in `requirements.md`). Open: sibling calls (arm64's `b` for a tail call; mutual tail recursion still uses stack on x86-64), and the arm64-only `ext.cse` passes (`divconst`, `bytepatterns`, `hoistcons`) for x86-64; SSE4.1/POPCNT/FMA with CPU detection; `conv3x3`'s scalar path, 2 to 4x behind gcc's; `edit_distance` on Neoverse V2, 1.3x; hardware faults (#DE on INT_MIN/-1 or x/0 kills the process, as SIGSEGV does).
+3. ~~**amd64 backend.**~~ **Done** (branch `amd64-backend`): Linux x86-64 and Windows x64 run end to end. Corpora and `tests/test_abi.py` pass on both (see "x86-64" in `requirements.md`). Open: sibling calls (arm64's `b` for a tail call; mutual tail recursion still uses stack on x86-64), and the arm64-only `ext.cse` passes (`divconst`, `bytepatterns`, `hoistcons`) for x86-64; SSE4.1/POPCNT/FMA with CPU detection; `conv3x3`'s scalar path, 2 to 4x behind gcc's; `edit_distance` on Neoverse V2, 1.3x; hardware faults (#DE on INT_MIN/-1 or x/0 kills the process, as SIGSEGV does). A wrong checksum on Windows x64 only (Csmith seed 17936855311685): right on Linux x86-64, Linux and Windows arm64, wrong under Windows on Arm's x64 emulation; real x64 Windows would tell an ABI bug from the emulator. Two more from Csmith, in the code before the vector work too: seed 17936895825451 trips `load.def_`'s loop-depth assertion on x86-64 (the `ext.cse` loadopt), and seed 17936895823073 never finishes on either target, middle end and inlining off or not (gcc's build runs in 2 ms).
 4. ~~**WASM backend + Pyodide loading.**~~ **Done:** `cimo.backend.wasm`, `cimo.wasm` (see "WASM
    backend" in `requirements.md`). Open: host JS libraries via `link=`, async loading for large
    modules on a browser main thread, wasm SIMD.

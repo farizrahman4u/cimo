@@ -228,7 +228,10 @@ def pmrec(status, i, k):
         status[i] = Moved
         return -1
     assert KBASE(pm_cls[i]) == KBASE(k[0])
-    k[0] |= pm_cls[i]
+    if D.Kq in (k[0], pm_cls[i]):  # cimo (ext.vector): a cycle with a 128-bit value swaps all 128 bits (q | s was 7)
+        k[0] = D.Kq
+    else:
+        k[0] |= pm_cls[i]
     j = 0
     while j < npm:
         if req(pm_dst[j], pm_src[i]):

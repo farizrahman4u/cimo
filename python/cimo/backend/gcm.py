@@ -236,38 +236,78 @@ def gcmmove(fn):
     addgcmins(fn, vins)
 
 
-def schedins(fn, b, k, pos, vins):
-    """dfs ordering; k is an index in b.ins, pos maps id(ins) to its index;
-    returns the index after the group"""
-    i0, i1 = igroup(b, k)
-    for k in range(i0, i1):
-        i = b.ins[k]
-        for n in range(2):
-            if rtype(i.arg[n]) != RTmp:
-                continue
-            t = fn.tmp[rval(i.arg[n])]
-            if t.bid != b.id or not t.def_:
-                continue
-            schedins(fn, b, pos[id(t.def_)], pos, vins)
-    for k in range(i0, i1):
-        i = b.ins[k]
-        if i.op != Onop:
-            vins.append(i.copy())
-        i.set(Ins(Onop))
-    return i1
-
-
 def schedblk(fn):
-    """order ins within a block"""
+    """order ins within a block: an instruction after what it reads from the same block, as QBE's
+    dfs, which pulls a definition up to its first reader. Fix over C QBE: a pinned instruction (a
+    call, a load, a store), which gcm never moves, isn't pulled up either; its reader waits for it
+    instead. gvn moves the pure instructions of a dead branch to the end of the start block
+    (rebuildcfg); once simplcfg merged the block of a call they read into the start block, the
+    dfs brought the call up past stores it reads (Csmith, an inlined safe_mul_func_int32_t_s_s:
+    wrong checksums on arm64 and x86-64)."""
     b = fn.start
     while b:
-        vins = []
-        pos = {id(b.ins[k]): k for k in range(b.nins)}
+        ins = b.ins[:b.nins]
+        groups = []
         k = 0
-        while k < b.nins:
-            k = schedins(fn, b, k, pos, vins)
-        b.ins = [i.copy() for i in vins]
-        b.nins = len(vins)
+        while k < len(ins):
+            i0, i1 = igroup(b, k)
+            groups.append(ins[i0:i1])
+            k = i1
+        owner = {}
+        for n, g in enumerate(groups):
+            for i in g:
+                if rtype(i.to) == RTmp:
+                    owner[rval(i.to)] = n
+        fixed = [any(pinned(i) for i in g) for g in groups]  # gcm leaves them where they were
+        emitted = [False] * len(groups)
+        out = []
+
+        def place(n, busy):
+            """emits group n after what it reads; False if that is a fixed group not reached yet"""
+            if emitted[n]:
+                return True
+            if n in busy:
+                return False
+            busy.add(n)
+            for i in groups[n]:
+                for a in i.arg[:2]:
+                    if rtype(a) != RTmp:
+                        continue
+                    m = owner.get(rval(a))
+                    if m is None or m == n or emitted[m]:
+                        continue
+                    if fixed[m] or not place(m, busy):
+                        busy.discard(n)
+                        return False
+            busy.discard(n)
+            for i in groups[n]:
+                if i.op != Onop:
+                    out.append(i.copy())
+            emitted[n] = True
+            return True
+
+        waiting = []
+
+        def flush():
+            again = True
+            while again:
+                again = False
+                for n in list(waiting):
+                    if place(n, set()):
+                        waiting.remove(n)
+                        again = True
+
+        for n in range(len(groups)):
+            if fixed[n]:
+                if not place(n, set()):
+                    die("a pinned instruction reads what comes after it in its block")
+            elif not place(n, set()):
+                waiting.append(n)
+            flush()
+        if waiting:
+            die("a cycle within a block")
+        b.ins = out
+        b.nins = len(out)
         b = b.link
 
 

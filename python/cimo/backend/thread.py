@@ -372,4 +372,6 @@ def run(fn):
         cfg.fillcfg(fn)
         ssa.filluse(fn)
         cfg.filldom(fn)
+    if any_:
+        cfg.fillloop(fn)  # fix: the loop depths of the blocks it moved (loadopt asserts on them; Csmith, x86-64)
     return any_

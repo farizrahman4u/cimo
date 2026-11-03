@@ -77,9 +77,11 @@ alias checks) and an instruction-selecting backend. On scalar code it runs close
 Results are bit-identical to the reference compiler.</sub>
 
 On arm64 and x86-64, cimo also auto-vectorizes straight counted loops over 4- and 8-byte elements, 128 bits at a
-time. Floating-point sums, loops with conditions, narrower elements and WebAssembly stay scalar, so the
-reference compilers are ahead where they vectorize those. See [`requirements.md`](requirements.md) for
-the full measurements.
+time. Floating-point sums vectorize only where the loop does enough else, since C fixes their order; loops with
+conditions, narrower elements and WebAssembly stay scalar, so the
+reference compilers are ahead where they vectorize those. Geomean over 15 kernels, against vectorized
+`gcc -O3`: 1.11 to 1.18x on Neoverse N1, V1 and V2, 1.05 to 1.08x on Ice Lake, Sapphire Rapids and Zen 4 (128-bit
+SSE2 on both sides). See [`requirements.md`](requirements.md) for the full measurements.
 
 Compiling a kernel file takes under a second, and compiled modules are cached by content hash.
 
@@ -207,9 +209,11 @@ differential-tested against gcc on randomly generated programs.
 
 ## Status
 
-Pre-release. Planned:
+Pre-release. Runs on Linux, macOS and Windows (arm64 and x86-64) and in the browser, and auto-vectorizes on
+arm64 and x86-64. Differential-tested against gcc on random programs (Csmith, YARPGen) on both architectures.
+Planned:
 
-- Auto-vectorization of more loops, and on WebAssembly
+- Auto-vectorization of more loops (conditions, 8- and 16-bit elements, outer loops), and on WebAssembly
 - GNU vector types (`__attribute__((vector_size(16)))`)
 - `debug=True`: bounds checks on every access, and detection of use-after-free, double free and leaks
 - `cimo report`: which loops were optimized, and why the others weren't

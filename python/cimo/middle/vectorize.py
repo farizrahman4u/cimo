@@ -8,7 +8,8 @@ Legal when, as LoopVectorizationLegality and LoopAccessAnalysis ask:
 - two accesses of one base and step are far enough apart that a vector's worth of iterations can't change what
   either sees: see _distance;
 - nothing is carried round the loop but the induction variables and integer reductions (_reduction), whose order C
-  doesn't fix; a float's sum depends on its order, so those stay scalar;
+  doesn't fix, and float sums (_ordered), whose order it does: the vector loop adds its lanes one by one, in order, as
+  gcc's fold-left reductions, when what else the loop does is worth it (_worth);
 - operands are computed in the loop by a vectorized instruction, or are the same on every iteration.
 
 Each lane does what the scalar instruction did, in the same rounding, so results are bit for bit the scalar loop's.
@@ -74,7 +75,7 @@ def _distance(store, load, vf, storeat, loadat):
 
 class Reduction:
     """s = s op v, round the loop: t is s's phi, op the instruction, v the operand, ext how v comes from 32-bit lanes."""
-    __slots__ = ('t', 'i', 'op', 'v', 'ext', 'acc0', 'in0', 'in1', 'out0', 'out1', 'cls')
+    __slots__ = ('t', 'i', 'op', 'v', 'ext', 'acc0', 'in0', 'in1', 'out0', 'out1', 'cls', 'ordered', 'third')
 
 
 _REDOPS = {D.Oadd: 'qadd', D.Osub: 'qsub', D.Oand: 'qand', D.Oor: 'qor', D.Oxor: 'qxor'}
@@ -114,8 +115,80 @@ def _reduction(fast, p, cloned):
             return None
     r = Reduction()
     r.t, r.i, r.op, r.v, r.cls = t, i, i.op, v, p.cls
-    r.ext = None
+    r.ext = r.third = None
+    r.ordered = False
     return r
+
+
+def _ordered(fast, p, cloned):
+    """p as a float Reduction done in order, or None: s = s + v, s - v or fma(a, b, s), nothing else reading s or the
+    new value but the phi."""
+    if p.cls not in (Ks, Kd):
+        return None
+    nxt = ir.phiargof(p, fast.sh.latch)
+    if not ir.istmp(nxt):
+        return None
+    i = third = None
+    for n, x in enumerate(cloned):
+        if x.to == nxt:
+            i = x
+            if x.op == D.Ofma1 and n and cloned[n - 1].op == D.Ofma0:
+                third = cloned[n - 1]
+    if i is None or i.cls != p.cls:
+        return None
+    if i.op == D.Ofma1:
+        if third is None or third.arg[0] != p.to or p.to in i.arg[:2]:
+            return None
+        v = (i.arg[0], i.arg[1])
+    elif i.op == D.Oadd and i.arg[0] == p.to and i.arg[1] != p.to:
+        v = i.arg[1]
+    elif i.op == D.Oadd and i.arg[1] == p.to and i.arg[0] != p.to:
+        v = i.arg[0]  # v + s: s + v, the same for floats
+    elif i.op == D.Osub and i.arg[0] == p.to and i.arg[1] != p.to:
+        v = i.arg[1]
+    else:
+        return None
+    reads = 0
+    for x in cloned:
+        reads += sum(1 for a in x.arg[:2] if a == p.to)
+        if x is not i and nxt in x.arg[:2]:
+            return None
+    if reads != 1:
+        return None
+    for q in ir.phis(fast.sh.H):
+        if q is not p and (p.to in q.arg[:q.narg] or nxt in q.arg[:q.narg]):
+            return None
+    r = Reduction()
+    r.t, r.i, r.op, r.v, r.cls, r.third = rval(p.to), i, i.op, v, p.cls, third
+    r.ext = None
+    r.ordered = True
+    return r
+
+
+_SLOW = {D.Odiv, D.Ofsqrt}  # one at a time, on a vector as on one lane
+
+
+def _cycles(i, lanes=1):
+    """lanes: a vector's, if a division or square root on it costs one a lane (arm64: Neoverse N1, V1 and V2 run
+    nbody_acc no faster on 2 x f64, measured; x86-64's divpd and sqrtpd do, 1.4x)."""
+    if i.op in (D.Onop, D.Odbgloc, D.Ofma0):
+        return 0
+    if i.op in _SLOW and i.cls in (Ks, Kd):
+        return (8 if i.cls == Kd else 5) * lanes
+    return 0.5
+
+
+def _worth(fast, vf, skip):
+    """Whether in-order float sums pay: each vector iteration still adds its vf lanes one after the other, so the
+    loop gains only when the rest of it took longer than those adds' latency, as gcc's cost model has it. Estimates in
+    cycles: two operations a cycle, a division or square root at a time, 4 a dependent add."""
+    rest = [i for i in fast.cloned if id(i) not in skip]
+    per = vf if D.T.name.startswith('arm64') else 1
+    chain = 4
+    ordered = [r for r in fast.vreds if r.ordered]
+    scalar = vf * max(sum(_cycles(i) for i in rest) + 0.5 * len(ordered), chain)
+    vector = max(sum(_cycles(i, per) for i in rest) + vf * len(ordered), vf * chain)  # a lane out and an add, for each
+    return vector < 0.8 * scalar
 
 
 def _widening(fast, r, cloned):
@@ -137,15 +210,17 @@ def plan(fast, rts):
     skip = set()
     for p in ir.phis(sh.H):
         if rval(p.to) not in A.biv:
-            r = _reduction(fast, p, fast.cloned)
+            r = _reduction(fast, p, fast.cloned) or _ordered(fast, p, fast.cloned)
             if r is None:
                 return 0
-            x = _widening(fast, r, fast.cloned)
+            x = _widening(fast, r, fast.cloned) if not r.ordered else None
             if x is not None:
                 r.ext = x
                 skip.add(id(x))
             fast.vreds.append(r)
             skip.add(id(r.i))
+            if r.third is not None:
+                skip.add(id(r.third))
     widths = set()
     mem = []
     made = set()
@@ -200,7 +275,11 @@ def plan(fast, rts):
     if third is not None or not mem:
         return 0
     for r in fast.vreds:
-        if r.ext is not None:
+        if r.ordered:
+            if not all(_operand(fast, a, made) for a in (r.v if isinstance(r.v, tuple) else (r.v,))):
+                return 0
+            widths.add(_SIZE[r.cls])
+        elif r.ext is not None:
             if not _operand(fast, r.ext.arg[0], made):
                 return 0
             widths.add(4)
@@ -211,6 +290,8 @@ def plan(fast, rts):
     if len(widths) != 1:
         return 0
     vf = 16 // widths.pop()
+    if any(r.ordered for r in fast.vreds) and not _worth(fast, vf, skip):
+        return 0
     far = set()
     for i, f, n, isstore in mem:
         if not isstore:
@@ -295,6 +376,8 @@ def body(fast, em, state):
         skip.add(id(r.i))
         if r.ext is not None:
             skip.add(id(r.ext))
+        if r.third is not None:
+            skip.add(id(r.third))
     for i in fast.cloned:
         if i.op in (D.Onop, D.Odbgloc) or id(i) in skip:
             continue
@@ -322,7 +405,22 @@ def body(fast, em, state):
             env[rval(i.to)] = em.raw(op, Kq, vec(i.arg[0], i.cls))
         else:
             env[rval(i.to)] = em.raw(op, Kq, vec(i.arg[0], i.cls), vec(i.arg[1], i.cls))
+    new = dict(state)
     for r in fast.vreds:
+        if r.ordered:  # lane by lane, in the order the scalar loop adds them
+            x = _LANE[r.cls]
+            get = getattr(D, 'Oqget' + x)
+            acc = state[('phi', r.t)]
+            vs = [vec(a, r.cls) for a in (r.v if isinstance(r.v, tuple) else (r.v,))]
+            for n in range(16 // _SIZE[r.cls]):
+                lanes = [em.raw(get, r.cls, w, em.con(n)) for w in vs]
+                if r.op == D.Ofma1:
+                    em.ins(Ins(D.Ofma0, r.cls, R, acc, R))
+                    acc = em.raw(D.Ofma1, r.cls, lanes[0], lanes[1])
+                else:
+                    acc = em.raw(r.op, r.cls, acc, lanes[0])
+            new[('phi', r.t)] = acc
+            continue
         identity = fast.fp.raw(getattr(D, 'Oqdup' + _LANE[r.cls]), Kq, fast.fp.con(-1 if r.op == D.Oand else 0))
         r.acc0 = identity
         r.in0 = newtmp('v', Kq, fn)
@@ -338,13 +436,15 @@ def body(fast, em, state):
         op = getattr(D, 'O' + _REDOPS[r.op] + ('' if r.op in (D.Oand, D.Oor, D.Oxor) else _LANE[r.cls]))
         r.out0 = em.raw(op, Kq, r.in0, vec(r.v, r.cls))
         r.out1 = None
-    return dict(state)
+    return new
 
 
 def closeloop(fast, em, MB, FP, state):
     """The accumulators' phis in MB, and, in em, a block after it, the scalar values with what they've collected."""
     out = dict(state)
     for r in fast.vreds:
+        if r.ordered:
+            continue  # already in the scalar value
         ir.addphi(MB, Kq, r.in0, [(FP, r.acc0), (MB, r.out0)])
         total = r.out0
         k = r.cls

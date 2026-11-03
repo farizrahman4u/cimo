@@ -25,6 +25,8 @@ def _no_fma():
 
 _r = os.environ.get('CIMO_RANDOM_SEEDS', '0:6').split(':')
 SEEDS = list(range(int(_r[0]), int(_r[1])))
+if 'CIMO_RANDOM_SEEDS' not in os.environ:
+    SEEDS += [89629]  # a cycle of register moves with a vector and a float in it (rega)
 CALLS = [(n, k, None) for n in (0, 1, 2, 3, 4, 5, 7, 8, 13, 31, 64, 100) for k in (0, -3, 4)]
 ALIAS = [(n, 1, d) for n in (3, 9, 33) for d in (-2, 0, 1, 3)]
 

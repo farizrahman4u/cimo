@@ -81,7 +81,9 @@ def convert_loop(fn, lp):
             if b is not ifb:
                 out = out + ir.ins(b)
         c = ifb.jmp.arg
-        if _ext.isel and D.T.name.startswith('arm64'):  # csel: one instruction per value
+        arm = _ext.isel and D.T.name.startswith('arm64')  # csel: one instruction per value
+        x86 = D.T.name.startswith('amd64') and all(p.cls in (Kw, Kl) for p in ir.phis(joinb))  # cmov, as QBE's ifopt
+        if arm or x86:
             for p in ir.phis(joinb):  # a sel0 each: the loop passes copy them as pairs
                 out.append(Ins(D.Osel0, Kw, R, c, R))
                 out.append(Ins(D.Osel1, p.cls, p.to, ir.phiargof(p, tb), ir.phiargof(p, fb)))

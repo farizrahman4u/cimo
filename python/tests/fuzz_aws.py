@@ -7,10 +7,10 @@ budget. Failures come back to tests/fuzz_failures/aws-<time>/.
 
 Needs the AWS CLI with credentials (region from its config) and ssh/scp. The commit must be
 pushed: the instance clones it from GitHub. Everything the run creates is tagged
-Name=cimo-fuzz and removed at the end (instance, security group, key pair), also on errors
+Name=fariz-fuzz and removed at the end (instance, security group, key pair), also on errors
 and Ctrl-C. As a backstop the instance shuts itself down, which terminates it, 20 minutes
 after its budget, so a dead driver cannot leave it running. `--cleanup` terminates any
-leftover cimo-fuzz instances and deletes leftover groups and keys.
+leftover fariz-fuzz instances and deletes leftover groups and keys.
 """
 
 import argparse
@@ -27,11 +27,11 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = 'https://github.com/farizrahman4u/cimo'
 AMI_PARAM = '/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id'
-TAG = 'cimo-fuzz'
+TAG = 'fariz-fuzz'  # the account's naming: a fariz- prefix, and no project name in any resource
 
 USER_DATA = r'''#!/bin/bash
 shutdown -h +{hard}  # backstop: shutdown terminates the instance
-exec > /var/log/cimo-fuzz.log 2>&1
+exec > /var/log/fariz-fuzz.log 2>&1
 set -x
 apt-get update -q
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q git gcc g++ cmake m4 python3 python3-pytest
@@ -76,7 +76,7 @@ def ssh(ip, key, cmd, **kw):
 
 
 def leftovers():
-    """Instance ids of cimo-fuzz instances that are not terminated."""
+    """Instance ids of fariz-fuzz instances that are not terminated."""
     r = aws('ec2', 'describe-instances', '--filters', 'Name=tag:Name,Values=' + TAG,
             'Name=instance-state-name,Values=pending,running,stopping,stopped')
     return [i['InstanceId'] for res in r['Reservations'] for i in res['Instances']]
@@ -140,7 +140,7 @@ def main():
         myip = urllib.request.urlopen('https://checkip.amazonaws.com').read().decode().strip()
         vpc = aws('ec2', 'describe-vpcs', '--filters', 'Name=isDefault,Values=true')['Vpcs'][0]
         group = aws('ec2', 'create-security-group', '--group-name', name, '--description',
-                    'cimo fuzzing (ssh from the driver)', '--vpc-id', vpc['VpcId'],
+                    'fuzzing run (ssh from the driver)', '--vpc-id', vpc['VpcId'],
                     '--tag-specifications', tags % 'security-group')['GroupId']
         aws('ec2', 'authorize-security-group-ingress', '--group-id', group, '--protocol', 'tcp',
             '--port', '22', '--cidr', myip + '/32')
@@ -219,7 +219,7 @@ def main():
             left = ['(unknown: run `python tests/fuzz_aws.py --cleanup`)']
         shutil.rmtree(tmp, ignore_errors=True)
         if left:
-            print('WARNING: cimo-fuzz instances still running:', ' '.join(left))
+            print('WARNING: fariz-fuzz instances still running:', ' '.join(left))
     return 0
 
 

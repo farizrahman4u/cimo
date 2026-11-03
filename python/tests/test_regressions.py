@@ -172,6 +172,21 @@ def test_bit_fields_promote_through_comma_and_conditional():
     assert m.b() == 0 and m.d(1) == 0 and m.e(1) == 4
 
 
+def test_bit_fields_promote_through_assignment_and_increment():
+    # cproc: (s.f7 = 0), (s.f7 += 1) and s.f7++ were unsigned int, not promoted to int as a
+    # 2-bit field is, so comparing them with a negative int went unsigned (Csmith: a branch
+    # taken the other way, into a loop that never ends); a 32-bit field stays unsigned int
+    m = cimo.compile('struct S { unsigned f7 : 2; unsigned w : 32; signed s : 3; } g = {1, 1, 1};\n'
+                     'int neg = -5;\n'
+                     'int a(void) { return (g.f7 = 0) >= neg; }\n'
+                     'int b(void) { return (g.f7 += 1) >= neg; }\n'
+                     'int c(void) { return g.f7++ >= neg; }\n'
+                     'int d(void) { return (g.w = 0) >= neg; }\n'
+                     'int e(void) { return (g.f7 = 7) - 4; }\n'
+                     'int f(void) { return g.s = 7; }\n')
+    assert (m.a(), m.b(), m.c(), m.d(), m.e(), m.f()) == (1, 1, 1, 0, -1, -1)
+
+
 # found by the semantics model (test_semantics.py)
 
 def test_bool_increment_and_decrement():

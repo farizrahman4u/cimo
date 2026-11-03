@@ -105,6 +105,13 @@ def bitfieldwidth(e):
         while e.next:
             e = e.next
         return bitfieldwidth(e)
+    if e.kind == EXPRASSIGN:
+        # cimo: the value of an assignment to a bit-field is the bit-field's, and promotes as one:
+        # `(s.f7 = 0) >= -5` with `unsigned f7 : 2` is 1, as gcc and clang (Csmith: a branch taken
+        # the other way, then a loop that never ended); compound assignments end in one too
+        return bitfieldwidth(e.l)
+    if e.kind == EXPRINCDEC:
+        return bitfieldwidth(e.base)  # cimo: `s.f7++ >= -5` promotes as `s.f7` does
     if e.kind != EXPRBITFIELD:
         return M32
     return (e.type.size * 8 - e.bits[0] - e.bits[1]) & M32
