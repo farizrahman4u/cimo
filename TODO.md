@@ -46,7 +46,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    modules on a browser main thread, wasm SIMD.
 5. **SIMD.** Auto-vectorizer **running on arm64 and x86-64** (`middle/vectorize.py`; see "Vector code" in `requirements.md`). Open, in
    order: reductions through a chain (`s += x * x + 3`), outer-loop vectorization (`nbody_acc`, gcc 1.3x ahead), byte and short lanes with widening and narrowing (scramjit's `image[i] + k` on `uint8`: 0.24 ns per element, `int32` 0.12), interleaved access (`rgb2gray`),
-   conditions, downward steps; then GNU vector types (`vector_size`, currently a clear error), wasm, SLP; AVX2 behind a check at load.
+   conditions, downward steps; then GNU vector types (`vector_size`, currently a clear error), wasm, SLP; AVX2 behind a check at load. Conditions first for scramjit: `out[i] = v if v > 0.0 else 0.0` and `min(max(x[i], 0.0), 1.0)` stop at `cgtd` (no vector form), and they are what generated code is full of.
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.
 7. ~~**macOS (Apple silicon).**~~ **Done:** the suite, corpora and examples pass on an M-series
