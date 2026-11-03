@@ -27,7 +27,7 @@ def _cimowin():
 
 
 class E:
-    __slots__ = ('f', 'fn', 'fp', 'fsz', 'nclob', 'xsave', 'xarea')
+    __slots__ = ('f', 'fn', 'fp', 'fsz', 'nclob', 'xsave', 'xarea', 'qthird')
 
     def __init__(self, f, fn):
         self.f = f
@@ -37,6 +37,7 @@ class E:
         self.nclob = 0
         self.xsave = []  # cimo (amd64_windows): callee-saved xmm registers, saved below the
         self.xarea = 0   # pushes in xarea bytes
+        self.qthird = R  # cimo (ext.vector): qfma0's addend, for the qfma1 after it
 
 
 # (cmp, set/jump suffix, negated suffix)
@@ -463,6 +464,12 @@ def _qins(i, e):
     if not D.isqop(op):
         return False
     name = optab[op].name
+    if name == 'qfma0':
+        e.qthird = i.arg[0]  # with the next one
+        return True
+    if name in ('qfma1s', 'qfma1d'):
+        _fma3(f, 'p' + name[-1], i.to, i.arg[0], i.arg[1], e.qthird)
+        return True
     if name in _QTWO:
         mn, commutes = _QTWO[name]
         _qtwo(mn, i.to, i.arg[0], i.arg[1], commutes, f)
@@ -728,12 +735,57 @@ def emitins(i, e):
         emitf("movzwl %H0, %W=", i, e)
         emitf("rolw $8, %H=", i, e)
     elif op == Obclz:  # undefined for 0, as __builtin_clz
-        emitf("bsr%k %0, %=", i, e)
-        emitf("xor%k $63, %=" if i.cls == Kl else "xor%k $31, %=", i, e)
+        if 'lzcnt' in _ext.x86:
+            _clear(i, e)
+            emitf("lzcnt%k %0, %=", i, e)
+        else:
+            emitf("bsr%k %0, %=", i, e)
+            emitf("xor%k $63, %=" if i.cls == Kl else "xor%k $31, %=", i, e)
     elif op == Obctz:
-        emitf("bsf%k %0, %=", i, e)
+        if 'bmi1' in _ext.x86:
+            _clear(i, e)
+            emitf("tzcnt%k %0, %=", i, e)
+        else:
+            emitf("bsf%k %0, %=", i, e)
+    elif op == D.Obpopcnt:  # only with ext.x86 popcnt: the frontend emits it then
+        _clear(i, e)
+        emitf("popcnt%k %0, %=", i, e)
+    elif op in _FMA3:
+        _fma(i, e)
     else:
         _table(i, e)
+
+
+def _clear(i, e):
+    """popcnt, lzcnt and tzcnt wait for their destination's old value on several Intel cores, as
+    gcc's tuning knows: cleared first, unless it's the source."""
+    if i.to != i.arg[0] and rtype(i.to) == RTmp:
+        r = regtoa(rval(i.to), SWord)
+        e.f.write("\txorl %%%s, %%%s\n" % (r, r))
+
+
+_FMA3 = {D.Oafmadd: 'vfmadd', D.Oafmsub: 'vfnmadd', D.Oafnmsub: 'vfmsub', D.Oafnmadd: 'vfnmsub'}
+
+
+def _fma(i, e):
+    """r = afmadd a, MEM{base=b, index=c}: r = a*b + c, rounded once (FMA3); afmsub c - a*b, afnmsub a*b - c,
+    afnmadd -(a*b) - c."""
+    m = e.fn.mem[rval(i.arg[1])]
+    _fma3(e.f, 's' + ('d' if i.cls == Kd else 's'), i.to, i.arg[0], m.base, m.index, _FMA3[i.op])
+
+
+def _fma3(f, x, to, a, b, c, mn='vfmadd'):
+    """to = ±(a*b) ± c in x ('ss', 'sd', 'ps', 'pd'), whichever of them to shares a register with: the 231 form
+    computes src1*src2 ± dst, the 213 form src1*dst ± src2, so the sign of each part is the mnemonic's either way."""
+    q = lambda r: "%%xmm%d" % (rval(r) - XMM0)
+    if to == c:
+        f.write("\t%s231%s %s, %s, %s\n" % (mn, x, q(b), q(a), q(to)))
+    elif to == a:
+        f.write("\t%s213%s %s, %s, %s\n" % (mn, x, q(c), q(b), q(to)))
+    elif to == b:
+        f.write("\t%s213%s %s, %s, %s\n" % (mn, x, q(c), q(a), q(to)))
+    else:
+        f.write("\tmovaps %s, %s\n\t%s231%s %s, %s, %s\n" % (q(c), q(to), mn, x, q(b), q(a), q(to)))
 
 
 absmask = {Ks: 0x7fffffff, Kd: 0x7fffffffffffffff}
@@ -760,6 +812,11 @@ def _stkchk(fn, f):
     """cimo (ext.stkchk): the stack guard, first thing in the prologue (cimo.execution)."""
     if _ext.stkchk and fn.name in _ext.stkchk:
         f.write("\tcallq %s__cimo_stkchk\n" % D.T.assym)
+
+
+# cimo: a loop's header on 64 bytes, not QBE's 16: where a short loop lands within a 64-byte line moved gemm by 1.1 to
+# 1.5x on Ice Lake, Sapphire Rapids and Zen 4 when one instruction changed (FMA), and the baseline build is no slower
+_LOOPALIGN = ".p2align 6\n"
 
 
 def _usesxmm15(fn):
@@ -837,7 +894,7 @@ def amd64_sysv_emitfn(fn, f):
             else:
                 p = b.npred
             if p != b.npred:
-                f.write(".p2align 4\n")
+                f.write(_LOOPALIGN)
             f.write("%sbb%d:\n" % (D.T.asloc, id0 + b.id))
         for i in b.ins[:b.nins]:
             emitins(i, e)
@@ -964,6 +1021,8 @@ def amd64_winabi_emitfn(fn, f):
     b = fn.start
     while b:
         if lbl or b.npred > 1:
+            if any(b.pred[p].id >= b.id for p in range(b.npred)):
+                f.write(_LOOPALIGN)
             f.write("%sbb%d:\n" % (D.T.asloc, id0 + b.id))
         for i in b.ins[:b.nins]:
             emitins(i, e)

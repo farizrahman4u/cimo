@@ -81,7 +81,8 @@ time. Floating-point sums vectorize only where the loop does enough else, since 
 conditions, narrower elements and WebAssembly stay scalar, so the
 reference compilers are ahead where they vectorize those. Geomean over 15 kernels, against vectorized
 `gcc -O3`: 1.11 to 1.18x on Neoverse N1, V1 and V2, 1.05 to 1.08x on Ice Lake, Sapphire Rapids and Zen 4 (128-bit
-SSE2 on both sides). See [`requirements.md`](requirements.md) for the full measurements.
+SSE2 on both sides). On x86-64 cimo compiles for the CPU it runs on (FMA, POPCNT, LZCNT, TZCNT), 4% faster than its
+baseline build; against `gcc -O3 -march=native`, which also has 256-bit AVX2, 1.18 to 1.44x. See [`requirements.md`](requirements.md) for the full measurements.
 
 Compiling a kernel file takes under a second, and compiled modules are cached by content hash.
 
@@ -214,6 +215,7 @@ arm64 and x86-64. Differential-tested against gcc on random programs (Csmith, YA
 Planned:
 
 - Auto-vectorization of more loops (conditions, 8- and 16-bit elements, outer loops), and on WebAssembly
+- 256-bit AVX2 vectors on x86-64 CPUs that have them
 - GNU vector types (`__attribute__((vector_size(16)))`)
 - `debug=True`: bounds checks on every access, and detection of use-after-free, double free and leaks
 - `cimo report`: which loops were optimized, and why the others weren't

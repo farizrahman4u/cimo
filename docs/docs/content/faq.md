@@ -6,7 +6,7 @@ Most often the array's dtype doesn't match the C type: a `float64` array passed 
 
 ### Results differ slightly from gcc
 
-On arm64 cimo contracts `a * b + c` into a fused multiply-add by default (x86-64 and wasm never do). Set `CIMO_FMA=0` to compare with `gcc -ffp-contract=off`; results are then bit-identical on the benchmarks.
+cimo contracts `a * b + c` into a fused multiply-add by default on arm64 and on x86-64 CPUs with FMA (wasm never does). Set `CIMO_FMA=0` to compare with `gcc -ffp-contract=off`; results are then bit-identical on the benchmarks.
 
 ### The first compile is slow
 

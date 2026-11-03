@@ -934,10 +934,10 @@ FUSED, SPLIT = 5.551115123125783e-17, 0.0  # 0.1 * 10 - 1, rounded once or twice
 
 
 def _contracted():
-    """What compile(fma=True) gives for a*b + c: fused, except on x86-64, whose baseline has no
-    fused multiply-add, so cimo never contracts there (fma() itself is still exact)."""
+    """What compile(fma=True) gives for a*b + c: fused, except on an x86-64 CPU without FMA, where
+    cimo never contracts (fma() itself is still exact)."""
     from cimo import driver
-    return SPLIT if driver.TARGET.startswith('amd64') else FUSED
+    return FUSED if not driver.TARGET.startswith('amd64') or 'fma' in driver._x86() else SPLIT
 
 
 def test_fma_per_compile():

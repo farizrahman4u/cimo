@@ -216,6 +216,10 @@ class _Driver:
             ssa.filluse(fn)
             cfg.filldom(fn)
             ssa.ssacheck(fn)
+        if T.name.startswith('amd64') and 'fma' in ext.x86:
+            from .amd64 import fmachain
+            if fmachain.split(fn):
+                ssa.filluse(fn)
         T.abi1(fn)
         simpl.simpl(fn)
         cfg.fillcfg(fn)

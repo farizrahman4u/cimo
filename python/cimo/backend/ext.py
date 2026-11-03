@@ -42,6 +42,10 @@ Flags:
           so it unwinds to Python (cimo.execution) instead of killing the process
   stkchk  None, or a set of function names whose prologue calls __cimo_stkchk (the stack
           guard, cimo.execution); not a bool, and not part of ALL
+  x86     the x86-64 features beyond SSE2 the code may use (cimo.cpu: fma, popcnt, lzcnt, bmi1,
+          avx, avx2, bmi2); a set, empty for baseline x86-64, and not part of ALL. fma: the fma
+          pair as vfmadd, vectors too; popcnt, lzcnt, bmi1 (tzcnt): bpopcnt, bclz, bctz as one
+          instruction each
 
     from cimo.backend import ext
     with ext.options(fma=True, ldp=True, layout=True, math=True):
@@ -76,6 +80,7 @@ isel = False
 bigcopy = None
 inline = 0
 stkchk = None
+x86 = frozenset()
 
 # alias hook for ldp scheduling: disjoint(fn, base1, base2) -> True if accesses off the two
 # base temps (SSA, after isel) can never overlap, e.g. distinct restrict pointers. None: they
@@ -83,7 +88,7 @@ stkchk = None
 disjoint = None
 
 ALL = {'fma': True, 'ldp': True, 'layout': True, 'math': True, 'trap': True, 'volatile': True, 'vla': True, 'cse': True, 'isel': True, 'nowrap': True, 'vector': True}
-_NAMES = tuple(ALL) + ('stkchk', 'bigcopy', 'inline')
+_NAMES = tuple(ALL) + ('stkchk', 'bigcopy', 'inline', 'x86')
 
 
 def configure(**kw):
@@ -94,6 +99,7 @@ def configure(**kw):
         if k not in _NAMES:
             raise TypeError('unknown backend extension %r' % k)
         g[k] = ((frozenset(v) if v is not None else None) if k == 'stkchk'
+                else frozenset(v or ()) if k == 'x86'
                 else v if k == 'bigcopy' else int(v or 0) if k == 'inline' else bool(v))
     return old
 

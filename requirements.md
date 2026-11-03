@@ -576,6 +576,17 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   cproc too); jump threading refills loop depths when it changed blocks (loadopt asserted on x86-64; gcc-torture's
   `loop-12.c` shows the stale ones); a cycle of register moves with a `q` value in it swaps all 128 bits (`q | s` was 7).
   gcc `-O0` on arm64 compiles `0.0f - x` as `fneg`, -0 for x = 0, so the random-loop generator doesn't write it.
+- **x86-64 for this CPU (`cimo/cpu.py`):** cpuid and xgetbv, assembled by cimo itself, run once; the features go into
+  `ext.x86` and into both cache keys (a module's and the runtime's), only for this machine's own target. `CIMO_X86=baseline`
+  for SSE2. FMA: `fma0`/`fma1` as afmadd with a Mem for the third, as arm64, emitted as the 231 or 213 form by which operand
+  the result shares; negated operands folded (vfnmadd, vfmsub, vfnmsub); vectors keep the addend in the destination, as
+  fmla. **No FMA whose addend is on a loop's recurrence** (`amd64/fmachain.py`), as gcc's avoid_fma_chains: FMA latency 4
+  against an add's 2 (Sapphire Rapids) or 3 (Zen 4) made `dot` 2.0x and 1.33x slower, `iir` 1.34x and 1.22x; split, a
+  negated addend is a sub again, not a neg on the path. **Loop headers on 64 bytes, not 16:** where a short loop sat in its
+  line moved `gemm` 1.1 to 1.5x when one instruction changed, standalone it was faster with FMA; at 64 baseline is no slower.
+  Result, against cimo's baseline build: geomean 0.967, 0.959, 0.961 (Ice Lake, Sapphire Rapids, Zen 4); `conv3x3` 0.74 to
+  0.81, `saxpy` and `gemm` 0.86 to 0.89, `mandelbrot` 0.89 to 0.94. Against `gcc -O3 -march=native` 1.28, 1.18, 1.44x:
+  256-bit vectors and byte lanes. The benchmark's gcc builds are cached by their flags (they weren't).
 - **Fuzzing on EC2:** an ssh silent for 18 minutes never came back, from here, so run detached and poll, as `fuzz_aws.py`. A timeout under
   900 s fails YARPGen's largest programs for being slow: their compile takes about 300 s on 16 workers.
 - **x86-64 scalar:** the middle end's if-conversion selects on x86-64 too, `cmov` as QBE's ifopt (`edit_distance` 2.1 to 2.4x of gcc

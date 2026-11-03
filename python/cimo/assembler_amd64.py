@@ -992,6 +992,17 @@ def _h_pextrw(a, ops, sz, _):
     _enc(a, b'\x0f\xc5', dst, src, 0, mand=b'\x66', imm=(1, None, v, None))
 
 
+def _h_vfma(a, ops, sz, arg):
+    """vfmadd{132,213,231}{ss,sd,ps,pd} %xmm, %xmm, %xmm: registers only, VEX.128 (FMA3)."""
+    _nops(ops, 3)
+    src2, src1, dst = (_xmm(o) for o in ops)
+    w, op = arg
+    r, v, b = dst[2], src1[2], src2[2]
+    out = bytearray((0xc4, (((r >> 3) ^ 1) << 7) | (1 << 6) | (((b >> 3) ^ 1) << 5) | 0x02,
+                     (w << 7) | ((v ^ 15) << 3) | 0x01, op, 0xc0 | ((r & 7) << 3) | (b & 7)))
+    a.put(out, ())
+
+
 # mnemonic table: name -> (handler, suffix size, argument)
 
 _SFX = {'b': 1, 'w': 2, 'l': 4, 'q': 8}
@@ -1096,6 +1107,12 @@ for _n, _op, _d in (('psllw', 0x71, 6), ('pslld', 0x72, 6), ('psllq', 0x73, 6), 
                     ('psrlq', 0x73, 2), ('psraw', 0x71, 4), ('psrad', 0x72, 4)):
     _INSNS[_n] = (_h_pshift, 0, (_op, _d))
 _INSNS['pextrw'] = (_h_pextrw, 0, None)
+for _o, _base in (('132', 0x98), ('213', 0xa8), ('231', 0xb8)):
+    for _n, _add in (('vfmadd', 0), ('vfmsub', 2), ('vfnmadd', 4), ('vfnmsub', 6)):
+        for _k, _w, _d in (('ps', 0, 0), ('pd', 1, 0), ('ss', 0, 1), ('sd', 1, 1)):
+            _INSNS['%s%s%s' % (_n, _o, _k)] = (_h_vfma, 0, (_w, _base + _add + _d))
+_INSNS['cpuid'] = (_h_fixed, 0, b'\x0f\xa2')
+_INSNS['xgetbv'] = (_h_fixed, 0, b'\x0f\x01\xd0')
 for _n, _p, _ld, _st in (('movss', b'\xf3', 0x10, 0x11), ('movsd', b'\xf2', 0x10, 0x11),
                          ('movups', b'', 0x10, 0x11), ('movupd', b'\x66', 0x10, 0x11),
                          ('movaps', b'', 0x28, 0x29), ('movapd', b'\x66', 0x28, 0x29),

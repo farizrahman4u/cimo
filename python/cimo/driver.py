@@ -254,14 +254,23 @@ _FRONTEND = {'arm64': 'aarch64', 'arm64_apple': 'aarch64-apple', 'arm64_win': 'a
 _VASTRUCT = {'arm64': 'aapcs', 'arm64_apple': 'slots', 'arm64_win': 'slots',
              'amd64_sysv': 'sysv', 'amd64_windows': 'win64'}
 # Calls and builtins that become one instruction (cimo.frontend builtins=, bitops=): on x86-64
-# only what SSE2, the baseline, has: no FMA (fma() and contraction), no SSE4.1 rounding (floor,
-# ceil, ...), no POPCNT, and fmin/fmax are C's, not minsd/maxsd; those stay runtime calls.
+# what SSE2, the baseline, has, and what this CPU adds (cimo.cpu): contraction with FMA, POPCNT;
+# no SSE4.1 rounding (floor, ceil, ...) yet, and fmin/fmax are C's, not minsd/maxsd.
 _X86_BUILTINS = frozenset(('fsqrt', 'fabs'))
 _X86_BITOPS = frozenset(('bclz', 'bctz', 'bswap', 'bswap16'))
 
 
 def _is_amd64(target=None):
     return (target or TARGET).startswith('amd64')
+
+
+def _x86(target=None):
+    """The x86-64 features code for target may use: this CPU's (cimo.cpu) when target is this
+    machine's, none for another x86-64 target or for arm64."""
+    if not _is_amd64(target) or (target or TARGET) != TARGET:
+        return frozenset()
+    from . import cpu
+    return cpu.x86_features()
 _PYODIDE = sys.platform == 'emscripten'  # cimo.wasm: an Emscripten side module, not arm64
 _VERSION = b'cimo-2'  # cache entry format; the compiler's own sources are hashed too (linker.compiler_key)
 
@@ -286,8 +295,9 @@ def _backend_ext(target=None):
     """The cimo.backend.ext flags for a target: the arm64 selection extensions (fma, ldp,
     layout, isel) only on arm64."""
     arm = not _is_amd64(target)
-    return dict(fma=arm, ldp=arm, layout=arm, math=True, trap=True, volatile=True, vla=True,
-                cse=True, isel=arm, nowrap=True, vector=True)
+    x86 = _x86(target)
+    return dict(fma=arm or 'fma' in x86, ldp=arm, layout=arm, math=True, trap=True, volatile=True,
+                vla=True, cse=True, isel=arm, nowrap=True, vector=True, x86=x86)
 
 
 def _qbe(ssa, params=None, middle=None, stkchk=None, target=None):
@@ -352,9 +362,11 @@ def _frontend(pp, filename, target=None, **kw):
     if _is_amd64(target):
         if kw.get('builtins') is True:
             kw['builtins'] = _X86_BUILTINS
+        x86 = _x86(target)
         if kw.get('bitops') is True:
-            kw['bitops'] = _X86_BITOPS
-        kw['fma'] = False
+            kw['bitops'] = _X86_BITOPS | ({'bpopcnt'} if 'popcnt' in x86 else set())
+        if 'fma' not in x86:
+            kw['fma'] = False
     with _compile_lock:
         _fq.paraminfo = {}
         try:
@@ -461,8 +473,8 @@ def _ir(pp, filename='<string>', host_headers=False):
 
 def _contract():
     """Whether this compile contracts a*b+c: its fma= argument, else the process default. Never
-    on x86-64, whose baseline has no fused multiply-add."""
-    if _is_amd64():
+    on an x86-64 CPU without FMA."""
+    if _is_amd64() and 'fma' not in _x86():
         return False
     v = _fma.get()
     return FMA if v is None else v
@@ -484,6 +496,7 @@ def _key(pp):
     image contains the runtime members it uses), the target and the code generation options."""
     return hashlib.sha256(
         _VERSION + _link.compiler_key().encode() + _link._key(TARGET).encode() + TARGET.encode()
+        + b'x' + ','.join(sorted(_x86())).encode()
         + (b'm' if MIDDLE else b'') + (b'f' if _contract() else b'') + (b'v' if _wraps() else b'') + (b'V' if _vectorizes() else b'') + b'i%d' % INLINE
         + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
 

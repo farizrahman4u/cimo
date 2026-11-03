@@ -6,6 +6,7 @@ would shorten most of them. Nothing here can do a fused multiply-add, which SSE2
 """
 
 from .. import defs as D
+from .. import ext as _ext
 from ..defs import R, Kq, Ins, rval, optab
 from ..util import newtmp, getcon, die
 
@@ -71,7 +72,9 @@ def _lower(L, i, third):
     elif name == 'qsel1':
         L.op('qor', L.op('qand', a, third), L.op('qxandn', third, b), to)
     elif name in ('qfma1s', 'qfma1d'):
-        die("x86-64 has no fused multiply-add without FMA")
+        if 'fma' not in _ext.x86:
+            die("x86-64 has no fused multiply-add without FMA")
+        return False  # vfmadd231ps/pd (amd64/isel.py)
     elif name == 'qsaddl' or name == 'qsaddh' or name == 'quaddl' or name == 'quaddh':
         high = L.zero() if name[1] == 'u' else L.op('qcgtw', L.zero(), b)
         L.op('qaddl', a, L.op('qxhi' if x == 'h' else 'qxlo', b, high), to)
@@ -139,6 +142,9 @@ def run(fn):
         for i in blk.ins[:blk.nins]:
             if i.op == D.Oqfma0 or i.op == D.Oqsel0:
                 third = i.arg[0]
+                if i.op == D.Oqfma0 and 'fma' in _ext.x86:
+                    out.append(i)  # kept with its qfma1
+                    continue
                 changed = True
                 continue
             L = _L(fn)

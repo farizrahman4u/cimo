@@ -121,17 +121,20 @@ def cache_keys():
     onefile-keys.json."""
     out = {'compiler': compiler_key()}
     for t in _TARGETS:
-        out['runtime-' + t] = _key(t)
+        out['runtime-' + t] = _sourcekey(t)
     return out
 
 
 _keys = {}
 
 
-def _key(target):
-    """Hash of the runtime's and the compiler's sources for a target, computed once per
-    process."""
-    k = _keys.get(target)
+_srckeys = {}
+
+
+def _sourcekey(target):
+    """Hash of the runtime's and the compiler's sources for a target, computed once per process (or the
+    one a onefile build recorded)."""
+    k = _srckeys.get(target)
     if k is None:
         keys = _onefile_keys()
         if keys:
@@ -141,6 +144,20 @@ def _key(target):
                                + compiler_key().encode() + b'\0')
             _hash(h, _res.files(RUNTIME_DIR, ('.c', '.h')))
             k = h.hexdigest()[:20]
+        _srckeys[target] = k
+    return k
+
+
+def _key(target):
+    """The runtime's cache key for a target: its sources', and this CPU's features when it's
+    compiled for this machine (cimo.cpu)."""
+    k = _keys.get(target)
+    if k is None:
+        k = _sourcekey(target)
+        from . import driver as _d
+        x86 = _d._x86(target)
+        if x86:
+            k = hashlib.sha256(k.encode() + b'\0' + ','.join(sorted(x86)).encode()).hexdigest()[:20]
         _keys[target] = k
     return k
 

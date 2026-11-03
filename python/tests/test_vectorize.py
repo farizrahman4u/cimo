@@ -287,8 +287,9 @@ _ALLOPS = 'void f(int *restrict c, const int *restrict a, const int *restrict b,
 
 
 @pytest.mark.parametrize('target', ['amd64_sysv', 'amd64_windows'])
-def test_x86_code_runs_on_any_x86_64(target):
-    """No CPU check guards these, so nothing past SSE2; the instructions below are what's easiest to reach for."""
+def test_x86_code_runs_on_any_x86_64(target, monkeypatch):
+    """With no features detected (cimo.cpu), nothing past SSE2; the instructions below are what's easiest to reach for."""
+    monkeypatch.setattr(driver, '_x86', lambda t=None: frozenset())
     text = _x86(_ALLOPS, target)
     assert 'movups' in text and 'pmuludq' in text and 'punpckhdq' in text
     later = re.findall(r'\t(pmulld|pmovsx\w+|pmovzx\w+|pcmpgtq|pcmpeqq|pminsd|pmaxsd|pminud|pmaxud|pextr[bdq]|pinsr\w|movddup|haddp\w|phadd\w|pabs\w|blendv\w+|pblend\w+|v\w+|\w*fmadd\w*)\b', text)
@@ -457,3 +458,115 @@ def test_x86_extended_load(load, ext):
         want = v & ((1 << 64) - 1) if ext == 'unsigned long' else v
         m.f.restype = ctypes.c_uint64 if ext == 'unsigned long' else ctypes.c_int64
         assert m.f(a) == want, (m.f(a), want)
+
+
+_FEATURES = frozenset(('fma', 'avx', 'avx2', 'popcnt', 'lzcnt', 'bmi1', 'bmi2'))
+
+
+def _x86with(src, feats, monkeypatch, target='amd64_sysv'):
+    monkeypatch.setattr(driver, '_x86', lambda t=None: feats if (t or driver.TARGET).startswith('amd64') else frozenset())
+    monkeypatch.setattr(driver, 'TARGET', target)
+    pp = driver._preprocess(src, 'x.c', (), False, (), target=target)
+    ssa, params = driver._ir(pp, 'x.c')
+    return driver._qbe(ssa, params, target=target)
+
+
+def _body(text, f):
+    t = text[text.index('\n%s:\n' % f):]
+    return t[:t.index('end function')]
+
+
+def test_x86_this_cpu_fma_and_bit_instructions(monkeypatch):
+    """With FMA, a*b + c is one vfmadd, in loops on vectors too; popcnt, lzcnt and tzcnt are one instruction each,
+    their destination cleared first (a false dependency on several Intel cores)."""
+    src = ('double f(double a, double b, double c) { return a * b + c; }\n'
+           'void saxpy(long n, float a, const float *restrict x, float *restrict y) { for (long i = 0; i < n; i++) y[i] = a * x[i] + y[i]; }\n'
+           'int pc(unsigned x) { return __builtin_popcount(x); }\n'
+           'int lz(unsigned long x) { return __builtin_clzl(x); }\n'
+           'int tz(unsigned x) { return __builtin_ctz(x); }\n')
+    text = _x86with(src, _FEATURES, monkeypatch)
+    assert re.search(r'\tvfmadd2[13]{2}sd ', _body(text, 'f')) and 'mulsd' not in _body(text, 'f')
+    assert re.search(r'\tvfmadd231ps ', _body(text, 'saxpy'))
+    for f, mn in (('pc', 'popcntl'), ('lz', 'lzcntq'), ('tz', 'tzcntl')):
+        b = _body(text, f)
+        assert re.search(r'\txorl (%\w+), \1\n\t' + mn + ' ', b), b
+    base = _x86with(src, frozenset(), monkeypatch)
+    assert 'vfmadd' not in base and 'popcnt' not in base and 'lzcnt' not in base and 'tzcnt' not in base
+
+
+def test_x86_fma_operand_orders(monkeypatch):
+    """vfmadd231 when the result shares the addend's register, 213 when a factor's, and a copy first otherwise."""
+    src = ('double s(double a, double b, double c) { return a * b + c; }\n'
+           'double t(double a, double b, double c) { return c + a * b; }\n'
+           'double u(double c, double a, double b) { return a * b + c; }\n'
+           'double v(double a, double b, double c, double *o) { *o = a; return a * b + c + a; }\n')
+    text = _x86with(src, _FEATURES, monkeypatch)
+    assert text.count('vfmadd') >= 4
+
+
+@pytest.mark.skipif(not hosts.AMD64, reason='runs x86-64 code')
+def test_x86_this_cpu_runs(monkeypatch):
+    """What runs is right, with what this CPU has, and with nothing past SSE2 (CIMO_X86=baseline)."""
+    from cimo import cpu
+    feats = cpu.x86_features()
+    src = ('double f(double a, double b, double c) { return a * b + c; }\n'
+           'void saxpy(long n, float a, const float *restrict x, float *restrict y) { for (long i = 0; i < n; i++) y[i] = a * x[i] + y[i]; }\n'
+           'int pc(unsigned x) { return __builtin_popcount(x); }\n'
+           'int lz(unsigned x) { return __builtin_clz(x); }\n'
+           'int tz(unsigned long x) { return __builtin_ctzl(x); }\n')
+    m = cimo.compile(src, cache=False)
+    e = 1.0 + 2 ** -30
+    want = 2.0 ** -60 if 'fma' in feats else 0.0  # e*e - (1 + 2^-29): rounds away the 2^-60 unless fused
+    assert m.f(e, e, -(1.0 + 2 ** -29)) == want
+    for x in (0, 1, 0xff, 0x80000000, 0x12345678):
+        assert m.pc(x) == bin(x).count('1')
+    for x in (1, 2, 0x80000000, 0x12345678):
+        assert m.lz(x) == 32 - x.bit_length()
+        assert m.tz(x) == (x & -x).bit_length() - 1
+    x = (ctypes.c_float * 37)(*[k * 0.5 for k in range(37)])
+    y = (ctypes.c_float * 37)(*[1.0] * 37)
+    m.saxpy(37, 3.0, x, y)
+    assert list(y) == [1.0 + 3.0 * k * 0.5 for k in range(37)]
+
+
+def test_x86_fma_negations(monkeypatch):
+    """A negated factor or addend is the instruction's: vfnmadd, vfmsub, vfnmsub, with no xorps left on the path."""
+    src = ('double s(double a, double b, double c) { return c - a * b; }\n'
+           'double t(double a, double b, double c) { return a * b - c; }\n'
+           'double u(double a, double b, double c) { return -a * b - c; }\n')
+    text = _x86with(src, _FEATURES, monkeypatch)
+    for f, mn in (('s', 'vfnmadd'), ('t', 'vfmsub'), ('u', 'vfnmsub')):
+        b = _body(text, f)
+        assert mn in b and 'xorp' not in b, b
+
+
+@pytest.mark.skipif(not hosts.AMD64, reason='runs x86-64 code')
+def test_x86_fma_negations_round_once():
+    from cimo import cpu
+    if 'fma' not in cpu.x86_features():
+        pytest.skip('a CPU without FMA')
+    m = cimo.compile('double s(double a, double b, double c) { return c - a * b; }\n'
+                     'double t(double a, double b, double c) { return a * b - c; }\n'
+                     'double u(double a, double b, double c) { return -a * b - c; }\n'
+                     'double v(double a, double b, double c) { return a * b + c; }\n', cache=False)
+    e = 1.0 + 2 ** -30
+    c = 1.0 + 2 ** -29
+    assert m.v(e, e, -c) == 2.0 ** -60  # fused: the 2^-60 the product alone rounds away
+    assert m.t(e, e, c) == 2.0 ** -60
+    assert m.s(e, e, c) == -2.0 ** -60
+    assert m.u(e, e, -c) == -2.0 ** -60
+
+
+def test_x86_no_fma_on_a_recurrence_through_its_addend(monkeypatch):
+    """As gcc's avoid_fma_chains: an FMA whose addend comes round the loop costs its latency where the add's was
+    shorter (dot 2.0x slower on Sapphire Rapids, iir 1.34x); through a factor it saves the add, and stays."""
+    src = ('double dot(int n, const double *x, const double *y) { double s = 0; for (int i = 0; i < n; i++) s += x[i] * y[i]; return s; }\n'
+           'void iir(int n, float b0, float a1, float a2, const float *x, float *y) { float y1 = 0, y2 = 0;\n'
+           '  for (int i = 0; i < n; i++) { float v = b0 * x[i] - a1 * y1 - a2 * y2; y[i] = v; y2 = y1; y1 = v; } }\n'
+           'double rec(int n, double a, double b) { double y = 1; for (int i = 0; i < n; i++) y = a * y + b; return y; }\n'
+           'void saxpy(long n, float a, const float *restrict x, float *restrict y) { for (long i = 0; i < n; i++) y[i] = a * x[i] + y[i]; }\n')
+    text = _x86with(src, _FEATURES, monkeypatch)
+    assert not re.search(r'\tvf\w+ ', _body(text, 'dot'))
+    assert not re.search(r'\tvf\w+ ', _body(text, 'iir'))
+    assert re.search(r'\tvfmadd\w+ ', _body(text, 'rec'))  # y as a factor: fused
+    assert re.search(r'\tvfmadd231ps ', _body(text, 'saxpy'))  # nothing comes round: fused

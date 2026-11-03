@@ -4,6 +4,7 @@ allocation has to get right: copies, spills, phis and values live across calls."
 import array
 import ctypes
 import math
+import re
 import struct
 
 import pytest
@@ -138,7 +139,12 @@ def test_logic_and_select():
     assert got == b
 
 
-@pytest.mark.skipif(not hosts.ARM64, reason='SSE2 has no fused multiply-add')
+def _fma_here():
+    from cimo import cpu
+    return hosts.ARM64 or 'fma' in cpu.x86_features()
+
+
+@pytest.mark.skipif(not _fma_here(), reason='an x86-64 CPU without FMA')
 @pytest.mark.parametrize('x', 'sd')
 def test_fused_multiply_add_rounds_once(x):
     # a*b+c where the product alone rounds away what the sum keeps
@@ -280,12 +286,12 @@ def test_callee_saved_low_halves_stay_kept():
     assert struct.unpack('<d', d[:8])[0] == 3.0
 
 
-@pytest.mark.skipif(not hosts.ARM64, reason='SSE2 has no fused multiply-add')
+@pytest.mark.skipif(not _fma_here(), reason='an x86-64 CPU without FMA')
 def test_text_form():
     from cimo.backend import ext, parse
     import io
     ssa = 'export function $f(l %a, l %d) {\n@s\n\t%x =q qload %a\n\t%r =q qfma1s %x, %x, %x\n\tqstore %r, %d\n\tret\n}\n'
-    assert 'fmla' in driver._qbe(ssa)
+    assert re.search(r'fmla|vfmadd231p', driver._qbe(ssa))
 
 
 @pytest.mark.parametrize('x', 'sd')

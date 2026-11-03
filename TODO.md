@@ -4,12 +4,10 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Big
 
-- **High priority: x86-64 for this machine's CPU.** cimo compiles on the machine that runs the code, so it can
-  target that CPU (as `-march=native`) instead of baseline SSE2, which has no FMA. Detect features with `cpuid`
-  run through cimo's own JIT (Linux and Windows alike) and put them in the cache key, so a cached module never
-  runs on a CPU without them. Then, measured on Ice Lake, Sapphire Rapids and Zen 4: FMA contraction (`saxpy`,
-  `gemm`, `nbody_acc`; off with `fma=False` / `CIMO_FMA=0` as on arm64), `popcnt`/`lzcnt`/`tzcnt`, then 256-bit
-  AVX2 vectors. Results then differ between FMA and older x86-64 machines, as they already do between arm64 and x86-64.
+- **High priority: x86-64 for this machine's CPU.** Detection, the cache key, FMA (scalar and vector, negations
+  folded, none on a recurrence through its addend) and `popcnt`/`lzcnt`/`tzcnt` **done** (`cimo/cpu.py`; see "x86-64
+  for this CPU" in `requirements.md`). Open: 256-bit AVX2 vectors, behind the `avx2` feature; gcc `-march=native`
+  is 1.18 to 1.44x ahead (geomean, Ice Lake, Sapphire Rapids, Zen 4), most of it 256 bits and `rgb2gray`'s bytes.
 
 0. **A fault in a kernel must not kill the Python process.** Today SIGSEGV/SIGBUS (and on x86-64
    `#DE` from `INT_MIN / -1` or `x / 0`) end the process, on Windows silently with exit code 5. For a

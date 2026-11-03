@@ -492,8 +492,80 @@ _EMIT = frozenset((Odbgloc, Ocall, Osalloc, Ocopy, Oadd, Osub, Oneg, Omul, Oand,
                    Oxtest, Ostosi, Odtosi, Oswtof, Osltof, Oexts, Otruncd, Ocast))
 
 
-_EXTINT = frozenset((D.Obclz, D.Obctz, D.Obswap, D.Obswap16))
+_EXTINT = frozenset((D.Obclz, D.Obctz, D.Obpopcnt, D.Obswap, D.Obswap16))
 _EXTOPS = _EXTINT | frozenset((D.Ogetsp, D.Osetsp, D.Ofsqrt, D.Ofabs))
+
+
+def _inreg(r, k, fn):
+    """r, or a temporary holding it if it's a constant (FMA takes registers)."""
+    if rtype(r) != RCon:
+        return r
+    t = newtmp("isel", k, fn)
+    emit(Ocopy, k, t, r, R)
+    ci = D.insb[D.curi]
+    fixarg(ci.arg, 0, k, ci, fn)
+    return t
+
+
+def _negof(r, k, blk, at, fn):
+    """If r is a neg of class k earlier in blk than at, the negated operand, and r's use dropped (the neg goes
+    once unused), as arm64's negof; else None."""
+    if rtype(r) != RTmp:
+        return None
+    for d in range(at - 1, -1, -1):
+        di = blk.ins[d]
+        if di.to == r:
+            if di.op != Oneg or di.cls != k:
+                return None
+            x = di.arg[0]
+            chuse(x, +1, fn)
+            chuse(r, -1, fn)
+            return x
+    return None
+
+
+# (negated product, negated addend): r = a*b + c, c - a*b, a*b - c, -(a*b) - c (arm64's names)
+_FMAOP = {(0, 0): D.Oafmadd, (1, 0): D.Oafmsub, (0, 1): D.Oafnmsub, (1, 1): D.Oafnmadd}
+
+
+def _selfma(i, blk, k1, fn):
+    """cimo (ext.x86 fma): "fma0 c; r = fma1 a, b" is r = afmadd a, MEM{base=b, index=c}, as on arm64, so
+    register allocation sees all three, a negated factor or addend folded in (vfnmadd, vfmsub, vfnmsub); emit
+    picks the 231 or the 213 form by which one r shares."""
+    i0 = blk.ins[k1 - 1]
+    assert i0.op == D.Ofma0 and i0.cls == i.cls
+    k = i.cls
+    a, b, c = i.arg[0], i.arg[1], i0.arg[0]
+    neg = [0, 0]
+    x = _negof(a, k, blk, k1 - 1, fn)
+    if x is not None:
+        a, neg[0] = x, neg[0] ^ 1
+    x = _negof(b, k, blk, k1 - 1, fn)
+    if x is not None:
+        b, neg[0] = x, neg[0] ^ 1
+    x = _negof(c, k, blk, k1 - 1, fn)
+    if x is not None:
+        c, neg[1] = x, 1
+    m = Addr()
+    fn.nmem += 1
+    vgrow(fn.mem, fn.nmem, Addr)
+    fn.mem[fn.nmem - 1] = m
+    emit(_FMAOP[tuple(neg)], k, i.to, R, MEM(fn.nmem - 1))
+    at = D.curi
+    a = _inreg(a, k, fn)
+    b = _inreg(b, k, fn)
+    c = _inreg(c, k, fn)
+    D.insb[at].arg[0] = a
+    m.base, m.index = b, c
+
+
+def _selqfma(i, i0, fn):
+    """cimo (ext.x86 fma): vfmadd231ps/pd keep the addend in the destination, as arm64's fmla: the addend is
+    copied there first, and register allocation keeps the two in one register (rega's radd)."""
+    assert i0.op == D.Oqfma0
+    emit(i.op, D.Kq, i.to, i.arg[0], i.arg[1])
+    emit(D.Oqfma0, D.Kq, R, i.to, R)
+    emit(Ocopy, D.Kq, i.to, i0.arg[0], R)
 
 
 def _qsel(i, tn, fn):
@@ -1042,6 +1114,12 @@ def amd64_isel(fn):
             assert i.op != Osel0
             if i.op == Osel1:
                 k = selsel(fn, b, k, num)
+            elif i.op == D.Ofma1:
+                _selfma(i.copy(), b, k, fn)
+                k -= 1  # its fma0
+            elif i.op in (D.Oqfma1s, D.Oqfma1d):
+                _selqfma(i.copy(), b.ins[k - 1], fn)
+                k -= 1
             else:
                 sel(i.copy(), num, fn)
         idup(b, D.curi, NIns - D.curi)

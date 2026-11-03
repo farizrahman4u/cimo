@@ -7,7 +7,7 @@ Configurations (all called in-process through ctypes and the same C timing loops
   gcc-nofma   gcc -O3 -mcpu=native -fno-tree-vectorize -ffp-contract=off  (like-for-like scalar)
   gcc-novec   gcc -O3 -mcpu=native -fno-tree-vectorize                    (default FMA contraction)
   gcc-O3      gcc -O3 -mcpu=native                                         (vectorized)
-On x86-64 no -mcpu: baseline SSE2 on both sides, as cimo emits.
+On x86-64 -march=native (BENCH_GCC_BASELINE=1: none, baseline SSE2).
 
 `--cimo NAME=FLAGS` adds a cimo build with explicit extension flags instead of the driver's
 choice: FLAGS is a comma list of fma, ldp, layout (or `none`), e.g.
@@ -43,8 +43,10 @@ KERNELS = ['saxpy', 'gemm', 'jacobi2d', 'conv3x3', 'rgb2gray', 'dot', 'isum', 'p
            'sieve']
 
 GCC = os.environ.get('CC', 'gcc')
-# arm64: this CPU. x86-64: what cimo emits for, the baseline, so the same 128 bits on both sides
-_CPU = ['-mcpu=native'] if platform.machine().lower() in ('arm64', 'aarch64') else []
+# this CPU on both, as cimo compiles for it (cimo.cpu on x86-64); CIMO_X86=baseline makes cimo's x86-64
+# code baseline SSE2, BENCH_GCC_BASELINE=1 gcc's
+_CPU = (['-mcpu=native'] if platform.machine().lower() in ('arm64', 'aarch64')
+        else [] if os.environ.get('BENCH_GCC_BASELINE') else ['-march=native'])
 GCC_CONFIGS = [
     ('gcc-nofma', ['-O3'] + _CPU + ['-fno-tree-vectorize', '-ffp-contract=off']),
     ('gcc-novec', ['-O3'] + _CPU + ['-fno-tree-vectorize']),
@@ -71,7 +73,8 @@ def build_loops():
 
 
 def build_gcc(name, flags):
-    so = os.path.join(BUILD, 'kernels-%s.so' % name)
+    import hashlib
+    so = os.path.join(BUILD, 'kernels-%s-%s.so' % (name, hashlib.sha256(' '.join(flags).encode()).hexdigest()[:8]))
     if _stale(so, KERNELS_C, __file__):
         _cc(flags + ['-shared', '-fPIC', KERNELS_C, '-o', so, '-lm'])
     lib = ctypes.CDLL(so)
