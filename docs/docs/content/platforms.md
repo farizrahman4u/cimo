@@ -6,8 +6,8 @@
 | Pyodide, JupyterLite, marimo | WebAssembly | supported: Pyodide 0.27 |
 | Windows, arm64 | arm64 | supported: arm64 builds of CPython |
 | macOS, Apple silicon | arm64 | supported: CPython 3.9 and newer (Apple's Command Line Tools, python.org, Homebrew) |
-| Linux, x86-64 | x86-64 | supported: compiled for this CPU: FMA, POPCNT, LZCNT and TZCNT where it has them, else baseline SSE2 (`CIMO_X86`) |
-| Windows, x64 | x86-64 | supported: x64 builds of CPython; compiled for this CPU, as on Linux |
+| Linux, x86-64 | x86-64 | supported: code uses FMA, POPCNT, LZCNT and TZCNT when the CPU running it has them, and baseline SSE2 otherwise (`CIMO_X86`) |
+| Windows, x64 | x86-64 | supported: x64 builds of CPython; uses the CPU's features as on Linux |
 
 On an unsupported machine (for example an Intel Mac), `cimo.compile` raises `CompileError`.
 

@@ -32,7 +32,7 @@ cimo is an optimizing compiler. On loops it can analyze it runs close to gcc and
 ## Look at the generated code
 
 ```console
-$ cimo compile -S kernels.c          # assembly for this machine (arm64 or x86-64)
+$ cimo compile -S kernels.c          # assembly for the machine you run it on (arm64 or x86-64)
 $ cimo compile --ir kernels.c        # the intermediate representation (QBE IR)
 ```
 
