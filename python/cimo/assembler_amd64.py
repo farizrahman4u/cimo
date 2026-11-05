@@ -424,10 +424,8 @@ def _enc(a, opc, reg, rm, size=0, mand=b'', imm=None, w=None, dabs='ABS32S', vex
             if sym is not None:
                 fix = (dabs, sym, disp, False)
         if dsz == 4 and fix is None and not -0x80000000 <= disp <= 0x7fffffff:
-            if disp <= 0xffffffff and base is None and index is None:
-                disp -= 1 << 32
-            else:
-                raise AssemblerError('displacement %d out of range' % disp)
+            # a disp32 is sign-extended: 0x80000000 to 0xffffffff would address 0xffffffff80000000 and up
+            raise AssemblerError('displacement %d out of range' % disp)
     else:
         force |= rm[3]
         n = rm[2]
@@ -435,6 +433,8 @@ def _enc(a, opc, reg, rm, size=0, mand=b'', imm=None, w=None, dabs='ABS32S', vex
             rex |= 1
         modrm = 0xc0 | reg | (n & 7)
     if vex is not None:
+        if a.lock:
+            raise AssemblerError('lock prefix on a VEX instruction')
         pp, mm, W, L, vvvv = vex
         R, X, B = (rex & 4) == 0, (rex & 2) == 0, (rex & 1) == 0
         if mm == 1 and X and B and not W:  # the two-byte form
@@ -1011,6 +1011,8 @@ def _h_vfma(a, ops, sz, arg):
     w, op = arg
     if len({o[0] for o in (src2, src1, dst)}) != 1:
         raise AssemblerError('mixed %xmm and %ymm operands')
+    if op & 1 and dst[0] == 'y':  # the ss/sd forms (odd opcodes) are scalar
+        raise AssemblerError('scalar fused multiply-add on %ymm')
     L = 1 if dst[0] == 'y' else 0
     r, v, b = dst[2], src1[2], src2[2]
     out = bytearray((0xc4, (((r >> 3) ^ 1) << 7) | (1 << 6) | (((b >> 3) ^ 1) << 5) | 0x02,
@@ -1026,6 +1028,31 @@ def _vr(o, mem=False):
 
 
 _PP = {b'': 0, b'\x66': 1, b'\xf3': 2, b'\xf2': 3}
+
+
+_MIXED = {0x18: 'bcast', 0x19: 'bcast', 0x58: 'bcast', 0x59: 'bcast', 0x78: 'bcast', 0x79: 'bcast'}
+
+
+def _avxwidths(mn, form, ops, op):
+    """xmm and ymm operands that agree, as GNU as requires: one width, but where the instruction mixes them."""
+    regs = [o for o in ops if o[0] in ('x', 'y')]
+    kinds = {o[0] for o in regs}
+    if form in ('mri',):  # vextract*128: ymm source, xmm or memory destination
+        if ops[0][0] != 'y' or ops[1][0] == 'y':
+            raise AssemblerError('expected %ymm, then %xmm or memory')
+        return
+    if form == 'rvmi' and op in (0x18, 0x38):  # vinsert*128: xmm or memory, ymm, ymm
+        if ops[0][0] == 'y' or ops[1][0] != 'y' or ops[2][0] != 'y':
+            raise AssemblerError('expected %xmm or memory, then %ymm, %ymm')
+        return
+    if form == 'rm' and _MIXED.get(op) == 'bcast' and ops[0][0] in ('x', 'm'):
+        if op == 0x19 and ops[1][0] != 'y':
+            raise AssemblerError('vbroadcastsd needs a %ymm destination')
+        return
+    if form == 'rmi' and op == 0x00 and ops[-1][0] != 'y':  # vpermq
+        raise AssemblerError('vpermq needs %ymm operands')
+    if len(kinds) > 1:
+        raise AssemblerError('mixed %xmm and %ymm operands')
 
 
 def _h_avx(a, ops, sz, arg):
@@ -1045,11 +1072,11 @@ def _h_avx(a, ops, sz, arg):
     pp = _PP[pfx]
     imm = None
     if form in ('rvmi', 'rmi', 'vmi', 'mri', 'gmi'):
-        sym, v = _immop(ops[0], 1)
-        if sym is not None:
-            raise AssemblerError('expected a constant')
-        imm = (1, None, v, None)
+        if ops[0][0] != 'i' or ops[0][1] is not None or not 0 <= ops[0][2] <= 255:
+            raise AssemblerError('expected a constant from 0 to 255')
+        imm = (1, None, ops[0][2], None)
         ops = ops[1:]
+    _avxwidths(a.mnemonic if hasattr(a, 'mnemonic') else None, form, ops, op)
     if form in ('rvm', 'rvmi'):
         _nops(ops, 3)
         src2, src1, dst = _vr(ops[0], True), _vr(ops[1]), _vr(ops[2])

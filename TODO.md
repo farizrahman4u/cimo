@@ -375,6 +375,11 @@ Target: a 100-line kernel in under 0.3 s warm natively and under 1 s in Pyodide.
   Fix: keep `Roots` across transforms (temporaries it has not seen must count as unknown, and
   rewritten uses must keep their roots) and continue with the loops still valid.
 
+- **x86-64 branch relaxation with alignment in the span** (adversarial read, 2026-11-05): `_layout` decides every
+  branch from the previous pass's addresses and only grows them, so a backward `jmp` across a `.p2align 6` that a
+  growing earlier branch shrinks stays long (`e9` where GNU as has `eb`): correct, 3 bytes larger, 5 of 400 random
+  programs. GNU's relax_segment walks in address order within a pass.
+
 - Profiler symbols: `CIMO_PERFMAP=1` writes `/tmp/perf-<pid>.map` (done; not yet tried with
   `perf` itself). Open: jitdump (with code bytes, for `perf annotate`), and the docs' profiling
   page still says Planned.
