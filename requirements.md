@@ -931,6 +931,10 @@ Targets `amd64_sysv` (Linux; frontend `x86_64-sysv`) and `amd64_windows` (fronte
   before each call and return of a function with q values. Windows x64 keeps only 128 bits of xmm6-xmm15 across a call,
   so a q value live across one goes to memory (`qacrosscalls`, as on arm64). Tested under Windows-on-arm's x64 emulation,
   which has AVX2, and in CI; tests that drive q directly take the width from the host (`test_vector.W`).
+- **No legacy SSE in a function with 256-bit code:** Sapphire Rapids ran `nbody_acc` 249x, `conv3x3` 22x and `gemm` 5.8x
+  slower than gcc with SSE scalar instructions (remainder loops, reductions) next to ymm code; Ice Lake and Zen 4 didn't.
+  The emitter writes those functions through `_Vex`, which turns each SSE instruction into its VEX form, the destination
+  also the first source so the meaning is SSE's; the assembler has the scalar VEX forms (51, as GNU as).
 - **Backend:** QBE's amd64 code (`backend/amd64/`, see its PORTING.md section), verified by
   diffing every pass against C QBE on its 76 tests. `amd64_windows` is cimo's own target over
   QBE's `amd64_win` (which stays as in C for the diffs): xmm6-xmm15 callee-saved (QBE clobbers

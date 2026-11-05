@@ -39,8 +39,11 @@ class E:
         self.xarea = 0   # pushes in xarea bytes
         self.qthird = R  # cimo (ext.vector): qfma0's addend, for the qfma1 after it
         # cimo (AVX2): vzeroupper before each call and the return of a function that uses ymm registers, so code
-        # around it, SSE in callers and callees, doesn't pay for their dirty upper halves
+        # around it, SSE in callers and callees, doesn't pay for their dirty upper halves; and inside it, no legacy
+        # SSE at all (_Vex): Sapphire Rapids ran SSE after 256-bit code up to 250x slower (nbody_acc, conv3x3, gemm)
         self.vzu = _ext.qbytes() == 32 and _usesq(fn)
+        if self.vzu:
+            self.f = _Vex(f)
 
 
 # (cmp, set/jump suffix, negated suffix)
@@ -937,6 +940,70 @@ def _stkchk(fn, f):
 _LOOPALIGN = ".p2align 6\n"
 
 
+def _ops(text):
+    """Operands of an AT&T instruction: split at the commas outside parentheses."""
+    out, depth, cur = [], 0, ''
+    for c in text:
+        if c == ',' and depth == 0:
+            out.append(cur.strip())
+            cur = ''
+            continue
+        depth += (c == '(') - (c == ')')
+        cur += c
+    if cur.strip():
+        out.append(cur.strip())
+    return out
+
+
+# legacy SSE -> VEX. Destination also the first source, so the meaning is the SSE instruction's (bits above the
+# scalar from the destination); VEX zeroes the rest of the ymm register, which no one reads
+_VEX3 = frozenset('addss addsd subss subsd mulss mulsd divss divsd minss minsd maxss maxsd sqrtss sqrtsd cvtss2sd '
+                  'cvtsd2ss andps andpd andnps andnpd orps orpd xorps xorpd pxor pand por pandn punpcklbw punpcklqdq '
+                  'punpckldq cvtsi2ss cvtsi2sd cvtsi2ssl cvtsi2ssq cvtsi2sdl cvtsi2sdq'.split())
+_VEX2 = frozenset('movaps movups movapd movupd movdqa movdqu ucomiss ucomisd comiss comisd movd movq pshufd pshuflw '
+                  'pextrw cvttss2si cvttsd2si cvttss2sil cvttss2siq cvttsd2sil cvttsd2siq cvtss2si cvtsd2si'.split())
+
+
+def _vexline(line):
+    """An emitted line, with its SSE instruction as the VEX one (lines without an xmm operand unchanged)."""
+    if '%xmm' not in line or not line.startswith('\t'):
+        return line
+    mn, _, rest = line[1:].partition(' ')
+    if mn in _VEX3:
+        o = _ops(rest)
+        if len(o) == 2:
+            return '\tv%s %s, %s, %s' % (mn, o[0], o[1], o[1])
+    elif mn in _VEX2:
+        return '\tv' + line[1:]
+    elif mn in ('movss', 'movsd'):
+        o = _ops(rest)
+        if len(o) == 2 and o[0].startswith('%xmm') and o[1].startswith('%xmm'):
+            return '\tv%s %s, %s, %s' % (mn, o[0], o[1], o[1])
+        return '\tv' + line[1:]
+    elif mn in ('roundss', 'roundsd'):
+        o = _ops(rest)
+        if len(o) == 3:
+            return '\tv%s %s, %s, %s, %s' % (mn, o[0], o[1], o[2], o[2])
+    return line  # already VEX, or one this doesn't know: correct, only slower
+
+
+class _Vex:
+    """An output stream that writes the VEX form of each SSE instruction (_vexline), line by line."""
+
+    def __init__(self, f):
+        self.f = f
+        self.buf = ''
+
+    def write(self, text):
+        self.buf += text
+        if '\n' in self.buf:
+            *lines, self.buf = self.buf.split('\n')
+            self.f.write(''.join(_vexline(l) + '\n' for l in lines))
+
+    def getvalue(self):  # an io.StringIO's, for _emitf_y
+        return self.f.getvalue()
+
+
 def _usesq(fn):
     """Whether fn has q values (ext.vector)."""
     b = fn.start
@@ -1050,7 +1117,7 @@ def _emitjmp(b, fn, e, id0, rclob, nclr, win):
                     % (e.fsz + e.nclob * 8 + e.xarea))
         if e.xarea:
             for k, x in enumerate(e.xsave):
-                f.write("\tmovdqu %d(%%rsp), %%xmm%d\n" % (16 * k, x - XMM0))
+                f.write("\t%smovdqu %d(%%rsp), %%xmm%d\n" % ("v" if e.vzu else "", 16 * k, x - XMM0))
             f.write("\taddq $%d, %%rsp\n" % e.xarea)
         for r in reversed(rclob[:nclr]):
             if fn.reg & BIT(r):
@@ -1146,7 +1213,7 @@ def amd64_winabi_emitfn(fn, f):
         if e.xarea:
             f.write("\tsubq $%d, %%rsp\n" % e.xarea)
             for k, x in enumerate(e.xsave):
-                f.write("\tmovdqu %%xmm%d, %d(%%rsp)\n" % (x - XMM0, 16 * k))
+                f.write("\t%smovdqu %%xmm%d, %d(%%rsp)\n" % ("v" if e.vzu else "", x - XMM0, 16 * k))
 
     lbl = 0
     b = fn.start

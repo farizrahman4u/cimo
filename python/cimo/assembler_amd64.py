@@ -1044,7 +1044,7 @@ def _h_avx(a, ops, sz, arg):
     pfx, mm, op, W, form = arg
     pp = _PP[pfx]
     imm = None
-    if form in ('rvmi', 'rmi', 'vmi', 'mri'):
+    if form in ('rvmi', 'rmi', 'vmi', 'mri', 'gmi'):
         sym, v = _immop(ops[0], 1)
         if sym is not None:
             raise AssemblerError('expected a constant')
@@ -1086,6 +1086,60 @@ def _h_avx(a, ops, sz, arg):
         _nops(ops, 2)
         src, dst = _vr(ops[0]), _gpr(ops[1], (4, 8))
         return _enc(a, bytes([op]), dst, src, vex=(pp, mm, W, src[0] == 'y', 0))
+    if form == 'gmi':  # vpextrw $imm, xmm, general register
+        _nops(ops, 2)
+        src, dst = _xmm(ops[0]), _gpr(ops[1], (4, 8))
+        return _enc(a, bytes([op]), dst, src, vex=(pp, mm, 0, 0, 0), imm=imm)
+    if form == 'movs':  # vmovss/vmovsd: load, store, or register merge of three
+        if len(ops) == 3:
+            src2, src1, dst = _xmm(ops[0]), _xmm(ops[1]), _xmm(ops[2])
+            return _enc(a, bytes([op[0]]), dst, src2, vex=(pp, mm, 0, 0, src1[2]))
+        _nops(ops, 2)
+        src, dst = ops
+        if dst[0] == 'm':
+            return _enc(a, bytes([op[1]]), _xmm(src), dst, vex=(pp, mm, 0, 0, 0))
+        if src[0] != 'm':
+            raise AssemblerError('vmovss/vmovsd between registers takes three operands')
+        return _enc(a, bytes([op[0]]), _xmm(dst), src, vex=(pp, mm, 0, 0, 0))
+    if form == 'cvti':  # vcvtsi2ss/sd general register or memory, xmm, xmm
+        _nops(ops, 3)
+        src, src1, dst = ops
+        _xmm(src1), _xmm(dst)
+        if src[0] == 'r':
+            _gpr(src, (4, 8))
+            size = _size(sz, (src,))
+        elif src[0] == 'm':
+            size = sz or 4
+        else:
+            raise AssemblerError('bad operands')
+        return _enc(a, bytes([op]), dst, src, vex=(pp, mm, size == 8, 0, src1[2]))
+    if form == 'cvtf':  # vcvt(t)ss/sd2si xmm or memory, general register
+        _nops(ops, 2)
+        src, dst = ops
+        _gpr(dst, (4, 8))
+        size = _size(sz, (dst,))
+        return _enc(a, bytes([op]), dst, _xmm(src, True), vex=(pp, mm, size == 8, 0, 0))
+    if form == 'movgx':  # vmovd/vmovq between general registers or memory and xmm; vmovq between xmm
+        _nops(ops, 2)
+        src, dst = ops
+        q = arg[3]
+        if src[0] == 'x' and dst[0] == 'x':
+            if not q:
+                raise AssertionError
+            return _enc(a, b'\x7e', dst, src, vex=(2, 1, 0, 0, 0))
+        if dst[0] == 'x':
+            if src[0] == 'm' and q:
+                return _enc(a, b'\x7e', dst, src, vex=(2, 1, 0, 0, 0))
+            if src[0] == 'r':
+                _gpr(src, (8,) if q else (4,))
+            return _enc(a, b'\x6e', dst, src, vex=(1, 1, q, 0, 0))
+        if src[0] == 'x':
+            if dst[0] == 'm' and q:
+                return _enc(a, b'\xd6', src, dst, vex=(1, 1, 0, 0, 0))
+            if dst[0] == 'r':
+                _gpr(dst, (8,) if q else (4,))
+            return _enc(a, b'\x7e', src, dst, vex=(1, 1, q, 0, 0))
+        raise AssemblerError('bad operands')
     raise AssertionError(form)
 
 
@@ -1235,8 +1289,27 @@ _AVX += [('vbroadcastss', _P66, 2, 0x18, 0, 'rm'), ('vbroadcastsd', _P66, 2, 0x1
 for _n, _o, _d in (('vpsllw', 0x71, 6), ('vpslld', 0x72, 6), ('vpsllq', 0x73, 6), ('vpsrlw', 0x71, 2),
                    ('vpsrld', 0x72, 2), ('vpsrlq', 0x73, 2), ('vpsraw', 0x71, 4), ('vpsrad', 0x72, 4)):
     _AVX.append((_n, _P66, 1, (_o, _d), 0, 'vmi'))
+# the VEX forms of the scalar SSE instructions (the emitter writes them in functions with 256-bit vectors)
+for _k, _p in (('ss', _PF3), ('sd', _PF2)):
+    for _n, _o in (('add', 0x58), ('mul', 0x59), ('sub', 0x5c), ('min', 0x5d), ('div', 0x5e), ('max', 0x5f),
+                   ('sqrt', 0x51)):
+        _AVX.append(('v%s%s' % (_n, _k), _p, 1, _o, 0, 'rvm'))
+    _AVX.append(('vmov' + _k, _p, 1, (0x10, 0x11), 0, 'movs'))
+_AVX += [('vcvtss2sd', _PF3, 1, 0x5a, 0, 'rvm'), ('vcvtsd2ss', _PF2, 1, 0x5a, 0, 'rvm'),
+         ('vucomiss', _P0, 1, 0x2e, 0, 'rm'), ('vucomisd', _P66, 1, 0x2e, 0, 'rm'),
+         ('vcomiss', _P0, 1, 0x2f, 0, 'rm'), ('vcomisd', _P66, 1, 0x2f, 0, 'rm'),
+         ('vpshuflw', _PF2, 1, 0x70, 0, 'rmi'), ('vroundss', _P66, 3, 0x0a, 0, 'rvmi'),
+         ('vroundsd', _P66, 3, 0x0b, 0, 'rvmi'), ('vmovd', _P66, 1, 0x6e, 0, 'movgx'), ('vmovq', _P66, 1, 0x6e, 1, 'movgx')]
 for _n, _p, _m, _o, _w, _f in _AVX:
     _INSNS[_n] = (_h_avx, 0, (_p, _m, _o, _w, _f))
+for _k, _p in (('ss', _PF3), ('sd', _PF2)):
+    _INSNS['vcvtsi2' + _k] = (_h_avx, 0, (_p, 1, 0x2a, 0, 'cvti'))
+    _INSNS['vcvtsi2%sl' % _k] = (_h_avx, 4, (_p, 1, 0x2a, 0, 'cvti'))
+    _INSNS['vcvtsi2%sq' % _k] = (_h_avx, 8, (_p, 1, 0x2a, 0, 'cvti'))
+    for _t, _o in (('vcvtt', 0x2c), ('vcvt', 0x2d)):
+        for _sfx, _sz in (('', 0), ('l', 4), ('q', 8)):
+            _INSNS['%s%s2si%s' % (_t, _k, _sfx)] = (_h_avx, _sz, (_p, 1, _o, 0, 'cvtf'))
+_INSNS['vpextrw'] = (_h_avx, 0, (_P66, 1, 0xc5, 0, 'gmi'))
 _INSNS['xgetbv'] = (_h_fixed, 0, b'\x0f\x01\xd0')
 for _n, _p, _ld, _st in (('movss', b'\xf3', 0x10, 0x11), ('movsd', b'\xf2', 0x10, 0x11),
                          ('movups', b'', 0x10, 0x11), ('movupd', b'\x66', 0x10, 0x11),
