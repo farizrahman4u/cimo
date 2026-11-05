@@ -1043,3 +1043,17 @@ def test_moved_code_hits_the_cache(tmp_path, monkeypatch):
             cimo.compile(text).g(0)
         assert e.value.line == line
     assert len(compiled) == 2
+
+
+def test_numpy_integer_to_a_long_parameter():
+    """A 64-bit integer parameter takes a numpy integer as its value; a pointer parameter takes a buffer or an
+    address. Both are class l in the IR: a numpy integer used to go to the pointer conversion, and the C got the
+    scalar's address."""
+    np = pytest.importorskip('numpy')
+    m = cimo.compile('long id(long x) { return x; }\nlong first(const long *p) { return p[0]; }\n'
+                     'unsigned long uid(unsigned long x) { return x; }')
+    assert m.id(np.int64(3)) == 3 and m.id(np.int32(-5)) == -5 and m.id(np.uint8(200)) == 200
+    assert m.uid(np.uint64(2 ** 63 + 1)) == 2 ** 63 + 1
+    a = np.array([7, 8], dtype=np.int64)
+    assert m.first(a) == 7 and m.first(a.ctypes.data) == 7
+    assert m.signature('first')[1] == ('const int64_t *',)

@@ -9,8 +9,8 @@ import time
 from .parse import Command, UsageError
 from . import report
 
-# IR classes as Python sees them: 'l' is a C long or any pointer (an int or a buffer)
-_PY = {'w': 'int32', 'l': 'int64|pointer', 's': 'float32', 'd': 'float64', '...': '...',
+# IR classes as Python sees them: 'l' a C long, 'p' a pointer (an int address or a buffer)
+_PY = {'w': 'int32', 'l': 'int64', 'p': 'pointer', 's': 'float32', 'd': 'float64', '...': '...',
        'W': 'uint32', 'L': 'uint64',
        'sb': 'int8', 'ub': 'uint8', 'sh': 'int16', 'uh': 'uint16'}  # Apple arm64's sub-word classes
 
@@ -295,7 +295,7 @@ def cmd_run(ctx):
         raise Failure(1)
     if params == []:
         args = ()
-    elif params in (['w', 'l'], ['w', 'l', 'l']):
+    elif params in (['w', 'p'], ['w', 'p', 'p']):
         arr = (ctypes.c_char_p * (len(argv) + 1))(
             *[a.encode('utf-8', 'surrogateescape') for a in argv], None)
         env = [('%s=%s' % kv).encode('utf-8', 'surrogateescape') for kv in os.environ.items()]

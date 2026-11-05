@@ -558,6 +558,9 @@ class State:
                 self._ctxs[tid] = c
                 self._insert(tid, addr)
         self._tls.ctx = c
+        # the context as 64-bit words, for a kernel call's checks with no ctypes object made: err is word 0, the
+        # stdout buffer's length word CTX_OUT // 8
+        self._tls.words = memoryview((ctypes.c_char * CTX_SIZE).from_address(ctypes.addressof(c))).cast('B').cast('q')
         return c
 
     def _map(self, size):

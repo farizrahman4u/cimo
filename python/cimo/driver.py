@@ -158,7 +158,9 @@ _CTYPE = {'w': ctypes.c_int32, 'l': ctypes.c_int64, 's': ctypes.c_float, 'd': ct
           # a result of class w or l of an unsigned C type (see _sigs)
           'W': ctypes.c_uint32, 'L': ctypes.c_uint64,
           # char and short parameters on Apple arm64 (frontend.qbe.abiclass)
-          'sb': ctypes.c_int8, 'ub': ctypes.c_uint8, 'sh': ctypes.c_int16, 'uh': ctypes.c_uint16}
+          'sb': ctypes.c_int8, 'ub': ctypes.c_uint8, 'sh': ctypes.c_int16, 'uh': ctypes.c_uint16,
+          # a pointer parameter (class l; see _sigs): a buffer or an address
+          'p': ctypes.c_int64}
 _SIG = re.compile(r'^export\s*\nfunction\s+(?:([wlsd]|:[\w.]+)\s+)?\$(\w+)\(([^)]*)\)', re.M)
 
 
@@ -543,12 +545,19 @@ def _compile(pp, filename, host_headers):
 
 def _sigs(ssa, params=None):
     """'name ret params' lines for the exported functions of IR text. params: the frontend's
-    parameter info, which says whose w or l result is unsigned (ret W, L)."""
+    parameter info, which says whose w or l result is unsigned (ret W, L), and which parameters are
+    pointers (p, where the IR says l: a buffer or an address; an l is an integer, a numpy one too)."""
     unsigned = (params or {}).get('#unsigned', ())
+    ctypes_ = (params or {}).get('#signatures', {})
+
+    def classes(name, text):
+        ks = [a.split()[0] for a in text.split(',') if a.strip()]
+        c = ctypes_.get(name)
+        if c is not None and len(c[1]) == len(ks):
+            ks = ['p' if k == 'l' and t.endswith('*') else k for k, t in zip(ks, c[1])]
+        return ','.join(ks)
     return '\n'.join('%s %s %s' % (m.group(2), (m.group(1) or '-').upper() if m.group(2) in unsigned
-                                   else m.group(1) or '-',
-                                   ','.join(a.split()[0] for a in m.group(3).split(',')
-                                            if a.strip()))
+                                   else m.group(1) or '-', classes(m.group(2), m.group(3)))
                      for m in _SIG.finditer(ssa))
 
 
@@ -558,6 +567,10 @@ def _address(x, keep):
     (NUL-terminated, as ctypes does); other read-only buffers as a copy."""
     if isinstance(x, int):
         return x
+    try:  # a writable buffer of at least a byte, contiguous: the quick way (numpy arrays, bytearray)
+        return ctypes.addressof(ctypes.c_char.from_buffer(x))
+    except (TypeError, ValueError, BufferError):
+        pass
     ai = getattr(x, '__array_interface__', None)
     if ai is not None:
         return ai['data'][0]
@@ -603,6 +616,7 @@ class Kernel:
         else:
             self._f = ctypes.CFUNCTYPE(_CTYPE.get(ret), *[_CTYPE[k] for k in params])(
                 image.address('__cimo_entry_' + name))
+            self._specialize()
 
     address: int
     __name__: str
@@ -614,21 +628,38 @@ class Kernel:
         if self._f is None:
             raise TypeError('%s() cannot be called from Python: %s (C callers in the module '
                             'can still use it)' % (self.__name__, self._unsupported))
-        if len(args) != len(self._params):
-            raise TypeError('%s() takes %d arguments (%d given)'
-                            % (self.__name__, len(self._params), len(args)))
-        keep: list = []  # read-only buffers passed by pointer: alive until the call returns
-        cargs = [_address(a, keep) if k == 'l' and not isinstance(a, int) else a
-                 for a, k in zip(args, self._params)]
-        ctx = self._state.ctx()
-        try:
-            r = self._f(*cargs)
-            if ctx.err:
-                self._state.error(ctx, self.__name__)
-            return r
-        finally:
-            if self._out is not None:
-                self._out.flush(ctx)  # C output reaches sys.stdout before Python's next print
+        raise AssertionError('a kernel calls through its own class')
+
+    def _specialize(self):
+        """A class of its own whose __call__ is written for this kernel's parameters: pointers converted where
+        they are, and the error word and the stdout buffer read from the thread's context as words, with no ctypes
+        object made. The general version cost about 450 ns a call over ctypes (scramjit)."""
+        n = len(self._params)
+        ptrs = [i for i, k in enumerate(self._params) if k == 'p']
+        lines = ['def __call__(self, *args):',
+                 '    if len(args) != %d:' % n,
+                 '        raise TypeError("%%s() takes %d arguments (%%d given)" %% (name, len(args)))' % n,
+                 '    try:',
+                 '        w = tls.words',
+                 '    except AttributeError:',
+                 '        state.ctx()',
+                 '        w = tls.words']
+        if ptrs:
+            lines.append('    keep = []  # read-only buffers passed by pointer: alive until the call returns')
+            names = ['a%d' % i for i in range(n)]
+            lines.append('    %s, = args' % ', '.join(names))
+            for i in ptrs:
+                lines.append('    if a%d.__class__ is not int: a%d = address(a%d, keep)' % (i, i, i))
+            lines.append('    r = f(%s)' % ', '.join(names))
+        else:
+            lines.append('    r = f(*args)')
+        if self._out is not None:  # C output reaches sys.stdout before Python's next print, also before an error
+            lines.append('    if w[%d]: flush()' % (_exe.CTX_OUT // 8))
+        lines += ['    if w[0]:', '        state.error(tls.ctx, name)', '    return r']
+        env = {'f': self._f, 'tls': self._state._tls, 'state': self._state, 'name': self.__name__,
+               'address': _address, 'flush': self._out._flush if self._out is not None else None}
+        exec('\n'.join(lines), env)
+        self.__class__ = type('Kernel', (Kernel,), {'__call__': env['__call__'], '__slots__': ()})
 
     def __repr__(self) -> str:
         return '<cimo kernel %s>' % self.__name__

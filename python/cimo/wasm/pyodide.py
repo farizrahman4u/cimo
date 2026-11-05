@@ -23,7 +23,7 @@ from ..introspect import Introspection
 from ..execution import (KernelError, E_ABORT, E_ASSERT, E_TRAP, E_EXIT)
 
 _ids = itertools.count()
-_PY = {'w': int, 'l': int, 's': float, 'd': float, 'W': int, 'L': int}
+_PY = {'w': int, 'l': int, 'p': int, 's': float, 'd': float, 'W': int, 'L': int}
 
 
 _wrapper = None
@@ -33,7 +33,7 @@ def _wrap():
     global _wrapper
     if _wrapper is None:
         from pyodide.code import run_js
-        _wrapper = run_js("(f, t) => (...a) => f(...a.map((x, i) => t[i] === 'l' ? BigInt(x) : x))")
+        _wrapper = run_js("(f, t) => (...a) => f(...a.map((x, i) => t[i] === 'l' || t[i] === 'p' ? BigInt(x) : x))")
     return _wrapper
 
 
@@ -189,8 +189,10 @@ class WasmKernel:
         keep = []
         conv = []
         for a, k in zip(args, self._params):
-            if k == 'l':
+            if k == 'p':  # a pointer: a buffer or an address
                 conv.append(a if isinstance(a, int) else _address(a, keep))
+            elif k == 'l':  # an integer, a numpy one too
+                conv.append(int(a))
             elif k == 'w':               # cut to 32 bits as on native: JavaScript traps on a BigInt here
                 conv.append(((int(a) + 0x80000000) & 0xffffffff) - 0x80000000)
             elif k == 'W':

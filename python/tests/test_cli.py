@@ -224,7 +224,7 @@ def test_compile_stages(capsys, prog, tmp_path):
 def test_compile_lists_signatures(capsys, prog):
     p = prog('l.c', 'float k(double d, long *p){ return d; }\nint v(int n, ...){ return n; }\n')
     _, _, err = run(capsys, 'compile', p)
-    assert 'k(float64, int64|pointer)' in err and 'float32' in err
+    assert 'k(float64, pointer)' in err and 'float32' in err
     assert 'not callable from Python: it is variadic' in err
 
 
