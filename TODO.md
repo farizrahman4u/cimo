@@ -33,13 +33,17 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 7. ~~**macOS (Apple silicon).**~~ **Done:** the suite, corpora and examples pass on an M-series
    Mac, ABI checked against Apple clang, CI job `macos-arm64` (see "macOS on Apple silicon" in
    `requirements.md`).
-8. **Adversarial code reading before a public launch.** About 43k lines of compiler and 16k of tests
-   were written in four days and no one has read them end to end. Tests, corpora and fuzzing catch
-   wrong output; a read catches what they can't: a loader that maps memory wrongly on one platform,
-   an encoder case the fuzzers never hit, an optimizer pass that is unsound under conditions the
-   generators don't produce. Do it file by file, most dangerous first: `loader.py`, `execution.py`,
-   both assemblers, `middle/vectorize.py`, `backend/rega.py`, `backend/spill.py`, the `ext` passes.
-   Each read records what it checked and what it found here or in `requirements.md`.
+8. **Adversarial code reading before a public launch.** First pass **done** (2026-11-05), five independent reads, each
+   finding reproduced against GNU as, a Python model or the scalar build before it was fixed:
+   loader/execution/faults (7 found: a hang when a displaced handler returns, kill-sent signals unwinding kernels, a stale
+   fault-table slot, cached images from another page size crashing on load, Windows handler gap and stack limits; fixed
+   but the three listed in "From the adversarial read" below), the arm64 assembler (6, input checks: xzr where 31 is sp,
+   truncated immediates, NEON arrangements, shifts and lanes), the x86-64 assembler (2 and validation gaps: absolute
+   addresses from 0x80000000 sign-extended, xmm/ymm widths; branch relaxation listed below), the vectorizer and loop
+   passes (2: qsel1 unpinned, an early exit with a narrower test), register allocation (4: reg/slot swaps miscompiled,
+   spill pressure at qfma1/qsel1, qacrosscalls splitting a pair, ldp across qload/qstore). Each read's checked-and-sound
+   list is in its commit. Not yet read: frontend, preprocessor, the ext passes, gvn/gcm, the wasm backend, runtime C.
+
 9. **`_Complex` / `complex.h`.** Not in cproc or QBE. Needs: frontend lowering (Annex G
    `__muldc3`/`__divdc3` semantics), arm64 ABI (two FP registers), musl `src/complex` in the
    runtime, numpy `complex128` binding.
