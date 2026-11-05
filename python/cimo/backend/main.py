@@ -128,6 +128,15 @@ class _Driver:
         ssa.ssa(fn)
         ssa.filluse(fn)
         ssa.ssacheck(fn)
+        # cimo: again, now that promotion has taken the slots that held addresses: an inlined callee's pointer
+        # parameter was such a slot, and the caller's array whose address it held stayed in memory (scramjit's io[])
+        if _x.cse and sroa.sroa(fn):
+            ssa.filluse(fn)
+            mem.promote(fn)
+            ssa.filluse(fn)
+            ssa.ssa(fn)
+            ssa.filluse(fn)
+            ssa.ssacheck(fn)
         alias.fillalias(fn)
         load.loadopt(fn)
         ssa.filluse(fn)

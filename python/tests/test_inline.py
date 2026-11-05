@@ -138,3 +138,35 @@ def test_wasm_inlines_too():
     import cimo.wasm as W
     mod, sigs = W.build(HELPERS)
     assert 't_wsub' in sigs
+
+
+IO = r'''
+#include <stdint.h>
+#include <string.h>
+static void force(int64_t *io, double k, double x) { double r = -k * x; memcpy(&io[0], &r, 8); io[1] = 0; }
+double step(double k, double x, double v, double dt, long n) {
+    for (long i = 0; i < n; i++) {
+        int64_t io[5];
+        force(io, k, x);
+        double f; memcpy(&f, &io[0], 8);
+        v += f * dt; x += v * dt;
+    }
+    return x + v;
+}
+'''
+
+
+def test_inlined_callees_result_array_is_registers():
+    """scramjit returns a callee's results through an int64_t io[] written and read with memcpy. Inlined, the callee's
+    pointer parameter is a copy of the array's address, which SROA took as the address escaping: the array stayed in
+    memory, a store in every iteration. SROA follows copies now, and runs again after promotion."""
+    asm = driver._build(IO)[0]
+    b = asm[asm.index('\n%sstep:' % SYM):]
+    b = b[:b.index('end function')]
+    assert not re.search(r'x29, #|\(%rbp\)|\(%rsp\)', b), b  # no frame: the array is registers
+    k = cimo.compile(IO)
+    x, v = 1.0, 0.0
+    for _ in range(100):
+        v += -2.0 * x * 1e-3
+        x += v * 1e-3
+    assert k.step(2.0, 1.0, 0.0, 1e-3, 100) == x + v

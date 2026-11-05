@@ -52,6 +52,11 @@ def sroa(fn):
                 if c is not None:
                     at[i.to] = (at[x][0], at[x][1] + c)
                     adds.append(i)
+            elif i.op == Ocopy and i.cls == Kl and i.arg[0] in at:
+                # the same address under another name: an inlined callee's pointer parameter (scramjit passes an
+                # int64_t io[] for results, which stayed in memory)
+                at[i.to] = at[i.arg[0]]
+                adds.append(i)
             elif i.op in (D.Oextsw, D.Oextuw, Ocopy) and value(i.arg[0]) is not None:
                 c = value(i.arg[0])
                 if i.op == D.Oextsw:
@@ -74,7 +79,7 @@ def sroa(fn):
         for i in b.ins[:b.nins]:
             if Oalloc <= i.op <= Oalloc1:
                 continue
-            if i.op == Oadd and i.to in at:
+            if i.op in (Oadd, Ocopy) and i.to in at:
                 continue
             if D.isload(i.op) and i.arg[0] in at:
                 root, off = at[i.arg[0]]

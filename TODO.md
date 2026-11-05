@@ -243,12 +243,12 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   the fields can live in registers. scramjit would pass instances as struct pointers, with `restrict` where it has proven the objects
   distinct, and rely on this to match its current flattening. **When done, note it in scramjit's `TODO.md`.**
 
-- **A small local array passed to an inlined call stays in memory** (found by scramjit, 2026-11-05). scramjit returns a
-  callee's results through `int64_t io[n]`, written and read with `memcpy`; after inlining, the array should become
-  registers (SROA through `memcpy` of 8 bytes). A spring step calling a `@scram` function `force(k, x)` takes 16.5 ns
-  against 11.7 written inline; through two methods, 14.9 against 8.5 (arm64). Likely small and worth doing early: `backend/sroa.py`
-  exists, so the gap is probably only that an 8-byte `memcpy` into or out of the array isn't taken as a load or store of one slot.
-  It's every call between scramjit's compiled functions and every method call, about 5 ns each. **When done, note it in scramjit's `TODO.md`.**
+- ~~**A small local array passed to an inlined call stays in memory**~~ **Done** (2026-11-05): the inlined callee's
+  pointer parameter is a copy of the array's address, which `sroa` took as the address escaping; it follows copies now,
+  and runs again after promotion (which removes the slot the parameter lived in). scramjit's io[] is registers: no store
+  left in the loop (`test_inlined_callees_result_array_is_registers`). The 16.5 against 11.7 ns didn't reproduce for a
+  plain function call (scramjit's generated C, laptop: 6.16 ns both, before and after: the store was off the critical
+  path); the method case may be the struct one below. Noted in scramjit's `TODO.md`.
 
 - ~~**A faster `Kernel.__call__`**~~ **Done** (2026-11-05): each kernel gets a class of its own whose `__call__` is
   written for its parameters (pointers converted where they are, no list), and the error word and the stdout length are
