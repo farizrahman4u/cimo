@@ -874,7 +874,7 @@ with ThreadPoolExecutor() as pool:
     <tr><th>Platform</th><th>Backend</th><th>Loader</th></tr>
     <tr><td>Linux arm64 / x86-64</td><td class="m">arm64, amd64</td><td class="m">mmap + mprotect (W^X)</td></tr>
     <tr><td>macOS, Apple silicon</td><td class="m">arm64</td><td class="m">MAP_JIT, W^X fallback</td></tr>
-    <tr><td>Windows x64</td><td class="m">amd64</td><td class="m">VirtualAlloc + VirtualProtect</td></tr>
+    <tr><td>Windows arm64 / x64</td><td class="m">arm64, amd64</td><td class="m">VirtualAlloc + VirtualProtect</td></tr>
     <tr><td>Pyodide / browser</td><td class="m">WebAssembly</td><td class="m">shared-memory side module</td></tr>
   </table></div>
   <p class="note">Kernels run with the full privileges of your Python process, like ctypes. There is no sandbox.</p>
