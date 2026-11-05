@@ -586,6 +586,14 @@ def _address(x, keep):
     return ctypes.addressof(ctypes.c_char.from_buffer(mv))
 
 
+def _long(x, keep):
+    """An l parameter: an integer, numpy's too. Where the signature has no C types (a module built from IR) a
+    pointer is l as well, so a buffer is still taken as one."""
+    if getattr(x, 'ndim', 0) == 0 and hasattr(x, '__index__'):
+        return x.__index__()
+    return _address(x, keep)
+
+
 def describe(src, filename, options):
     """(signatures, data that isn't const) of C source, from the front end alone (cimo.introspect)."""
     target = ('arm64',) if _PYODIDE else ()
@@ -636,6 +644,7 @@ class Kernel:
         object made. The general version cost about 450 ns a call over ctypes (scramjit)."""
         n = len(self._params)
         ptrs = [i for i, k in enumerate(self._params) if k == 'p']
+        longs = [i for i, k in enumerate(self._params) if k == 'l']
         lines = ['def __call__(self, *args):',
                  '    if len(args) != %d:' % n,
                  '        raise TypeError("%%s() takes %d arguments (%%d given)" %% (name, len(args)))' % n,
@@ -644,12 +653,14 @@ class Kernel:
                  '    except AttributeError:',
                  '        state.ctx()',
                  '        w = tls.words']
-        if ptrs:
+        if ptrs or longs:
             lines.append('    keep = []  # read-only buffers passed by pointer: alive until the call returns')
             names = ['a%d' % i for i in range(n)]
             lines.append('    %s, = args' % ', '.join(names))
             for i in ptrs:
                 lines.append('    if a%d.__class__ is not int: a%d = address(a%d, keep)' % (i, i, i))
+            for i in longs:
+                lines.append('    if a%d.__class__ is not int: a%d = long_(a%d, keep)' % (i, i, i))
             lines.append('    r = f(%s)' % ', '.join(names))
         else:
             lines.append('    r = f(*args)')
@@ -657,7 +668,7 @@ class Kernel:
             lines.append('    if w[%d]: flush()' % (_exe.CTX_OUT // 8))
         lines += ['    if w[0]:', '        state.error(tls.ctx, name)', '    return r']
         env = {'f': self._f, 'tls': self._state._tls, 'state': self._state, 'name': self.__name__,
-               'address': _address, 'flush': self._out._flush if self._out is not None else None}
+               'address': _address, 'long_': _long, 'flush': self._out._flush if self._out is not None else None}
         exec('\n'.join(lines), env)
         self.__class__ = type('Kernel', (Kernel,), {'__call__': env['__call__'], '__slots__': ()})
 
