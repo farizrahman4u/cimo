@@ -43,7 +43,7 @@ To find out where the time goes before changing anything, see [Measuring and pro
 
 ## Compile time
 
-Compiling a kernel file takes well under a second. Results are cached by a hash of the preprocessed source, so the second run of the same code starts immediately; see [Files, includes and the cache](files-and-cache.md).
+Compiling a kernel file takes well under a second. A single generated function of a hundred loops or more takes a few seconds (120 small loops: about 3 s on arm64), growing a little faster than its size. Results are cached by a hash of the preprocessed source, so the second run of the same code starts immediately; see [Files, includes and the cache](files-and-cache.md).
 
 ## Switches
 
