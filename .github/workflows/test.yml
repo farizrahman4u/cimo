@@ -1,5 +1,5 @@
 # The test suite on every push and pull request: Linux arm64 (gcc as the reference compiler,
-# with the corpora), macOS on Apple silicon (Apple clang as the reference) and Windows arm64
+# with the corpora; and the threading and runtime tests under free-threaded CPython 3.13t), macOS on Apple silicon (Apple clang as the reference) and Windows arm64
 # (clang from Visual Studio as the reference); Linux x86-64 (gcc) and Windows x64 (MinGW-w64 gcc,
 # preinstalled on the runner, as the reference).
 name: test
@@ -27,6 +27,22 @@ jobs:
       - run: python -m pytest -q
       - name: run the examples
         run: for e in ../examples/*.py; do echo "== $e"; PYTHONPATH=. python "$e" || exit 1; done
+
+  # free-threaded CPython (no GIL): kernels from many threads at once, with nothing in cimo leaning on the GIL
+  linux-arm64-free-threaded:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13t"
+      - run: pip install pytest numpy
+      - run: python -c "import sys; assert not sys._is_gil_enabled(), 'not a free-threaded build'"
+      - run: python -m pytest -q tests/test_threads.py tests/test_execution.py tests/test_faults.py tests/test_runtime.py tests/test_loader.py tests/test_vectorize.py tests/test_compile_time.py
 
   macos-arm64:
     runs-on: macos-15

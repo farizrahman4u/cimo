@@ -86,9 +86,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    1,000 calls with the heap, asserts, faults and printf crossing threads; modules compiled and dropped while others
    run; a reused pool) passes, also under free-threaded CPython 3.13t (20 runs in a row, and the execution, fault, runtime,
    loader, vector and compile-time tests); nothing needed changing. Scaling 7.7x on 8 threads (Graviton 3), 7.0x (Sapphire
-   Rapids, 4 cores and 8 threads); a call about 1 us, of which the GIL's release is 45-60 ns. **Open:** the CI job for
-   3.13t is written but not pushed: the remote's token lacks GitHub's `workflow` scope, which a change to
-   `.github/workflows/` needs (a `linux-arm64-free-threaded` job, python-version 3.13t, running those files).
+   Rapids, 4 cores and 8 threads); a call about 1 us, of which the GIL's release is 45-60 ns. CI runs those files under
+   3.13t (`linux-arm64-free-threaded`).
 2. **Public cache export and import** (already in "Small" as a TODO from scramjit; promoted). API:
    `cimo.export_cache(module, path)` writes the linked image plus the signatures, the source hash,
    the target (`os-arch` or `wasm32`), the cimo version and the options; `cimo.import_cache(path)`
