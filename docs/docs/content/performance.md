@@ -8,6 +8,7 @@ cimo is an optimizing compiler. On loops it can analyze it runs close to gcc and
 - unrolls loops and unroll-and-jams loop nests
 - strength-reduces array indexing into pointers that step forward
 - replaces repeated loads with registers (scalar replacement)
+- keeps a struct's fields (`p->x`) in registers through a loop when nothing else in it can touch them: no other pointer, or `restrict`
 - adds runtime checks where two pointers might overlap, with a fast path when they don't
 - contracts `a * b + c` into fused multiply-adds (arm64, and x86-64 CPUs with FMA)
 - on x86-64, compiles for the CPU it runs on: FMA, POPCNT, LZCNT and TZCNT where present (`CIMO_X86=baseline` for SSE2 only)

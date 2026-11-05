@@ -210,7 +210,7 @@ in Python.
 
 **Tier 3, loops** (`middle/`, which has unrolling, unroll-and-jam, scalar replacement, strength reduction):
 - **A local assigned a constant in a loop stops vectorizing** (found by scramjit, whose flag says a variable is now a numpy scalar). `for (...) { s += x[i]; f = 1; }` on `int32_t`: 0.367 ns per element against 0.195 without `f` (100,000 elements, arm64). LLVM's `LICM` sinks it out of the loop. When done, note it in scramjit's `TODO.md`.
-- `LoopRotate`, `IndVarSimplify`/GCC `iv_canon`, `LoopSimplifyCFG`, `LICM` scalar promotion. ~~`LoopDeletion`~~
+- `LoopRotate`, `IndVarSimplify`/GCC `iv_canon`, `LoopSimplifyCFG`, ~~`LICM` scalar promotion~~ (fields, above). ~~`LoopDeletion`~~
   **Done** for loops that count (`scalar._deadloops`).
 - `LoopIdiomRecognize`: memset, memcpy, popcount, ctz. GCC `crc_optimization`.
 - `LoopStrengthReduce`/GCC `iv_optimize`, with `AArch64` addressing modes as its cost.
@@ -237,11 +237,14 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
-- **Keep struct fields in registers across a loop** (found by scramjit, 2026-11-05: `LICM` scalar promotion, from `restrict` or
-  bases proven distinct). A spring step through a struct pointer, `p->v += -p->k * p->x * dt; p->x += p->v * dt`, takes 6.1 ns against 5.2
-  with locals; reading through a second pointer, 11.6 against 6.4. `restrict` on both changes nothing today, though it says exactly that
-  the fields can live in registers. scramjit would pass instances as struct pointers, with `restrict` where it has proven the objects
-  distinct, and rely on this to match its current flattening. **When done, note it in scramjit's `TODO.md`.**
+- ~~**Keep struct fields in registers across a loop**~~ **Done** (2026-11-05): a field the loop reads and writes at an
+  address fixed for the loop (`p->x`), with one size and class, that no other access can touch (other offsets of the
+  same base, or bases the alias analysis tells apart: `restrict`, or no other pointer at all) is a state variable of the
+  fast loop, loaded before it and stored after it (`Fast.find_promoted`); a field only read (`p->k`) is hoisted, since
+  offsets of one base no longer count as overlapping (`_apart`). The spring step through `p` is now the same loop as with
+  locals, instruction for instruction, without `restrict`; through two pointers it needs `restrict` on both
+  (`test_struct_fields_stay_in_registers_through_a_loop`, `fields_*` in `tests/middle/loops.c`). Open: fields of a
+  base that changes in an outer loop are promoted per inner loop only; vectorized loops don't promote.
 
 - ~~**A small local array passed to an inlined call stays in memory**~~ **Done** (2026-11-05): the inlined callee's
   pointer parameter is a copy of the array's address, which `sroa` took as the address escaping; it follows copies now,

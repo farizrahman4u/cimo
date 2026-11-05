@@ -1,6 +1,7 @@
 """Inlining of small functions (cimo.backend.inline): which calls are inlined, and that the
 inlined code computes what the call did (each program also runs with inlining off)."""
 
+import ctypes
 import re
 
 import pytest
@@ -170,3 +171,37 @@ def test_inlined_callees_result_array_is_registers():
         v += -2.0 * x * 1e-3
         x += v * 1e-3
     assert k.step(2.0, 1.0, 0.0, 1e-3, 100) == x + v
+
+
+SPRING = r'''
+struct S { double x, v, k; };
+void spring(struct S *p, double dt, long n) {
+    for (long i = 0; i < n; i++) { p->v += -p->k * p->x * dt; p->x += p->v * dt; }
+}
+'''
+
+
+def test_struct_fields_stay_in_registers_through_a_loop(tmp_path, monkeypatch):
+    """scramjit keeps a model's state in a struct: p->x and p->v are read and written every iteration, p->k only read.
+    They were loaded and stored once per unrolled group (a store-to-load round trip on the loop's dependency chain),
+    and p->k reloaded, because offsets of one base were taken as the same memory. Now x and v are state variables of
+    the fast loop (loaded before it, stored after it) and k is hoisted, without restrict: p is the only base."""
+    from cimo import middle
+    old = middle.stats
+    middle.stats = {}
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path))  # compiled here, not taken from the cache
+    try:
+        driver._build(SPRING)
+        stats = middle.stats
+    finally:
+        middle.stats = old
+    assert stats.get('promoted') == 2, stats
+    k = cimo.compile(SPRING, cache=False)
+    for n in (0, 1, 3, 4, 5, 100):
+        s = (ctypes.c_double * 3)(1.0, 0.0, 2.0)
+        k.spring(ctypes.addressof(s), 1e-3, n)
+        x, v = 1.0, 0.0
+        for _ in range(n):
+            v += -2.0 * x * 1e-3
+            x += v * 1e-3
+        assert abs(s[0] - x) < 1e-12 and abs(s[1] - v) < 1e-12 and s[2] == 2.0, n

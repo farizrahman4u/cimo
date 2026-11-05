@@ -194,6 +194,10 @@ class Chain:
     __slots__ = ('idx', 'op', 'cls', 'Lr', 'S', 'qmin', 'qmax', 'pos', 'fresh')
 
 
+class Promoted:
+    __slots__ = ('idx', 'key', 'size', 'cls', 'op', 'scls', 'form', 'addr')
+
+
 class Fast:
     def __init__(self, fn, lp, sh, A, rts):
         self.fn = fn
@@ -211,6 +215,7 @@ class Fast:
         self.ic = 1            # and vectors an iteration (vectorize.interleave)
         self.vchecks = ()      # and the arrays to compare before it
         self.vreds = ()        # and the reductions it collects (vectorize.Reduction)
+        self.prom = []         # fields kept in registers through the loop (Promoted)
 
     # ---------- materialization of invariant values (in self.em, memoized)
 
@@ -341,6 +346,85 @@ class Fast:
             self.groups[key] = g
         return g
 
+    def find_promoted(self):
+        """Fields kept in registers through the loop (p->x += ... with p invariant): an address the same every
+        iteration that the loop writes, read and written with one size and class, that no other access in the loop can
+        touch (offsets of the same base that don't overlap, or bases the alias analysis tells apart). It is loaded once
+        in FP into a state variable and stored once in FX; in between, its loads read the state and its stores update
+        it. The body has no calls (copyable), and the fast path runs Q(0) and P(0), so the load and store in FP and FX
+        are of an address the loop accesses anyway."""
+        A = self.A
+        acc = []  # (key, size, addr, ins, plain)
+        for b in self.sh.order:
+            for i in ir.ins(b):
+                if ir.isstore(i.op):
+                    cls, size = _storeinfo(i.op)
+                    acc.append((self._akey(i.arg[1]), size, i.arg[1], i, True))
+                elif ir.isload(i.op):
+                    info = _loadinfo(i.op, i.cls) if i.cls in (Kw, Kl, Ks, Kd) else None
+                    plain = info is not None and (info[1] is None or (info[1] in (D.Oextsw, D.Oextuw)
+                                                                      and i.cls == Kw))
+                    acc.append((self._akey(i.arg[0]), info[0] if info else 8, i.arg[0], i, plain))
+        cands = {}
+        for x in acc:
+            if x[0] is not None:
+                cands.setdefault(x[0], []).append(x)
+        for key in sorted(cands, key=str):
+            xs = cands[key]
+            stores = [x[3] for x in xs if ir.isstore(x[3].op)]
+            if not stores:
+                continue
+            cls, size = _storeinfo(stores[0].op)
+            if cls != {D.Ostores: Ks, D.Ostored: Kd, D.Ostorel: Kl}.get(stores[0].op, Kw) or size < 4:
+                continue
+            ok = True
+            for k2, sz, a, i, plain in xs:
+                if ir.isstore(i.op):
+                    v = i.arg[0]
+                    ok = ok and i.op == stores[0].op and not (ir.istmp(v) and self.fn.tmp[rval(v)].cls != cls)
+                else:
+                    ok = ok and plain and i.cls == cls and sz == size
+            f = A.form(xs[0][2], 64)
+            ok = ok and A.avlevel(f) != 'X'
+            for x in acc:
+                if not ok:
+                    break
+                if x[0] != key:
+                    ok = not self._overlap(key, size, xs[0][2], x[0], x[1], x[2])
+            if ok:
+                p = Promoted()
+                p.idx = len(self.prom)
+                p.key = key
+                p.size = size
+                p.cls = cls
+                p.op = stores[0].op
+                p.scls = stores[0].cls
+                p.form = f
+                p.addr = xs[0][2]
+                self.prom.append(p)
+                M.count('promoted')
+
+    def _akey(self, a):
+        """LocalMem's key of an address the same every iteration, else None."""
+        f = self.A.form(a, 64)
+        if f is not None and f.S.isconst() and f.S.c == 0:
+            return ('a', f.L.noconst().ident(), 0, norm(64, f.L.c))
+        return None
+
+    def _overlap(self, k1, s1, a1, k2, s2, a2):
+        """Whether an access may touch a promoted field (as LocalMem.overlap, for any iteration)."""
+        if k2 is None:
+            f = self.A.form(a2, 64)
+            if f is not None and f.S.isconst() and f.L.noconst().ident() == k1[1]:
+                if f.S.c == 0:
+                    k2 = ('a', k1[1], 0, norm(64, f.L.c))
+                else:
+                    return True  # the same base, moving: may cross it
+        if k2 is not None and k1[1:3] == k2[1:3]:
+            o1, o2 = k1[3], k2[3]
+            return o1 < o2 + s2 and o2 < o1 + s1
+        return self.rts.may_alias(a1, a2)
+
     def find_chains(self, noalias_load):
         """Scalar replacement candidates among the loads (noalias_load(i) is true when no
         store in the loop may write what i reads)."""
@@ -453,6 +537,10 @@ class Fast:
         state = dict(state)
         env = {}
         lm = LocalMem(self, em)
+        for p in self.prom:
+            v = state[('pm', p.idx)]
+            lm.prom[p.key] = v
+            lm.avail.append((p.key, p.size, p.cls, v, p.addr))
         for k in range(n):
             env = {}
             fresh = {}
@@ -510,6 +598,8 @@ class Fast:
                 new[('sr', c, ch.qmax - 1)] = fresh[c]
             state.update(new)
         lm.finish()
+        for p in self.prom:
+            state[('pm', p.idx)] = lm.prom[p.key]
         return state, env
 
     def advance(self, em, state, n):
@@ -557,11 +647,12 @@ class LocalMem:
         self.em = em
         self.avail = []      # (key, size, cls, value, orig addr)  values readable
         self.pending = []    # (key, size, orig addr, Ins)  stores not yet read
+        self.prom = {}       # key -> value of a promoted field (Fast.find_promoted): never in memory here
 
     def key(self, i, addr_orig, addr_new, k, closed):
         A = self.f.A
         f = A.form(addr_orig, 64)
-        if f is not None and f.S.isconst() and closed is None:
+        if f is not None and f.S.isconst() and (closed is None or f.S.c == 0):
             return ('a', f.L.noconst().ident(), f.S.c, norm(64, f.L.c + k * f.S.c))
         return ('r', addr_new)
 
@@ -577,6 +668,11 @@ class LocalMem:
         cls, size = _storeinfo(i.op)
         ao = i.arg[1]
         key = self.key(i, ao, args[1], k, closed)
+        if key in self.prom:
+            self.prom[key] = args[0]
+            self.avail = [a for a in self.avail if not self.overlap(a[0], a[1], a[4], key, size, ao)]
+            self.avail.append((key, size, cls, args[0], ao))
+            return
         ins = Ins(i.op, i.cls, R, args[0], args[1])
         # an earlier store to exactly these bytes, not read since, is dead
         keep = []
@@ -602,6 +698,8 @@ class LocalMem:
             v = self._forward(i, info, key, size)
             if v is not None:
                 return v       # memory isn't read: pending stores stay removable
+        if key in self.prom:
+            raise AssertionError('promoted field not forwarded')
         self.pending = [p for p in self.pending
                         if not self.overlap(p[0], p[1], p[2], key, size, ao)]
         if info is None:
@@ -730,6 +828,17 @@ def vectorizable(fn, lp, rts):
     return bool(_lanes(fn, lp, sh, A, ctl, rts))
 
 
+def _apart(A, rts, a1, n1, a2, n2):
+    """Whether n1 bytes at a1 and n2 at a2 are never the same memory, in any two iterations: the same base at
+    fixed offsets that don't overlap (p->x and p->k), or bases the alias analysis tells apart."""
+    f1, f2 = A.form(a1, 64), A.form(a2, 64)
+    if (f1 is not None and f2 is not None and f1.S.isconst() and f2.S.isconst() and f1.S.c == 0 == f2.S.c
+            and f1.L.noconst().ident() == f2.L.noconst().ident()):
+        o1, o2 = norm(64, f1.L.c), norm(64, f2.L.c)
+        return not (o1 < o2 + n2 and o2 < o1 + n1)
+    return not rts.may_alias(a1, a2)
+
+
 def _hoisted(fn, lp, sh, A, ctl, rts):
     """The analysis again with invariant loads that nothing in the loop can change as invariants. Returns it with those
     loads and the function that says which load no store can change."""
@@ -743,7 +852,9 @@ def _hoisted(fn, lp, sh, A, ctl, rts):
                 stores.append(i)
 
     def noalias_load(i):
-        return all(not rts.may_alias(i.arg[0], s.arg[1]) for s in stores)
+        info = _loadinfo(i.op, i.cls) if i.cls in (Kw, Kl, Ks, Kd) else None
+        n = info[0] if info else 8
+        return all(_apart(A, rts, i.arg[0], n, s.arg[1], _storeinfo(s.op)[1]) for s in stores)
 
     hoist = set()
     for _ in range(4):
@@ -790,6 +901,7 @@ def transform(fn, lp, rts, done, mode='opt'):
     fast.vreds = vreds
     if not vf:  # lanes read their own elements: nothing to reuse
         fast.find_chains(noalias_load)
+        fast.find_promoted()
     ncl = 0
     fast.ic = vectorize.interleave(fast) if vf else 1  # vectors an iteration
     U = vf * fast.ic or max(1, M.unroll)
@@ -800,7 +912,7 @@ def transform(fn, lp, rts, done, mode='opt'):
     fast.U = U
     if vf:
         M.count('vectorized')
-    if U == 1 and not fast.groups and not hoist and not fast.chains:
+    if U == 1 and not fast.groups and not hoist and not fast.chains and not fast.prom:
         return False
     emit_versioned(fn, lp, sh, A, ctl, fast, U, done)
     M.count('versioned')
@@ -950,6 +1062,8 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
         for q in range(ch.qmin, ch.qmax):
             addr = fast.lin(Lin(ch.Lr.t, ch.Lr.c + q * ch.S), 64)
             state0[('sr', ch.idx, q)] = ef.raw(ch.op, ch.cls, addr)
+    for p in fast.prom:
+        state0[('pm', p.idx)] = ef.raw(D.Oload, p.cls, fast.inv_value(p.form))
     # hoisted invariant loads are materialized lazily into FP while copying
     kc = Kw if ctlg.W == 32 else Kl
     T4 = ef.op(D.Oand, Kl, T, ef.con(-U)) if U > 1 else T
@@ -1027,7 +1141,9 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
     fast.em = ex
     # the FP emitter may still receive hoisted invariants: they must come before FP's jump,
     # which is fine since FP's instructions are flushed again below
-    _, env = fast.copies(ex, stFX, 1, closed=T, final=True)
+    stX, env = fast.copies(ex, stFX, 1, closed=T, final=True)
+    for p in fast.prom:
+        ex.ins(Ins(p.op, p.scls, R, stX[('pm', p.idx)], fast.inv_value(p.form)))
     liveout = {}
     for p in ir.phis(H):
         t = rval(p.to)
@@ -1083,6 +1199,8 @@ def _svcls(fn, sv, fast, vals):
     if sv[0] == 'sr':
         ch = [c for c in fast.chains if c.idx == sv[1]][0]
         return ch.cls
+    if sv[0] == 'pm':
+        return fast.prom[sv[1]].cls
     raise AssertionError(sv)
 
 

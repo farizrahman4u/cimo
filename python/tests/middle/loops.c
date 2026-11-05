@@ -83,3 +83,12 @@ double jam_alias(ARGS) { int m = n % 13; for (int kk = 0; kk < m; kk++) { int a 
 double ifconv_minmax(RARGS) { long s = 0; for (int i = 0; i < n; i++) { int a = ia[i], b = ib[i]; int lo = a < b ? a : b; long hi = a < b ? (long)b : (long)a; s += lo * 3 + hi; } return s; }
 double fwd_same(RARGS) { for (int i = 0; i < n; i++) { ia[i] += ib[i]; ia[i] *= 3; ia[i] -= i; } return 0; }
 double fwd_bytes(RARGS) { for (int i = 0; i < n; i++) { ua[i] = (unsigned char)(ia[i] + 250); ib[i] = ua[i] + (signed char)ua[i]; } return 0; }
+/* fields: an address the same every iteration, read and written (kept in a register through the loop), next to
+ * accesses that may or may not be the same memory */
+double fields_r(RARGS) { for (int i = 0; i < n; i++) { da[0] += da[2] * fa[i]; da[1] = da[0] - fb[i]; } return da[0] + da[1]; }
+double fields_alias(ARGS) { for (int i = 0; i < n; i++) { fa[-1] += fb[i]; fa[-2] = fa[-1] * 2.0f + fb[i]; } return fa[-1]; }
+double fields_moving(RARGS) { for (int i = 0; i < n; i++) { ia[0] += ia[i + 1]; ia[i + 1] = ia[0] & 1023; } return ia[0]; }
+double fields_int(RARGS) { for (int i = 0; i < n; i++) ia[3] = ia[3] * 3 + ib[i]; return ia[3]; }
+double fields_bytes(RARGS) { for (int i = 0; i < n; i++) { ia[0] += i; ((unsigned char *)ia)[k & 3] = (unsigned char)i; } return ia[0]; }
+double fields_wide(RARGS) { for (int i = 0; i < n; i++) { ia[0] += 1; ia[2] += *(long *)&ia[0] & 255; } return ia[2]; }
+double fields_global(RARGS) { for (int i = 0; i < n; i++) { gi[1] += ia[i]; ia[i] = gi[1] & 255; } return gi[1]; }

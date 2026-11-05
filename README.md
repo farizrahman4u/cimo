@@ -62,8 +62,8 @@ the compiler by bundling LLVM. cimo runs wherever Python does:
 
 ## Performance
 
-cimo has a loop optimizer (unrolling, unroll-and-jam, scalar replacement, strength reduction, runtime
-alias checks) and an instruction-selecting backend. On scalar code it runs close to gcc and clang at
+cimo has a loop optimizer (unrolling, unroll-and-jam, scalar replacement, struct fields kept in registers,
+strength reduction, runtime alias checks) and an instruction-selecting backend. On scalar code it runs close to gcc and clang at
 `-O3`:
 
 | Kernel   | vs `gcc -O3` (Linux arm64) | vs `clang -O3` (Apple M4) |
