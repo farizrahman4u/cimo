@@ -408,6 +408,12 @@ def spill(fn):
                     j -= 1
                     if jj <= 0:
                         bsset(w, t)
+            # cimo (ext.vector): qfma1 and qsel1 also read their destination, which isel made a copy of the addend or
+            # mask (fmla, bsl): live into the instruction, in a register, like an argument
+            keep = ins.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1) and ins.to != R and rval(ins.to) >= Tmp0
+            if keep:
+                bsset(v, rval(ins.to))
+                bsset(w, rval(ins.to))
             bscopy(u, v)
             limit2(v, 0, 0, w)
             for n in range(2):
@@ -427,6 +433,8 @@ def spill(fn):
                     # in case i->to was a
                     # dead temporary
                     bsclr(v, t)
+                if keep:
+                    bsset(v, t)
             emiti(ins)
             r = v.t & M64  # Tmp0 is NBit
             if r:

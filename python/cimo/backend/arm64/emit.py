@@ -516,6 +516,14 @@ def _qins(i, e):
             f.write("\tmov\t%s, %s\n" % (_qv(i.to), _qv(i.arg[0])))
         return True
     if op == Oswap and i.cls == D.Kq:
+        if rtype(i.arg[0]) == RSlot and rtype(i.arg[1]) == RSlot:
+            _swap2slots(i, e)
+            return True
+        if rtype(i.arg[0]) == RSlot or rtype(i.arg[1]) == RSlot:  # a cycle of moves through a spilled phi
+            reg, sl = _swapslot(i)
+            f.write("\tldr\tq31, %s\n" % _qaddr(sl, e))
+            f.write("\tstr\tq%d, %s\n\tmov\t%s, v31.16b\n" % (rval(reg) - V0, _qaddr(sl, e), _qv(reg)))
+            return True
         a, b = _qv(i.arg[0]), _qv(i.arg[1])
         f.write("\tmov\tv31.16b, %s\n\tmov\t%s, %s\n\tmov\t%s, v31.16b\n" % (a, a, b, b))
         return True
@@ -587,6 +595,35 @@ def _qins(i, e):
     return True
 
 
+def _swapslot(i):
+    """(register, slot) of a swap between the two (cimo: register allocation's cycle of moves through a spilled phi;
+    the tables only swap registers)."""
+    a, b = i.arg[0], i.arg[1]
+    return (b, a) if rtype(a) == RSlot else (a, b)
+
+
+def _swap2slots(i, e):
+    """A swap of two stack slots, 8 bytes (or 4) at a time through d31 and x16; x17 has each one's address."""
+    f = e.f
+    n = 16 if i.cls == D.Kq else 8 if KWIDE(i.cls) else 4
+    w = 8 if n >= 8 else 4
+    da, db = ("d31", "x16") if w == 8 else ("s31", "w16")
+
+    def at(r, k):
+        off = slot(r, e) + k
+        if off < 4096:
+            f.write("\tadd\tx17, x29, #%d\n" % off)
+        else:
+            f.write("\tmov\tx17, #%d\n\tadd\tx17, x29, x17\n" % off)
+    for k in range(0, n, w):
+        at(i.arg[0], k)
+        f.write("\tldr\t%s, [x17]\n" % da)
+        at(i.arg[1], k)
+        f.write("\tldr\t%s, [x17]\n\tstr\t%s, [x17]\n" % (db, da))
+        at(i.arg[0], k)
+        f.write("\tstr\t%s, [x17]\n" % db)
+
+
 def emitins(i, e):
     T = D.T
     op = i.op
@@ -595,6 +632,16 @@ def emitins(i, e):
             e.qthird = i.arg[0]
         if _qins(i, e):
             return
+    if op == Oswap and rtype(i.arg[0]) == RSlot and rtype(i.arg[1]) == RSlot:
+        _swap2slots(i, e)
+        return
+    if op == Oswap and (rtype(i.arg[0]) == RSlot or rtype(i.arg[1]) == RSlot):
+        reg, sl = _swapslot(i)
+        tmp = TMP(V31 if KBASE(i.cls) == 1 else R0 + 16)  # v31 or x16 (x17 addresses far slots)
+        emitins(Ins(Oload, i.cls, tmp, sl, R), e)  # a load: v31 is no register Ocopy takes
+        emitins(Ins(Ocopy, i.cls, sl, reg, R), e)
+        emitins(Ins(Ocopy, i.cls, reg, tmp, R), e)
+        return
     if op == Onop:
         pass
     elif op == Ocopy:

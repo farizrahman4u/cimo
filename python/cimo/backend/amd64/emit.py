@@ -490,6 +490,31 @@ def _qcopy_y(i, e):
         f.write("\tvmovaps %s, %s\n" % (_qy(a), _qy(to)))
 
 
+def _qswapslot(i, e, copy):
+    """A swap of a register and a stack slot, through xmm15/ymm15 (register allocation's cycle of moves through a
+    spilled phi). Two slots would need two scratch registers."""
+    a, b = i.arg[0], i.arg[1]
+    if rtype(a) == RSlot and rtype(b) == RSlot:
+        _swap2slots(i, e)
+        return
+    reg, sl = (b, a) if rtype(a) == RSlot else (a, b)
+    x15 = TMP(XMM0 + 15)
+    for to, frm in ((x15, sl), (sl, reg), (reg, x15)):
+        copy(Ins(Ocopy, D.Kq, to, frm, R), e)
+
+
+def _swap2slots(i, e):
+    """A swap of two stack slots, 8 bytes (or 4) at a time through r11 (kept for stack probes, never allocated):
+    xmm15 can't be used, a float copy between slots goes through it."""
+    n = _ext.qbytes() if i.cls == D.Kq else 8 if KWIDE(i.cls) else 4
+    fp = regtoa(e.fp, SLong)
+    sfx, r = ('q', '%r11') if n >= 8 else ('l', '%r11d')
+    for k in range(0, n, 8 if n >= 8 else 4):
+        a, b = slot(i.arg[0], e) + k, slot(i.arg[1], e) + k
+        e.f.write("\tmov%s %d(%%%s), %s\n\txchg%s %s, %d(%%%s)\n\tmov%s %s, %d(%%%s)\n"
+                  % (sfx, a, fp, r, sfx, r, b, fp, sfx, r, a, fp))
+
+
 def _qins_y(i, e):
     """_qins on 256 bits (AVX2, ext.qbytes() == 32)."""
     f = e.f
@@ -498,6 +523,9 @@ def _qins_y(i, e):
         _qcopy_y(i, e)
         return True
     if op == Oswap and i.cls == D.Kq:
+        if rtype(i.arg[0]) == RSlot or rtype(i.arg[1]) == RSlot:  # a cycle of moves through a spilled phi
+            _qswapslot(i, e, _qcopy_y)
+            return True
         a, b = _qy(i.arg[0]), _qy(i.arg[1])
         f.write("\tvmovaps %s, %%ymm15\n\tvmovaps %s, %s\n\tvmovaps %%ymm15, %s\n" % (a, b, a, b))
         return True
@@ -561,6 +589,9 @@ def _qins(i, e):
         _qcopy(i, e)
         return True
     if op == Oswap and i.cls == D.Kq:
+        if rtype(i.arg[0]) == RSlot or rtype(i.arg[1]) == RSlot:  # a cycle of moves through a spilled phi
+            _qswapslot(i, e, _qcopy)
+            return True
         a, b = _qx(i.arg[0]), _qx(i.arg[1])
         f.write("\tmovaps %s, %s\n\tmovaps %s, %s\n\tmovaps %s, %s\n" % (a, _QX15, b, a, _QX15, b))
         return True
@@ -818,6 +849,9 @@ def emitins(i, e):
         if i.to != R:
             emitcopy(i.to, TMP(RSP), Kl, e)
     elif op == Oswap:
+        if rtype(i.arg[0]) == RSlot and rtype(i.arg[1]) == RSlot:  # cimo: no instruction swaps two slots
+            _swap2slots(i, e)
+            return
         if KBASE(i.cls) == 0:
             _table(i, e)
             return

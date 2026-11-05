@@ -353,3 +353,44 @@ def test_get_every_float_lane(x):
         body = '\t%%x =q qload %%a\n\t%%r =%s qget%s %%x, %d\n\tstore%s %%r, %%d' % (x, x, n, x)
         got = struct.unpack('<' + FMT[x], run(body, pack(x, vals), bytes(W))[:struct.calcsize(FMT[x])])[0]
         assert got == vals[n]
+
+
+@pytest.mark.parametrize('seed', [5, 11])
+def test_phis_permuted_through_stack_slots(seed):
+    """70 vector phis that move to each other's places by a random permutation, some through a sum: more than there are
+    registers, so the parallel moves at the back edge form cycles through spilled phis, a register swapped with a stack
+    slot (it was taken as two registers: wrong values) and slots swapped with each other."""
+    import random
+    nq, trips = 70, 3
+    r = random.Random(seed)
+    perm = list(range(nq))
+    r.shuffle(perm)
+    other = [r.randrange(nq) for _ in range(nq)]
+    keep = [r.random() >= 0.5 for _ in range(nq)]
+    lines = ['\t%x =q qload %a', '\t%y =q qload %b', '\t%xi0 =q qaddw %x, %y']
+    lines += ['\t%%xi%d =q qaddw %%xi%d, %%y' % (k, k - 1) for k in range(1, nq)]
+    lines += ['\tjmp @h', '@h', '\t%i =w phi @s 0, @l %j']
+    body = []
+    for k in range(nq):
+        src = 'p%d' % perm[k] if keep[k] else 'n%d' % k
+        lines.append('\t%%p%d =q phi @s %%xi%d, @l %%%s' % (k, k, src))
+        if not keep[k]:
+            body.append('\t%%n%d =q qaddw %%p%d, %%p%d' % (k, perm[k], other[k]))
+    lines += ['\t%%c =w csltw %%i, %d' % trips, '\tjnz %c, @l, @e', '@l'] + body + ['\t%j =w add %i, 1', '\tjmp @h', '@e']
+    acc = 'p0'
+    for k in range(1, nq):
+        lines.append('\t%%f%d =q qaddw %%%s, %%p%d' % (k, acc, k))
+        acc = 'f%d' % k
+    lines.append('\tqstore %%%s, %%d' % acc)
+    a, b = lanes([1, 2, 3, 4], 'w'), lanes([7, 0, 0, 0], 'w')
+    got = unpack('w', run('\n'.join(lines), pack('w', a), pack('w', b)))
+    want = []
+    for x, y in zip(a, b):
+        st, cur = [], x
+        for k in range(nq):
+            cur = wrap('w', cur + y)
+            st.append(cur)
+        for _ in range(trips):
+            st = [st[perm[k]] if keep[k] else wrap('w', st[perm[k]] + st[other[k]]) for k in range(nq)]
+        want.append(wrap('w', sum(st)))
+    assert list(got) == want

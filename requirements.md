@@ -599,6 +599,12 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   `any` on doubles 0.35 to 0.51 ms; with four, 0.35 to 0.19 (numpy 0.17), `find` on int32 3.9x (Snapdragon).
   `unswitch.clone` takes several exit targets (each reached from the loop alone, values used only there), so the
   unit-stride copy works for loops that return from inside.
+- **From the adversarial read of register allocation (2026-11-05):** a cycle of parallel moves through spilled phis
+  swaps a register with a stack slot, or two slots, which the emitters took as two registers (wrong values with 70
+  rotating q phis; `test_phis_permuted_through_stack_slots`): now through a scratch, v31/x16 on arm64, xmm15/ymm15 on
+  x86-64, and two slots 8 bytes at a time through d31 and x16 or r11. Spilling counts qfma1's and qsel1's destination as
+  read (isel made it a copy of the addend or mask), or allocation ran out of registers at 30 live q values. qacrosscalls
+  puts reloads before a qfma0/qsel0, not between it and its pair. arm64's ldp scheduling treats qload/qstore as memory.
 - **A call keeps at most 64 bits of an FP register on arm64:** a `q` temporary live across one lives in memory
   (`isel.qacrosscalls`), and `q` temporaries stay out of v8 to v15 (`rqavoid`), whose low halves the function must keep.
 - **Memory:** `qload` and `qstore` count as volatile in the memory passes, so nothing forwards across them. Safe, and

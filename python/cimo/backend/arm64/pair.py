@@ -71,6 +71,8 @@ def access(i, fn):
     elif isstore(i.op):
         a = _addr(i.arg[1], fn)
         ld = False
+    elif i.op in (D.Oqload, D.Oqstore):
+        return False  # cimo (ext.vector): memory, at an address left unknown, so nothing moves across it
     else:
         return None
     if a is None:

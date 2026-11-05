@@ -1464,12 +1464,17 @@ def qacrosscalls(fn):
         for x in b.ins[:b.nins]:
             isslotop = x.op == D.Oqload and x.arg[0] in slots.values() or x.op == D.Oqstore and x.arg[1] in slots.values()
             if not isslotop:
+                # the reloads for a qfma1 or qsel1 go before its qfma0 or qsel0: the two stay side by side
+                first = new.pop() if x.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1) and new and \
+                    new[-1].op in (D.Oqfma0, D.Oqsel0) else None
                 for n in (0, 1):
                     a = x.arg[n]
                     if rtype(a) == RTmp and rval(a) in slots:
                         r = newtmp('qr', D.Kq, fn)
                         new.append(Ins(D.Oqload, D.Kq, r, slots[rval(a)], R))
                         x.arg[n] = r
+                if first is not None:
+                    new.append(first)
             new.append(x)
             if not isslotop and rtype(x.to) == RTmp and rval(x.to) in slots:
                 new.append(Ins(D.Oqstore, D.Kq, R, x.to, slots[rval(x.to)]))
