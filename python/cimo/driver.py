@@ -491,14 +491,26 @@ def _wraps():
     return WRAPV if v is None else v
 
 
+# a line marker of the preprocessor's output: '# 12 "file.c" 2'
+_MARKER = re.compile(r'#\s*(?:line\s+)?\d+(?:\s+"(?:[^"\\]|\\.)*")?(?:\s+\d+)*$')
+
+
+def _code(pp):
+    """Preprocessed text as far as code generation sees it: no line markers, blank lines or
+    indentation. Those only place compile diagnostics, which a cache hit never prints;
+    __LINE__ and __FILE__ are already literals in the text. A string can't span lines here."""
+    return '\n'.join(l for l in (l.strip() for l in pp.splitlines()) if l and not _MARKER.match(l))
+
+
 def _key(pp):
-    """Cache key of preprocessed source: also the compiler's and the runtime's sources (a cached
-    image contains the runtime members it uses), the target and the code generation options."""
+    """Cache key of preprocessed source (_code: moving code or renaming its file still hits):
+    also the compiler's and the runtime's sources (a cached image contains the runtime members
+    it uses), the target and the code generation options."""
     return hashlib.sha256(
         _VERSION + _link.compiler_key().encode() + _link._key(TARGET).encode() + TARGET.encode()
         + b'x' + ','.join(sorted(_x86())).encode()
         + (b'm' if MIDDLE else b'') + (b'f' if _contract() else b'') + (b'v' if _wraps() else b'') + (b'V' if _vectorizes() else b'') + b'i%d' % INLINE
-        + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
+        + _code(pp).encode('utf-8', 'surrogateescape')).hexdigest()[:24]
 
 
 def _build(src, filename='<string>', include_dirs=(), host_headers=False, defines=()):

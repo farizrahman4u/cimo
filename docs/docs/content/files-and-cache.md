@@ -28,7 +28,7 @@ k = cimo.compile(src,
 
 ## The cache
 
-cimo caches compiled code by a hash of the preprocessed source (and of the compiler itself). Compiling the same code again, in the same process or a later one, loads the cached result and skips compilation entirely. Editing the C, a header it includes, or a macro value makes a new entry.
+cimo caches compiled code by a hash of the preprocessed source (and of the compiler itself). Compiling the same code again, in the same process or a later one, loads the cached result and skips compilation entirely. Editing the C, a header it includes, or a macro value makes a new entry. Moving code to other lines, re-indenting it or renaming its file doesn't, unless the code uses `__LINE__` or `__FILE__`, as `assert` does.
 
 The cache lives in the first of:
 

@@ -1019,3 +1019,27 @@ def test_unsigned_results_from_the_cache():
         (os.urandom(4).hex(),) * 2)
     assert cimo.compile(src).z() == 2 ** 64 - 1
     assert cimo.compile(src).z() == 2 ** 64 - 1  # the same entry, from memory or disk
+
+
+def test_moved_code_hits_the_cache(tmp_path, monkeypatch):
+    """Line markers, blank lines and indentation aren't in the cache key: moving a function down
+    or renaming its file reuses the compiled image. __LINE__ and __FILE__ are, as the constants
+    they are by then: code with an assert in it compiles again, and reports its new line."""
+    import cimo.driver as d
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path))
+    monkeypatch.setattr(d, '_memory_cache', {})
+    src = '#include <stdlib.h>\nint f(int x) {\n    return abs(x) + 1;\n}\n'
+    (tmp_path / 'a.c').write_text(src)
+    assert cimo.load(tmp_path / 'a.c').f(-1) == 2
+    real = d._compile
+    compiled = []
+    monkeypatch.setattr(d, '_compile', lambda *a: compiled.append(1) or real(*a))
+    (tmp_path / 'b.c').write_text(src.replace('int f', '\n\n// moved\n\nint f').replace('    ', '\t'))
+    assert cimo.load(tmp_path / 'b.c').f(-1) == 2
+    assert compiled == [], 'moved, re-indented and renamed: a hit'
+    checked = '#include <assert.h>\nint g(int x) {\n    assert(x > 0);\n    return x;\n}\n'
+    for text, line in ((checked, 3), ('\n' + checked, 4)):
+        with pytest.raises(cimo.KernelError) as e:
+            cimo.compile(text).g(0)
+        assert e.value.line == line
+    assert len(compiled) == 2
