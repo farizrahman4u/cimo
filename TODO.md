@@ -230,6 +230,12 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   its arrays stop at `sys.maxsize` bytes first, so only just under 2 GiB reaches this. **`module.free` also exists only natively:** scramjit exports its own `sj_release` from the C. When done, note it in scramjit's `TODO.md`.
 - **`k.f(np.int64(3))` to a 64-bit parameter passes the scalar's address** (found by scramjit, 2026-11-02): `Kernel.__call__` sends anything that isn't an `int` to `_address` when the class is `l`, so a numpy integer becomes a pointer to it and
   `int64_t f(int64_t x)` returns garbage. 32-bit parameters take the same value correctly. Tell integer parameters from pointers (`module.signature` now can), and treat it as an integer. scramjit compiles such calls only with `int(...)`, so as not to change what Python gets; **note it in scramjit's `TODO.md` when done.**
+- **Line markers out of the cache key** (requested by scramjit, 2026-11-05). The key is the preprocessed text, which keeps
+  `# 10 "a.py"` markers, so moving code down a line or renaming its file is a full compile: a small function 6 ms on a hit,
+  24 ms on a miss, scramjit's Gray-Scott 86 against 562 ms. The markers emit no code: `__LINE__` and `__FILE__` are already
+  numbers and strings in the text by then, so `assert` stays right. They only place compile diagnostics, which a hit never
+  prints. Key on the text without them (comments are already out). scramjit still makes its own error lines relative to the
+  function, since those are constants in the code.
 - **Say whether a compile came from the cache** (requested by scramjit, 2026-11-01): a public attribute on the
   module, or a compile time. `scramjit preflight --run` wants to show `disk` instead of a time, and can't tell.
   **When done, note it in scramjit's `TODO.md`.**
