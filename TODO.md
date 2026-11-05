@@ -228,7 +228,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 - **A small local array passed to an inlined call stays in memory** (found by scramjit, 2026-11-05). scramjit returns a
   callee's results through `int64_t io[n]`, written and read with `memcpy`; after inlining, the array should become
   registers (SROA through `memcpy` of 8 bytes). A spring step calling a `@scram` function `force(k, x)` takes 16.5 ns
-  against 11.7 written inline; through two methods, 14.9 against 8.5 (arm64). **When done, note it in scramjit's `TODO.md`.**
+  against 11.7 written inline; through two methods, 14.9 against 8.5 (arm64). Likely small and worth doing early: `backend/sroa.py`
+  exists, so the gap is probably only that an 8-byte `memcpy` into or out of the array isn't taken as a load or store of one slot.
+  It's every call between scramjit's compiled functions and every method call, about 5 ns each. **When done, note it in scramjit's `TODO.md`.**
 
 - **A faster `Kernel.__call__`** (requested by scramjit, 2026-11-01). On quiet arm64 Linux with ints and an
   int address for the pointer, a call costs about 905 ns where the underlying ctypes call is about 450, so the
