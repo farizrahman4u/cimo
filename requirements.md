@@ -935,6 +935,10 @@ Targets `amd64_sysv` (Linux; frontend `x86_64-sysv`) and `amd64_windows` (fronte
   slower than gcc with SSE scalar instructions (remainder loops, reductions) next to ymm code; Ice Lake and Zen 4 didn't.
   The emitter writes those functions through `_Vex`, which turns each SSE instruction into its VEX form, the destination
   also the first source so the meaning is SSE's; the assembler has the scalar VEX forms (51, as GNU as).
+- **Measured (2026-11-05, EC2 m6i/c7i/m7a, best of 7, bench/run.py):** cimo time / gcc `-O3 -march=native`, 128-bit
+  build (`CIMO_X86` without avx2) then AVX2: Ice Lake 1.29 to 1.10x, Sapphire Rapids 1.16 to 1.05x, Zen 4 1.41 to 1.18x.
+  `saxpy` 1.5-2.0 to 0.93-1.00x, `conv3x3` 1.1-1.7 to 0.92-0.95x, `isum` 1.1-1.9 to 0.56-0.90x (four accumulators of 8
+  lanes), `jacobi2d` to 0.91-0.97x. Left: `rgb2gray` (bytes), `nbody_acc` (outer loop), `gemm` 1.1-1.5x.
 - **Backend:** QBE's amd64 code (`backend/amd64/`, see its PORTING.md section), verified by
   diffing every pass against C QBE on its 76 tests. `amd64_windows` is cimo's own target over
   QBE's `amd64_win` (which stays as in C for the diffs): xmm6-xmm15 callee-saved (QBE clobbers

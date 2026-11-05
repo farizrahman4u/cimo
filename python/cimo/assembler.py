@@ -329,6 +329,8 @@ def _bitmask(imm, width):
 
 def _logimm(value, width):
     """GNU as: the bits above a 32-bit operation's width must be all zeros or all ones."""
+    if not -(1 << 64) < value < 1 << 64:
+        return None
     value &= M64
     if width == 32:
         hi = value >> 32
@@ -339,6 +341,8 @@ def _logimm(value, width):
 
 def _wide(value, is32):
     """(imm16, shift) if value fits a single movz, else None (GNU aarch64_wide_constant_p)."""
+    if not -(1 << 64) < value < 1 << 64:
+        return None
     value &= M64
     if is32:
         if value >> 32 not in (0, 0xffffffff):
@@ -380,6 +384,12 @@ def _shiftop(rest):
 _ADDSUB = {'add': (0, 0), 'adds': (0, 1), 'sub': (1, 0), 'subs': (1, 1)}
 
 
+def _notzr(r):
+    """r isn't xzr/wzr: for a field in which 31 means sp, where zr would silently become sp."""
+    if not r[2] and r[1] == 31:
+        raise AssemblerError('the zero register is not allowed here (31 would be sp)')
+
+
 def _addsub(a, op, s, rd, rn, ops3, ops_rest):
     """ops3: the third operand string; ops_rest: [optional shift operand]."""
     if _isreg(ops3):
@@ -394,13 +404,19 @@ def _addsub(a, op, s, rd, rn, ops3, ops_rest):
                     raise AssemblerError('shift amount out of range')
                 return (0x0b000000 | _sf(rd) | op << 30 | s << 29 | _SHIFTOP[how] << 22
                         | rm[1] << 16 | n << 10 | rn[1] << 5 | rd[1])
-            if how not in _EXTOP or rm[0] != 'w' or rd[0] != 'x' or not 0 <= n <= 4:
+            if how not in _EXTOP or rm[0] != 'w' or rd[0] != 'x' or rn[0] != 'x' or not 0 <= n <= 4:
                 raise AssemblerError('bad extended register %r' % ops_rest[0])
+            _notzr(rn)  # field 31 is sp here, in Rn always and in Rd unless the flags are set
+            if not s:
+                _notzr(rd)
             return (0x0b200000 | _sf(rd) | op << 30 | s << 29 | rm[1] << 16 | _EXTOP[how] << 13
                     | n << 10 | rn[1] << 5 | rd[1])
         if rd[2] or rn[2]:
             # extended register form (needed when sp is involved): UXTX / UXTW
             _same(rd, rn)
+            _notzr(rn)
+            if not s:
+                _notzr(rd)
             opt = 3 if rd[0] == 'x' else 2
             if rm[0] != rd[0]:
                 raise AssemblerError('operand size mismatch')
@@ -492,7 +508,7 @@ def _i_logic(a, mn, ops):
                 | rd[1])
     if imm_op is None or len(ops) != 3:
         raise AssemblerError('%s takes registers' % mn)
-    rd = _reg(ops[0], sp=mn != 'ands')
+    rd = _reg(ops[0], sp=mn != 'ands', zr=mn == 'ands')
     _same(rd, rn)
     width = 64 if rd[0] == 'x' else 32
     enc = _logimm(_imm(ops[2], True), width)
@@ -643,20 +659,24 @@ def _i_mov(a, mn, ops):
         rd, rm = _reg(ops[0], sp=True), _reg(ops[1], sp=True)
         _same(rd, rm)
         if rd[2] or rm[2]:
+            _notzr(rd), _notzr(rm)
             return 0x11000000 | _sf(rd) | rm[1] << 5 | rd[1]  # add Rd, Rn, #0
         return 0x2a0003e0 | _sf(rd) | rm[1] << 16 | rd[1]  # orr Rd, zr, Rm
     rd = _reg(ops[0], sp=True)
     if not _isimm(ops[1]):
         raise AssemblerError('unsupported mov operand %r' % ops[1])
     v = _imm(ops[1])
+    if not -(1 << 64) < v < 1 << 64:
+        raise AssemblerError('immediate %s does not fit 64 bits' % ops[1])  # GNU as: (-2^64, 2^64), wrapped
     is32 = rd[0] == 'w'
     if not rd[2]:
         w = _wide(v, is32)
         if w is not None:
             return 0x52800000 | _sf(rd) | (w[1] // 16) << 21 | w[0] << 5 | rd[1]
-        w = _wide(~v & (0xffffffff if is32 else M64), is32)
+        w = _wide(~v & M64, is32)  # the whole value, so _wide sees bits above a w register's 32
         if w is not None:
             return 0x12800000 | _sf(rd) | (w[1] // 16) << 21 | w[0] << 5 | rd[1]
+    _notzr(rd)  # the orr below writes sp for register 31
     enc = _logimm(v, 32 if is32 else 64)
     if enc is None:
         raise AssemblerError('immediate %s cannot be moved by a single instruction' % ops[1])
@@ -936,7 +956,7 @@ _NEON2 = {'neg': (0x6e20b800, 's'), 'fneg': (0x6ea0f800, 'f'), 'fabs': (0x4ea0f8
 _NEONSH = {'shl': 0x4f005400, 'ushr': 0x6f000400, 'sshr': 0x4f000400}
 _LANES = {'16b': 0, '8h': 1, '4s': 2, '2d': 3}
 _NEONW = {'saddw': 0x0ea01000, 'saddw2': 0x4ea01000, 'uaddw': 0x2ea01000, 'uaddw2': 0x6ea01000}  # 2d, 2d, 2s or 4s
-_VREG = re.compile(r'v(\d+)\.(16b|8h|4s|2d|2s)$')
+_VREG = re.compile(r'v(\d+)\.(16b|8h|4s|2d|2s|4h|8b)$')
 _VELEM = re.compile(r'v(\d+)\.([bhsd])\[(\d+)\]$')
 
 
@@ -944,63 +964,104 @@ def _isneon(ops):
     return bool(ops) and ops[0].strip().lower()[:1] == 'v' and _VREG.match(ops[0].strip().lower()) is not None
 
 
-def _v(s):
+def _v(s, lanes=None):
+    """(register, arrangement) of a vector operand; lanes: the arrangements allowed."""
     m = _VREG.match(s.strip().lower())
-    if m is None:
+    if m is None or int(m[1]) > 31:
         raise AssemblerError('expected a vector register, got %r' % s)
+    if lanes is not None and m[2] not in lanes:
+        raise AssemblerError('arrangement .%s not allowed here: %r' % (m[2], s))
     return int(m[1]), m[2]
 
 
+_NO2D = frozenset(('mul', 'smin', 'smax', 'umin', 'umax'))
+
+
+def _elem(s):
+    """(register, element size letter, index) of Vn.T[i], the index in range for the element size."""
+    e = _VELEM.match(s.strip().lower())
+    if e is None or int(e[1]) > 31:
+        raise AssemblerError('expected a vector element, got %r' % s)
+    k, i = e[2], int(e[3])
+    if i >= {'b': 16, 'h': 8, 's': 4, 'd': 2}[k]:
+        raise AssemblerError('lane index out of range: %r' % s)
+    return int(e[1]), k, i
+
+
+def _imm5(k, i):
+    return {'b': 1, 'h': 2, 's': 4, 'd': 8}[k] | i << ({'b': 1, 'h': 2, 's': 3, 'd': 4}[k])
+
+
 def _neon(mn, ops):
-    """The word of a NEON instruction whose first operand is a vector register."""
-    d, lane = _v(ops[0])
-    size = _LANES.get(lane, 2)
-    if mn == 'mov':
-        n, _ = _v(ops[1])
-        return 0x4ea01c00 | n << 16 | n << 5 | d
-    if mn in _NEONW:
-        n, _ = _v(ops[1])
-        m, _ = _v(ops[2])
-        return _NEONW[mn] | m << 16 | n << 5 | d
+    """The word of a NEON instruction whose first operand is a vector register. Arrangements are checked as GNU as
+    does: one for all the operands, and one the instruction has (.2s only in saddw and uaddw)."""
+    if mn in _NEONW:  # saddw: .8h/.4s/.2d twice, then .8b/.4h/.2s; saddw2: then .16b/.8h/.4s
+        d, lane = _v(ops[0], ('8h', '4s', '2d'))
+        n, _ = _v(ops[1], (lane,))
+        size = {'8h': 0, '4s': 1, '2d': 2}[lane]
+        narrow = ('16b', '8h', '4s') if mn.endswith('2') else ('8b', '4h', '2s')
+        m, _ = _v(ops[2], (narrow[size],))
+        return (_NEONW[mn] & ~0x00c00000) | size << 22 | m << 16 | n << 5 | d
     if mn == 'dup':
+        d, lane = _v(ops[0], _LANES)
+        size = _LANES[lane]
         s = ops[1].strip().lower()
-        e = _VELEM.match(s)
-        if e:
-            imm5 = {'b': 1, 'h': 2, 's': 4, 'd': 8}[e[2]] | int(e[3]) << ({'b': 1, 'h': 2, 's': 3, 'd': 4}[e[2]])
-            return 0x4e000400 | imm5 << 16 | int(e[1]) << 5 | d
-        r = _reg(s, 'wx')
+        if _VELEM.match(s):
+            n, k, i = _elem(s)
+            if k != 'bhsd'[size]:
+                raise AssemblerError('element size does not match .%s' % lane)
+            return 0x4e000400 | _imm5(k, i) << 16 | n << 5 | d
+        r = _reg(s, 'x' if size == 3 else 'w')
         return 0x4e000c00 | (1 << size) << 16 | r[1] << 5 | d
+    d, lane = _v(ops[0], _LANES)
+    size = _LANES[lane]
+    same = (lane,)
+    if mn == 'mov':
+        n, _ = _v(ops[1], ('16b',) if lane == '16b' else same)
+        if lane != '16b':
+            raise AssemblerError('mov of vectors takes .16b')
+        return 0x4ea01c00 | n << 16 | n << 5 | d
     if mn in _NEONSH:
-        n, _ = _v(ops[1])
+        n, _ = _v(ops[1], same)
         amount = _imm(ops[2], True)
         bits = 8 << size
+        if not (0 <= amount < bits if mn == 'shl' else 1 <= amount <= bits):
+            raise AssemblerError('shift amount %d out of range for .%s' % (amount, lane))
         immhb = bits + amount if mn == 'shl' else 2 * bits - amount
         return _NEONSH[mn] | immhb << 16 | n << 5 | d
     if mn in _NEON2:
         op, kind = _NEON2[mn]
-        n, _ = _v(ops[1])
+        _lanes_ok(mn, kind, lane)
+        n, _ = _v(ops[1], same)
         w = op | n << 5 | d
         return w | (size << 22 if kind == 's' else (lane == '2d') << 22 if kind == 'f' else 0)
     if mn in _NEON3:
         op, kind = _NEON3[mn]
-        n, _ = _v(ops[1])
-        m, _ = _v(ops[2])
+        _lanes_ok(mn, kind, lane)
+        n, _ = _v(ops[1], same)
+        m, _ = _v(ops[2], same)
         w = op | m << 16 | n << 5 | d
         return w | (size << 22 if kind == 's' else (lane == '2d') << 22 if kind == 'f' else 0)
     raise AssemblerError('unsupported vector instruction %r' % mn)
 
 
+def _lanes_ok(mn, kind, lane):
+    if kind == 'f' and lane not in ('4s', '2d') or kind == '' and lane != '16b' or \
+            kind == 's' and lane == '2d' and mn in _NO2D:
+        raise AssemblerError('%s has no .%s form' % (mn, lane))
+
+
 def _i_vscalar(a, mn, ops):
     """umov Wd, Vn.T[i]; dup Sd, Vn.s[i] (and Dd)."""
-    e = _VELEM.match(ops[1].strip().lower())
-    if e is None:
-        raise AssemblerError('expected a vector element, got %r' % ops[1])
-    imm5 = {'b': 1, 'h': 2, 's': 4, 'd': 8}[e[2]] | int(e[3]) << ({'b': 1, 'h': 2, 's': 3, 'd': 4}[e[2]])
-    if mn == 'umov':
-        r = _reg(ops[0], 'wx')
-        return (0x4e003c00 if r[0] == 'x' else 0x0e003c00) | imm5 << 16 | int(e[1]) << 5 | r[1]
-    r = _reg(ops[0], 'sd')
-    return 0x5e000400 | imm5 << 16 | int(e[1]) << 5 | r[1]
+    n, k, i = _elem(ops[1])
+    imm5 = _imm5(k, i)
+    if mn == 'umov':  # an x register exactly for a .d element
+        r = _reg(ops[0], 'x' if k == 'd' else 'w')
+        return (0x4e003c00 if r[0] == 'x' else 0x0e003c00) | imm5 << 16 | n << 5 | r[1]
+    r = _reg(ops[0], {'s': 's', 'd': 'd'}.get(k, 'sd'))
+    if k not in 'sd':
+        raise AssemblerError('dup to a scalar register takes .s or .d')
+    return 0x5e000400 | imm5 << 16 | n << 5 | r[1]
 
 
 def _i_ldst(a, mn, ops):
