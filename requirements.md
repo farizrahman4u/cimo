@@ -562,6 +562,13 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   x86-64 ran it 1.4 to 1.5x faster. Polynomial sums measured on Graviton: float 0.63 to 0.66x the scalar loop's time, double 0.79 to 0.85x.
   gcc gets `nbody_acc`'s other 1.3x from vectorizing the outer loop, each lane its own sum. scramjit needs numpy's pairwise order
   for its sums, which is a loop it writes itself (`TODO.md`).
+- **Conditions (2026-11-05):** a comparison becomes a lane mask (`qceq`/`qcgt`/`qcge`/`qcugt`/`qcuge`, operands swapped for
+  `<`, `<=`, negated for `!=`; ordered/unordered tests have none), read only by `qsel0`/`qsel1`, so a select stays exact for NaNs
+  and signed zeros. `ifconv` lets an arm hold an inner diamond's select, so nested ternaries (a clamp) convert inside out.
+  x86-64 if-converts integer diamonds only (no scalar float select), so its float conditions stay scalar. On the Snapdragon,
+  100,000 elements against the same build without the vectorizer: `relu` on doubles 1.74x, a nested float clamp 4.95x, an
+  int max 2.02x. Found on the way: x86-64's 64-bit signed compare (`qlower.cgt`, no `pcmpgtq` in SSE2) used a wrong formula,
+  wrong for 43% of random pairs; nothing produced one until now (`test_64_bit_compare_at_the_edges`).
 - **A call keeps at most 64 bits of an FP register on arm64:** a `q` temporary live across one lives in memory
   (`isel.qacrosscalls`), and `q` temporaries stay out of v8 to v15 (`rqavoid`), whose low halves the function must keep.
 - **Memory:** `qload` and `qstore` count as volatile in the memory passes, so nothing forwards across them. Safe, and

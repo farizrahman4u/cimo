@@ -13,7 +13,7 @@ CPython 3.9+ on Linux and Windows (arm64, x86-64), macOS on Apple silicon, or Py
 
 ## When
 Use: native kernels without a compiler on the target; replacing wheel matrices or C extensions with C shipped as source; generating C at runtime (formulas, codegen); browsers and locked-down machines.
-Skip: numpy already does it fast; you need SIMD intrinsics, or vectorized code beyond straight arm64 loops over 4- and 8-byte elements (the rest is scalar); untrusted C (no sandbox, full process privileges).
+Skip: numpy already does it fast; you need SIMD intrinsics, or vectorized code beyond straight loops over 4- and 8-byte elements, conditions included (the rest is scalar); untrusted C (no sandbox, full process privileges).
 
 ## API
 import numpy as np, cimo

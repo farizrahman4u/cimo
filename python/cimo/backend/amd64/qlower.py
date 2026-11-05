@@ -53,8 +53,9 @@ class _L:
     def cgt(self, x, a, b):
         if x != 'l':
             return self.op('qcgt' + x, a, b)
-        # a > b is b < a: the sign of b ^ ((b ^ a) | ((b - a) ^ a)), as Hacker's Delight
-        m = self.op('qxor', b, self.op('qor', self.op('qxor', b, a), self.op('qxor', self.op('qsubl', b, a), a)))
+        # a > b is b < a: the sign of d ^ ((b ^ a) & (d ^ b)), d = b - a (Hacker's Delight 2-12)
+        d = self.op('qsubl', b, a)
+        m = self.op('qxor', d, self.op('qand', self.op('qxor', b, a), self.op('qxor', d, b)))
         return self.op('qxshufd', self.op('qsarw', m, self.con(31)), self.con(0xf5))
 
     def cugt(self, x, a, b):

@@ -80,6 +80,17 @@ def test_integer(op, x):
     assert list(got) == [INTOPS[op](p, q, x) for p, q in zip(a, b)]
 
 
+@pytest.mark.parametrize('op', ['qceq', 'qcgt', 'qcge', 'qcugt', 'qcuge'])
+def test_64_bit_compare_at_the_edges(op):
+    # x86-64's SSE2 has no 64-bit compare, so qlower writes one: every pair of these, both ways
+    edge = [0, 1, -1, 7, 2**63 - 1, -2**63, 2**32, -2**32, 2**31, -2**31 - 1]
+    pairs = [(p, q) for p in edge for q in edge]
+    for k in range(0, len(pairs), 2):
+        (a0, b0), (a1, b1) = pairs[k], pairs[k + 1] if k + 1 < len(pairs) else pairs[0]
+        got = unpack('l', run(LOADS + '\t%%r =q %sl %%x, %%y\n\tqstore %%r, %%d' % op, pack('l', [a0, a1]), pack('l', [b0, b1])))
+        assert list(got) == [INTOPS[op](a0, b0, 'l'), INTOPS[op](a1, b1, 'l')], (a0, b0, a1, b1)
+
+
 FPOPS = {'qadd': lambda a, b: a + b, 'qsub': lambda a, b: a - b, 'qmul': lambda a, b: a * b, 'qdiv': lambda a, b: a / b,
          'qmin': min, 'qmax': max}
 

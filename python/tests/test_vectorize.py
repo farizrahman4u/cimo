@@ -188,6 +188,61 @@ def test_bit_for_bit_the_scalar_loop(name):
         assert bytes(y1) == bytes(y2), n
 
 
+CONDITIONS = {
+    'relu': ('void f(double *restrict y, const double *restrict x, double a, long n) { for (long i = 0; i < n; i++) { double v = x[i]; y[i] = v > 0.0 ? v : 0.0; } }', ctypes.c_double),
+    'clamp': ('void f(double *restrict y, const double *restrict x, double a, long n) { for (long i = 0; i < n; i++) { double v = x[i] > 0.0 ? x[i] : 0.0; y[i] = v < a ? v : a; } }', ctypes.c_double),
+    'ne': ('void f(float *restrict y, const float *restrict x, float a, long n) { for (long i = 0; i < n; i++) y[i] = x[i] != y[i] ? x[i] : a; }', ctypes.c_float),
+    'le': ('void f(float *restrict y, const float *restrict x, float a, long n) { for (long i = 0; i < n; i++) { float v = y[i] * 2.0f; y[i] = x[i] <= a ? v : x[i]; } }', ctypes.c_float),
+    'nested': ('void f(float *restrict y, const float *restrict x, float a, long n) { for (long i = 0; i < n; i++) { float v = x[i]; y[i] = v < 0.0f ? 0.0f : (v > a ? a : v); } }', ctypes.c_float),
+    'ge': ('void f(double *restrict y, const double *restrict x, double a, long n) { for (long i = 0; i < n; i++) y[i] = x[i] >= y[i] ? x[i] - a : y[i]; }', ctypes.c_double),
+    'eq': ('void f(float *restrict y, const float *restrict x, float a, long n) { for (long i = 0; i < n; i++) y[i] = x[i] == a ? 1.0f : x[i]; }', ctypes.c_float),
+    'int': ('void f(int *restrict y, const int *restrict x, int a, long n) { for (long i = 0; i < n; i++) { int v = x[i], w = y[i]; y[i] = v < a ? v : (v == w ? 0 : w); } }', ctypes.c_int),
+    'unsigned': ('void f(unsigned *restrict y, const unsigned *restrict x, unsigned a, long n) { for (long i = 0; i < n; i++) y[i] = x[i] <= y[i] ? x[i] : a; }', ctypes.c_uint),
+    'long': ('void f(long *restrict y, const long *restrict x, long a, long n) { for (long i = 0; i < n; i++) y[i] = x[i] > y[i] ? x[i] : y[i] - a; }', ctypes.c_int64),
+    'ulong': ('void f(unsigned long *restrict y, const unsigned long *restrict x, unsigned long a, long n) { for (long i = 0; i < n; i++) y[i] = x[i] >= y[i] ? a : x[i]; }', ctypes.c_uint64),
+}
+
+
+def _specials(ctype, n, seed):
+    """Values where a condition is easy to get wrong: NaNs, signed zeros, infinities and equal pairs for floats; signs
+    and both ends of the range for integers."""
+    r = random.Random(seed)
+    if ctype in (ctypes.c_float, ctypes.c_double):
+        pool = [float('nan'), -0.0, 0.0, float('inf'), -float('inf'), 1.25, -1.25, 3.0]
+        return (ctype * n)(*[r.choice(pool) if r.random() < 0.6 else r.uniform(-4, 4) for _ in range(n)])
+    bits = 8 * ctypes.sizeof(ctype)
+    lo, hi = (0, 2 ** bits - 1) if ctype in (ctypes.c_uint, ctypes.c_uint64) else (-2 ** (bits - 1), 2 ** (bits - 1) - 1)
+    pool = [lo, hi, 0, 1, 3, lo + 1, hi - 1]
+    return (ctype * n)(*[r.choice(pool) if r.random() < 0.6 else r.randint(lo, hi) for _ in range(n)])
+
+
+@pytest.mark.parametrize('name', sorted(CONDITIONS))
+def test_conditions_bit_for_bit(name):
+    """A comparison and a select per lane: exact, NaNs and signed zeros included, on every lane width."""
+    src, ctype = CONDITIONS[name]
+    if hosts.AMD64 and ctype in (ctypes.c_float, ctypes.c_double):
+        pytest.skip('x86-64 if-converts integer diamonds only: its scalar code has no float select')
+    assert vectorized(src), driver._build(src)[0]
+    on, off = both(src)
+    for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 63, 64, 65, 200):
+        for seed in range(3):
+            a = _specials(ctype, 1, seed + 100)[0]
+            if ctype in (ctypes.c_float, ctypes.c_double) and seed == 0:
+                a = 3.0
+            x = _specials(ctype, n + 8, seed)
+            y1, y2 = _specials(ctype, n + 8, seed + 50), _specials(ctype, n + 8, seed + 50)
+            if n:
+                x[0] = y1[0] = y2[0]  # an equal pair
+            on.f(ctypes.addressof(y1), ctypes.addressof(x), a, n)
+            off.f(ctypes.addressof(y2), ctypes.addressof(x), a, n)
+            assert bytes(y1) == bytes(y2), (n, seed)
+
+
+def test_a_mask_only_feeds_a_select():
+    """A comparison whose result is a number (0 or 1), not a choice, has no vector form here."""
+    assert not vectorized('void f(int *restrict y, const float *restrict x, long n) { for (long i = 0; i < n; i++) y[i] = x[i] > 1.0f; }')
+
+
 def test_values_the_loop_leaves_with():
     src = 'long f(float *restrict y, const float *restrict x, long n) { long i; for (i = 0; i < n; i++) y[i] = x[i] + 1; return i; }'
     on, off = both(src)

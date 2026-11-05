@@ -18,6 +18,16 @@ from . import ir
 import cimo.middle as M
 
 MAXARM = 4
+# what an arm may hold: also a select an inner diamond became, so nested ones convert from the inside out
+# (v < 0 ? 0 : v > 1 ? 1 : v); its sel0 and sel1 stay adjacent, as the blocks' instructions are copied in order
+_ARMOPS = None
+
+
+def _armops():
+    global _ARMOPS
+    if _ARMOPS is None:
+        _ARMOPS = ir.PURE_SAFE | {D.Osel0, D.Osel1}
+    return _ARMOPS
 
 
 def _okarm(b, ifb):
@@ -25,13 +35,13 @@ def _okarm(b, ifb):
         return True
     if b.phi is not None or b.nins > MAXARM:
         return False
-    return all(i.op in ir.PURE_SAFE for i in ir.ins(b))
+    return all(i.op in _armops() for i in ir.ins(b))
 
 
 def _arm(b, ifb):
     """b is an arm (one predecessor, ifb; jumps on), returns its successor or None."""
     if b.npred == 1 and b.jmp.type == D.Jjmp and b.phi is None and b.nins <= MAXARM and \
-            all(i.op in ir.PURE_SAFE for i in ir.ins(b)):
+            all(i.op in _armops() for i in ir.ins(b)):
         return b.s1
     return None
 

@@ -14,7 +14,9 @@ Legal when, as LoopVectorizationLegality and LoopAccessAnalysis ask:
 
 Each lane does what the scalar instruction did, in the same rounding, so results are bit for bit the scalar loop's.
 Arrays that may overlap are compared before the loop (overlapchecks), up to MAXCHECKS pairs.
-Not yet: other widening and narrowing, conditions, downward steps, SLP.
+Conditions: a comparison becomes a mask of its lanes (all ones where it holds), which only a select may read, and the
+select takes each lane's bits from one side or the other; so `x > 0 ? x : 0` is exact, NaNs and signed zeros included.
+Not yet: other widening and narrowing, reductions through a condition, downward steps, SLP.
 """
 
 from ..backend import defs as D
@@ -48,6 +50,26 @@ def _opname(i):
     if x not in _FPONLY and op in (D.Oshl, D.Oshr, D.Osar):
         return {D.Oshl: 'qshl', D.Oshr: 'qshr', D.Osar: 'qsar'}[op] + x
     return None
+
+
+# a scalar comparison as a vector one: (q operation without its lane, swap the operands, negate the mask)
+_CMP = {'ceq': ('qceq', 0, 0), 'cne': ('qceq', 0, 1),
+        'cgt': ('qcgt', 0, 0), 'cge': ('qcge', 0, 0), 'clt': ('qcgt', 1, 0), 'cle': ('qcge', 1, 0),
+        'csgt': ('qcgt', 0, 0), 'csge': ('qcge', 0, 0), 'cslt': ('qcgt', 1, 0), 'csle': ('qcge', 1, 0),
+        'cugt': ('qcugt', 0, 0), 'cuge': ('qcuge', 0, 0), 'cult': ('qcugt', 1, 0), 'cule': ('qcuge', 1, 0)}
+_CMPCLS = {'w': Kw, 'l': Kl, 's': Ks, 'd': Kd}
+
+
+def _compare(i):
+    """(q operation, swap, negate, the operands' class) for a comparison with a vector form, or None. Its result is
+    a w; the lanes are its operands'."""
+    name = optab[i.op].name or ''
+    c = _CMP.get(name[:-1])
+    k = _CMPCLS.get(name[-1:])
+    if c is None or k is None or (k in (Ks, Kd)) != (len(name) == 4 and name[1] in 'gl' or name[1:3] in ('eq', 'ne')
+                                                     and k in (Ks, Kd)):
+        return None
+    return c + (k,)
 
 
 def _loadsize(i):
@@ -225,8 +247,31 @@ def plan(fast, rts):
     mem = []
     made = set()
     third = None
+    masks = set()  # comparisons' results: read by sel0 only, which _operand sees to (they aren't in made)
+    mask = None  # the sel0 before a sel1
     for n, i in enumerate(fast.cloned):
         if i.op in (D.Onop, D.Odbgloc) or id(i) in skip:
+            continue
+        c = _compare(i)
+        if c is not None:
+            widths.add(_SIZE[c[3]])
+            if not (_operand(fast, i.arg[0], made) and _operand(fast, i.arg[1], made)):
+                return 0
+            masks.add(rval(i.to))
+            continue
+        if i.op == D.Osel0:
+            if not ir.istmp(i.arg[0]) or rval(i.arg[0]) not in masks:
+                return 0
+            mask = i.arg[0]
+            continue
+        if i.op == D.Osel1:
+            if mask is None or i.cls not in _LANE:
+                return 0
+            mask = None
+            widths.add(_SIZE[i.cls])
+            if not (_operand(fast, i.arg[0], made) and _operand(fast, i.arg[1], made)):
+                return 0
+            made.add(rval(i.to))
             continue
         if i.op == D.Ofma0:
             if i.cls not in (Ks, Kd):
@@ -272,7 +317,7 @@ def plan(fast, rts):
             if not _operand(fast, a, made):
                 return 0
         made.add(rval(i.to))
-    if third is not None or not mem:
+    if third is not None or mask is not None or not mem:
         return 0
     for r in fast.vreds:
         if r.ordered:
@@ -380,6 +425,19 @@ def body(fast, em, state):
             skip.add(id(r.third))
     for i in fast.cloned:
         if i.op in (D.Onop, D.Odbgloc) or id(i) in skip:
+            continue
+        c = _compare(i)
+        if c is not None:
+            name, swap, negate, k = c
+            a, b = vec(i.arg[0], k), vec(i.arg[1], k)
+            m = em.raw(getattr(D, 'O' + name + _LANE[k]), Kq, *((b, a) if swap else (a, b)))
+            env[rval(i.to)] = em.raw(D.Oqnot, Kq, m) if negate else m
+            continue
+        if i.op == D.Osel0:
+            em.ins(Ins(D.Oqsel0, Kq, R, env[rval(i.arg[0])], R))
+            continue
+        if i.op == D.Osel1:
+            env[rval(i.to)] = em.raw(D.Oqsel1, Kq, vec(i.arg[0], i.cls), vec(i.arg[1], i.cls))
             continue
         if i.op == D.Ofma0:
             third = vec(i.arg[0], i.cls)
