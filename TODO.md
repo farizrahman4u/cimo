@@ -230,6 +230,10 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   its arrays stop at `sys.maxsize` bytes first, so only just under 2 GiB reaches this. **`module.free` also exists only natively:** scramjit exports its own `sj_release` from the C. When done, note it in scramjit's `TODO.md`.
 - **`k.f(np.int64(3))` to a 64-bit parameter passes the scalar's address** (found by scramjit, 2026-11-02): `Kernel.__call__` sends anything that isn't an `int` to `_address` when the class is `l`, so a numpy integer becomes a pointer to it and
   `int64_t f(int64_t x)` returns garbage. 32-bit parameters take the same value correctly. Tell integer parameters from pointers (`module.signature` now can), and treat it as an integer. scramjit compiles such calls only with `int(...)`, so as not to change what Python gets; **note it in scramjit's `TODO.md` when done.**
+- **`cache=False` still writes the fault handler's image** (found by scramjit, 2026-11-05): the first module of a process
+  compiles `fault._SOURCE` with caching on, so `cimo.compile(src, cache=False)` leaves a `.img` in `CIMO_CACHE_DIR`
+  (none with `CIMO_FAULTS=0`). `cache=False` promises no files. Compile the handler under the caller's setting, or
+  keep it in memory. scramjit's `tests/test_preflight.py::test_cache_false_writes_nothing` fails on it.
 - **Line markers out of the cache key** (requested by scramjit, 2026-11-05). The key is the preprocessed text, which keeps
   `# 10 "a.py"` markers, so moving code down a line or renaming its file is a full compile: a small function 6 ms on a hit,
   24 ms on a miss, scramjit's Gray-Scott 86 against 562 ms. The markers emit no code: `__LINE__` and `__FILE__` are already
