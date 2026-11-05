@@ -581,6 +581,16 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   (`a[i * st]`), gets a copy of the loop with it 1, chosen before the loop (LLVM's symbolic stride speculation), using
   unswitch's `clone`. Only when the target vectorizes, at most 4 a function, never twice for one loop. scramjit's
   reductions take a stride for any axis: int64 max with stride 1 0.87 to 0.28 ms, level with numpy (0.29).
+- **Loops that leave early (`middle/earlyexit.py`, 2026-11-05):** a vector loop in front of the original checks
+  COPIES (4) vectors of iterations at once and goes on only if no lane leaves; otherwise the original loop runs that
+  chunk from its start, so it leaves where C does with C's values, and its latch returns to the vector loop at the chunk's
+  end (phis `stop`, `flag`): a page crossing doesn't leave the rest scalar. Nothing after the loop changes. Reading past
+  the exit is safe only within the page of an element C reads (the chunk's first, in the body's first block, which every
+  iteration runs), so a chunk whose 64 bytes cross a 4 KB page runs scalar (`test_leaving_early_reads_nothing_it_may_not`).
+  The chunk bound `bound - (chunk - 1)` is computed once, with a wrap guard. With one vector a chunk the overhead lost:
+  `any` on doubles 0.35 to 0.51 ms; with four, 0.35 to 0.19 (numpy 0.17), `find` on int32 3.9x (Snapdragon).
+  `unswitch.clone` takes several exit targets (each reached from the loop alone, values used only there), so the
+  unit-stride copy works for loops that return from inside.
 - **A call keeps at most 64 bits of an FP register on arm64:** a `q` temporary live across one lives in memory
   (`isel.qacrosscalls`), and `q` temporaries stay out of v8 to v15 (`rqavoid`), whose low halves the function must keep.
 - **Memory:** `qload` and `qstore` count as volatile in the memory passes, so nothing forwards across them. Safe, and

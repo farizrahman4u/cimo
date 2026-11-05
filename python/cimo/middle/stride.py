@@ -76,7 +76,7 @@ def transform(fn, lp):
     st = _stride(fn, lp)
     if st is None:
         return False
-    g = unswitch.shape(lp)
+    g = unswitch.shape(lp, many=True, fn=fn)
     if g is None:
         return False
     P, E, exits = g

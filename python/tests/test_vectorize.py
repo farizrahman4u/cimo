@@ -5,6 +5,7 @@ import ctypes
 import random
 import re
 import struct
+import sys
 
 import pytest
 
@@ -699,3 +700,76 @@ def test_strided_store_is_versioned():
             on.f(ctypes.addressof(o1), start, n, st)
             off.f(ctypes.addressof(o2), start, n, st)
             assert bytes(o1) == bytes(o2), (st, n)
+
+
+EARLY = {
+    'any': ('int f(const double *a, long n) { for (long i = 0; i < n; i++) if (a[i] != 0.0) return 1; return 0; }', ctypes.c_double),
+    'all': ('int f(const double *a, long n) { for (long i = 0; i < n; i++) if (a[i] == 0.0) return 0; return 1; }', ctypes.c_double),
+    'find': ('long f(const int *a, long n) { for (long i = 0; i < n; i++) if (a[i] == 3) return i; return -1; }', ctypes.c_int),
+    'nan_or_low': ('long f(const float *a, long n) { for (long i = 0; i < n; i++) if (a[i] < -1.5f || a[i] != a[i]) return i; return n; }', ctypes.c_float),
+    'unsigned': ('long f(const unsigned *a, unsigned long n) { for (unsigned long i = 0; i < n; i++) if (a[i] > 7u) return (long)i; return -1; }', ctypes.c_uint),
+    'int_counter': ('int f(const long *a, int n) { for (int i = 0; i < n; i++) if (a[i] == 2) return i; return -1; }', ctypes.c_int64),
+    'value_after': ('int f(const int *a, long n) { long i; for (i = 0; i < n; i++) if (a[i] * 2 > 9) break; return i < n ? a[i] + (int)i : -1; }', ctypes.c_int),
+    'le': ('long f(const double *a, long n) { for (long i = 0; i <= n; i++) if (a[i] > 1.0) return i; return -1; }', ctypes.c_double),
+}
+
+
+@pytest.mark.parametrize('name', sorted(EARLY))
+def test_loop_that_leaves_early(name):
+    """A vector loop checks a chunk at a time and the original loop finds the exact iteration (cimo.middle.earlyexit)."""
+    src, ctype = EARLY[name]
+    assert vectorized(src), driver._build(src)[0]
+    on, off = both(src)
+    r = random.Random(name)
+    floats = ctype in (ctypes.c_float, ctypes.c_double)
+    for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 64, 65, 200):
+        for trial in range(12):
+            pool = [0.0, -0.0, 0.5, 1.5, 3.0, -2.0, float('nan'), float('inf')] if floats else [0, 1, 2, 3, 5, 9, 12]
+            vals = [pool[0]] * (n + 40)
+            for _ in range(trial % 4):
+                vals[r.randrange(n + 40)] = r.choice(pool)
+            if trial >= 8:
+                vals = [r.choice(pool) for _ in vals]
+            a = (ctype * (n + 40))(*vals)
+            assert on.f(a, n) == off.f(a, n), (n, trial)
+
+
+def test_leaving_early_reads_nothing_it_may_not():
+    """The vector loop reads past where C stops, but never into a page C doesn't touch: an element found in the last
+    slot before an unmapped page, with a count far beyond it."""
+    import mmap
+    if sys.platform == 'win32':
+        pytest.skip('mprotect')
+    src = EARLY['find'][0]
+    m = cimo.compile(src)
+    page = mmap.PAGESIZE
+    buf_ = mmap.mmap(-1, 3 * page)
+    base = ctypes.addressof(ctypes.c_char.from_buffer(buf_))
+    libc = ctypes.CDLL(None)
+    libc.mprotect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+    assert libc.mprotect(base + 2 * page, page, 0) == 0
+    try:
+        for k in range(1, 70):
+            start = base + 2 * page - 4 * k
+            ctypes.memset(start, 0, 4 * k)
+            ctypes.c_int.from_address(start + 4 * (k - 1)).value = 3
+            assert m.f(start, 1 << 40) == k - 1, k
+    finally:
+        libc.mprotect(base + 2 * page, page, 3)
+
+
+def test_leaving_early_with_a_stride():
+    """scramjit's any over a stride: the unit-stride copy has two ways out, and both copies still find the same."""
+    src = 'int f(const double *a, long n, long st) { for (long i = 0; i < n; i++) if (a[i * st] != 0.0) return 1; return 0; }'
+    assert vectorized(src)
+    on, off = both(src)
+    r = random.Random(4)
+    for st in (1, 2, 0, -1):
+        for n in (0, 1, 3, 8, 9, 33, 100):
+            span = abs(st) * n + 16
+            for trial in range(6):
+                a = (ctypes.c_double * (2 * span + 32))()
+                if trial % 2:
+                    a[r.randrange(len(a))] = 1.0
+                start = ctypes.addressof(a) + 8 * (span + 8 if st < 0 else 8)
+                assert on.f(start, n, st) == off.f(start, n, st), (st, n, trial)

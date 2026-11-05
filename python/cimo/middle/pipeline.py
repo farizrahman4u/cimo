@@ -5,7 +5,7 @@ import sys
 from ..backend import defs as D
 from ..backend.parse import printfn
 import cimo.middle as M
-from . import ir, loops, memdep, inner, jam, ifconv, unswitch, stride
+from . import ir, loops, memdep, inner, jam, ifconv, unswitch, stride, earlyexit
 
 
 def _restrict_names(fn):
@@ -74,6 +74,7 @@ def optimize(fn):
                       lambda fn, lp, rts: ifconv.convert_loop(fn, lp), set())
     changed |= _phase(fn, rnames, innermost,
                       lambda fn, lp, rts: inner.transform(fn, lp, rts, done, 'opt'), done)
+    changed |= _phase(fn, rnames, innermost, lambda fn, lp, rts: earlyexit.transform(fn, lp), set())
     ir.normalize_wcons(fn)
     if changed:
         ir.refresh(fn)

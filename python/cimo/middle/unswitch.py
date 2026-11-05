@@ -71,19 +71,47 @@ def transform(fn, lp):
     return True
 
 
-def shape(lp):
-    """(the preheader, the one block every way out leads to, the exits), if lp can be copied as clone() does."""
+def shape(lp, many=False, fn=None):
+    """(the preheader, the block every way out leads to, the exits), if lp can be copied as clone() does. many: the
+    ways out may lead to several blocks (a loop that returns from inside), given as a list in place of the one, when
+    each is reached from the loop alone and values of the loop are used only in them."""
     exits = lp.exits()
-    targets = {e for _, e in exits}
-    if len(targets) != 1:
+    targets = list(dict.fromkeys(e for _, e in exits))
+    if not targets or (len(targets) != 1 and not many):
         return None
-    E = targets.pop()
-    if any(p not in lp.blocks for p in E.pred[:E.npred]):
-        return None
+    for E in targets:
+        if any(p not in lp.blocks for p in E.pred[:E.npred]):
+            return None
     outs = lp.outside_preds()
     if len(outs) != 1 or outs[0].jmp.type != D.Jjmp:
         return None
-    return outs[0], E, exits
+    if len(targets) == 1:
+        return outs[0], targets[0], exits
+    defined = set()
+    for b in lp.blocks:
+        defined.update(rval(p.to) for p in ir.phis(b))
+        defined.update(rval(i.to) for i in ir.ins(b) if ir.istmp(i.to))
+    for b, _ in _uses(fn, lp, defined, set(targets)):
+        if b not in targets:
+            return None
+    return outs[0], targets, exits
+
+
+def _uses(fn, lp, defined, targets):
+    """(block, tmp) for each use outside lp of a value in defined, but the targets' phi arguments from lp."""
+    out = []
+    for b in ir.blocks(fn):
+        if b in lp.blocks:
+            continue
+        refs = [b.jmp.arg]
+        for i in ir.ins(b):
+            refs += i.arg[:2]
+        for p in ir.phis(b):
+            for x, a in zip(p.blk[:p.narg], p.arg[:p.narg]):
+                if not (b in targets and x in lp.blocks):
+                    refs.append(a)
+        out += [(b, rval(r)) for r in refs if ir.istmp(r) and rval(r) in defined]
+    return out
 
 
 def clone(fn, lp, E, exits, subst=None):
@@ -117,47 +145,46 @@ def clone(fn, lp, E, exits, subst=None):
         nb.jmp.arg = m(b.jmp.arg)
         nb.s1 = copy.get(b.s1, b.s1) if b.s1 else None
         nb.s2 = copy.get(b.s2, b.s2) if b.s2 else None
-    # values of the loop used after it meet in phis at the exit
+    # values of the loop used after it meet in phis where they leave it: at E, for everything after it, or at
+    # each of several targets (shape(many=True)), for uses there
+    targets = E if isinstance(E, list) else [E]
     inside = set(order) | set(copy.values())
-    uses = set()
-    for b in ir.blocks(fn):
-        if b in inside:
-            continue
-        refs = list(b.jmp.arg for _ in (0,))
-        for i in ir.ins(b):
-            refs += i.arg
-        for p in ir.phis(b):
-            for x, a in zip(p.blk[:p.narg], p.arg[:p.narg]):
-                if not (b is E and x in lp.blocks):
-                    refs.append(a)
-        uses.update(rval(r) for r in refs if ir.istmp(r) and rval(r) in env)
-    # the exit's own phis take the copy's value from the copy's edges
-    preds = [x for x, _ in exits]
-    for p in ir.phis(E):
-        for x in preds:
-            ir_arg = ir.phiargof(p, x)
-            p.blk.append(copy[x])
-            p.arg.append(m(ir_arg))
-            p.narg += 1
-    joined = {}
-    for t in uses:
-        r = D.TMP(t)
-        v = ir.newtmp('us', fn.tmp[t].cls, fn)
-        ir.addphi(E, fn.tmp[t].cls, v, [(x, r) for x in preds] + [(copy[x], m(r)) for x in preds])
-        joined[r] = v
-    if joined:
-        new = set(v for v in joined.values())
-        for b in ir.blocks(fn):
-            if b in inside:
-                continue
+    for T in targets:
+        preds = [x for x, e in exits if e is T]
+        for p in ir.phis(T):  # the target's own phis take the copy's value from the copy's edges
+            for x in preds:
+                a = ir.phiargof(p, x)
+                p.blk.append(copy[x])
+                p.arg.append(m(a))
+                p.narg += 1
+        where = [b for b in ir.blocks(fn) if b not in inside] if len(targets) == 1 else [T]
+        uses = set()
+        for b in where:
+            refs = [b.jmp.arg]
             for i in ir.ins(b):
-                i.arg[0] = joined.get(i.arg[0], i.arg[0])
-                i.arg[1] = joined.get(i.arg[1], i.arg[1])
-            b.jmp.arg = joined.get(b.jmp.arg, b.jmp.arg)
+                refs += i.arg[:2]
             for p in ir.phis(b):
-                if p.to in new:
-                    continue
-                for k in range(p.narg):
-                    if not (b is E and (p.blk[k] in inside)):
-                        p.arg[k] = joined.get(p.arg[k], p.arg[k])
+                for x, a in zip(p.blk[:p.narg], p.arg[:p.narg]):
+                    if not (b is T and x in inside):
+                        refs.append(a)
+            uses.update(rval(r) for r in refs if ir.istmp(r) and rval(r) in env)
+        joined = {}
+        for t in sorted(uses):
+            r = D.TMP(t)
+            v = ir.newtmp('us', fn.tmp[t].cls, fn)
+            ir.addphi(T, fn.tmp[t].cls, v, [(x, r) for x in preds] + [(copy[x], m(r)) for x in preds])
+            joined[r] = v
+        if joined:
+            new = set(joined.values())
+            for b in where:
+                for i in ir.ins(b):
+                    i.arg[0] = joined.get(i.arg[0], i.arg[0])
+                    i.arg[1] = joined.get(i.arg[1], i.arg[1])
+                b.jmp.arg = joined.get(b.jmp.arg, b.jmp.arg)
+                for p in ir.phis(b):
+                    if p.to in new:
+                        continue
+                    for k in range(p.narg):
+                        if not (b is T and p.blk[k] in inside):
+                            p.arg[k] = joined.get(p.arg[k], p.arg[k])
     return copy
