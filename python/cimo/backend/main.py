@@ -227,6 +227,12 @@ class _Driver:
         # cimo: volatile accesses are plain ones from here on (ext.volatile)
         D.unvolatile(fn, D.TMP(_IP1) if T.name.startswith('arm64') else
                      'use' if T.name.startswith('amd64') else None)
+        # cimo: constants made near their uses (remat.py): one live through the whole function made a large function's
+        # compile quadratic
+        from . import remat
+        if remat.run(fn, T.name.startswith('arm64')):
+            cfg.fillcfg(fn)
+            ssa.filluse(fn)
         # a call keeps 64 bits of an FP register on arm64, and 128 of xmm6-xmm15 on Windows x64: not a ymm's 256
         if ext.vector and (T.name.startswith('arm64') or (T.name == 'amd64_windows' and ext.qbytes() == 32)):
             from .arm64.isel import qacrosscalls

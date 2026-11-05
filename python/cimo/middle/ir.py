@@ -35,10 +35,14 @@ def blocks(fn):
         b = b.link
 
 
+created = []  # every block newblock makes (pipeline._phase takes them, to see what a transformation changed)
+
+
 def newblock(fn, after, tag='m'):
     """A new empty block linked into fn's block list right after `after`."""
     _nblk[0] += 1
     b = Blk()
+    created.append(b)
     b.name = '%s.%d' % (tag, _nblk[0])
     b.ins = []
     b.nins = 0

@@ -18,6 +18,7 @@ from ..parse import printfn
 from ..defs import Tmp0, Oextsw, Oextuw, Oextub, Oextuh, Osar, Oshr, Cieq, Cine, Kd, req
 from .regs import R0
 from .. import ext as _ext
+from .. import remat as _remat
 
 (Iother, Iplo12, Iphi12, Iplo24, Inlo12, Inhi12, Inlo24) = range(7)
 
@@ -1080,6 +1081,18 @@ _qdest = [R]  # what the q instruction that takes its third operand from the one
 
 def sel(i, fn):
     """i is a copy (C passes Ins by value)."""
+    if _remat.homed and i.op == Ocopy and KBASE(i.cls) == 1 and rtype(i.arg[0]) == RCon and \
+            fn.con[rval(i.arg[0])].type == CBits:
+        # cimo: a float constant copied into a temporary (remat.py's, one per home) is made right there, not in a
+        # temporary of its own and copied
+        bits, k = fn.con[rval(i.arg[0])].i, i.cls
+        if _ext.isel and (bits == 0 or bits in _FPIMM[k]):
+            emit(D.Oafcon, k, i.to, getcon(bits, fn), R)
+            return
+        r = newtmp("isel", Kl, fn)
+        emit(Oload, k, i.to, r, R)
+        emit(Ocopy, Kl, r, CON(_newfpcon(_stashbits(bits, 8 if KWIDE(k) else 4), fn)), R)
+        return
     if i.op in (D.Oqfma0, D.Oqsel0):  # cimo (ext.vector): fmla and bsl keep their third operand in the destination
         d = _qdest[0]
         assert d != R, 'qfma0/qsel0 without its qfma1/qsel1 right after'
@@ -1416,6 +1429,8 @@ def qacrosscalls(fn):
     """cimo (ext.vector): a call keeps at most 64 bits of any FP register, so a 128-bit temporary live across one
     goes to memory: stored where it's defined, loaded before each use. Needs rpo, use; breaks use."""
     from ..live import filllive
+    if not any(i.op == Ocall for b in fn.rpo[:fn.nblk] for i in b.ins[:b.nins]):
+        return  # nothing to keep across (and liveness over a large function isn't cheap)
     if not any(i.cls == D.Kq and rtype(i.to) == RTmp for b in fn.rpo[:fn.nblk] for i in b.ins[:b.nins]) \
             and not any(p.cls == D.Kq for b in fn.rpo[:fn.nblk] for p in _philist(b)):
         return
@@ -1530,6 +1545,8 @@ def arm64_isel(fn):
         if not b:
             b = fn.start
         D.curi = NIns
+        if _remat.homed:  # cimo: float constants per block, its successors' phi arguments included (backend/remat.py)
+            nfcon = 0
         for sb in (b.s1, b.s2):
             if not sb:
                 break
@@ -1548,7 +1565,7 @@ def arm64_isel(fn):
             i -= 1
             selpos = i
             sel(b.ins[i].copy(), fn)
-        if b is fn.start:
+        if b is fn.start or _remat.homed:
             emitfcon(fn)
         idup(b, D.curi, NIns - D.curi)
         if b is fn.start:

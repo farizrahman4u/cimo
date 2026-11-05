@@ -676,20 +676,36 @@ def _m(env, a):
     return a
 
 
+def _uses_outside(fn, lp, newblocks, tmps):
+    """(kind, phi or instruction or block) of each use of tmps outside lp and newblocks, from the use lists, which
+    hold for the loop being transformed (pipeline._phase: no earlier change in the round reached its values). Walking
+    the whole function for each loop made a compile quadratic in the number of loops."""
+    from ..backend.defs import UPhi, UIns
+    out = []
+    for t in tmps:
+        tm = fn.tmp[t]
+        for u in (tm.use or [])[:tm.nuse]:
+            b = fn.rpo[u.bid]
+            if b in lp.blocks or b in newblocks:
+                continue
+            out.append((u.type, u.u if u.type in (UPhi, UIns) else b))
+    return out
+
+
 def _replace_outside(fn, lp, H, newexit, E, env, newblocks):
     """The loop's exit edge H -> E is replaced by newexit -> E; uses of loop values outside
     the loop now see env's values."""
+    from ..backend.defs import UPhi, UIns
     ir.renamepred(E, H, newexit)
-    for b in ir.blocks(fn):
-        if b in lp.blocks or b in newblocks:
-            continue
-        for p in ir.phis(b):
-            for n in range(p.narg):
-                p.arg[n] = _m(env, p.arg[n])
-        for i in ir.ins(b):
-            i.arg[0] = _m(env, i.arg[0])
-            i.arg[1] = _m(env, i.arg[1])
-        b.jmp.arg = _m(env, b.jmp.arg)
+    for kind, x in _uses_outside(fn, lp, newblocks, list(env)):
+        if kind == UPhi:
+            for n in range(x.narg):
+                x.arg[n] = _m(env, x.arg[n])
+        elif kind == UIns:
+            x.arg[0] = _m(env, x.arg[0])
+            x.arg[1] = _m(env, x.arg[1])
+        else:
+            x.jmp.arg = _m(env, x.jmp.arg)
 
 
 def _lanes(fn, lp, sh, A, ctl, rts):
@@ -1048,19 +1064,13 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
 
 
 def _used_outside(fn, lp, newblocks):
+    """Temporaries the header defines that are used outside the loop (and newblocks)."""
+    H = lp.header
+    defs = [rval(p.to) for p in ir.phis(H)] + [rval(i.to) for i in ir.ins(H) if ir.istmp(i.to)]
     ids = set()
-    for b in ir.blocks(fn):
-        if b in lp.blocks or b in newblocks:
-            continue
-        refs = []
-        for p in ir.phis(b):
-            refs.extend(p.arg[:p.narg])
-        for i in ir.ins(b):
-            refs.extend(i.arg)
-        refs.append(b.jmp.arg)
-        for r in refs:
-            if ir.istmp(r) and fn.tmp[rval(r)].bid == lp.header.id:
-                ids.add(rval(r))
+    for t in defs:
+        if _uses_outside(fn, lp, newblocks, [t]):
+            ids.add(t)
     return ids
 
 

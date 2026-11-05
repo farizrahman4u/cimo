@@ -331,9 +331,11 @@ the whole function for one block, the `ext` passes that don't pay for themselves
 inputs (rule from "Optimizations to lift": drop them), and the cost of `onefile` imports in Pyodide.
 Target: a 100-line kernel in under 0.3 s warm natively and under 1 s in Pyodide.
 
-- **Compile time is quadratic in a function's size** (found by scramjit): one generated function of 60 small loops, 3,140
-  lines of C in 4.0 s and 6,020 lines in 14.7 s (about 4.1e-7 s times lines squared, arm64). scramjit caps its loop
-  versioning to stay near 3 s; when this is linear, note it in scramjit's `TODO.md` so it can raise `VERSION_TOTAL`.
+- ~~**Compile time is quadratic in a function's size**~~ **mostly done** (2026-11-05; see "Compile time on large
+  functions" in `requirements.md`): scramjit's 60-loop function, every loop versioned (4,150 lines of C), 32.6 to 7.9 s;
+  a generated function of 120 small loops 21.4 to 2.7 s. What's left is spread over QBE's passes, each about 3x per
+  doubling of the function, none dominant: SSA construction (its liveness and phi insertion, 1.3 s of the 7.9), gvn,
+  `filluse`, spill, rega. scramjit has been told it can raise `VERSION_TOTAL`.
 
 ## Experiments
 

@@ -925,6 +925,28 @@ directions against Apple clang (`-dynamiclib`), and `tests/test_macos.py` holds 
   quoted array slice joins into one word when IFS has no space (the completion script slices
   before setting IFS).
 
+## Compile time on large functions (2026-11-05)
+
+scramjit generates single functions of many loops; cimo's compile grew with the square of their size (a 60-loop
+function every loop versioned, 4,150 lines of C: 32.6 s; 120 small loops: 21.4 s, 4x per doubling), so scramjit capped
+its loop versioning. Two causes, both whole-function work repeated:
+- **One transformed loop per middle-end round** (`pipeline._phase`): each round refreshed uses, re-found loops and
+  recomputed alias roots over the function, ~200 times for 60 loops (61% and 25% of the time). A round now takes every
+  loop no earlier change in it reached: none of its blocks, preheaders or exits changed (`_changed` looks only at the
+  transformed loop's region and the blocks `ir.newblock` made), it refers to no temporary made this round, and no changed
+  block uses its values (so its use lists are whole; `inner._uses_outside` walks those instead of the function). Block
+  numbers only change at a refresh, and a transformation never changes what an existing temporary means, so the round's
+  analyses still hold for such a loop. `memdep.Roots` takes an unseen temporary as an offset, never as unknown: a loop that
+  uses one must wait, which the rule makes sure of.
+- **Constants live through the whole function** (`backend/remat.py`): gvn merged equal constant broadcasts of all loops
+  into one value near the start, and arm64's isel loaded each float constant once in the start block: 80% of each
+  block's live-in set with 120 loops, so liveness, spill and rega were quadratic. In a function of 256 blocks or more each
+  use now has a home, the preheader of the innermost loop it's in, where the constant is made once; arm64's isel then
+  keeps float constants per block. Smaller functions are left alone: in the benchmark kernels, changing where a constant
+  lives moved rega's choices (mandelbrot: two moves in the innermost loop). `qacrosscalls` skips liveness when there are no
+  calls. Result: 32.6 to 7.9 s and 21.4 to 2.7 s; live-in entries 111,794 to 22,812 (about 16 a block, flat).
+  `tests/test_compile_time.py` counts rounds and checks large functions bit for bit against the old placement.
+
 ## x86-64: Linux and Windows x64 (2026-11-02)
 
 Targets `amd64_sysv` (Linux; frontend `x86_64-sysv`) and `amd64_windows` (frontend
