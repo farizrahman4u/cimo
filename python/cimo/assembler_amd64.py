@@ -44,6 +44,7 @@ M64 = (1 << 64) - 1
 # register: ('r', size, number, rexflag)  rexflag 1: needs a REX prefix (spl bpl sil dil),
 #                                          2: can't have one (ah ch dh bh)
 # xmm:      ('x', 16, number, 0)
+# ymm:      ('y', 32, number, 0)         (AVX: VEX-encoded instructions only)
 # immediate: ('i', sym, value, modifier)
 # memory:   ('m', seg, sym, disp, modifier, base, index, scale)   base: None, -1 (%rip) or 0..15
 # indirect: ('*', operand)
@@ -66,6 +67,7 @@ for _i in range(16):
         _REGS['%%r%db' % _i] = ('r', 1, _i, 0)
         _REGS['%%r%dl' % _i] = ('r', 1, _i, 0)
     _REGS['%%xmm%d' % _i] = ('x', 16, _i, 0)
+    _REGS['%%ymm%d' % _i] = ('y', 32, _i, 0)
 for _i, _n in enumerate(['ah', 'ch', 'dh', 'bh']):
     _REGS['%' + _n] = ('r', 1, 4 + _i, 2)
 _RIP = -1
@@ -356,12 +358,13 @@ _ABS = {1: 'ABS8', 2: 'ABS16', 4: 'ABS32', 8: 'ABS32S'}
 # encoding
 
 
-def _enc(a, opc, reg, rm, size=0, mand=b'', imm=None, w=None, dabs='ABS32S'):
+def _enc(a, opc, reg, rm, size=0, mand=b'', imm=None, w=None, dabs='ABS32S', vex=None):
     """Emit one instruction: legacy prefixes, REX, opcode `opc` (bytes), ModRM with `reg` (an
     int /digit or a register operand) and `rm` (a register or memory operand), SIB, displacement,
     and immediate `imm` = (nbytes, sym, value, reloc kind) or None. `size` 2 adds the operand-size
     prefix, 8 sets REX.W (unless `w` says otherwise); `mand` is a mandatory SSE prefix; `dabs` is
-    the relocation for an absolute symbolic displacement."""
+    the relocation for an absolute symbolic displacement. vex = (pp, map, W, L, vvvv): a VEX prefix in place
+    of the mandatory prefix and REX, `opc` then the one opcode byte of that map."""
     out = bytearray()
     rex = 8 if (size == 8 if w is None else w) else 0
     force = 0
@@ -431,17 +434,26 @@ def _enc(a, opc, reg, rm, size=0, mand=b'', imm=None, w=None, dabs='ABS32S'):
         if n & 8:
             rex |= 1
         modrm = 0xc0 | reg | (n & 7)
-    if size == 2:
-        out.append(0x66)
-    if mand:
-        out += mand
-    if a.lock:
-        out.append(0xf0)
-    if rex or force & 1:
-        if force & 2:
-            raise AssemblerError("can't encode %ah/%bh/%ch/%dh in an instruction requiring REX")
-        out.append(0x40 | rex)
-    out += opc
+    if vex is not None:
+        pp, mm, W, L, vvvv = vex
+        R, X, B = (rex & 4) == 0, (rex & 2) == 0, (rex & 1) == 0
+        if mm == 1 and X and B and not W:  # the two-byte form
+            out += bytes((0xc5, R << 7 | (~vvvv & 15) << 3 | L << 2 | pp))
+        else:
+            out += bytes((0xc4, R << 7 | X << 6 | B << 5 | mm, W << 7 | (~vvvv & 15) << 3 | L << 2 | pp))
+        out += opc
+    else:
+        if size == 2:
+            out.append(0x66)
+        if mand:
+            out += mand
+        if a.lock:
+            out.append(0xf0)
+        if rex or force & 1:
+            if force & 2:
+                raise AssemblerError("can't encode %ah/%bh/%ch/%dh in an instruction requiring REX")
+            out.append(0x40 | rex)
+        out += opc
     out.append(modrm)
     if sib >= 0:
         out.append(sib)
@@ -993,14 +1005,88 @@ def _h_pextrw(a, ops, sz, _):
 
 
 def _h_vfma(a, ops, sz, arg):
-    """vfmadd{132,213,231}{ss,sd,ps,pd} %xmm, %xmm, %xmm: registers only, VEX.128 (FMA3)."""
+    """vfmadd{132,213,231}{ss,sd,ps,pd} %xmm or %ymm (packed), registers only: VEX.128 or .256 (FMA3)."""
     _nops(ops, 3)
-    src2, src1, dst = (_xmm(o) for o in ops)
+    src2, src1, dst = (_vr(o) for o in ops)
     w, op = arg
+    if len({o[0] for o in (src2, src1, dst)}) != 1:
+        raise AssemblerError('mixed %xmm and %ymm operands')
+    L = 1 if dst[0] == 'y' else 0
     r, v, b = dst[2], src1[2], src2[2]
     out = bytearray((0xc4, (((r >> 3) ^ 1) << 7) | (1 << 6) | (((b >> 3) ^ 1) << 5) | 0x02,
-                     (w << 7) | ((v ^ 15) << 3) | 0x01, op, 0xc0 | ((r & 7) << 3) | (b & 7)))
+                     (w << 7) | ((v ^ 15) << 3) | (L << 2) | 0x01, op, 0xc0 | ((r & 7) << 3) | (b & 7)))
     a.put(out, ())
+
+
+def _vr(o, mem=False):
+    """An %xmm or %ymm register (or memory, if mem)."""
+    if o[0] not in ('x', 'y') and not (mem and o[0] == 'm'):
+        raise AssemblerError('expected an %%xmm or %%ymm register%s' % (' or memory' if mem else ''))
+    return o
+
+
+_PP = {b'': 0, b'\x66': 1, b'\xf3': 2, b'\xf2': 3}
+
+
+def _h_avx(a, ops, sz, arg):
+    """AVX and AVX2 (VEX): arg = (prefix, map, opcode, W, form). The length is the destination's (or for a
+    store, the source's): ymm 256 bits, xmm 128. Forms, in AT&T operand order:
+      rvm   src2(reg/mem), src1, dst          dst = src1 op src2
+      rvmi  $imm, src2, src1, dst
+      rvmr  mask, src2, src1, dst             vblendv*: the mask's register in imm8[7:4]
+      rm    src(reg/mem), dst
+      rmi   $imm, src, dst
+      mr    src, dst(mem)                     stores
+      ld    src, dst / st: the load and store opcodes as (load, store)
+      vmi   $imm, src, dst                    shifts by an immediate: /digit in the opcode's place, vvvv = dst
+      mri   $imm, src, dst(reg/mem)           vextract*128: rm = dst
+      gm    src, dst(general register)        vpmovmskb, vmovmsk*"""
+    pfx, mm, op, W, form = arg
+    pp = _PP[pfx]
+    imm = None
+    if form in ('rvmi', 'rmi', 'vmi', 'mri'):
+        sym, v = _immop(ops[0], 1)
+        if sym is not None:
+            raise AssemblerError('expected a constant')
+        imm = (1, None, v, None)
+        ops = ops[1:]
+    if form in ('rvm', 'rvmi'):
+        _nops(ops, 3)
+        src2, src1, dst = _vr(ops[0], True), _vr(ops[1]), _vr(ops[2])
+        return _enc(a, bytes([op]), dst, src2, vex=(pp, mm, W, dst[0] == 'y', src1[2]), imm=imm)
+    if form == 'rvmr':
+        _nops(ops, 4)
+        mask, src2, src1, dst = _vr(ops[0]), _vr(ops[1], True), _vr(ops[2]), _vr(ops[3])
+        return _enc(a, bytes([op]), dst, src2, vex=(pp, mm, W, dst[0] == 'y', src1[2]), imm=(1, None, mask[2] << 4, None))
+    if form in ('rm', 'rmi'):
+        _nops(ops, 2)
+        src, dst = _vr(ops[0], True), _vr(ops[1])
+        L = dst[0] == 'y'
+        return _enc(a, bytes([op]), dst, src, vex=(pp, mm, W, L, 0), imm=imm)
+    if form == 'ld':
+        _nops(ops, 2)
+        src, dst = ops
+        if dst[0] == 'm':
+            _vr(src)
+            return _enc(a, bytes([op[1]]), src, dst, vex=(pp, mm, W, src[0] == 'y', 0))
+        _vr(dst)
+        if src[0] in ('x', 'y') and src[2] & 8 and not dst[2] & 8:
+            # register to register: the store opcode puts the high register in VEX.R, so the two-byte form fits
+            return _enc(a, bytes([op[1]]), _vr(src), dst, vex=(pp, mm, W, dst[0] == 'y', 0))
+        return _enc(a, bytes([op[0]]), dst, _vr(src, True), vex=(pp, mm, W, dst[0] == 'y', 0))
+    if form == 'vmi':
+        _nops(ops, 2)
+        src, dst = _vr(ops[0]), _vr(ops[1])
+        return _enc(a, bytes([op[0]]), op[1], src, vex=(pp, mm, W, dst[0] == 'y', dst[2]), imm=imm)
+    if form == 'mri':
+        _nops(ops, 2)
+        src, dst = _vr(ops[0]), _vr(ops[1], True)
+        return _enc(a, bytes([op]), src, dst, vex=(pp, mm, W, src[0] == 'y', 0), imm=imm)
+    if form == 'gm':
+        _nops(ops, 2)
+        src, dst = _vr(ops[0]), _gpr(ops[1], (4, 8))
+        return _enc(a, bytes([op]), dst, src, vex=(pp, mm, W, src[0] == 'y', 0))
+    raise AssertionError(form)
 
 
 # mnemonic table: name -> (handler, suffix size, argument)
@@ -1112,6 +1198,45 @@ for _o, _base in (('132', 0x98), ('213', 0xa8), ('231', 0xb8)):
         for _k, _w, _d in (('ps', 0, 0), ('pd', 1, 0), ('ss', 0, 1), ('sd', 1, 1)):
             _INSNS['%s%s%s' % (_n, _o, _k)] = (_h_vfma, 0, (_w, _base + _add + _d))
 _INSNS['cpuid'] = (_h_fixed, 0, b'\x0f\xa2')
+_INSNS['vzeroupper'] = (_h_fixed, 0, b'\xc5\xf8\x77')
+# AVX and AVX2: (mnemonic, prefix, map (1 0F, 2 0F38, 3 0F3A), opcode, W, form)
+_P0, _P66, _PF3, _PF2 = b'', b'\x66', b'\xf3', b'\xf2'
+_AVX = []
+for _n, _o in (('add', 0x58), ('mul', 0x59), ('sub', 0x5c), ('min', 0x5d), ('div', 0x5e), ('max', 0x5f),
+               ('and', 0x54), ('andn', 0x55), ('or', 0x56), ('xor', 0x57)):
+    _AVX += [('v%sps' % _n, _P0, 1, _o, 0, 'rvm'), ('v%spd' % _n, _P66, 1, _o, 0, 'rvm')]
+_AVX += [('vsqrtps', _P0, 1, 0x51, 0, 'rm'), ('vsqrtpd', _P66, 1, 0x51, 0, 'rm'),
+         ('vcmpps', _P0, 1, 0xc2, 0, 'rvmi'), ('vcmppd', _P66, 1, 0xc2, 0, 'rvmi')]
+for _n, _o in (('vpaddb', 0xfc), ('vpaddw', 0xfd), ('vpaddd', 0xfe), ('vpaddq', 0xd4), ('vpsubb', 0xf8),
+               ('vpsubw', 0xf9), ('vpsubd', 0xfa), ('vpsubq', 0xfb), ('vpmullw', 0xd5), ('vpmuludq', 0xf4),
+               ('vpmulhw', 0xe5), ('vpand', 0xdb), ('vpandn', 0xdf), ('vpor', 0xeb), ('vpxor', 0xef),
+               ('vpcmpeqb', 0x74), ('vpcmpeqw', 0x75), ('vpcmpeqd', 0x76), ('vpcmpgtb', 0x64), ('vpcmpgtw', 0x65),
+               ('vpcmpgtd', 0x66), ('vpminub', 0xda), ('vpmaxub', 0xde), ('vpminsw', 0xea), ('vpmaxsw', 0xee),
+               ('vpunpcklbw', 0x60), ('vpunpcklwd', 0x61), ('vpunpckldq', 0x62), ('vpunpckhdq', 0x6a),
+               ('vpunpcklqdq', 0x6c), ('vpunpckhqdq', 0x6d)):
+    _AVX.append((_n, _P66, 1, _o, 0, 'rvm'))
+for _n, _o in (('vpmulld', 0x40), ('vpcmpeqq', 0x29), ('vpcmpgtq', 0x37), ('vpminsb', 0x38), ('vpminsd', 0x39),
+               ('vpminuw', 0x3a), ('vpminud', 0x3b), ('vpmaxsb', 0x3c), ('vpmaxsd', 0x3d), ('vpmaxuw', 0x3e),
+               ('vpmaxud', 0x3f)):
+    _AVX.append((_n, _P66, 2, _o, 0, 'rvm'))
+_AVX += [('vbroadcastss', _P66, 2, 0x18, 0, 'rm'), ('vbroadcastsd', _P66, 2, 0x19, 0, 'rm'),
+         ('vpbroadcastb', _P66, 2, 0x78, 0, 'rm'), ('vpbroadcastw', _P66, 2, 0x79, 0, 'rm'),
+         ('vpbroadcastd', _P66, 2, 0x58, 0, 'rm'), ('vpbroadcastq', _P66, 2, 0x59, 0, 'rm'),
+         ('vptest', _P66, 2, 0x17, 0, 'rm'),
+         ('vpshufd', _P66, 1, 0x70, 0, 'rmi'), ('vpermq', _P66, 3, 0x00, 1, 'rmi'),
+         ('vextracti128', _P66, 3, 0x39, 0, 'mri'), ('vextractf128', _P66, 3, 0x19, 0, 'mri'),
+         ('vinserti128', _P66, 3, 0x38, 0, 'rvmi'), ('vinsertf128', _P66, 3, 0x18, 0, 'rvmi'),
+         ('vblendvps', _P66, 3, 0x4a, 0, 'rvmr'), ('vblendvpd', _P66, 3, 0x4b, 0, 'rvmr'),
+         ('vpblendvb', _P66, 3, 0x4c, 0, 'rvmr'),
+         ('vpmovmskb', _P66, 1, 0xd7, 0, 'gm'), ('vmovmskps', _P0, 1, 0x50, 0, 'gm'), ('vmovmskpd', _P66, 1, 0x50, 0, 'gm'),
+         ('vmovups', _P0, 1, (0x10, 0x11), 0, 'ld'), ('vmovupd', _P66, 1, (0x10, 0x11), 0, 'ld'),
+         ('vmovaps', _P0, 1, (0x28, 0x29), 0, 'ld'), ('vmovapd', _P66, 1, (0x28, 0x29), 0, 'ld'),
+         ('vmovdqu', _PF3, 1, (0x6f, 0x7f), 0, 'ld'), ('vmovdqa', _P66, 1, (0x6f, 0x7f), 0, 'ld')]
+for _n, _o, _d in (('vpsllw', 0x71, 6), ('vpslld', 0x72, 6), ('vpsllq', 0x73, 6), ('vpsrlw', 0x71, 2),
+                   ('vpsrld', 0x72, 2), ('vpsrlq', 0x73, 2), ('vpsraw', 0x71, 4), ('vpsrad', 0x72, 4)):
+    _AVX.append((_n, _P66, 1, (_o, _d), 0, 'vmi'))
+for _n, _p, _m, _o, _w, _f in _AVX:
+    _INSNS[_n] = (_h_avx, 0, (_p, _m, _o, _w, _f))
 _INSNS['xgetbv'] = (_h_fixed, 0, b'\x0f\x01\xd0')
 for _n, _p, _ld, _st in (('movss', b'\xf3', 0x10, 0x11), ('movsd', b'\xf2', 0x10, 0x11),
                          ('movups', b'', 0x10, 0x11), ('movupd', b'\x66', 0x10, 0x11),

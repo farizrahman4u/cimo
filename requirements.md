@@ -917,6 +917,12 @@ Targets `amd64_sysv` (Linux; frontend `x86_64-sysv`) and `amd64_windows` (fronte
 `x86_64-windows`), picked by `driver.TARGET` from `platform.machine()`. Intel Macs are a clear
 `CompileError`. Same pipeline, runtime and execution model as arm64; differences:
 
+- **AVX and AVX2 in the assembler (2026-11-05):** VEX-encoded forms (`_h_avx`: three-operand arithmetic, compares,
+  shifts by an immediate, shuffles, broadcasts, `vextracti128`, `vblendv*`, moves, `vpmovmskb`; FMA at 256 bits;
+  `vzeroupper`), `%ymm` registers; 639 forms byte-identical to GNU as, in `data/amd64_forms.s`. A register move from a high
+  register uses the store opcode, as GNU as does, for the two-byte VEX. An x86-64 GNU as on an arm64 machine without root:
+  `apt-get download binutils-x86-64-linux-gnu`, `dpkg -x` it, run `x86_64-linux-gnu-as` with `LD_LIBRARY_PATH` at its
+  `usr/lib/aarch64-linux-gnu` (`AS_AMD64` for the tests).
 - **Backend:** QBE's amd64 code (`backend/amd64/`, see its PORTING.md section), verified by
   diffing every pass against C QBE on its 76 tests. `amd64_windows` is cimo's own target over
   QBE's `amd64_win` (which stays as in C for the diffs): xmm6-xmm15 callee-saved (QBE clobbers
