@@ -155,8 +155,13 @@ int __cimo_fault_veh(void **pointers)
     return handle(fault, addr, pointers[1]) ? -1 : 0;  /* continue execution, or search on */
 }
 #else
+#ifndef REAL
+#define REAL(code) 1
+#endif
 void (*__cimo_fault_old[32])(int, void *, void *);
 u64 __cimo_fault_owner[32];
+/* the last real fault passed on, per signal: thread, pc, and how many times in a row it came straight back */
+u64 __cimo_fault_last[32][3];
 int (*__cimo_fault_sigaction)(int, const void *, void *);
 int (*__cimo_fault_raise)(int);
 static char dfl[256];
@@ -165,16 +170,26 @@ void __cimo_fault_sig(int sig, char *si, char *uc)
 {
     void (*old)(int, void *, void *) = __cimo_fault_old[sig];
     int fault = sig == 8 ? 2 : sig == 4 ? 3 : 1;
-    u64 me;
-    if (handle(fault, *(u64 *)(si + SI_ADDR), REGS(uc)))
+    int real = REAL(*(int *)(si + 8));  /* raised by the CPU, not sent: only those unwind a kernel */
+    u64 me, pc = REG(REGS(uc), R_PC), *last = __cimo_fault_last[sig];
+    if (real && handle(fault, *(u64 *)(si + SI_ADDR), REGS(uc)))
         return;
     me = __cimo_tid();
     if ((u64)old > 1 && __cimo_fault_owner[sig] != me) {
+        /* A handler that returns without fixing anything (faulthandler's, once disabled) brings the same
+           fault straight back, forever: after many in a row, end the process as below. */
+        if (real && last[0] == me && last[1] == pc) {
+            if (++last[2] > 64)
+                goto end;
+        } else {
+            last[0] = me, last[1] = pc, last[2] = 0;
+        }
         __cimo_fault_owner[sig] = me;
         old(sig, si, uc);
         __cimo_fault_owner[sig] = 0;
         return;
     }
+end:
     /* No handler before us, or that handler raised this on its way out (faulthandler restores
        what it replaced, which can be us). A real fault happens again on return and ends the
        process at the faulting instruction; anything sent has to be raised. */
@@ -199,10 +214,12 @@ def _defines():
     elif _APPLE:
         d['SI_ADDR'] = '24'
         d['SENT(code)'] = '1'  # kill()'s si_code isn't SI_USER there: raise always, as faulthandler does
+        d['REAL(code)'] = '1'  # and no telling a sent SIGSEGV from a fault: a sent one in a kernel unwinds it
         d['REGS(uc)'] = '(*(char **)((uc) + 48) + 8)'
     else:
         d['SI_ADDR'] = '16'
         d['SENT(code)'] = '((code) <= 0)'
+        d['REAL(code)'] = '((code) > 0)'
         d['REGS(uc)'] = '((uc) + %d)' % (176 if _jit._ARM64 else 40)
     return d
 
@@ -311,17 +328,19 @@ def _install_posix():
 
 def _install_windows():
     # again at every load: faulthandler.enable() puts its own first, and it reports (and carries
-    # on) before anyone else has looked
+    # on) before anyone else has looked. The new one goes in before the old one comes out, so a kernel
+    # faulting on another thread meanwhile is never without one
     global _veh
     k32 = ctypes.windll.kernel32
+    k32.AddVectoredExceptionHandler.restype = ctypes.c_void_p
+    k32.AddVectoredExceptionHandler.argtypes = [ctypes.c_ulong, ctypes.c_void_p]
+    new = k32.AddVectoredExceptionHandler(1, _module._image.address('__cimo_fault_veh'))
+    if not new:
+        raise OSError('AddVectoredExceptionHandler failed')
     if _veh is not None:
         k32.RemoveVectoredExceptionHandler.argtypes = [ctypes.c_void_p]
         k32.RemoveVectoredExceptionHandler(_veh)
-    k32.AddVectoredExceptionHandler.restype = ctypes.c_void_p
-    k32.AddVectoredExceptionHandler.argtypes = [ctypes.c_ulong, ctypes.c_void_p]
-    _veh = k32.AddVectoredExceptionHandler(1, _module._image.address('__cimo_fault_veh'))
-    if not _veh:
-        raise OSError('AddVectoredExceptionHandler failed')
+    _veh = new
 
 
 class _AltStack:

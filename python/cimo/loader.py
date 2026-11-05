@@ -67,6 +67,10 @@ class LoadError(Exception):
 _UNSUPPORTED = 'cimo loads 64-bit arm64 and x86-64 code only; this machine is %s%s'
 
 
+class StaleImage(LoadError):
+    """A cached image this machine can't use (another page size, not an image): compile instead."""
+
+
 class _RangeError(LoadError):
     pass
 
@@ -337,6 +341,7 @@ class Image:
             raise LoadError(_UNSUPPORTED % (platform.machine(), '' if _64BIT else ', 32-bit Python'))
         self._x86 = _X86
         self._maps = []
+        self.on_close = []  # run before the image is unmapped (cimo.fault's table)
         self.prefix = obj.prefix
         self._snapshot = snapshot
         self._snap = None
@@ -352,7 +357,7 @@ class Image:
             raise LoadError(_UNSUPPORTED % (platform.machine(), '' if _64BIT else ', 32-bit Python'))
         blob = memoryview(blob)
         if bytes(blob[:len(_MAGIC)]) != _MAGIC:
-            raise LoadError('not a cimo image')
+            raise StaleImage('not a cimo image')
         o = len(_MAGIC)
         csize, dsize, nbody, next_, nreb, nsym, nnames = struct.unpack_from('<7I', blob, o)
         o += 28
@@ -367,8 +372,11 @@ class Image:
             parts.append(a)
         eoff, ename, eadd, reb, sname, soff = parts
         names = bytes(blob[o:o + nnames]).decode('utf-8').split('\0')
+        if csize % PAGE or dsize % PAGE:  # built where pages are smaller: its data would share a code page
+            raise StaleImage('image built for another page size')
         self = cls.__new__(cls)
         self._maps = []
+        self.on_close = []
         self._snapshot, self._snap = False, None
         self.prefix = pre = names[0]
         self.code_size, self.data_size = csize, dsize
@@ -648,6 +656,9 @@ class Image:
 
     def close(self):
         """Unmap the image. Its functions must not be called afterwards."""
+        hooks, self.on_close = getattr(self, 'on_close', []), []
+        for h in hooks:
+            h()
         maps, self._maps = self._maps, []
         for a, n in maps:
             if a and n:

@@ -72,6 +72,7 @@ The module stays usable, but look at what the error means:
 - The kernel stopped at the faulting instruction, so anything it was writing may be half-written, including its heap if the fault was in `malloc` or `free` called with a bad pointer. If in doubt, `reset_heap()` or compile the module again.
 - Only an access to memory the process doesn't have faults. A write past the end of an array that lands on other memory of the process corrupts it, with no error, and can show up later as a crash anywhere.
 - A fault inside a host library called from a kernel (`link=`) or inside Python ends the process: unwinding past that code could leave its locks held and its state half-updated. So does a fault in a function called through its raw `address`.
+- Don't call a function's raw `address` from a Python callback while a kernel of the same module is running on that thread: an error there unwinds to that kernel, past the callback's Python frames.
 
 Other fault handlers keep working. cimo passes on any fault that isn't a kernel's, so `faulthandler` still reports crashes elsewhere. Handlers are checked each time a module loads: one installed later, such as a call to `faulthandler.enable()`, takes over until the next load. `CIMO_FAULTS=0` installs nothing, so a fault ends the process with a core dump.
 

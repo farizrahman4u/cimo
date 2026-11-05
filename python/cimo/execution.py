@@ -531,6 +531,8 @@ class State:
                         if pre + 'free' in sym else None)
         _fault.install()
         self._fault_slot = _fault.register(image)
+        if self._fault_slot is not None:  # out of the table before the code is unmapped, whichever goes first
+            image.on_close.append(self._unregister)
 
     # contexts
 
@@ -544,6 +546,9 @@ class State:
         tid = self._tidf()
         with self._lock:
             c = self._ctxs.get(tid)
+            if c is not None:  # a thread key reused by a new thread (Windows recycles TEBs): its own stack
+                bottom = _stack_bottom()
+                c.limit = bottom + STACK_MARGIN if bottom else 0
             if c is None:
                 addr = self._map(CTX_SIZE)
                 c = _Ctx.from_address(addr)
@@ -698,10 +703,13 @@ class State:
         with self._lock:
             return sum(n for _, n in self._chunks) + sum(self._large.values())
 
-    def close(self):
+    def _unregister(self):
         slot, self._fault_slot = getattr(self, '_fault_slot', None), None
         if slot is not None:
             _fault.unregister(slot)
+
+    def close(self):
+        self._unregister()
         with self._lock:
             self._closed = True
             maps, self._maps = self._maps + self._chunks, []

@@ -374,6 +374,13 @@ Target: a 100-line kernel in under 0.3 s warm natively and under 1 s in Pyodide.
   Fix: keep `Roots` across transforms (temporaries it has not seen must count as unknown, and
   rewritten uses must keep their roots) and continue with the loops still valid.
 
+- **From the adversarial read of loader, execution and faults (2026-11-05), not fixed:** an error in module code called
+  through a raw `address` from a Python callback, while a kernel of that module runs on the thread, unwinds past the
+  callback's frames (documented in errors.md; the entry frame could record a marker); unwinding restores neither FPCR nor
+  MXCSR (a kernel that changed rounding through host libc leaves it changed); the x86 unwind doesn't `vzeroupper` after a
+  fault in AVX2 code (the glue is assembled outside the compile's options); on macOS a SIGSEGV sent with kill while a
+  kernel runs unwinds it (no telling it from a fault there).
+
 - **x86-64 branch relaxation with alignment in the span** (adversarial read, 2026-11-05): `_layout` decides every
   branch from the previous pass's addresses and only grows them, so a backward `jmp` across a `.p2align 6` that a
   growing earlier branch shrinks stays long (`e9` where GNU as has `eb`): correct, 3 bytes larger, 5 of 400 random

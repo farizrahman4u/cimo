@@ -956,7 +956,8 @@ _NEON2 = {'neg': (0x6e20b800, 's'), 'fneg': (0x6ea0f800, 'f'), 'fabs': (0x4ea0f8
 _NEONSH = {'shl': 0x4f005400, 'ushr': 0x6f000400, 'sshr': 0x4f000400}
 _LANES = {'16b': 0, '8h': 1, '4s': 2, '2d': 3}
 _NEONW = {'saddw': 0x0ea01000, 'saddw2': 0x4ea01000, 'uaddw': 0x2ea01000, 'uaddw2': 0x6ea01000}  # 2d, 2d, 2s or 4s
-_VREG = re.compile(r'v(\d+)\.(16b|8h|4s|2d|2s|4h|8b)$')
+_VREG = re.compile(r'v(\d+)\.(16b|8h|4s|2d|2s)$')
+_VNARROW = re.compile(r'v(\d+)\.(8b|4h|2s|16b|8h|4s)$')  # saddw's third operand
 _VELEM = re.compile(r'v(\d+)\.([bhsd])\[(\d+)\]$')
 
 
@@ -964,9 +965,9 @@ def _isneon(ops):
     return bool(ops) and ops[0].strip().lower()[:1] == 'v' and _VREG.match(ops[0].strip().lower()) is not None
 
 
-def _v(s, lanes=None):
+def _v(s, lanes=None, pattern=_VREG):
     """(register, arrangement) of a vector operand; lanes: the arrangements allowed."""
-    m = _VREG.match(s.strip().lower())
+    m = pattern.match(s.strip().lower())
     if m is None or int(m[1]) > 31:
         raise AssemblerError('expected a vector register, got %r' % s)
     if lanes is not None and m[2] not in lanes:
@@ -1000,7 +1001,7 @@ def _neon(mn, ops):
         n, _ = _v(ops[1], (lane,))
         size = {'8h': 0, '4s': 1, '2d': 2}[lane]
         narrow = ('16b', '8h', '4s') if mn.endswith('2') else ('8b', '4h', '2s')
-        m, _ = _v(ops[2], (narrow[size],))
+        m, _ = _v(ops[2], (narrow[size],), _VNARROW)
         return (_NEONW[mn] & ~0x00c00000) | size << 22 | m << 16 | n << 5 | d
     if mn == 'dup':
         d, lane = _v(ops[0], _LANES)

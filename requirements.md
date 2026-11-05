@@ -228,7 +228,13 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
     the handler is re-checked at every load. Windows: a vectored handler, re-added first at every
     load (faulthandler reports and carries on if it runs first), `SetThreadStackGuarantee` for
     room to run in, `_resetstkoflw` once unwound. A pc in a host library or Python is never
-    unwound: their locks and state. First compile in a process +6 ms (Linux arm64, then cached);
+    unwound: their locks and state. Only a fault the CPU raised unwinds a kernel (`si_code > 0` on Linux), not one sent by
+    kill. A handler passed a real fault that returns without fixing it (faulthandler's, once disabled, still installed
+    under ours) brings it back forever: after 64 in a row at one pc on one thread, the default action. A module's code
+    leaves the table before it is unmapped (`Image.on_close`). Windows: the new vectored handler goes in before the old
+    one comes out. A thread key reused by a new thread gets its own stack limit. The page size is in the cache key, and
+    an image built for another (`StaleImage`) is compiled again: data sharing a code page crashed on the first write.
+    First compile in a process +6 ms (Linux arm64, then cached);
     no measurable change to a call. `CIMO_FAULTS=0` installs nothing.
 - **Debug mode:** Python knows every buffer's size, the allocator knows every heap allocation's
   size, and the compiler tracks each pointer's base. So debug builds bounds-check every access

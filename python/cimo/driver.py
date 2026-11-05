@@ -508,6 +508,7 @@ def _key(pp):
     it uses), the target and the code generation options."""
     return hashlib.sha256(
         _VERSION + _link.compiler_key().encode() + _link._key(TARGET).encode() + TARGET.encode()
+        + b'p%d' % _jit.PAGE
         + b'x' + ','.join(sorted(_x86())).encode()
         + (b'm' if MIDDLE else b'') + (b'f' if _contract() else b'') + (b'v' if _wraps() else b'') + (b'V' if _vectorizes() else b'') + b'i%d' % INLINE
         + _code(pp).encode('utf-8', 'surrogateescape')).hexdigest()[:24]
@@ -658,6 +659,8 @@ class Module(Introspection):
         try:
             image = _jit.Image.load(memoryview(blob)[4 + n:], lambda ext: _link.resolver(
                 ext, '_' if _APPLE else '', libs=link, libsyms=libsyms))
+        except _jit.StaleImage:
+            raise
         except (_jit.LoadError, _link.LinkError) as e:
             raise CompileError(str(e)) from None
         self = cls.__new__(cls)
@@ -787,9 +790,13 @@ def _module1(src, filename, include_dirs, link, host_headers, defines):
     pp = _preprocess(src, filename, tuple(include_dirs), host_headers, tuple(defines))
     key = _key(pp)
     blob = _image_get(key)
+    m = None
     if blob is not None:
-        m = Module._from_image(blob, tuple(link))
-    else:
+        try:
+            m = Module._from_image(blob, tuple(link))
+        except _jit.StaleImage:
+            pass  # compiled again, below
+    if m is None:
         hit = _cache_get(key)  # assembly: for modules whose image cannot be cached
         text, sigs = hit or _compile(pp, filename, host_headers)
         m = Module(text, sigs, tuple(link), snapshot=hit is None)
