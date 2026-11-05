@@ -219,6 +219,12 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
+- **Keep struct fields in registers across a loop** (found by scramjit, 2026-11-05: `LICM` scalar promotion, from `restrict` or
+  bases proven distinct). A spring step through a struct pointer, `p->v += -p->k * p->x * dt; p->x += p->v * dt`, takes 6.1 ns against 5.2
+  with locals; reading through a second pointer, 11.6 against 6.4. `restrict` on both changes nothing today, though it says exactly that
+  the fields can live in registers. scramjit would pass instances as struct pointers, with `restrict` where it has proven the objects
+  distinct, and rely on this to match its current flattening. **When done, note it in scramjit's `TODO.md`.**
+
 - **A small local array passed to an inlined call stays in memory** (found by scramjit, 2026-11-05). scramjit returns a
   callee's results through `int64_t io[n]`, written and read with `memcpy`; after inlining, the array should become
   registers (SROA through `memcpy` of 8 bytes). A spring step calling a `@scram` function `force(k, x)` takes 16.5 ns
