@@ -777,3 +777,39 @@ def test_leaving_early_with_a_stride():
                     a[r.randrange(len(a))] = 1.0
                 start = ctypes.addressof(a) + 8 * (span + 8 if st < 0 else 8)
                 assert on.f(start, n, st) == off.f(start, n, st), (st, n, trial)
+
+
+def test_selects_stay_with_their_masks():
+    """qsel1 is pinned: gvn merged two with the same operands and different masks, and gcm hoisted one whose operands
+    don't change in the loop away from its qsel0 (a failed compile, or another select's mask)."""
+    src = ('void f(const float *restrict a, float *restrict b, long n) { for (long i = 0; i < n; i++) b[i] = a[i] > 0 ? 2.0f : 1.0f; }\n'
+           'void g(float *restrict a, float *restrict b, float *restrict c, long n) { for (long i = 0; i < n; i++) {'
+           ' float x = c[i]; b[i] = a[i] > 0 ? x : 1; c[i] = a[i] > 3 ? x : 1; } }\n'
+           'void h(const int *restrict a, int *restrict b, long n) { for (long i = 0; i < n; i++) b[i] = a[i] > 0 ? 5 : 1; }')
+    on, off = both(src)
+    for n in (0, 1, 4, 5, 9, 33):
+        a = _specials(ctypes.c_float, n + 4, n)
+        b1, b2 = (ctypes.c_float * (n + 4))(), (ctypes.c_float * (n + 4))()
+        on.f(a, b1, n)
+        off.f(a, b2, n)
+        assert bytes(b1) == bytes(b2), n
+        c1, c2 = _specials(ctypes.c_float, n + 4, n + 1), _specials(ctypes.c_float, n + 4, n + 1)
+        on.g(a, b1, c1, n)
+        off.g(a, b2, c2, n)
+        assert bytes(b1) == bytes(b2) and bytes(c1) == bytes(c2), n
+        ai = _specials(ctypes.c_int, n + 4, n)
+        d1, d2 = (ctypes.c_int * (n + 4))(), (ctypes.c_int * (n + 4))()
+        on.h(ai, d1, n)
+        off.h(ai, d2, n)
+        assert bytes(d1) == bytes(d2), n
+
+
+def test_early_exit_with_a_narrower_test():
+    """(int)i < n on a long i: the chunk bound must be worked out in the test's 32 bits, or the vector loop scans
+    chunks C never reads (n = INT_MIN + 5 gave 16 for 0)."""
+    src = 'int f(const int *a, int n) { long i; for (i = 0; (int)i < n; i++) if (a[i] == 3) break; return (int)i; }'
+    on, off = both(src)
+    a = (ctypes.c_int * 40)()
+    a[20] = 3
+    for n in (-2147483643, -1, 0, 5, 21, 40):
+        assert on.f(a, n) == off.f(a, n), n

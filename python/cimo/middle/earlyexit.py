@@ -131,6 +131,9 @@ def _plan(fn, lp):
     _need(op in _SIGNED or op in _UNSIGNED)
     ctl = next((iv for iv in ivs if iv[0].to == a), None)
     _need(ctl is not None and inv(b))
+    # the test's width is the induction variable's: (int)i < n on a long i compares 32 bits, and the chunk bound
+    # would be worked out in 64
+    _need((op in (D.Ocsltw, D.Ocslew, D.Ocultw, D.Oculew)) == (ctl[0].cls == Kw))
     # the latch: updates of the induction variables, from them
     lto = [j.to for j in ir.ins(L)]
     for i in ir.ins(L):

@@ -378,7 +378,7 @@ _QOPS += [(n + x, _Q1()) for n, lanes in (('qneg', 'bhwlsd'), ('qabs', 'sd'), ('
 _QOPS += [(n + x, _QS()) for n in ('qshl', 'qshr', 'qsar') for x in 'bhwl']
 # %r =q qsaddl %a, %b: a's 2 x i64 + the sign-extended low 2 x i32 of b; h: the high ones; u: zero-extended
 _QOPS += [('qsaddl', _QQ()), ('qsaddh', _QQ()), ('quaddl', _QQ()), ('quaddh', _QQ())]
-_QOPS += [('qand', _QQ()), ('qor', _QQ()), ('qxor', _QQ()), ('qnot', _Q1()), ('qsel1', _QQ()),
+_QOPS += [('qand', _QQ()), ('qor', _QQ()), ('qxor', _QQ()), ('qnot', _Q1()),
           ('qdupb', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6)), ('qduph', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6)),
           ('qdupw', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6)), ('qdupl', ((Ke, Ke, Ke, Ke, Ke, Kl), (Kx,) * 6)),
           ('qdups', ((Ke, Ke, Ke, Ke, Ke, Ks), (Kx,) * 6)), ('qdupd', ((Ke, Ke, Ke, Ke, Ke, Kd), (Kx,) * 6))]
@@ -393,6 +393,8 @@ _OPS += [(n, a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) for n, a in _QOPS]
 _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qfma0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qfma1s', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1), ('qfma1d', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         # pinned, as qfma1 and sel1: gvn and gcm must never merge or move it away from its qsel0
+         ('qsel1', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qload', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qstore', ((Kq,) * 6, (Km,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)]
 # cimo: x86-64's read-modify-write, made by amd64 isel from a load, an operation and a store to one address: xaddm %v, %a

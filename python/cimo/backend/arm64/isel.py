@@ -1082,6 +1082,8 @@ def sel(i, fn):
     """i is a copy (C passes Ins by value)."""
     if i.op in (D.Oqfma0, D.Oqsel0):  # cimo (ext.vector): fmla and bsl keep their third operand in the destination
         d = _qdest[0]
+        assert d != R, 'qfma0/qsel0 without its qfma1/qsel1 right after'
+        _qdest[0] = R  # one pair at a time: a stale destination must never reach another pair
         emit(i.op, D.Kq, R, d, R)
         emit(Ocopy, D.Kq, d, i.arg[0], R)
         return

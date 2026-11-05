@@ -571,6 +571,8 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
 - **Conditions (2026-11-05):** a comparison becomes a lane mask (`qceq`/`qcgt`/`qcge`/`qcugt`/`qcuge`, operands swapped for
   `<`, `<=`, negated for `!=`; ordered/unordered tests have none), read only by `qsel0`/`qsel1`, so a select stays exact for NaNs
   and signed zeros. `ifconv` lets an arm hold an inner diamond's select, so nested ternaries (a clamp) convert inside out.
+  `qsel1` is pinned like `qfma1` and `sel1` (it wasn't: gvn merged two with different masks and gcm hoisted one, failing
+  `x > 0 ? 2.0f : 1.0f` or using another select's mask; adversarial read), and arm64 isel asserts each `qsel0` its pair.
   x86-64 if-converts integer diamonds only (no scalar float select), so its float conditions stay scalar. On the Snapdragon,
   100,000 elements against the same build without the vectorizer: `relu` on doubles 1.74x, a nested float clamp 4.95x, an
   int max 2.02x. Found on the way: x86-64's 64-bit signed compare (`qlower.cgt`, no `pcmpgtq` in SSE2) used a wrong formula,
