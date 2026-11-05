@@ -653,8 +653,11 @@ def emitins(i, e):
         # cimo extension: probe each page (see _probe); x17 is reserved (IP1)
         global _nprobe
         _nprobe += 1
-        emitf("sub x17, sp, %0", i, e)
-        e.f.write(".Lprobe%d:\n"
+        # a size past the bottom of the address space runs to the guard page, like any too big:
+        # sp can't take the wrapped value, or the kernel has no stack to report the fault on
+        emitf("subs x17, sp, %0", i, e)
+        e.f.write("\tcsel\tx17, xzr, x17, lo\n"
+                  ".Lprobe%d:\n"
                   "\tcmp\tsp, x17\n"
                   "\tb.ls\t.Lprobed%d\n"
                   "\tsub\tsp, sp, #4096\n"

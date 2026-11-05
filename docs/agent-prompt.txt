@@ -42,7 +42,7 @@ Compile errors: inline asm, setjmp/longjmp, _Complex, vector_size.
 Files, time, threads, sockets and other hosted libc: link=['libc'], host_headers=True (not in Pyodide). Other libraries: link=['z'], a soname or a path.
 
 ## Watch out
-- Pointers are unchecked. A wrong dtype (float32 array to double *) silently reads garbage. Out of bounds can crash the process. Match dtypes and pass lengths.
+- Pointers are unchecked. A wrong dtype (float32 array to double *) silently reads garbage. Out of bounds raises KernelError only if it hits unmapped memory; otherwise it silently corrupts the process. Match dtypes and pass lengths.
 - Variadic functions and structs or unions by value can't be called from Python (TypeError); C callers can. Pass a pointer to a struct instead.
 - char's signedness varies by platform: use signed char or unsigned char when it matters. long and pointers are 64-bit on every target.
 - FMA contraction is on by default, so floats can differ in the last bit from Python or gcc -ffp-contract=off. Use fma=False to compare.

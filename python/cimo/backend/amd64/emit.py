@@ -691,6 +691,11 @@ def emitins(i, e):
             # cimo: Windows commits the stack through a guard page; touch every page
             emitf("movq %%rsp, %%r11", i, e)
             emitf("subq %L0, %%r11", i, e)
+            # a size past the bottom of the address space runs to the guard page, like any too
+            # big: rsp can't take the wrapped value, or the kernel has no stack for the fault
+            global _nprobe
+            _nprobe += 1
+            f.write("\tjnc .Lnowrap%d\n\txorl %%r11d, %%r11d\n.Lnowrap%d:\n" % (_nprobe, _nprobe))
             _probe(f)
         else:
             emitf("subq %L0, %%rsp", i, e)

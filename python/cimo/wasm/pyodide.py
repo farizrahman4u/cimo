@@ -125,7 +125,10 @@ class WasmModule(Introspection):
         err, self._err = self._err, None
         if err is None:
             msg = str(exc).strip().splitlines()[-1] if str(exc).strip() else repr(exc)
-            raise KernelError('trap: %s (calling %s)' % (msg, kernel), 'trap', kernel) from None
+            kind = ('memory fault' if 'memory access out of bounds' in msg else
+                    'division fault' if 'divide by zero' in msg or 'unrepresentable' in msg else
+                    'stack overflow' if 'call stack' in msg else 'trap')
+            raise KernelError('%s: %s (calling %s)' % (kind, msg, kernel), kind, kernel) from None
         code, expr, file, line, func = err
         at = ' in %s()' % func if func else ''
         status = None

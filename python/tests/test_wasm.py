@@ -202,6 +202,20 @@ try:
 except cimo.KernelError as e:
     assert e.kind == 'assert' and 'x > 0' in str(e), e
 assert k.sum(a, 10) == 45
+f = cimo.compile(r"""
+int rd(long a) { return *(int *)a; }
+int dv(int a, int b) { return a / b; }
+int rec(int n) { return n < 0 ? 0 : rec(n + 1) + 1; }
+int ok(int a) { return a + 1; }
+""")
+for call, kind in ((lambda: f.rd(0x7fffff00), 'memory fault'), (lambda: f.dv(1, 0), 'division fault'),
+                   (lambda: f.rec(1), 'stack overflow')):
+    try:
+        call()
+        raise SystemExit('no error: ' + kind)
+    except cimo.KernelError as e:
+        assert e.kind == kind and str(e).startswith(kind), (kind, e)
+    assert f.ok(1) == 2
 import contextlib, io
 u = cimo.compile(r"""
 #include <stdio.h>

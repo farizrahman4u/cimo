@@ -14,6 +14,8 @@ Design (requirements.md, "Execution model"):
   caller. Python checks the context's error word after every call and raises `KernelError`.
   The module and the interpreter stay usable: nothing in between needs cleaning up (kernels
   run no destructors, and the heap's bookkeeping is never mid-update when they abort).
+- Hardware faults in a module's code take the same unwind (cimo.fault), by way of a process-wide
+  handler. Those can be mid-update: memory the kernel was writing may be half-written.
 - How kernel code finds its context: a per-module hash table keyed by the OS thread's
   thread-pointer register (`tpidr_el0` on Linux, `tpidrro_el0` on macOS, both readable
   from user mode and unique per live thread; on Windows x18, which always holds the
@@ -25,6 +27,7 @@ Design (requirements.md, "Execution model"):
   the assembly below and runtime/heap.c (`CTX_HEAP`):
 
       0 err   8 msg   16 file   24 line   32 func   40 pc   48 depth   56 stack limit   64 tid
+      72 fault kind   80 fault address (these first 88 bytes also in cimo.fault's C)
       128 frames: MAXDEPTH x 176 bytes (x19-x28, x29, lr, sp, d8-d15; x86-64 Linux: rbx,
           rbp, r12-r15, the return address and rsp)
       3072 the thread's heap (struct heap in runtime/heap.c, at most 1024 bytes)
@@ -35,7 +38,8 @@ Design (requirements.md, "Execution model"):
 - Stack guard: functions that can recurse (in a call-graph cycle, counting indirect calls as
   edges to every address-taken function) call `__cimo_stkchk` in their prologue, which compares
   sp against the thread's stack bottom + STACK_MARGIN (from pthread_getattr_np /
-  pthread_get_stackaddr_np; GetCurrentThreadStackLimits on Windows). `alloca`/VLAs and frames larger than the margin are not covered.
+  pthread_get_stackaddr_np; GetCurrentThreadStackLimits on Windows). `alloca`/VLAs and frames
+  larger than the margin run into the guard page instead, which cimo.fault reports the same way.
 - Thread safety: each context and heap is used only by its own thread; the table only grows
   (Python inserts under a lock; a full rebuild is published with a `dmb ish` before the
   pointer store, and readers depend on the loaded pointer). Cross-thread `free` uses one
@@ -49,6 +53,7 @@ import ctypes
 import sys
 import threading
 
+from . import fault as _fault
 from . import loader as _jit
 
 __all__ = ['KernelError', 'glue', 'stack_checked', 'State']
@@ -60,22 +65,23 @@ _WIN_X64 = sys.platform == 'win32' and _jit._X86
 WFRAMES, WFRAMESZ = 8192, 248
 if _WIN_X64:
     CTX_SIZE = 12288
-ERR, MSG, FILE, LINE, FUNC, PC, DEPTH, LIMIT, TID = range(0, 72, 8)
+ERR, MSG, FILE, LINE, FUNC, PC, DEPTH, LIMIT, TID, FAULT, ADDR = range(0, 88, 8)
 FRAMES, FRAMESZ, MAXDEPTH = 128, 176, 16
 CTX_HEAP = 3072
 CTX_OUT = 4096
 STACK_MARGIN = 128 << 10
 
-E_ABORT, E_ASSERT, E_TRAP, E_STACK, E_DEPTH, E_EXIT = 1, 2, 3, 4, 5, 6
+E_ABORT, E_ASSERT, E_TRAP, E_STACK, E_DEPTH, E_EXIT, E_FAULT = 1, 2, 3, 4, 5, 6, 7
 _HASH_K = 0x9E3779B97F4A7C15
 _M64 = (1 << 64) - 1
 
 
 class KernelError(Exception):
-    """A kernel called abort() or exit(), failed an assert, trapped or overflowed its stack.
-    Attributes: kind ('abort', 'exit', 'assert', 'trap', 'stack overflow', 'nesting'), kernel
-    (the entry point Python called), function (where it happened, if known), for assert:
-    expr, file, line, and for exit: status."""
+    """A kernel called abort() or exit(), failed an assert, trapped, overflowed its stack or
+    faulted. Attributes: kind ('abort', 'exit', 'assert', 'trap', 'stack overflow', 'nesting',
+    'memory fault', 'division fault', 'illegal instruction'), kernel (the entry point Python
+    called), function (where it happened, if known), for assert: expr, file, line, for exit:
+    status, and for a memory fault or a stack overflow caught at the guard page: address."""
 
     kind: str | None
     kernel: str | None
@@ -84,14 +90,16 @@ class KernelError(Exception):
     file: str | None
     line: int | None
     status: int | None
+    address: int | None
 
     def __init__(self, message: str, kind: str | None = None, kernel: str | None = None,
                  function: str | None = None, expr: str | None = None,
                  file: str | None = None, line: int | None = None,
-                 status: int | None = None) -> None:
+                 status: int | None = None, address: int | None = None) -> None:
         Exception.__init__(self, message)
         self.kind, self.kernel, self.function = kind, kernel, function
         self.expr, self.file, self.line, self.status = expr, file, line, status
+        self.address = address
 
 
 # ---------------------------------------------------------------------------------------------
@@ -192,6 +200,8 @@ def glue(names, apple=False, windows=False, target=None):
     o += ['\tldp\t%s, %s, [x11, #%d]\n' % r for r in _DSAVE]
     o.append('%sret0:\n\tmov\tx0, #0\n\tmov\tx1, #0\n\tfmov\td0, x0\n\tfmov\td1, x0\n\tret\n'
              '%snoframe:\n\tbrk\t#0xc1\n' % (L, L))
+    # __cimo_fault: where cimo.fault's handler resumes a faulting kernel, with x9 = ctx
+    o.append(fn('__cimo_fault') + '\tb\t%sunwind\n' % L)
     # __cimo_fail(code, msg, file, line, func): called by abort()/__assert_fail (C, with a
     # frame, so [x29, #8] is the address in their caller)
     o.append(fn('__cimo_fail') + find())
@@ -322,6 +332,8 @@ def _glue_amd64(names, windows):
     o.append('\tmovq\t%d(%%r10), %%rsp\n\tmovq\t%d(%%r10), %%r10\n\tpushq\t%%r10\n' % (RSP, RET))
     o.append('.Lcimo_ret0:\n\txorl\t%eax, %eax\n\txorl\t%edx, %edx\n\tpxor\t%xmm0, %xmm0\n'
              '\tpxor\t%xmm1, %xmm1\n\tret\n.Lcimo_noframe:\n\tud2\n')
+    # __cimo_fault: where cimo.fault's handler resumes a faulting kernel, with r11 = ctx
+    o.append(fn('__cimo_fault') + '\tjmp\t.Lcimo_unwind\n')
     # __cimo_fail(code, msg, file, line, func): called by abort()/__assert_fail (C, with an rbp
     # frame, so 8(%rbp) is the address in their caller)
     a = ['rcx', 'rdx', 'r8', 'r9'] if windows else ['rdi', 'rsi', 'rdx', 'rcx', 'r8']
@@ -444,7 +456,8 @@ def stack_checked(ssa):
 class _Ctx(ctypes.Structure):
     _fields_ = [('err', ctypes.c_int64), ('msg', ctypes.c_void_p), ('file', ctypes.c_void_p),
                 ('line', ctypes.c_int64), ('func', ctypes.c_void_p), ('pc', ctypes.c_uint64),
-                ('depth', ctypes.c_int64), ('limit', ctypes.c_uint64), ('tid', ctypes.c_uint64)]
+                ('depth', ctypes.c_int64), ('limit', ctypes.c_uint64), ('tid', ctypes.c_uint64),
+                ('fault', ctypes.c_uint64), ('addr', ctypes.c_uint64)]
 
 
 _GROW = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64, ctypes.c_int)
@@ -516,6 +529,8 @@ class State:
                          if pre + '__cimo_heap_reset' in sym else None)
         self._free_c = (ctypes.CFUNCTYPE(None, ctypes.c_void_p)(sym[pre + 'free'])
                         if pre + 'free' in sym else None)
+        _fault.install()
+        self._fault_slot = _fault.register(image)
 
     # contexts
 
@@ -525,6 +540,7 @@ class State:
             return self._tls.ctx
         except AttributeError:
             pass
+        _fault.thread()
         tid = self._tidf()
         with self._lock:
             c = self._ctxs.get(tid)
@@ -578,13 +594,14 @@ class State:
 
     def error(self, c, kernel):
         """Raise KernelError for the error recorded in context c (and clear it)."""
-        code, pc = c.err, c.pc
+        code, pc, fault, addr = c.err, c.pc, c.fault, c.addr
         expr = ctypes.string_at(c.msg).decode('utf-8', 'replace') if c.msg else None
         file = ctypes.string_at(c.file).decode('utf-8', 'replace') if c.file else None
         func = ctypes.string_at(c.func).decode('utf-8', 'replace') if c.func else None
         line = c.line
-        c.err = c.msg = c.file = c.line = c.func = c.pc = 0
-        where = func or (self._symbol(pc) if pc else None)
+        c.err = c.msg = c.file = c.line = c.func = c.pc = c.fault = c.addr = 0
+        # a fault's pc is the instruction itself; the others' are return addresses
+        where = func or (self._symbol(pc + 4 if fault else pc) if pc else None)
         at = ' in %s()' % where if where else ''
         status = None
         if code == E_ABORT:
@@ -597,14 +614,24 @@ class State:
         elif code == E_TRAP:
             kind, msg = 'trap', 'trap (__builtin_trap or unreachable code)%s' % at
         elif code == E_STACK:
-            kind, msg = 'stack overflow', 'stack overflow%s: recursion too deep' % at
+            kind, msg = 'stack overflow', 'stack overflow%s: %s' % (
+                at, 'hit the end of the stack' if fault else 'recursion too deep')
+            if fault:
+                _fault.stack_recovered()
+        elif code == E_FAULT and fault == _fault.F_MEMORY:
+            kind, msg = 'memory fault', 'memory fault at 0x%x%s' % (addr, at)
+        elif code == E_FAULT and fault == _fault.F_DIVISION:
+            kind, msg = 'division fault', 'integer division by zero or overflow%s' % at
+        elif code == E_FAULT and fault == _fault.F_ILLEGAL:
+            kind, msg = 'illegal instruction', 'illegal instruction%s' % at
         elif code == E_DEPTH:
             kind, msg = 'nesting', ('more than %d nested calls into the module on one thread'
                                     % MAXDEPTH)
         else:
             kind, msg = 'error', 'kernel error %d%s' % (code, at)
         raise KernelError('%s (calling %s)' % (msg, kernel), kind, kernel, where, expr, file,
-                          line if code == E_ASSERT else None, status)
+                          line if code == E_ASSERT else None, status,
+                          addr if fault == _fault.F_MEMORY else None)
 
     def _symbol(self, pc):
         """Name of the function containing code address pc."""
@@ -672,6 +699,9 @@ class State:
             return sum(n for _, n in self._chunks) + sum(self._large.values())
 
     def close(self):
+        slot, self._fault_slot = getattr(self, '_fault_slot', None), None
+        if slot is not None:
+            _fault.unregister(slot)
         with self._lock:
             self._closed = True
             maps, self._maps = self._maps + self._chunks, []

@@ -26,7 +26,7 @@ The machine is neither. See [Platforms](platforms.md) for what is supported; on 
 
 ### My process crashed
 
-A kernel that writes outside its arrays can crash the process, as in any C. `assert`, `abort` and deep recursion are caught; bad pointers aren't yet. Check array lengths and the indices your loops use.
+A fault in a kernel's own code raises `KernelError`, so a crash comes from elsewhere. Usually a kernel wrote past the end of an array onto other memory of the process, which isn't a fault, and something tripped over it later. It can also be a fault inside a host library the kernel called. Check array lengths and the indices your loops use. See [Faults](errors.md#faults).
 
 ### In Pyodide or on Windows, a `long *` array gives garbage
 

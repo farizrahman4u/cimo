@@ -78,7 +78,7 @@ The call releases the GIL. A function that is variadic, or passes or returns a s
 
 ## KernelError
 
-`cimo.KernelError(Exception)`: a kernel called `abort()` or `exit()`, failed an `assert`, trapped or overflowed its stack. See [Errors](errors.md).
+`cimo.KernelError(Exception)`: a kernel called `abort()` or `exit()`, failed an `assert`, trapped, overflowed its stack or faulted. See [Errors](errors.md).
 
 | Attribute | |
 |---|---|

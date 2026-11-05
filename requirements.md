@@ -217,9 +217,19 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
     as an edge to every address-taken function) call `__cimo_stkchk` in their prologue (backend
     ext `stkchk`): sp below the thread's stack bottom + 128 KB (from `pthread_getattr_np` /
     `pthread_get_stackaddr_np`) unwinds with "stack overflow". Non-recursive code pays nothing.
-    Not covered: VLAs/`alloca`, single frames over 128 KB.
-  - Hardware faults (SIGSEGV, SIGBUS) still kill the process: catching them needs signal
-    handlers, which fight the interpreter.
+    VLAs/`alloca` and single frames over 128 KB reach the guard page instead: a fault, below.
+  - **Hardware faults (`cimo/fault.py`):** one process-wide native handler, C compiled by cimo
+    on the first load (a fault can arrive without the GIL, so never Python). pc in a registered
+    module and the thread inside its trampoline: record the fault in the context and resume at
+    `__cimo_fault`, the same unwind. Otherwise chain to the handler before it. A pc that equals
+    the fault address is a call through a bad pointer, blamed on the return address. POSIX:
+    sigaction for SIGSEGV, SIGBUS, SIGFPE, SIGILL with `SA_NODEFER` (faulthandler's `raise` must
+    come straight back, to the owner-thread guard, or it loops), an alternate stack per thread;
+    the handler is re-checked at every load. Windows: a vectored handler, re-added first at every
+    load (faulthandler reports and carries on if it runs first), `SetThreadStackGuarantee` for
+    room to run in, `_resetstkoflw` once unwound. A pc in a host library or Python is never
+    unwound: their locks and state. First compile in a process +6 ms (Linux arm64, then cached);
+    no measurable change to a call. `CIMO_FAULTS=0` installs nothing.
 - **Debug mode:** Python knows every buffer's size, the allocator knows every heap allocation's
   size, and the compiler tracks each pointer's base. So debug builds bounds-check every access
   ("compute-sanitizer for CPU kernels"), and detect use-after-free, double free, and leaks
@@ -814,9 +824,12 @@ Target `arm64_win` (preprocessor/backend/linker; frontend `aarch64-windows`), pi
 - **Host:** `link=['libc']`/`'libm'` mean `ucrtbase.dll` (exports no variadic functions;
   `msvcrt.dll` does); `host_headers=True` is a CompileError (the SDK headers need MSVC
   extensions). Cache: `%LOCALAPPDATA%\cimo`.
-- **Faults:** an access violation in a kernel ends the process silently (exit status 5): the
-  exception dispatcher cannot unwind through code without unwind data to ctypes' SEH handler.
-  Fix with a vectored exception handler that resumes at the unwind glue (TODO).
+- **Faults:** a vectored exception handler resumes at the unwind glue (`cimo/fault.py`). Without
+  it, an access violation in a kernel reached through a trampoline ends the process silently: the
+  dispatcher cannot unwind through code without unwind data to ctypes' SEH handler. A raw call of
+  a kernel's address does reach ctypes, as `OSError`. Allocas must never wrap sp (a size past the
+  bottom of the address space, and Windows stacks are low): the kernel needs a valid sp to
+  dispatch the exception at all.
 - **Testing:** a Windows-on-arm machine with WSL; a *native arm64* CPython is needed (the
   default python.org/Store install on Snapdragon is often x64 under emulation, which cannot
   call arm64 code): `uv python install cpython-3.13-windows-aarch64`. Reference compiler:
@@ -911,7 +924,7 @@ Targets `amd64_sysv` (Linux; frontend `x86_64-sysv`) and `amd64_windows` (fronte
 - **Globals:** the frontend marks every non-static global extern, so isel reaches it through the
   GOT; the loader relaxes that `movq sym@gotpcrel` to `leaq sym(%rip)` for symbols in the image.
 - **Faults:** besides SIGSEGV/access violations, integer division traps on x86 (#DE: `x / 0`,
-  `INT_MIN / -1`), killing the process; on arm64 these return a value. Same fix as TODO 8.
+  `INT_MIN / -1`), `KernelError` kind `division fault`; on arm64 these return a value.
 - **The optimizer on x86-64:** the target-independent passes (simplifier, known bits, SCCP,
   ADCE, SROA, jump threading, memory passes, inlining and IPO) run as on arm64; `divconst`,
   `bytepatterns`, `hoistcons` and sibling calls are arm64 only. They reached two more C QBE

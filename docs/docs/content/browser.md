@@ -28,7 +28,7 @@ Everything runs in the page: no server compiles anything. The [demos on the home
 ## What's the same
 
 - numpy arrays, `bytearray`, `memoryview` and ctypes buffers are passed in place.
-- `printf` goes to `sys.stdout`; `abort`, `assert` and `exit` raise `KernelError`.
+- `printf` goes to `sys.stdout`; `abort`, `assert`, `exit` and traps raise `KernelError`.
 - The bundled C library is the same, so results match the native build. The one known exception: `pow` can differ in the last bit for a few inputs, because WebAssembly has no fused multiply-add.
 
 ## What's different

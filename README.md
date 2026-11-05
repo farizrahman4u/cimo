@@ -155,8 +155,8 @@ Each thread gets its own part of the module's heap, so `malloc` doesn't take a l
 
 ### Errors
 
-Errors in the C raise `cimo.CompileError`. `assert`, `abort()`, `exit()`, traps and stack overflow from
-deep recursion raise `cimo.KernelError`, and the module stays usable:
+Errors in the C raise `cimo.CompileError`. `assert`, `abort()`, `exit()`, traps, stack overflow and
+hardware faults raise `cimo.KernelError`, and the module stays usable:
 
 ```python
 k = cimo.compile(r"""
@@ -169,8 +169,15 @@ k.check(-1)
 # cimo.KernelError: assertion failed: x > 0, at <string>:4 in check() (calling check)
 ```
 
-A kernel that reads or writes outside its memory can still crash the process, as a bad pointer in a C
-extension would.
+```python
+k = cimo.compile("int read(int *p) { return *p; }")
+
+k.read(8)
+# cimo.KernelError: memory fault at 0x8 in read() (calling read)
+```
+
+A write that lands on memory the process owns isn't a fault: it corrupts that memory, as in any C. So does
+a kernel stopped halfway through a write.
 
 ## Command line
 
