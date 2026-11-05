@@ -198,7 +198,7 @@ def _defines():
             d['CIMO_WIN_X64'] = None
     elif _APPLE:
         d['SI_ADDR'] = '24'
-        d['SENT(code)'] = '((code) >= 0x10001)'  # SI_USER, SI_QUEUE, ...
+        d['SENT(code)'] = '((code) == 0 || (code) >= 0x10001)'  # kill() gives 0, despite SI_USER
         d['REGS(uc)'] = '(*(char **)((uc) + 48) + 8)'
     else:
         d['SI_ADDR'] = '16'
@@ -258,8 +258,10 @@ def install():
             if _module is None:
                 _building = True
                 try:
-                    from . import driver
-                    _module = driver.compile(_SOURCE, defines=_defines(), fma=False, wrapv=True)
+                    from . import driver, linker
+                    # under the caller's cache=: cache=False promises no files
+                    _module = driver.compile(_SOURCE, defines=_defines(), fma=False, wrapv=True,
+                                             cache=linker.cache_writes.get())
                 finally:
                     _building = False
                 if not _WIN:

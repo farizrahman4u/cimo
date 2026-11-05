@@ -348,6 +348,17 @@ def test_fault_sent_by_kill_ends_the_process():
     assert 'survived' not in r.stdout and crashed(r), (r.returncode, r.stdout, r.stderr[-300:])
 
 
+def test_cache_false_writes_nothing(tmp_path):
+    # the handler is the process's first compile: under the caller's cache=, like any other
+    r = subprocess.run([sys.executable, '-c', 'import cimo\nk = cimo.compile("int f(int *p) { return *p; }", cache=False)\n'
+                        'try:\n    k.f(8)\nexcept cimo.KernelError as e:\n    print(e.kind)'],
+                       env=dict(os.environ, PYTHONPATH=PY, CIMO_CACHE_DIR=str(tmp_path / 'c'),
+                                CIMO_RUNTIME_CACHE=str(tmp_path / 'r')),
+                       cwd=PY, capture_output=True, text=True, timeout=120)
+    assert r.stdout.strip() == 'memory fault', r.stderr[-1000:]
+    assert [str(p) for p in tmp_path.rglob('*')] == []
+
+
 def test_off():
     r = run('fails(k.rd, 8)', env={'CIMO_FAULTS': '0'})
     assert crashed(r), (r.returncode, r.stderr[-500:])
