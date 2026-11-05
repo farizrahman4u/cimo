@@ -198,7 +198,7 @@ def _defines():
             d['CIMO_WIN_X64'] = None
     elif _APPLE:
         d['SI_ADDR'] = '24'
-        d['SENT(code)'] = '((code) == 0 || (code) >= 0x10001)'  # kill() gives 0, despite SI_USER
+        d['SENT(code)'] = '1'  # kill()'s si_code isn't SI_USER there: raise always, as faulthandler does
         d['REGS(uc)'] = '(*(char **)((uc) + 48) + 8)'
     else:
         d['SI_ADDR'] = '16'
