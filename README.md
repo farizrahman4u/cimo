@@ -77,7 +77,7 @@ alias checks) and an instruction-selecting backend. On scalar code it runs close
 Results are bit-identical to the reference compiler.</sub>
 
 On arm64 and x86-64, cimo also auto-vectorizes straight counted loops over 4- and 8-byte elements, 128 bits at a
-time, conditions included (`x > 0 ? x : 0`; integer ones only on x86-64). Floating-point sums vectorize only where
+time (256 with AVX2), conditions included (`x > 0 ? x : 0`; integer ones only on x86-64). Floating-point sums vectorize only where
 the loop does enough else, since C fixes their order. Integer reductions use four vectors of accumulators, and a
 running integer `max` or `min` vectorizes, with a fast path when a stride argument is 1 (`a[i * st]`), and so do
 loops that leave early (`any`, `all`, finding the first match). Float `max`/`min`, `argmax`, narrower elements and
@@ -225,7 +225,6 @@ arm64 and x86-64. Differential-tested against gcc on random programs (Csmith, YA
 Planned:
 
 - Auto-vectorization of more loops (float `max`/`min`, `argmax`, 8- and 16-bit elements, outer loops), and on WebAssembly
-- 256-bit AVX2 vectors on x86-64 CPUs that have them
 - GNU vector types (`__attribute__((vector_size(16)))`)
 - `debug=True`: bounds checks on every access, and detection of use-after-free, double free and leaks
 - `cimo report`: which loops were optimized, and why the others weren't

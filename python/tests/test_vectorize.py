@@ -17,7 +17,11 @@ pytestmark = pytest.mark.skipif(not hosts.RUNS, reason='needs a target with q')
 
 
 def vectorized(src):
-    return bool(re.search(r'\t(ldr|str)\tq\d+|\tmovups ', driver._build(src)[0]))
+    return bool(re.search(r'\t(ldr|str)\tq\d+|\tv?movups ', driver._build(src)[0]))
+
+
+# lanes of int in a vector here: 8 with AVX2, else 4
+INTLANES = 8 if hosts.RUNS and hosts.AMD64 and 'avx2' in driver._x86() else 4
 
 
 _n = [0]
@@ -84,12 +88,12 @@ def test_too_many_arrays_to_compare():
 
 
 def test_which_distances_are_taken():
-    """Distances the rule allows are vectorized, so the tests above do test the vector loop. 4 lanes of int."""
+    """Distances the rule allows are vectorized, so the tests above do test the vector loop. INTLANES lanes of int."""
     def taken(d):
         return vectorized('void f(int *a, long n) { for (long i = 0; i < n; i++) a[i + %d] = a[i] * 3 + 1; }' % d)
     assert taken(0)
-    assert taken(4) and taken(5)  # a vector's worth ahead
-    assert not taken(1) and not taken(3)  # reads what the scalar loop just wrote
+    assert taken(INTLANES) and taken(INTLANES + 1)  # a vector's worth ahead
+    assert not taken(1) and not taken(INTLANES - 1)  # reads what the scalar loop just wrote
     assert taken(-1) and taken(-3)  # reads ahead of the write, and the load comes first
 
 

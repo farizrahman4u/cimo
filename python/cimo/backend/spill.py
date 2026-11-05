@@ -114,11 +114,13 @@ def slot(t):
         # one hole and slot4 points to it
         #
         # invariant: slot4 <= slot8
-        if tmp[t].cls == D.Kq:  # cimo (ext.vector): 16 bytes
+        if tmp[t].cls == D.Kq:  # cimo (ext.vector): 16 bytes, or 32 with AVX2 (in 4-byte units)
+            from . import ext as _ext
+            n = _ext.qbytes() // 4
             s = slot8
             if slot4 == slot8:
-                slot4 += 4
-            slot8 += 4
+                slot4 += n
+            slot8 += n
         elif KWIDE(tmp[t].cls):
             s = slot8
             if slot4 == slot8:

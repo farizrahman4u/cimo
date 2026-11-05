@@ -1439,7 +1439,7 @@ def qacrosscalls(fn):
     for t in sorted(across):
         s = newtmp('qs', Kl, fn)
         slots[t] = s
-        allocs.append(Ins(Oalloc + 2, Kl, s, getcon(16, fn), R))
+        allocs.append(Ins(Oalloc + 2, Kl, s, getcon(_ext.qbytes(), fn), R))
     for b in fn.rpo[:fn.nblk]:
         new = []
         p = b.phi

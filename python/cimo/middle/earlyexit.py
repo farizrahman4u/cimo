@@ -185,7 +185,7 @@ def _plan(fn, lp):
     pl.test, pl.op, pl.bound = test, op, b
     pl.body, pl.scalar, pl.vector, pl.loads = body, scalar, vector, loads
     pl.exits = exits
-    pl.vf = 16 // widths.pop()
+    pl.vf = _ext.qbytes() // widths.pop()
     return pl
 
 
@@ -233,7 +233,7 @@ def _emit(fn, lp, pl):
     bad = None
     for i in pl.loads:
         off = ec.raw(D.Oand, Kl, s(i.arg[0]), ec.con(PAGE - 1))
-        b = ec.raw(D.Ocugtl, Kw, off, ec.con(PAGE - 16 * COPIES))
+        b = ec.raw(D.Ocugtl, Kw, off, ec.con(PAGE - _ext.qbytes() * COPIES))
         bad = b if bad is None else ec.raw(D.Oor, Kw, bad, b)
     ec.flush()
     ir.setjnz(VC, bad, H, VB)
@@ -259,7 +259,7 @@ def _emit(fn, lp, pl):
             if V._loadsize(i) is not None:
                 addr = s(i.arg[0])
                 if copy:
-                    addr = eb.raw(D.Oadd, Kl, addr, eb.con(16 * copy))
+                    addr = eb.raw(D.Oadd, Kl, addr, eb.con(_ext.qbytes() * copy))
                 q[t] = eb.raw(D.Oqload, Kq, addr)
                 continue
             c = V._compare(i)
@@ -284,7 +284,9 @@ def _emit(fn, lp, pl):
                 m = eb.raw(D.Oqnot, Kq, m)
             hits = m if hits is None else eb.raw(D.Oqor, Kq, hits, m)
     m = hits
-    anylane = eb.raw(D.Oor, Kl, eb.raw(D.Oqgetl, Kl, m, eb.con(0)), eb.raw(D.Oqgetl, Kl, m, eb.con(1)))
+    anylane = eb.raw(D.Oqgetl, Kl, m, eb.con(0))
+    for n in range(1, _ext.qbytes() // 8):
+        anylane = eb.raw(D.Oor, Kl, anylane, eb.raw(D.Oqgetl, Kl, m, eb.con(n)))
     hit = eb.raw(D.Ocnel, Kw, anylane, eb.con(0))
     eb.flush()
     ir.setjnz(VB, hit, H, VH)

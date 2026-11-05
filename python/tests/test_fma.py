@@ -14,7 +14,6 @@ import ctypes
 import math
 import os
 import sys
-import platform
 import random
 import re
 import shutil
@@ -30,7 +29,7 @@ from cimo.backend.main import main as qbe_main
 # the reference compiler: on Windows a cc on PATH is MinGW for x86-64 (GitHub's arm64 image),
 # whose libraries an arm64 Python cannot load, so none there
 CC = os.environ.get('CC', 'cc') if sys.platform != 'win32' else '<none on Windows>'
-ARM64 = platform.machine().lower() in ('arm64', 'aarch64')
+from hosts import ARM64  # this process's machine: x64 Python emulated on arm64 is x86-64
 # fmadd selection is arm64's (x86-64's baseline has no FMA: cimo neither contracts nor selects
 # fma there, and fma() is software)
 pytestmark = pytest.mark.skipif(not ARM64, reason='arm64 code generation')

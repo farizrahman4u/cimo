@@ -114,6 +114,14 @@ def options(**kw):
         configure(**old)
 
 
+def qbytes():
+    """Bytes in a q value on the target being compiled for: 32 (AVX2's ymm) on x86-64 CPUs with avx2, else 16
+    (NEON, SSE2, wasm SIMD)."""
+    from . import defs as D
+    T = D.T
+    return 32 if T is not None and T.name.startswith('amd64') and 'avx2' in x86 else 16
+
+
 def current():
     g = globals()
     return {k: g[k] for k in _NAMES}

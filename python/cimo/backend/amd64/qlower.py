@@ -51,7 +51,7 @@ class _L:
         return self.op('qor', self.op('qand', a, m), self.op('qxandn', m, b))
 
     def cgt(self, x, a, b):
-        if x != 'l':
+        if x != 'l' or _ext.qbytes() == 32:  # AVX2 has vpcmpgtq
             return self.op('qcgt' + x, a, b)
         # a > b is b < a: the sign of d ^ ((b ^ a) & (d ^ b)), d = b - a (Hacker's Delight 2-12)
         d = self.op('qsubl', b, a)
@@ -63,9 +63,15 @@ class _L:
         return self.cgt(x, self.op('qxor', a, s), self.op('qxor', b, s))
 
 
+# what AVX2 has an instruction for (amd64/emit.py's _QY), on 256 bits
+_AVX2 = frozenset(('qmulw', 'qceql', 'qcgtl', 'qminb', 'qminw', 'qmaxb', 'qmaxw', 'quminh', 'quminw', 'qumaxh', 'qumaxw'))
+
+
 def _lower(L, i, third):
     """Writes i in L if it has to be; False if it has an instruction."""
     name = optab[i.op].name
+    if name in _AVX2 and _ext.qbytes() == 32:
+        return False
     a, b, to = i.arg[0], i.arg[1], i.to
     base, x = name[:-1], name[-1]
     if name == 'qnot':

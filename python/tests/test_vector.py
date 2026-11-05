@@ -16,23 +16,30 @@ import hosts
 pytestmark = pytest.mark.skipif(not hosts.RUNS, reason='needs a target with q')
 
 _SIG = driver._build('void f(void *d, void *a, void *b) {}')[1] if hosts.RUNS else None
+# bytes in a q value here: 32 with AVX2 (cimo.backend.ext.qbytes), else 16
+W = 32 if hosts.RUNS and hosts.AMD64 and 'avx2' in driver._x86() else 16
 
 
 def run(body, a, b, tail=''):
-    """Runs `function $f(l %d, l %a, l %b)`, which has the 16 bytes at a and b; returns the 16 bytes at d."""
+    """Runs `function $f(l %d, l %a, l %b)`, which has the W bytes at a and b; returns the W bytes at d."""
     ssa = 'export function $f(l %%d, l %%a, l %%b) {\n@s\n%s\n\tret\n}\n%s' % (body, tail)
     text = driver._qbe(ssa)
     m = driver.Module(text, _SIG, (), snapshot=False)
-    d = ctypes.create_string_buffer(16)
-    x = ctypes.create_string_buffer(a, 16)
-    y = ctypes.create_string_buffer(b, 16)
+    d = ctypes.create_string_buffer(W)
+    x = ctypes.create_string_buffer(a, W)
+    y = ctypes.create_string_buffer(b, W)
     m.f(ctypes.addressof(d), ctypes.addressof(x), ctypes.addressof(y))
     return d.raw
 
 
 LOADS = '\t%x =q qload %a\n\t%y =q qload %b\n'
 FMT = {'b': 'b', 'h': 'h', 'w': 'i', 'l': 'q', 's': 'f', 'd': 'd'}
-COUNT = {'b': 16, 'h': 8, 'w': 4, 'l': 2, 's': 4, 'd': 2}
+COUNT = {'b': W, 'h': W // 2, 'w': W // 4, 'l': W // 8, 's': W // 4, 'd': W // 8}
+
+
+def lanes(vals, x):
+    """vals, repeated or cut to the lanes of x."""
+    return [vals[k % len(vals)] for k in range(COUNT[x])]
 BITS = {'b': 8, 'h': 16, 'w': 32, 'l': 64}
 
 
@@ -85,10 +92,12 @@ def test_64_bit_compare_at_the_edges(op):
     # x86-64's SSE2 has no 64-bit compare, so qlower writes one: every pair of these, both ways
     edge = [0, 1, -1, 7, 2**63 - 1, -2**63, 2**32, -2**32, 2**31, -2**31 - 1]
     pairs = [(p, q) for p in edge for q in edge]
-    for k in range(0, len(pairs), 2):
-        (a0, b0), (a1, b1) = pairs[k], pairs[k + 1] if k + 1 < len(pairs) else pairs[0]
-        got = unpack('l', run(LOADS + '\t%%r =q %sl %%x, %%y\n\tqstore %%r, %%d' % op, pack('l', [a0, a1]), pack('l', [b0, b1])))
-        assert list(got) == [INTOPS[op](a0, b0, 'l'), INTOPS[op](a1, b1, 'l')], (a0, b0, a1, b1)
+    n = COUNT['l']
+    for k in range(0, len(pairs), n):
+        part = (pairs[k:k + n] + pairs[:n])[:n]
+        got = unpack('l', run(LOADS + '\t%%r =q %sl %%x, %%y\n\tqstore %%r, %%d' % op, pack('l', [p for p, _ in part]),
+                               pack('l', [q for _, q in part])))
+        assert list(got) == [INTOPS[op](p, q, 'l') for p, q in part], part
 
 
 FPOPS = {'qadd': lambda a, b: a + b, 'qsub': lambda a, b: a - b, 'qmul': lambda a, b: a * b, 'qdiv': lambda a, b: a / b,
@@ -97,16 +106,16 @@ FPOPS = {'qadd': lambda a, b: a + b, 'qsub': lambda a, b: a - b, 'qmul': lambda 
 
 @pytest.mark.parametrize('op,x', [(o, x) for o in FPOPS for x in 'sd'])
 def test_float(op, x):
-    a = [1.5, -2.25, 8.0, 0.125][:COUNT[x]]
-    b = [0.5, 4.0, -3.0, 16.0][:COUNT[x]]
+    a = lanes([1.5, -2.25, 8.0, 0.125], x)
+    b = lanes([0.5, 4.0, -3.0, 16.0], x)
     got = unpack(x, run(LOADS + '\t%%r =q %s%s %%x, %%y\n\tqstore %%r, %%d' % (op, x), pack(x, a), pack(x, b)))
     assert list(got) == [(f32 if x == 's' else float)(FPOPS[op](p, q)) for p, q in zip(a, b)]
 
 
 @pytest.mark.parametrize('x', 'sd')
 def test_float_compare_is_a_mask(x):
-    a = [1.0, 2.0, float('nan'), 4.0][:COUNT[x]]
-    b = [1.0, 3.0, 1.0, 0.0][:COUNT[x]]
+    a = lanes([1.0, 2.0, float('nan'), 4.0], x)
+    b = lanes([1.0, 3.0, 1.0, 0.0], x)
     ix = {'s': 'w', 'd': 'l'}[x]
     for op, want in (('qceq', lambda p, q: p == q), ('qcgt', lambda p, q: p > q), ('qcge', lambda p, q: p >= q)):
         got = unpack(ix, run(LOADS + '\t%%r =q %s%s %%x, %%y\n\tqstore %%r, %%d' % (op, x), pack(x, a), pack(x, b)))
@@ -115,29 +124,29 @@ def test_float_compare_is_a_mask(x):
 
 @pytest.mark.parametrize('x', 'sd')
 def test_one_argument_float(x):
-    a = [4.0, -9.0, 16.0, 0.25][:COUNT[x]]
+    a = lanes([4.0, -9.0, 16.0, 0.25], x)
     for op, want in (('qneg', lambda v: -v), ('qabs', abs), ('qsqrt', lambda v: math.sqrt(abs(v)))):
         body = '\t%x =q qload %a\n' + ('\t%%x =q qabs%s %%x\n' % x if False else '')
         src = a if op != 'qsqrt' else [abs(v) for v in a]
-        got = unpack(x, run('\t%%x =q qload %%a\n\t%%r =q %s%s %%x\n\tqstore %%r, %%d' % (op, x), pack(x, src), bytes(16)))
+        got = unpack(x, run('\t%%x =q qload %%a\n\t%%r =q %s%s %%x\n\tqstore %%r, %%d' % (op, x), pack(x, src), bytes(W)))
         assert list(got) == [want(v) for v in src], op
 
 
 @pytest.mark.parametrize('x', 'bhwl')
 def test_neg_and_shifts(x):
     a = ints(x, 3)
-    got = unpack(x, run('\t%%x =q qload %%a\n\t%%r =q qneg%s %%x\n\tqstore %%r, %%d' % x, pack(x, a), bytes(16)))
+    got = unpack(x, run('\t%%x =q qload %%a\n\t%%r =q qneg%s %%x\n\tqstore %%r, %%d' % x, pack(x, a), bytes(W)))
     assert list(got) == [wrap(x, -v) for v in a]
     n = {'b': 3, 'h': 5, 'w': 17, 'l': 33}[x]
     for op, want in (('qshl', lambda v: wrap(x, v << n)), ('qshr', lambda v: wrap(x, uns(x, v) >> n)), ('qsar', lambda v: v >> n)):
-        got = unpack(x, run('\t%%x =q qload %%a\n\t%%r =q %s%s %%x, %d\n\tqstore %%r, %%d' % (op, x, n), pack(x, a), bytes(16)))
+        got = unpack(x, run('\t%%x =q qload %%a\n\t%%r =q %s%s %%x, %d\n\tqstore %%r, %%d' % (op, x, n), pack(x, a), bytes(W)))
         assert list(got) == [want(v) for v in a], op
 
 
 def test_logic_and_select():
-    a, b = bytes(range(16)), bytes(range(100, 116))
+    a, b = bytes(range(W)), bytes(range(100, 100 + W))
     x, y = int.from_bytes(a, 'little'), int.from_bytes(b, 'little')
-    full = (1 << 128) - 1
+    full = (1 << (8 * W)) - 1
     for op, want in (('qand', x & y), ('qor', x | y), ('qxor', x ^ y)):
         got = run(LOADS + '\t%%r =q %s %%x, %%y\n\tqstore %%r, %%d' % op, a, b)
         assert int.from_bytes(got, 'little') == want, op
@@ -173,12 +182,12 @@ def test_fused_multiply_add_rounds_once(x):
 
 @pytest.mark.parametrize('x,k,val', [('b', 'w', -3), ('h', 'w', -300), ('w', 'w', -70000), ('l', 'l', -2 ** 40)])
 def test_dup_and_get_integer(x, k, val):
-    got = unpack(x, run('\t%%v =%s copy %d\n\t%%r =q qdup%s %%v\n\tqstore %%r, %%d' % (k, val, x), bytes(16), bytes(16)))
+    got = unpack(x, run('\t%%v =%s copy %d\n\t%%r =q qdup%s %%v\n\tqstore %%r, %%d' % (k, val, x), bytes(W), bytes(W)))
     assert got == (val,) * COUNT[x]
     a = ints(x, 2)
     for lane in (0, COUNT[x] - 1):
         store = 'storel' if k == 'l' else 'storew'
-        d = run('\t%%x =q qload %%a\n\t%%v =%s qget%s %%x, %d\n\t%s %%v, %%d' % (k, x, lane, store), pack(x, a), bytes(16))
+        d = run('\t%%x =q qload %%a\n\t%%v =%s qget%s %%x, %d\n\t%s %%v, %%d' % (k, x, lane, store), pack(x, a), bytes(W))
         n = BITS[x]
         low = int.from_bytes(d[:8 if k == 'l' else 4], 'little')
         assert low & ((1 << n) - 1) == uns(x, a[lane])
@@ -186,20 +195,20 @@ def test_dup_and_get_integer(x, k, val):
 
 @pytest.mark.parametrize('x,k', [('s', 's'), ('d', 'd')])
 def test_dup_and_get_float(x, k):
-    a = [1.5, 2.5, 3.5, 4.5][:COUNT[x]]
-    d = run('\t%%x =q qload %%a\n\t%%v =%s qget%s %%x, %d\n\t%%r =q qdup%s %%v\n\tqstore %%r, %%d' % (k, x, COUNT[x] - 1, x), pack(x, a), bytes(16))
+    a = lanes([1.5, 2.5, 3.5, 4.5], x)
+    d = run('\t%%x =q qload %%a\n\t%%v =%s qget%s %%x, %d\n\t%%r =q qdup%s %%v\n\tqstore %%r, %%d' % (k, x, COUNT[x] - 1, x), pack(x, a), bytes(W))
     assert unpack(x, d) == (a[-1],) * COUNT[x]
 
 
 def test_all_registers_and_spills():
-    """More live values than registers: spills of 16 bytes, including one next to a 4-byte and an 8-byte slot."""
+    """More live values than registers: spills of W bytes, including one next to a 4-byte and an 8-byte slot."""
     n = 40
     lines = ['\t%x =q qload %a', '\t%y =q qload %b', '\t%w =w loadw %a', '\t%l =l loadl %b', '\t%s =s loads %a']
     lines += ['\t%%v%d =q qaddw %%%s, %%y' % (i, 'x' if i == 0 else 'v%d' % (i - 1)) for i in range(n)]
     lines += ['\t%s0 =q qaddw %v0, %v1']
     lines += ['\t%%s%d =q qaddw %%s%d, %%v%d' % (i, i - 1, i + 1) for i in range(1, n - 1)]
     lines += ['\tqstore %%s%d, %%d' % (n - 2), '\t%m =w add %w, 1', '\t%n =l add %l, 1', '\tstorew %m, %a', '\tstorel %n, %b', '\tstores %s, %b']
-    a, b = array.array('i', [1, 2, 3, 4]), array.array('i', [10, 20, 30, 40])
+    a, b = array.array('i', lanes([1, 2, 3, 4], 'w')), array.array('i', lanes([10, 20, 30, 40], 'w'))
     got = array.array('i', run('\n'.join(lines), a.tobytes(), b.tobytes()))
     want = []
     for p, q in zip(a, b):
@@ -229,8 +238,8 @@ def test_loop_with_a_phi():
 	jmp @h
 @e
 	qstore %p, %d'''
-    a, b = [1, 2, 3, 4], [10, 20, 30, 40]
-    got = struct.unpack('<4i', run(body, struct.pack('<4i', *a), struct.pack('<4i', *b)))
+    a, b = lanes([1, 2, 3, 4], 'w'), lanes([10, 20, 30, 40], 'w')
+    got = unpack('w', run(body, pack('w', a), pack('w', b)))
     want = []
     for p0, y in zip(a, b):
         p, r = p0, y
@@ -250,8 +259,8 @@ def test_phis_under_pressure(rotate):
     summed += ['\t%%t%d =q qaddw %%t%d, %%%s\n' % (k, k - 1, names[k]) for k in range(1, rotate)]
     body = LOADS + '\tjmp @h\n@h\n\t%i =w phi @s 0, @l %j\n' + phis + '\t%%c =w csltw %%i, %d\n\tjnz %%c, @l, @e\n@l\n' % turns \
         + ''.join(summed) + '\t%%n =q qaddw %%t%d, %%y\n\t%%j =w add %%i, 1\n\tjmp @h\n@e\n\t%%r =q qaddw %%%s, %%%s\n\tqstore %%r, %%d' % (rotate - 1, names[0], names[-1])
-    a, b = [1, 2, 3, 4], [10, 20, 30, 40]
-    got = struct.unpack('<4i', run(body, struct.pack('<4i', *a), struct.pack('<4i', *b)))
+    a, b = lanes([1, 2, 3, 4], 'w'), lanes([10, 20, 30, 40], 'w')
+    got = unpack('w', run(body, pack('w', a), pack('w', b)))
     want = []
     for x, y in zip(a, b):
         ps = [x] * rotate
@@ -266,16 +275,16 @@ def test_live_across_a_call(live):
     """A call keeps at most the low 64 bits of an FP register. The callee here wipes all of v0 to v31."""
     # every register in use at once, and all of them kept by storing them: nothing here can be deleted
     n = 36
-    wipe = 'data $sink = align 16 { z %d }\nexport function $wipe() {\n@s\n\t%%v =l copy -1\n\t%%z =q qdupl %%v\n' % (16 * n)
+    wipe = 'data $sink = align 16 { z %d }\nexport function $wipe() {\n@s\n\t%%v =l copy -1\n\t%%z =q qdupl %%v\n' % (W * n)
     wipe += ''.join('\t%%z%d =q qaddw %%%s, %%z\n' % (k, 'z' if k == 0 else 'z%d' % (k - 1)) for k in range(n))
-    wipe += ''.join('\t%%p%d =l add $sink, %d\n\tqstore %%z%d, %%p%d\n' % (k, 16 * k, k, k) for k in range(n))
+    wipe += ''.join('\t%%p%d =l add $sink, %d\n\tqstore %%z%d, %%p%d\n' % (k, W * k, k, k) for k in range(n))
     wipe += '\tret\n}\n'
     lines = ['\t%%x%d =q qaddw %%%s, %%y' % (n, 'x' if n == 0 else 'x%d' % (n - 1)) for n in range(live)]
     lines = LOADS.rstrip('\n').split('\n') + lines + ['\tcall $wipe()']
     lines += ['\t%s0 =q qaddw %x0, %y'] + ['\t%%s%d =q qaddw %%s%d, %%x%d' % (n, n - 1, n) for n in range(1, live)]
     lines += ['\tqstore %%s%d, %%d' % (live - 1)]
-    a, b = [1, 2, 3, 4], [10, 20, 30, 40]
-    got = struct.unpack('<4i', run('\n'.join(lines), struct.pack('<4i', *a), struct.pack('<4i', *b), wipe))
+    a, b = lanes([1, 2, 3, 4], 'w'), lanes([10, 20, 30, 40], 'w')
+    got = unpack('w', run('\n'.join(lines), pack('w', a), pack('w', b), wipe))
     want = []
     for p, y in zip(a, b):
         xs = [p + y * (n + 1) for n in range(live)]
@@ -293,7 +302,7 @@ def test_callee_saved_low_halves_stay_kept():
 	call $c(l %b)
 	%y1 =d add %x1, d_1
 	stored %y1, %d'''
-    d = run(caller, struct.pack('<2d', 1.0, 0.0), bytes(16), callee)
+    d = run(caller, struct.pack('<2d', 1.0, 0.0) + bytes(W - 16), bytes(W), callee)
     assert struct.unpack('<d', d[:8])[0] == 3.0
 
 
@@ -333,7 +342,7 @@ def test_get_every_integer_lane(x, k):
     for n in range(COUNT[x]):
         store = 'storel' if k == 'l' else 'storew'
         body = '\t%%x =q qload %%a\n\t%%r =%s qget%s %%x, %d\n\t%s %%r, %%d' % (k, x, n, store)
-        got = int.from_bytes(run(body, pack(x, vals), bytes(16))[:8 if k == 'l' else 4], 'little')
+        got = int.from_bytes(run(body, pack(x, vals), bytes(W))[:8 if k == 'l' else 4], 'little')
         assert got == vals[n] & ((1 << bits) - 1)  # zero-extended
 
 
@@ -342,5 +351,5 @@ def test_get_every_float_lane(x):
     vals = [1.5 + n for n in range(COUNT[x])]
     for n in range(COUNT[x]):
         body = '\t%%x =q qload %%a\n\t%%r =%s qget%s %%x, %d\n\tstore%s %%r, %%d' % (x, x, n, x)
-        got = struct.unpack('<' + FMT[x], run(body, pack(x, vals), bytes(16))[:struct.calcsize(FMT[x])])[0]
+        got = struct.unpack('<' + FMT[x], run(body, pack(x, vals), bytes(W))[:struct.calcsize(FMT[x])])[0]
         assert got == vals[n]

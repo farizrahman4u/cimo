@@ -25,6 +25,7 @@ from ..backend import defs as D
 from ..backend.defs import R, Kw, Kl, Ks, Kd, Kq, Ins, optab, rval
 from ..backend.util import newtmp
 from . import ir
+from ..backend import ext as _ext
 
 _LANE = {Ks: 's', Kd: 'd', Kw: 'w', Kl: 'l'}
 _SIZE = {Ks: 4, Kd: 8, Kw: 4, Kl: 8}
@@ -388,7 +389,7 @@ def plan(fast, rts):
             widths.add(_SIZE[r.cls])
     if len(widths) != 1:
         return 0
-    vf = 16 // widths.pop()
+    vf = _ext.qbytes() // widths.pop()
     if any(r.ordered for r in fast.vreds) and not _worth(fast, vf, skip):
         return 0
     far = set()
@@ -543,7 +544,7 @@ def body(fast, em, state, copy=0):
             get = getattr(D, 'Oqget' + x)
             acc = state[('phi', r.t)]
             vs = [vec(a, r.cls) for a in (r.v if isinstance(r.v, tuple) else (r.v,))]
-            for n in range(16 // _SIZE[r.cls]):
+            for n in range(_ext.qbytes() // _SIZE[r.cls]):
                 lanes = [em.raw(get, r.cls, w, em.con(n)) for w in vs]
                 if r.op == D.Ofma1:
                     em.ins(Ins(D.Ofma0, r.cls, R, acc, R))
@@ -611,7 +612,7 @@ def closeloop(fast, em, MB, FP, state):
                 totals.append(out0)
         k = r.cls
         x = _LANE[k]
-        lanes = 16 // _SIZE[k]
+        lanes = _ext.qbytes() // _SIZE[k]
         v = state[('phi', r.t)]
         if r.op == D.Osel1:  # each lane into the scalar value as the loop would: s = cond(lane, s) ? ... : ...
             phi = r.i.arg[0] if r.i.arg[1] == r.v else r.i.arg[1]

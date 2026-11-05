@@ -27,7 +27,7 @@ def _cimowin():
 
 
 class E:
-    __slots__ = ('f', 'fn', 'fp', 'fsz', 'nclob', 'xsave', 'xarea', 'qthird')
+    __slots__ = ('f', 'fn', 'fp', 'fsz', 'nclob', 'xsave', 'xarea', 'qthird', 'vzu')
 
     def __init__(self, f, fn):
         self.f = f
@@ -38,6 +38,9 @@ class E:
         self.xsave = []  # cimo (amd64_windows): callee-saved xmm registers, saved below the
         self.xarea = 0   # pushes in xarea bytes
         self.qthird = R  # cimo (ext.vector): qfma0's addend, for the qfma1 after it
+        # cimo (AVX2): vzeroupper before each call and the return of a function that uses ymm registers, so code
+        # around it, SSE in callers and callees, doesn't pay for their dirty upper halves
+        self.vzu = _ext.qbytes() == 32 and _usesq(fn)
 
 
 # (cmp, set/jump suffix, negated suffix)
@@ -444,8 +447,111 @@ def _qcopy(i, e):
         f.write("\tmovaps %s, %s\n" % (_qx(a), _qx(to)))
 
 
+# AVX2, 256 bits: three addresses, dest = a op b, the VEX form of each SSE2 one, and what qlower leaves for AVX2
+_QY = dict((k, 'v' + mn) for k, (mn, _) in _QTWO.items())
+_QY.update({'qmulw': 'vpmulld', 'qceql': 'vpcmpeqq', 'qcgtl': 'vpcmpgtq', 'qminb': 'vpminsb', 'qminw': 'vpminsd',
+            'qmaxb': 'vpmaxsb', 'qmaxw': 'vpmaxsd', 'quminh': 'vpminuw', 'quminw': 'vpminud', 'qumaxh': 'vpmaxuw',
+            'qumaxw': 'vpmaxud'})
+_QYSWAPPED = dict((k, 'v' + mn) for k, mn in _QSWAPPED.items())
+
+
+def _qy(r):
+    return "%%ymm%d" % (rval(r) - XMM0)
+
+
+def _emitf_y(fmt, i, e):
+    """emitf, with the vector register named as a ymm (memory operands only name general registers)."""
+    import io
+    f, e.f = e.f, io.StringIO()
+    try:
+        emitf(fmt, i, e)
+        text = e.f.getvalue()
+    finally:
+        e.f = f
+    f.write(text.replace('%xmm', '%ymm'))
+
+
+def _qcopy_y(i, e):
+    f = e.f
+    to, a = i.to, i.arg[0]
+    if to == R or a == R or to == a:
+        return
+    if rtype(to) == RSlot and rtype(a) == RSlot:
+        f.write("\tvmovups %d(%%%s), %%ymm15\n" % (slot(a, e), regtoa(e.fp, SLong)))
+        f.write("\tvmovups %%ymm15, %d(%%%s)\n" % (slot(to, e), regtoa(e.fp, SLong)))
+    elif rtype(to) == RSlot:
+        _emitf_y("vmovups %0, %M=", i, e)
+    elif rtype(a) == RSlot:
+        _emitf_y("vmovups %M0, %=", i, e)
+    else:
+        f.write("\tvmovaps %s, %s\n" % (_qy(a), _qy(to)))
+
+
+def _qins_y(i, e):
+    """_qins on 256 bits (AVX2, ext.qbytes() == 32)."""
+    f = e.f
+    op = i.op
+    if op == Ocopy and i.cls == D.Kq:
+        _qcopy_y(i, e)
+        return True
+    if op == Oswap and i.cls == D.Kq:
+        a, b = _qy(i.arg[0]), _qy(i.arg[1])
+        f.write("\tvmovaps %s, %%ymm15\n\tvmovaps %s, %s\n\tvmovaps %%ymm15, %s\n" % (a, b, a, b))
+        return True
+    if (op == Oload and i.cls == D.Kq) or op == D.Oqload:
+        _emitf_y("vmovups %M0, %=", i, e)
+        return True
+    if op == D.Oqstore:
+        _emitf_y("vmovups %0, %M1", i, e)
+        return True
+    if not D.isqop(op):
+        return False
+    name = optab[op].name
+    to, a, b = i.to, i.arg[0], i.arg[1]
+    if name == 'qfma0':
+        e.qthird = a
+        return True
+    if name in ('qfma1s', 'qfma1d'):
+        _fma3(f, 'p' + name[-1], to, a, b, e.qthird, y=True)
+        return True
+    if name in _QY:
+        f.write("\t%s %s, %s, %s\n" % (_QY[name], _qy(b), _qy(a), _qy(to)))
+    elif name in _QYSWAPPED:
+        f.write("\t%s %s, %s, %s\n" % (_QYSWAPPED[name], _qy(a), _qy(b), _qy(to)))
+    elif name in _QSHIFT:
+        f.write("\tv%s $%d, %s, %s\n" % (_QSHIFT[name], e.fn.con[rval(b)].i, _qy(a), _qy(to)))
+    elif name == 'qxshufd':
+        f.write("\tvpshufd $%d, %s, %s\n" % (e.fn.con[rval(b)].i, _qy(a), _qy(to)))
+    elif name in ('qsqrts', 'qsqrtd'):
+        f.write("\tvsqrtp%s %s, %s\n" % (name[-1], _qy(a), _qy(to)))
+    elif name.startswith('qdup'):
+        x = name[-1]
+        y = _qy(to)
+        if rtype(a) == RCon:  # isel: 0 and -1 only
+            f.write("\t%s %s, %s, %s\n" % ("vpxor" if e.fn.con[rval(a)].i == 0 else "vpcmpeqd", y, y, y))
+        elif x in 'sd':
+            f.write("\tvbroadcasts%s %s, %s\n" % (x, _qx(a), y))
+        else:
+            f.write("\t%s %s, %%xmm15\n" % (("movq", _qr(a, SLong)) if x == 'l' else ("movd", _qr(a, SWord))))
+            f.write("\tvpbroadcast%s %%xmm15, %s\n" % ({'b': 'b', 'h': 'w', 'w': 'd', 'l': 'q'}[x], y))
+    elif name.startswith('qget'):
+        x = name[-1]
+        n = e.fn.con[rval(b)].i
+        half = 16 // {'b': 1, 'h': 2, 'w': 4, 'l': 8, 's': 4, 'd': 8}[x]
+        if n >= half:  # the upper 128 bits first
+            f.write("\tvextracti128 $1, %s, %%xmm15\n" % _qy(a))
+            _qget(x, i, e, "%xmm15", n - half)
+        else:
+            _qget(x, i, e, _qx(a), n)
+    else:
+        die("no AVX2 instruction for %s", name)
+    return True
+
+
 def _qins(i, e):
     """cimo (ext.vector): one instruction on 128 bits; amd64/qlower.py has left only those SSE2 has. True if it was one."""
+    if _ext.qbytes() == 32:
+        return _qins_y(i, e)
     f = e.f
     op = i.op
     if op == Ocopy and i.cls == D.Kq:
@@ -511,10 +617,13 @@ def _qdup(x, i, e):
         f.write("\tpshufd $0, %s, %s\n" % (to, to))
 
 
-def _qget(x, i, e):
+def _qget(x, i, e, a=None, n=None):
+    """Lane n of a (a register's name), 128 bits."""
     f = e.f
-    n = e.fn.con[rval(i.arg[1])].i
-    a = _qx(i.arg[0])
+    if n is None:
+        n = e.fn.con[rval(i.arg[1])].i
+    if a is None:
+        a = _qx(i.arg[0])
     if x == 's':
         f.write("\tpshufd $%d, %s, %s\n" % (n, a, _qx(i.to)))
     elif x == 'd':
@@ -672,12 +781,16 @@ def emitins(i, e):
         t = rtype(i.arg[0])
         if t == RCon:
             con = e.fn.con[rval(i.arg[0])]
+            if e.vzu:
+                f.write("\tvzeroupper\n")
             f.write("\tcallq ")
             emitcon(con, e)
             if con.type == CAddr and (con.sym.type & SExt) and not D.T.apple:
                 f.write("@plt")
             f.write("\n")
         elif t == RTmp:
+            if e.vzu:
+                f.write("\tvzeroupper\n")
             emitf("callq *%L0", i, e)
         else:
             die("invalid call argument")
@@ -779,10 +892,10 @@ def _fma(i, e):
     _fma3(e.f, 's' + ('d' if i.cls == Kd else 's'), i.to, i.arg[0], m.base, m.index, _FMA3[i.op])
 
 
-def _fma3(f, x, to, a, b, c, mn='vfmadd'):
+def _fma3(f, x, to, a, b, c, mn='vfmadd', y=False):
     """to = ±(a*b) ± c in x ('ss', 'sd', 'ps', 'pd'), whichever of them to shares a register with: the 231 form
     computes src1*src2 ± dst, the 213 form src1*dst ± src2, so the sign of each part is the mnemonic's either way."""
-    q = lambda r: "%%xmm%d" % (rval(r) - XMM0)
+    q = lambda r: "%%%smm%d" % ('y' if y else 'x', rval(r) - XMM0)
     if to == c:
         f.write("\t%s231%s %s, %s, %s\n" % (mn, x, q(b), q(a), q(to)))
     elif to == a:
@@ -790,7 +903,7 @@ def _fma3(f, x, to, a, b, c, mn='vfmadd'):
     elif to == b:
         f.write("\t%s213%s %s, %s, %s\n" % (mn, x, q(c), q(a), q(to)))
     else:
-        f.write("\tmovaps %s, %s\n\t%s231%s %s, %s, %s\n" % (q(c), q(to), mn, x, q(b), q(a), q(to)))
+        f.write("\t%s %s, %s\n\t%s231%s %s, %s, %s\n" % ('vmovaps' if y else 'movaps', q(c), q(to), mn, x, q(b), q(a), q(to)))
 
 
 absmask = {Ks: 0x7fffffff, Kd: 0x7fffffffffffffff}
@@ -822,6 +935,17 @@ def _stkchk(fn, f):
 # cimo: a loop's header on 64 bytes, not QBE's 16: where a short loop lands within a 64-byte line moved gemm by 1.1 to
 # 1.5x on Ice Lake, Sapphire Rapids and Zen 4 when one instruction changed (FMA), and the baseline build is no slower
 _LOOPALIGN = ".p2align 6\n"
+
+
+def _usesq(fn):
+    """Whether fn has q values (ext.vector)."""
+    b = fn.start
+    while b:
+        for i in b.ins[:b.nins]:
+            if i.cls == D.Kq or D.isqop(i.op):
+                return True
+        b = b.link
+    return False
 
 
 def _usesxmm15(fn):
@@ -936,6 +1060,8 @@ def _emitjmp(b, fn, e, id0, rclob, nclr, win):
             f.write("\tleave\n")
         elif e.fsz:
             f.write("\taddq $%d, %%rsp\n" % e.fsz)
+        if e.vzu:
+            f.write("\tvzeroupper\n")
         f.write("\tret\n")
     elif jt == Jjmp:
         if b.s1 is not b.link:

@@ -227,7 +227,8 @@ class _Driver:
         # cimo: volatile accesses are plain ones from here on (ext.volatile)
         D.unvolatile(fn, D.TMP(_IP1) if T.name.startswith('arm64') else
                      'use' if T.name.startswith('amd64') else None)
-        if ext.vector and T.name.startswith('arm64'):
+        # a call keeps 64 bits of an FP register on arm64, and 128 of xmm6-xmm15 on Windows x64: not a ymm's 256
+        if ext.vector and (T.name.startswith('arm64') or (T.name == 'amd64_windows' and ext.qbytes() == 32)):
             from .arm64.isel import qacrosscalls
             qacrosscalls(fn)
             cfg.fillcfg(fn)

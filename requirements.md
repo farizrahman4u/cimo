@@ -923,6 +923,14 @@ Targets `amd64_sysv` (Linux; frontend `x86_64-sysv`) and `amd64_windows` (fronte
   register uses the store opcode, as GNU as does, for the two-byte VEX. An x86-64 GNU as on an arm64 machine without root:
   `apt-get download binutils-x86-64-linux-gnu`, `dpkg -x` it, run `x86_64-linux-gnu-as` with `LD_LIBRARY_PATH` at its
   `usr/lib/aarch64-linux-gnu` (`AS_AMD64` for the tests).
+- **AVX2: 256-bit q (2026-11-05):** on x86-64 with `avx2` (`cimo.cpu`, in the cache key), class q is 256 bits
+  (`ext.qbytes()` 32): the vectorizer, early exits and spill slots take their width from it, and amd64's emitter writes
+  each q operation as its three-address VEX form on ymm (`_qins_y`), with AVX2's own instructions for what SSE2 has to
+  have written out (`vpmulld`, `vpcmpgtq`, `vpcmpeqq`, byte to dword min and max: qlower leaves them). Per-128-bit-lane
+  shuffles and unpacks keep their meaning for what uses them (lane-wise masks, sums of widened halves). `vzeroupper`
+  before each call and return of a function with q values. Windows x64 keeps only 128 bits of xmm6-xmm15 across a call,
+  so a q value live across one goes to memory (`qacrosscalls`, as on arm64). Tested under Windows-on-arm's x64 emulation,
+  which has AVX2, and in CI; tests that drive q directly take the width from the host (`test_vector.W`).
 - **Backend:** QBE's amd64 code (`backend/amd64/`, see its PORTING.md section), verified by
   diffing every pass against C QBE on its 76 tests. `amd64_windows` is cimo's own target over
   QBE's `amd64_win` (which stays as in C for the diffs): xmm6-xmm15 callee-saved (QBE clobbers

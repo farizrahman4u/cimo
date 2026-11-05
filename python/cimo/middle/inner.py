@@ -892,7 +892,7 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
             ext = e2.op(D.Oextsw if c.kind == 's' else D.Oextuw, Kl, v)
             oks.append(e2.cmp(D.Oceql, ext, v))
     if fast.vf:
-        oks += vectorize.overlapchecks(fast, e2, T, 16 // fast.vf)
+        oks += vectorize.overlapchecks(fast, e2, T, _ext.qbytes() // fast.vf)
     ok = None
     for o in oks:
         co = ir.conval(fn, o)

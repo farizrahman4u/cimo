@@ -6,8 +6,10 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 - **High priority: x86-64 for this machine's CPU.** Detection, the cache key, FMA (scalar and vector, negations
   folded, none on a recurrence through its addend) and `popcnt`/`lzcnt`/`tzcnt` **done** (`cimo/cpu.py`; see "x86-64
-  for this CPU" in `requirements.md`). Open: 256-bit AVX2 vectors, behind the `avx2` feature; gcc `-march=native`
-  is 1.18 to 1.44x ahead (geomean, Ice Lake, Sapphire Rapids, Zen 4), most of it 256 bits and `rgb2gray`'s bytes.
+  for this CPU" in `requirements.md`). 256-bit AVX2 vectors **done** (`ext.qbytes()`; see "AVX2" in `requirements.md`), correct under emulation and in CI but
+  **not yet measured**: rerun bench/run.py on EC2 (Ice Lake, Sapphire Rapids, Zen 4) against the 128-bit build and gcc
+  `-march=native` (1.18 to 1.44x ahead of 128 bits). Then `vpblendvb` for selects (and/andn/or today), VEX forms of the scalar
+  float instructions (SSE ones after a 256-bit one pay for the dirty upper halves on some Intel cores), byte lanes.
 
 0. ~~**A fault in a kernel must not kill the Python process.**~~ **Done** (`cimo/fault.py`,
    `tests/test_faults.py`; see "Hardware faults" in `requirements.md`).
