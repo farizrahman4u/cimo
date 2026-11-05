@@ -208,6 +208,7 @@ class Fast:
         self.srload = {}       # load tmp -> (chain, position)
         self.chk = set()       # ids of the extension checks the fast loop relies on
         self.vf = 0            # lanes, when the main loop is vectorized
+        self.ic = 1            # and vectors an iteration (vectorize.interleave)
         self.vchecks = ()      # and the arrays to compare before it
         self.vreds = ()        # and the reductions it collects (vectorize.Reduction)
 
@@ -774,7 +775,8 @@ def transform(fn, lp, rts, done, mode='opt'):
     if not vf:  # lanes read their own elements: nothing to reuse
         fast.find_chains(noalias_load)
     ncl = 0
-    U = vf or max(1, M.unroll)
+    fast.ic = vectorize.interleave(fast) if vf else 1  # vectors an iteration
+    U = vf * fast.ic or max(1, M.unroll)
     fast.plan(U)
     ncl = len(fast.cloned)
     while U > 1 and not vf and ncl * U > MAXBODY:
@@ -957,7 +959,11 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
         stM = {sv: newtmp('m', _svcls(fn, sv, fast, [(None, state0[sv])]), fn) for sv in svs}
         em = Emitter(fn, MB)
         fast.em = em
-        out = vectorize.body(fast, em, stM) if fast.vf else fast.copies(em, stM, U)[0]
+        if fast.vf:
+            for c in range(fast.ic):  # only unordered reductions when more than one: state is the IVs throughout
+                out = vectorize.body(fast, em, stM, c)
+        else:
+            out = fast.copies(em, stM, U)[0]
         out = fast.advance(em, out, U)
         c = em.raw(D.Ocnel if kc == Kl else D.Ocnew, Kw, out[('iv', ctlg.idx)], end4)
         em.flush()

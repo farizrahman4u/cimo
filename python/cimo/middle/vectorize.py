@@ -16,7 +16,9 @@ Each lane does what the scalar instruction did, in the same rounding, so results
 Arrays that may overlap are compared before the loop (overlapchecks), up to MAXCHECKS pairs.
 Conditions: a comparison becomes a mask of its lanes (all ones where it holds), which only a select may read, and the
 select takes each lane's bits from one side or the other; so `x > 0 ? x : 0` is exact, NaNs and signed zeros included.
-Not yet: other widening and narrowing, reductions through a condition, downward steps, SLP.
+Integer reductions through a condition (a running max or min) too (_select), and a loop of unordered reductions does
+INTERLEAVE vectors an iteration, each with its own accumulators (interleave).
+Not yet: other widening and narrowing, float reductions through a condition, early exits, downward steps, SLP.
 """
 
 from ..backend import defs as D
@@ -97,7 +99,8 @@ def _distance(store, load, vf, storeat, loadat):
 
 class Reduction:
     """s = s op v, round the loop: t is s's phi, op the instruction, v the operand, ext how v comes from 32-bit lanes."""
-    __slots__ = ('t', 'i', 'op', 'v', 'ext', 'acc0', 'in0', 'in1', 'out0', 'out1', 'cls', 'ordered', 'third')
+    __slots__ = ('t', 'i', 'op', 'v', 'ext', 'acc0', 'in0', 'in1', 'out0', 'out1', 'cls', 'ordered', 'third',
+                 'cmp', 'sel0', 'identity', 'copies')
 
 
 _REDOPS = {D.Oadd: 'qadd', D.Osub: 'qsub', D.Oand: 'qand', D.Oor: 'qor', D.Oxor: 'qxor'}
@@ -139,6 +142,54 @@ def _reduction(fast, p, cloned):
     r.t, r.i, r.op, r.v, r.cls = t, i, i.op, v, p.cls
     r.ext = r.third = None
     r.ordered = False
+    return r
+
+
+def _select(fast, p, cloned):
+    """p as a Reduction through a condition, or None: an integer s = (x > s) ? x : s, or any comparison of x and s that
+    orders them, either way round, so a maximum or a minimum. Each lane keeps its own from the type's identity, and the
+    lanes join the scalar value in closeloop through the same comparison and select. Equal integers are the same
+    integer, so the order doesn't matter; floats aren't taken (two zeros, NaNs)."""
+    if p.cls not in (Kw, Kl):
+        return None
+    nxt = ir.phiargof(p, fast.sh.latch)
+    if not ir.istmp(nxt):
+        return None
+    n = next((n for n, x in enumerate(cloned) if x.to == nxt), None)
+    if n is None or n < 2 or cloned[n].op != D.Osel1 or cloned[n].cls != p.cls or cloned[n - 1].op != D.Osel0:
+        return None
+    sel1, sel0 = cloned[n], cloned[n - 1]
+    cmp = next((x for x in cloned if x.to == sel0.arg[0]), None) if ir.istmp(sel0.arg[0]) else None
+    c = _compare(cmp) if cmp is not None else None
+    if c is None or c[0] == 'qceq' or c[3] != p.cls:
+        return None
+    if p.to not in sel1.arg[:2] or sel1.arg[0] == sel1.arg[1] or p.to not in cmp.arg[:2] or cmp.arg[0] == cmp.arg[1]:
+        return None
+    x = sel1.arg[1] if sel1.arg[0] == p.to else sel1.arg[0]
+    if x not in cmp.arg[:2]:
+        return None
+    # who wins: x when the condition holds if it's sel1's first operand; the condition says x > s, after the swaps
+    xfirst = (cmp.arg[0] == x) != bool(c[1])
+    greater = xfirst == (sel1.arg[0] == x)
+    reads = sum(1 for y in cloned for a in y.arg[:2] if a == p.to)
+    if reads != 2 or any(y is not sel1 and nxt in y.arg[:2] for y in cloned):
+        return None
+    if any(cmp.to in y.arg[:2] for y in cloned if y is not sel0):
+        return None
+    for q in ir.phis(fast.sh.H):
+        if q is not p and (p.to in q.arg[:q.narg] or nxt in q.arg[:q.narg]):
+            return None
+    bits = 8 * _SIZE[p.cls]
+    unsigned = c[0].startswith('qcu')
+    if greater:
+        identity = 0 if unsigned else -(1 << (bits - 1))
+    else:
+        identity = -1 if unsigned else (1 << (bits - 1)) - 1
+    r = Reduction()
+    r.t, r.i, r.op, r.v, r.cls = rval(p.to), sel1, D.Osel1, x, p.cls
+    r.ext = r.third = None
+    r.ordered = False
+    r.cmp, r.sel0, r.identity = cmp, sel0, identity
     return r
 
 
@@ -232,9 +283,12 @@ def plan(fast, rts):
     skip = set()
     for p in ir.phis(sh.H):
         if rval(p.to) not in A.biv:
-            r = _reduction(fast, p, fast.cloned) or _ordered(fast, p, fast.cloned)
+            r = _reduction(fast, p, fast.cloned) or _select(fast, p, fast.cloned) or _ordered(fast, p, fast.cloned)
             if r is None:
                 return 0
+            if r.op == D.Osel1:
+                skip.add(id(r.cmp))
+                skip.add(id(r.sel0))
             x = _widening(fast, r, fast.cloned) if not r.ordered else None
             if x is not None:
                 r.ext = x
@@ -398,10 +452,26 @@ def _operand(fast, a, made):
     return f is not None and f.inv()
 
 
-def body(fast, em, state):
-    """One iteration of the vector loop, in em; state only has induction variables, which it leaves for advance()."""
+INTERLEAVE = 4  # vectors an iteration, each with its own accumulators, where that's allowed: LLVM's interleave count
+
+
+def interleave(fast):
+    """How many vectors the loop does an iteration: more than one only for a loop that collects reductions whose
+    order C doesn't fix and stores nothing, so each copy keeps its own accumulators (a chain of compares and selects,
+    or of adds, is latency-bound in one), and stores never come closer than _distance allowed for."""
+    if not fast.vreds or any(r.ordered for r in fast.vreds):
+        return 1
+    if any(_storeclass(i) is not None for b in fast.lp.blocks for i in ir.ins(b)):
+        return 1
+    return INTERLEAVE
+
+
+def body(fast, em, state, copy=0):
+    """One vector's worth of an iteration of the vector loop, in em, the copy-th of interleave(fast); state only has
+    induction variables, which it leaves for advance()."""
     fn = fast.fn
     env = {}
+    k0 = copy * fast.vf  # the scalar iteration this copy starts at
     third = None
     lane = None
 
@@ -419,6 +489,9 @@ def body(fast, em, state):
     skip = set()
     for r in fast.vreds:
         skip.add(id(r.i))
+        if r.op == D.Osel1:
+            skip.add(id(r.cmp))
+            skip.add(id(r.sel0))
         if r.ext is not None:
             skip.add(id(r.ext))
         if r.third is not None:
@@ -448,12 +521,12 @@ def body(fast, em, state):
             env[rval(i.to)] = em.raw(getattr(D, 'Oqfma1' + _LANE[i.cls]), Kq, a, b)
             continue
         if _loadsize(i) is not None:
-            env[rval(i.to)] = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], 0, env, state, None))
+            env[rval(i.to)] = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], k0, env, state, None))
             continue
         k = _storeclass(i)
         if k is not None:
             v = vec(i.arg[0], k)
-            em.ins(Ins(D.Oqstore, Kq, R, v, fast.opmap(i.arg[1], 0, env, state, None)))
+            em.ins(Ins(D.Oqstore, Kq, R, v, fast.opmap(i.arg[1], k0, env, state, None)))
             continue
         name = _opname(i)
         op = getattr(D, 'O' + name)
@@ -479,6 +552,22 @@ def body(fast, em, state):
                     acc = em.raw(r.op, r.cls, acc, lanes[0])
             new[('phi', r.t)] = acc
             continue
+        if r.op == D.Osel1:  # through a condition: the comparison and the select on each lane
+            r.acc0 = fast.fp.raw(getattr(D, 'Oqdup' + _LANE[r.cls]), Kq, fast.fp.con(r.identity))
+            r.in0 = newtmp('v', Kq, fn)
+            r.in1 = None
+            name, swap, negate, k = _compare(r.cmp)
+            phi = r.i.arg[0] if r.i.arg[1] == r.v else r.i.arg[1]
+            pick = lambda a, phi=phi, k=k: r.in0 if a == phi else vec(a, k)
+            a, b = pick(r.cmp.arg[0]), pick(r.cmp.arg[1])
+            m = em.raw(getattr(D, 'O' + name + _LANE[k]), Kq, *((b, a) if swap else (a, b)))
+            if negate:
+                m = em.raw(D.Oqnot, Kq, m)
+            em.ins(Ins(D.Oqsel0, Kq, R, m, R))
+            r.out0 = em.raw(D.Oqsel1, Kq, pick(r.i.arg[0]), pick(r.i.arg[1]))
+            r.out1 = None
+            _keep(r, copy)
+            continue
         identity = fast.fp.raw(getattr(D, 'Oqdup' + _LANE[r.cls]), Kq, fast.fp.con(-1 if r.op == D.Oand else 0))
         r.acc0 = identity
         r.in0 = newtmp('v', Kq, fn)
@@ -489,12 +578,21 @@ def body(fast, em, state):
             low, high = (D.Oqsaddl, D.Oqsaddh) if signed else (D.Oquaddl, D.Oquaddh)
             r.out0 = em.raw(low, Kq, r.in0, w)
             r.out1 = em.raw(high, Kq, r.in1, w)
+            _keep(r, copy)
             continue
         r.in1 = None
         op = getattr(D, 'O' + _REDOPS[r.op] + ('' if r.op in (D.Oand, D.Oor, D.Oxor) else _LANE[r.cls]))
         r.out0 = em.raw(op, Kq, r.in0, vec(r.v, r.cls))
         r.out1 = None
+        _keep(r, copy)
     return new
+
+
+def _keep(r, copy):
+    """Each copy's accumulators, for closeloop."""
+    if copy == 0:
+        r.copies = []
+    r.copies.append((r.acc0, r.in0, r.in1, r.out0, r.out1))
 
 
 def closeloop(fast, em, MB, FP, state):
@@ -503,16 +601,34 @@ def closeloop(fast, em, MB, FP, state):
     for r in fast.vreds:
         if r.ordered:
             continue  # already in the scalar value
-        ir.addphi(MB, Kq, r.in0, [(FP, r.acc0), (MB, r.out0)])
-        total = r.out0
+        totals = []
+        for acc0, in0, in1, out0, out1 in r.copies:
+            ir.addphi(MB, Kq, in0, [(FP, acc0), (MB, out0)])
+            if r.ext is not None:
+                ir.addphi(MB, Kq, in1, [(FP, acc0), (MB, out1)])
+                totals.append(em.raw(D.Oqaddl, Kq, out0, out1))
+            else:
+                totals.append(out0)
         k = r.cls
-        if r.ext is not None:
-            ir.addphi(MB, Kq, r.in1, [(FP, r.acc0), (MB, r.out1)])
-            total = em.raw(D.Oqaddl, Kq, r.out0, r.out1)
         x = _LANE[k]
         lanes = 16 // _SIZE[k]
-        op = D.Oadd if r.op in (D.Oadd, D.Osub) else r.op
         v = state[('phi', r.t)]
+        if r.op == D.Osel1:  # each lane into the scalar value as the loop would: s = cond(lane, s) ? ... : ...
+            phi = r.i.arg[0] if r.i.arg[1] == r.v else r.i.arg[1]
+            for total, n in [(t, n) for t in totals for n in range(lanes)]:
+                lane = em.raw(getattr(D, 'Oqget' + x), k, total, em.con(n))
+                at = lambda a: v if a == phi else lane
+                c = em.raw(r.cmp.op, Kw, at(r.cmp.arg[0]), at(r.cmp.arg[1]))
+                em.ins(Ins(D.Osel0, Kw, R, c, R))
+                v = em.raw(D.Osel1, k, at(r.i.arg[0]), at(r.i.arg[1]))
+            out[('phi', r.t)] = v
+            continue
+        op = D.Oadd if r.op in (D.Oadd, D.Osub) else r.op
+        # the copies' accumulators into one, lane by lane (a subtraction's each hold 0 - their part: added)
+        vop = getattr(D, 'O' + _REDOPS[op] + ('' if op in (D.Oand, D.Oor, D.Oxor) else ('l' if r.ext is not None else x)))
+        total = totals[0]
+        for t in totals[1:]:
+            total = em.raw(vop, Kq, total, t)
         for n in range(lanes):
             v = em.raw(op, k, v, em.raw(getattr(D, 'Oqget' + x), k, total, em.con(n)))
         out[('phi', r.t)] = v

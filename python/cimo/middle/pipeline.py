@@ -5,7 +5,7 @@ import sys
 from ..backend import defs as D
 from ..backend.parse import printfn
 import cimo.middle as M
-from . import ir, loops, memdep, inner, jam, ifconv, unswitch
+from . import ir, loops, memdep, inner, jam, ifconv, unswitch, stride
 
 
 def _restrict_names(fn):
@@ -60,7 +60,10 @@ def optimize(fn):
     innermost = lambda lp: not lp.children
     nest2 = lambda lp: len(lp.children) == 1 and not lp.children[0].children
     unswitch._count.pop(fn.name, None)
-    changed = _phase(fn, rnames, innermost, lambda fn, lp, rts: unswitch.transform(fn, lp), set())
+    stride._count.pop(fn.name, None)
+    stride._versioned.pop(fn.name, None)
+    changed = _phase(fn, rnames, innermost, lambda fn, lp, rts: stride.transform(fn, lp), set())
+    changed |= _phase(fn, rnames, innermost, lambda fn, lp, rts: unswitch.transform(fn, lp), set())
     changed |= _phase(fn, rnames, innermost,
                       lambda fn, lp, rts: inner.transform(fn, lp, rts, done, 'full'), set())
     if M.unroll > 1:

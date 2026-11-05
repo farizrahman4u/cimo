@@ -369,7 +369,8 @@ def test_x86_windows_keeps_the_scratch_register():
 def test_x86_mask_leaves_the_loop():
     """gvn and gcm see what SSE2 lacks already written out: one all-zero register, made before the loop."""
     text = _x86('long g(const int *a, long n) { long s = 0; for (long i = 0; i < n; i++) s += a[i]; return s; }')
-    assert text.count('pcmpgtd') == 1
+    from cimo.middle import vectorize
+    assert text.count('pcmpgtd') == vectorize.INTERLEAVE  # one a vector, for its high halves
     head = text[: text.index('pcmpgtd')]
     assert 'pxor' in head and head.rindex('pxor') < head.rindex('.p2align')
 
@@ -625,3 +626,76 @@ def test_x86_no_fma_on_a_recurrence_through_its_addend(monkeypatch):
     assert not re.search(r'\tvf\w+ ', _body(text, 'iir'))
     assert re.search(r'\tvfmadd\w+ ', _body(text, 'rec'))  # y as a factor: fused
     assert re.search(r'\tvfmadd231ps ', _body(text, 'saxpy'))  # nothing comes round: fused
+
+
+def _select_forms():
+    out = []
+    for ty, ctype in (('int', ctypes.c_int32), ('unsigned', ctypes.c_uint32), ('long', ctypes.c_int64), ('unsigned long', ctypes.c_uint64)):
+        for op in ('>', '>=', '<', '<='):
+            for cond in ('x %s r', 'r %s x'):
+                for arms in ('x : r', 'r : x'):
+                    out.append((ty, ctype, 'r = (%s) ? %s;' % (cond % op, arms)))
+    return out
+
+
+SELECT_FORMS = _select_forms()
+
+
+@pytest.mark.parametrize('k', range(len(SELECT_FORMS)))
+def test_reduction_through_a_condition(k):
+    """r = x > r ? x : r and every other way to write an integer maximum or minimum: four vectors of lanes, each its
+    own, then the lanes into r through the same comparison. Equal integers are the same, so this is the scalar result."""
+    ty, ctype, body = SELECT_FORMS[k]
+    src = '%s f(const %s *a, long n, %s r) { for (long i = 0; i < n; i++) { %s x = a[i]; %s } return r; }' % (ty, ty, ty, ty, body)
+    assert vectorized(src), driver._build(src)[0]
+    on, off = both(src)
+    bits = 8 * ctypes.sizeof(ctype)
+    lo, hi = (0, 2 ** bits - 1) if ty.startswith('unsigned') else (-2 ** (bits - 1), 2 ** (bits - 1) - 1)
+    r = random.Random(k)
+    for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 100):
+        for _ in range(3):
+            a = (ctype * max(n, 1))(*[r.choice([lo, hi, 0, 1, lo + 1, hi - 1, r.randint(lo, hi)]) for _ in range(n)])
+            r0 = r.choice([lo, hi, 0, r.randint(lo, hi)])
+            assert on.f(a, n, r0) == off.f(a, n, r0), (n, list(a)[:n], r0)
+
+
+def test_float_maximum_stays_scalar():
+    """Two equal zeros or a NaN: lanes merged in their order needn't pick what the scalar loop does."""
+    assert not vectorized('double f(const double *a, long n, double r) { for (long i = 0; i < n; i++) if (a[i] > r) r = a[i]; return r; }')
+
+
+STRIDED = {
+    'max': 'long f(const long *a, long n, long st) { long r = a[0]; for (long i = 1; i < n; i++) if (a[i * st] > r) r = a[i * st]; return r; }',
+    'sum': 'long f(const int *a, long n, int st) { long s = 0; for (long i = 0; i < n; i++) s += a[i * st]; return s; }',
+}
+
+
+@pytest.mark.parametrize('name', sorted(STRIDED))
+def test_unit_stride_is_versioned(name):
+    """a[i * st] gets a vector loop for st == 1 (cimo.middle.stride), and the general loop still runs for other strides."""
+    src = STRIDED[name]
+    assert vectorized(src), driver._build(src)[0]
+    on, off = both(src)
+    itemsize = 8 if name == 'max' else 4
+    ctype = ctypes.c_int64 if name == 'max' else ctypes.c_int32
+    for st in (1, 2, 3, 0, -1):
+        for n in (1, 2, 3, 4, 7, 8, 9, 17, 64, 101):
+            span = abs(st) * n + 8
+            a = buf(ctype, 2 * span + 16, n + st)
+            start = ctypes.addressof(a) + itemsize * (span + 4 if st < 0 else 4)
+            assert on.f(start, n, st) == off.f(start, n, st), (st, n)
+
+
+def test_strided_store_is_versioned():
+    src = 'void f(double *restrict o, const double *restrict a, long n, long st) { for (long i = 0; i < n; i++) o[i] = a[i * st] * 2; }'
+    assert vectorized(src)
+    on, off = both(src)
+    for st in (1, 2, 0, -1):
+        for n in (0, 1, 3, 4, 5, 9, 33):
+            span = abs(st) * n + 8
+            a = buf(ctypes.c_double, 2 * span + 16, n)
+            start = ctypes.addressof(a) + 8 * (span + 4 if st < 0 else 4)
+            o1, o2 = buf(ctypes.c_double, n + 1, 7), buf(ctypes.c_double, n + 1, 7)
+            on.f(ctypes.addressof(o1), start, n, st)
+            off.f(ctypes.addressof(o2), start, n, st)
+            assert bytes(o1) == bytes(o2), (st, n)

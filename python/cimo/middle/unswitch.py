@@ -51,19 +51,45 @@ def transform(fn, lp):
     if c is None:
         return False
     c, hoist = c
+    g = shape(lp)
+    if g is None:
+        return False
+    P, E, exits = g
+    H = lp.header
+    copy = clone(fn, lp, E, exits)
+    # choose once, before them; each copy knows the outcome
+    cond = c.jmp.arg
+    if hoist is not None:
+        cond = ir.newtmp('us', hoist.cls, fn)
+        ir.setins(P, ir.ins(P) + [Ins(hoist.op, hoist.cls, cond, hoist.arg[0], hoist.arg[1])])
+    ir.setjnz(P, cond, H, copy[H])
+    s1, s2 = c.s1, c.s2
+    ir.setjmp(c, s1)
+    ir.setjmp(copy[c], copy.get(s2, s2))
+    _count[fn.name] = n + 1
+    M.count('unswitch')
+    return True
+
+
+def shape(lp):
+    """(the preheader, the one block every way out leads to, the exits), if lp can be copied as clone() does."""
     exits = lp.exits()
     targets = {e for _, e in exits}
     if len(targets) != 1:
-        return False
+        return None
     E = targets.pop()
     if any(p not in lp.blocks for p in E.pred[:E.npred]):
-        return False
-    H = lp.header
+        return None
     outs = lp.outside_preds()
     if len(outs) != 1 or outs[0].jmp.type != D.Jjmp:
-        return False
-    P = outs[0]
-    # the copy
+        return None
+    return outs[0], E, exits
+
+
+def clone(fn, lp, E, exits, subst=None):
+    """A copy of lp's blocks, for the caller to branch to, in which subst ({value: replacement}) holds; values of
+    the loop used after it meet in phis at E. Returns {block: its copy}."""
+    subst = subst or {}
     env = {}
     for b in lp.blocks:
         for p in ir.phis(b):
@@ -73,7 +99,7 @@ def transform(fn, lp):
                 env[rval(i.to)] = ir.newtmp('us', i.cls, fn)
 
     def m(r):
-        return env.get(rval(r), r) if ir.istmp(r) else r
+        return env.get(rval(r), subst.get(r, r)) if ir.istmp(r) else r
 
     order = sorted(lp.blocks, key=lambda x: x.id)
     copy = {}
@@ -134,15 +160,4 @@ def transform(fn, lp):
                 for k in range(p.narg):
                     if not (b is E and (p.blk[k] in inside)):
                         p.arg[k] = joined.get(p.arg[k], p.arg[k])
-    # choose once, before them; each copy knows the outcome
-    cond = c.jmp.arg
-    if hoist is not None:
-        cond = ir.newtmp('us', hoist.cls, fn)
-        ir.setins(P, ir.ins(P) + [Ins(hoist.op, hoist.cls, cond, hoist.arg[0], hoist.arg[1])])
-    ir.setjnz(P, cond, H, copy[H])
-    s1, s2 = c.s1, c.s2
-    ir.setjmp(c, s1)
-    ir.setjmp(copy[c], copy.get(s2, s2))
-    _count[fn.name] = n + 1
-    M.count('unswitch')
-    return True
+    return copy

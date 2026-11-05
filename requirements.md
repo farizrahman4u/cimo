@@ -569,6 +569,18 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   100,000 elements against the same build without the vectorizer: `relu` on doubles 1.74x, a nested float clamp 4.95x, an
   int max 2.02x. Found on the way: x86-64's 64-bit signed compare (`qlower.cgt`, no `pcmpgtq` in SSE2) used a wrong formula,
   wrong for 43% of random pairs; nothing produced one until now (`test_64_bit_compare_at_the_edges`).
+- **Reductions through a condition (2026-11-05):** an integer `r = x > r ? x : r`, any comparison of x and r that orders
+  them, either way round, keeps a max or min per lane from the type's identity; closeloop folds the lanes into r through the
+  same comparison and select, exact since equal integers are the same. Floats are refused: per-lane maxima merged in lane
+  order can pick another of two equal zeros than the scalar loop.
+- **Four vectors an iteration** (`vectorize.interleave`, LLVM's interleave count) for loops whose only reductions are
+  unordered and that store nothing, each copy with its own accumulators, merged on the way out. One accumulator left the
+  chain of compare and select latency-bound: int64 max was no faster than scalar until then. `isum` 204 to 63 us on
+  1,000,000 elements (Snapdragon), its loop 15 to 27 instructions (`bench_gate.json`).
+- **Unit-stride versioning (`middle/stride.py`):** a multiply by a value the loop doesn't change, on the way to an address
+  (`a[i * st]`), gets a copy of the loop with it 1, chosen before the loop (LLVM's symbolic stride speculation), using
+  unswitch's `clone`. Only when the target vectorizes, at most 4 a function, never twice for one loop. scramjit's
+  reductions take a stride for any axis: int64 max with stride 1 0.87 to 0.28 ms, level with numpy (0.29).
 - **A call keeps at most 64 bits of an FP register on arm64:** a `q` temporary live across one lives in memory
   (`isel.qacrosscalls`), and `q` temporaries stay out of v8 to v15 (`rqavoid`), whose low halves the function must keep.
 - **Memory:** `qload` and `qstore` count as volatile in the memory passes, so nothing forwards across them. Safe, and

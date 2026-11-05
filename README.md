@@ -78,8 +78,9 @@ Results are bit-identical to the reference compiler.</sub>
 
 On arm64 and x86-64, cimo also auto-vectorizes straight counted loops over 4- and 8-byte elements, 128 bits at a
 time, conditions included (`x > 0 ? x : 0`; integer ones only on x86-64). Floating-point sums vectorize only where
-the loop does enough else, since C fixes their order; reductions through a condition (a running `max`), narrower
-elements and WebAssembly stay scalar, so the
+the loop does enough else, since C fixes their order. Integer reductions use four vectors of accumulators, and a
+running integer `max` or `min` vectorizes, with a fast path when a stride argument is 1 (`a[i * st]`). Float
+`max`/`min`, narrower elements and WebAssembly stay scalar, so the
 reference compilers are ahead where they vectorize those. Geomean over 15 kernels, against vectorized
 `gcc -O3`: 1.11 to 1.18x on Neoverse N1, V1 and V2, 1.05 to 1.08x on Ice Lake, Sapphire Rapids and Zen 4 (128-bit
 SSE2 on both sides). On x86-64 cimo compiles for the CPU it runs on (FMA, POPCNT, LZCNT, TZCNT), 4% faster than its
@@ -222,7 +223,7 @@ Pre-release. Runs on Linux, macOS and Windows (arm64 and x86-64) and in the brow
 arm64 and x86-64. Differential-tested against gcc on random programs (Csmith, YARPGen) on both architectures.
 Planned:
 
-- Auto-vectorization of more loops (reductions through a condition, 8- and 16-bit elements, outer loops), and on WebAssembly
+- Auto-vectorization of more loops (float `max`/`min`, `argmax`, loops that exit early, 8- and 16-bit elements, outer loops), and on WebAssembly
 - 256-bit AVX2 vectors on x86-64 CPUs that have them
 - GNU vector types (`__attribute__((vector_size(16)))`)
 - `debug=True`: bounds checks on every access, and detection of use-after-free, double free and leaks
