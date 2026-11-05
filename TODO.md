@@ -234,8 +234,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   `# 10 "a.py"` markers, so moving code down a line or renaming its file is a full compile: a small function 6 ms on a hit,
   24 ms on a miss, scramjit's Gray-Scott 86 against 562 ms. The markers emit no code: `__LINE__` and `__FILE__` are already
   numbers and strings in the text by then, so `assert` stays right. They only place compile diagnostics, which a hit never
-  prints. Key on the text without them (comments are already out). scramjit still makes its own error lines relative to the
-  function, since those are constants in the code.
+  prints. Key on the text without them (comments are already out). scramjit's half is in its `TODO.md` ("An edit above a
+  function recompiles it"): its error lines are constants in the code, so it makes them relative to the function. Both are
+  needed for a moved function to hit. **When done, note it in scramjit's `TODO.md`.**
 - **Say whether a compile came from the cache** (requested by scramjit, 2026-11-01): a public attribute on the
   module, or a compile time. `scramjit preflight --run` wants to show `disk` instead of a time, and can't tell.
   **When done, note it in scramjit's `TODO.md`.**
