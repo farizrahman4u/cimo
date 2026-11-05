@@ -63,7 +63,7 @@ A module's functions. Calling one converts the arguments by the C signature:
 | `float`, `double` | `float` |
 | `void` | `None` |
 
-The call releases the GIL and costs about 0.4 to 0.8 µs from Python, a little more with a buffer to convert. A function that is variadic, or passes or returns a struct or union by value, can't be called from Python: calling it raises `TypeError` (other C functions in the module can still use it).
+The call releases the GIL and costs about 0.2 to 0.6 µs from Python (on Sapphire Rapids, 0.4 to 1 µs on Graviton 3), a little more with a buffer to convert. A function that is variadic, or passes or returns a struct or union by value, can't be called from Python: calling it raises `TypeError` (other C functions in the module can still use it).
 
 | Attribute | |
 |---|---|

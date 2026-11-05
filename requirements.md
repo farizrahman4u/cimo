@@ -934,8 +934,10 @@ printf; modules compiled, faulted in and dropped while others run; a reused pool
 free-threaded 3.13t, which keeps the GIL off. Measured on EC2 (c7g.2xlarge, c7i.2xlarge; Ubuntu's Python and uv's 3.13t):
 a loop split over 1, 2, 4, 8 threads 2.0x, 4.0x, 7.7x (Graviton 3, 8 cores) and 2.0x, 3.9x, 7.0x (Sapphire Rapids, 4 cores
 and 8 threads), the same free-threaded. A call: `Kernel.__call__` 0.74-1.30 us, a bare ctypes call 0.25-0.41 us, of
-which releasing and taking the GIL back is 45-60 ns (15-25 ns free-threaded): the wrapper is the cost ("A faster
-`Kernel.__call__`" in TODO.md).
+which releasing and taking the GIL back is 45-60 ns (15-25 ns free-threaded): the wrapper was the cost. Since then each
+kernel has a class whose `__call__` is generated for its parameters, reading the error word and stdout length through a
+per-thread `memoryview` of the context: a `void` call 763 to 364 ns (Graviton 3), 455 to 206 (Sapphire Rapids), against
+161 and 94 for ctypes alone.
 
 ## Compile time on large functions (2026-11-05)
 

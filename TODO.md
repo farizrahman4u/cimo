@@ -234,8 +234,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 - ~~**A faster `Kernel.__call__`**~~ **Done** (2026-11-05): each kernel gets a class of its own whose `__call__` is
   written for its parameters (pointers converted where they are, no list), and the error word and the stdout length are
   read from a per-thread `memoryview` of the context, with no ctypes object made; buffers go through
-  `c_char.from_buffer` first. On the laptop, same run: a `void` call 627 to 365 ns (ctypes alone 364), one int 891 to
-  501, a numpy array 2,431 to 1,250. Pyodide's 13 us not looked at. Noted in scramjit's `TODO.md`.
+  `c_char.from_buffer` first. EC2, before to after: a `void` call 763 to 364 ns (Graviton 3) and 455 to 206 (Sapphire
+  Rapids), one int 1,098 to 609 and 677 to 376, three longs 1,602 to 966 and 1,046 to 621, a `bytearray` 2,187 to 1,409
+  and 1,373 to 881; ctypes alone, no arguments, 161 and 94. Pyodide's 13 us not looked at. Noted in scramjit's `TODO.md`.
 - **Large `malloc` on wasm** (found by scramjit, 2026-11-02, Pyodide 0.27.7). `__cimo_wasm_grow` takes an `unsigned long` and passes it to `__cimo_js_grow(unsigned bytes, ...)`, so a request of 4 GiB or more is
   truncated and `malloc` returns a block far too small: `calloc(1, 1ULL << 43)` then a write gives "memory access out of bounds", which is a fatal Pyodide error. Requests just under 2 GiB trap instead:
   `Array length must be >= 0, not -2147483632`, from `_grow`'s `create_string_buffer`. Both should return NULL. scramjit's `[0.0] * 2**29` in a kernel still kills Pyodide this way ("null function or function signature mismatch");
