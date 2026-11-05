@@ -9,26 +9,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   for this CPU" in `requirements.md`). Open: 256-bit AVX2 vectors, behind the `avx2` feature; gcc `-march=native`
   is 1.18 to 1.44x ahead (geomean, Ice Lake, Sapphire Rapids, Zen 4), most of it 256 bits and `rgb2gray`'s bytes.
 
-0. **A fault in a kernel must not kill the Python process.** Today SIGSEGV/SIGBUS (and on x86-64
-   `#DE` from `INT_MIN / -1` or `x / 0`) end the process, on Windows silently with exit code 5. For a
-   library that runs code the user, or an LLM, just wrote, this is the first thing anyone hits and it
-   decides whether they trust it. Design:
-   - POSIX: install handlers for SIGSEGV, SIGBUS, SIGFPE, SIGILL on first load (`sigaction` through
-     ctypes, `SA_SIGINFO | SA_ONSTACK`, on an alternate stack so a stack overflow is catchable). If the
-     faulting pc is inside a cimo module, resume at the module's unwind glue (`sigsetjmp`-style: a
-     `uc_mcontext` edit of pc, sp and the return register) so the entry trampoline returns an error
-     code and Python raises `cimo.KernelError` with the fault kind, address and the function. Otherwise
-     chain to the previous handler, so Python's own `faulthandler` and other extensions keep working.
-   - Windows: a vectored exception handler (`AddVectoredExceptionHandler`) doing the same with
-     `CONTEXT`; access violation, integer divide and stack overflow (`_resetstkoflw` afterwards).
-   - Pyodide: a trap already becomes a JS exception; make sure it reaches `KernelError` with the same
-     message shape.
-   - The module stays usable afterwards, as with `assert` today, but say in the docs that memory may be
-     half-written. Each thread needs the alternate stack; threads from `ThreadPoolExecutor` get it on
-     their first kernel call.
-   - Tests on every CI platform: null store, read past a buffer end (guard page), `INT_MIN / -1`,
-     infinite recursion, a fault inside a thread, and that a fault in a non-cimo extension still reports
-     through `faulthandler`.
+0. ~~**A fault in a kernel must not kill the Python process.**~~ **Done** (`cimo/fault.py`,
+   `tests/test_faults.py`; see "Hardware faults" in `requirements.md`).
 
 1. ~~**Single-file distribution.**~~ **Done:** `cimo onefile [-o cimo.py]`
    (`cimo/onefile.py`, `cimo/resources.py`; `.c`/`.h` stay real files). See "Single-file
@@ -44,7 +26,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    modules on a browser main thread, wasm SIMD.
 5. **SIMD.** Auto-vectorizer **running on arm64 and x86-64** (`middle/vectorize.py`; see "Vector code" in `requirements.md`). Open, in
    order: reductions through a chain (`s += x * x + 3`), outer-loop vectorization (`nbody_acc`, gcc 1.3x ahead), byte and short lanes with widening and narrowing (scramjit's `image[i] + k` on `uint8`: 0.24 ns per element, `int32` 0.12), interleaved access (`rgb2gray`),
-   conditions, downward steps; then GNU vector types (`vector_size`, currently a clear error), wasm, SLP; AVX2 behind a check at load. Conditions first for scramjit: `out[i] = v if v > 0.0 else 0.0` and `min(max(x[i], 0.0), 1.0)` stop at `cgtd` (no vector form), and they are what generated code is full of.
+   conditions, downward steps; then GNU vector types (`vector_size`, currently a clear error), wasm, SLP; AVX2 behind a check at load. Conditions first for scramjit: `out[i] = v if v > 0.0 else 0.0` and `min(max(x[i], 0.0), 1.0)` stop at `cgtd` (no vector form), and they are what generated code is full of. Reductions with a condition too (scramjit 2026-11-05, arm64, 1,000,000 elements, against numpy's own SIMD): `max` and `min` of `float64` 1.28 ms against 0.15, of `float32` 1.29 against 0.09, of `int64` 0.86 against 0.15, of `int32` 0.86 against 0.09; `argmax` 1.70 against 0.39; `any` and `all`, which also leave the loop early, 0.43 against 0.20 (`float32` 0.12). A `float` `max` must keep what scramjit's `max` does with NaN and signed zeros.
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.
 7. ~~**macOS (Apple silicon).**~~ **Done:** the suite, corpora and examples pass on an M-series
