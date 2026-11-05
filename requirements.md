@@ -925,6 +925,18 @@ directions against Apple clang (`-dynamiclib`), and `tests/test_macos.py` holds 
   quoted array slice joins into one word when IFS has no space (the completion script slices
   before setting IFS).
 
+## Threads (2026-11-05)
+
+Calls release the GIL (ctypes), each thread has its own context, heap and alternate signal stack, and the context and
+fault tables are published lock-free with a barrier before the pointer; nothing in cimo leans on the GIL.
+`tests/test_threads.py` (8 threads x 1,000 calls mixing work, cross-thread malloc/free, failing asserts, faults and
+printf; modules compiled, faulted in and dropped while others run; a reused pool) passes under CPython 3.13 and
+free-threaded 3.13t, which keeps the GIL off. Measured on EC2 (c7g.2xlarge, c7i.2xlarge; Ubuntu's Python and uv's 3.13t):
+a loop split over 1, 2, 4, 8 threads 2.0x, 4.0x, 7.7x (Graviton 3, 8 cores) and 2.0x, 3.9x, 7.0x (Sapphire Rapids, 4 cores
+and 8 threads), the same free-threaded. A call: `Kernel.__call__` 0.74-1.30 us, a bare ctypes call 0.25-0.41 us, of
+which releasing and taking the GIL back is 45-60 ns (15-25 ns free-threaded): the wrapper is the cost ("A faster
+`Kernel.__call__`" in TODO.md).
+
 ## Compile time on large functions (2026-11-05)
 
 scramjit generates single functions of many loops; cimo's compile grew with the square of their size (a 60-loop

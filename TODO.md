@@ -82,13 +82,13 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Adoption (priority order, below Directions; what scramjit's "Adoption" items need from cimo)
 
-1. **Threads: what `@scram(parallel=True)` needs.** Nothing new in codegen; verify and document:
-   a stress test (`tests/test_threads.py`) of 8 threads × 1,000 calls into one module with
-   `malloc`/`free` crossing threads (the deferred free list) and with a `KernelError` raised in one
-   thread while others run; the same under free-threaded CPython 3.13t in CI (`python3.13t` on
-   `ubuntu-24.04-arm`): no crash, same results, and `loader` holds no state that assumes the GIL
-   (the per-thread alternate stack from Big #0 included). Record the per-call overhead with the GIL
-   released and reacquired (`ctypes` does it; measure it, expect about 1 µs).
+1. ~~**Threads: what `@scram(parallel=True)` needs.**~~ **Done** (2026-11-05): `tests/test_threads.py` (8 threads x
+   1,000 calls with the heap, asserts, faults and printf crossing threads; modules compiled and dropped while others
+   run; a reused pool) passes, also under free-threaded CPython 3.13t (20 runs in a row, and the execution, fault, runtime,
+   loader, vector and compile-time tests); nothing needed changing. Scaling 7.7x on 8 threads (Graviton 3), 7.0x (Sapphire
+   Rapids, 4 cores and 8 threads); a call about 1 us, of which the GIL's release is 45-60 ns. **Open:** the CI job for
+   3.13t is written but not pushed: the remote's token lacks GitHub's `workflow` scope, which a change to
+   `.github/workflows/` needs (a `linux-arm64-free-threaded` job, python-version 3.13t, running those files).
 2. **Public cache export and import** (already in "Small" as a TODO from scramjit; promoted). API:
    `cimo.export_cache(module, path)` writes the linked image plus the signatures, the source hash,
    the target (`os-arch` or `wasm32`), the cimo version and the options; `cimo.import_cache(path)`

@@ -30,6 +30,12 @@ with ThreadPoolExecutor() as pool:
 
 Threads must not write to the same elements, as in any C.
 
+Kernels scale with the cores: a loop split across 8 threads runs 7.7 times as fast as on one on an 8-core Graviton 3, and 7.0 times on a 4-core, 8-thread Sapphire Rapids. Each call into a kernel costs about 1 µs, most of it cimo's Python wrapper (releasing and reacquiring the GIL is about 50 ns of that), so give each thread work that takes much longer than that.
+
+Free-threaded CPython (3.13t and later, no GIL) works the same way, and cimo doesn't turn the GIL back on.
+
+An error in a kernel, an `assert`, `abort()` or a memory fault, raises `KernelError` in the thread that called it; kernels running on other threads carry on. Any thread can compile a module and call it, and modules can be dropped while other threads run kernels of other modules.
+
 ## malloc
 
 `malloc`, `calloc`, `realloc`, `aligned_alloc` and `free` work as usual. Each module has its own heap, separate from Python's, and each thread gets its own part of it, so allocation doesn't take a lock. Memory freed by another thread is handed back safely.
