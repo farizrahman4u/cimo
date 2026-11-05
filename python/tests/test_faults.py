@@ -359,5 +359,7 @@ def test_context_layout_matches_the_handler():
         for off, field in ((x.ERR, 'u64 err'), (x.FAULT, 'u64 fault'), (x.ADDR, 'addr')):
             assert field in f._SOURCE
         assert (x.ERR, x.PC, x.DEPTH, x.LIMIT, x.FAULT, x.ADDR) == (0, 40, 48, 56, 72, 80)
+        glue = x.glue(['k'], target='amd64_sysv') + x.glue(['k'], target='amd64_windows') + x.glue(['k'])
+        assert 'movq\t%rsp, 72(%r12)' in glue and 'str\tx12, [x11, #96]' in glue, 'the entry sp f._defines names'
         assert (x.E_STACK, x.E_FAULT) == (4, 7) and (f.F_MEMORY, f.F_DIVISION, f.F_ILLEGAL) == (1, 2, 3)
     ''')

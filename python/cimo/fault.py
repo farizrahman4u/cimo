@@ -61,6 +61,9 @@ struct tab * volatile __cimo_fault_tab;
 
 extern u64 __cimo_tid(void);
 
+/* where the innermost trampoline frame keeps the sp it was entered with */
+#define ENTRY_SP(c) (*(u64 *)((char *)(c) + FRAMES + ((c)->depth - 1) * FRAMESZ + FRAME_SP))
+
 #if defined(CIMO_ARM64)
 #define R_CTX 80    /* x9 */
 #define R_LR 248
@@ -108,7 +111,10 @@ static int handle(int fault, u64 addr, char *r)
     c = m->ctx();
     if (!c || c->depth <= 0)
         return 0;
-    c->err = fault == 4 || (fault == 1 && addr < c->limit && addr + 65536 >= sp) ? 4 : 7;
+    /* the end of the stack: a fault just below sp, or sp itself out of the stack, below its
+       limit or wrapped past the bottom of the address space (macOS and Windows stacks are low) */
+    c->err = fault == 4 || (fault == 1 && ((addr < c->limit && addr + 65536 >= sp)
+                                           || sp < c->limit || sp > ENTRY_SP(c))) ? 4 : 7;
     c->fault = fault;
     c->addr = addr;
     c->pc = pc;
@@ -173,7 +179,7 @@ void __cimo_fault_sig(int sig, char *si, char *uc)
        what it replaced, which can be us). A real fault happens again on return and ends the
        process at the faulting instruction; anything sent has to be raised. */
     __cimo_fault_sigaction(sig, dfl, 0);
-    if (*(int *)(si + 8) <= 0)
+    if (SENT(*(int *)(si + 8)))
         __cimo_fault_raise(sig);
 }
 #endif
@@ -181,16 +187,22 @@ void __cimo_fault_sig(int sig, char *si, char *uc)
 
 
 def _defines():
+    from . import execution as x
     d = {'CIMO_ARM64': None} if _jit._ARM64 else {}
+    win64 = _WIN and not _jit._ARM64
+    d['FRAMES'], d['FRAMESZ'] = (str(x.WFRAMES), str(x.WFRAMESZ)) if win64 else (str(x.FRAMES), str(x.FRAMESZ))
+    d['FRAME_SP'] = '96' if _jit._ARM64 else '72'  # cimo.execution's glue
     if _WIN:
         d['CIMO_WINDOWS'] = None
         if not _jit._ARM64:
             d['CIMO_WIN_X64'] = None
     elif _APPLE:
         d['SI_ADDR'] = '24'
+        d['SENT(code)'] = '((code) >= 0x10001)'  # SI_USER, SI_QUEUE, ...
         d['REGS(uc)'] = '(*(char **)((uc) + 48) + 8)'
     else:
         d['SI_ADDR'] = '16'
+        d['SENT(code)'] = '((code) <= 0)'
         d['REGS(uc)'] = '((uc) + %d)' % (176 if _jit._ARM64 else 40)
     return d
 
