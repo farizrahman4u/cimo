@@ -164,7 +164,10 @@ def test_inlined_callees_result_array_is_registers():
     asm = driver._build(IO)[0]
     b = asm[asm.index('\n%sstep:' % SYM):]
     b = b[:b.index('end function')]
-    assert not re.search(r'x29, #|\(%rbp\)|\(%rsp\)', b), b  # no frame: the array is registers
+    # not the array: Windows x64 saves the callee-saved xmm6-xmm15 it uses on the stack, and reads a fifth argument from
+    # above the frame (a positive offset from %rbp)
+    b = re.sub(r'\tmovdqu (?:%xmm(?:[6-9]|1[0-5]), -?\d+\(%rsp\)|-?\d+\(%rsp\), %xmm(?:[6-9]|1[0-5]))\n', '', b)
+    assert not re.search(r'x29, #|-\d+\(%rbp\)|\(%rsp\)', b), b  # no frame: the array is registers
     k = cimo.compile(IO)
     x, v = 1.0, 0.0
     for _ in range(100):
