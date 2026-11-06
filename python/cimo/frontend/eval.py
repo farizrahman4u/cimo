@@ -364,6 +364,8 @@ def _isi128expr(expr):
 def eval(expr):
     t = expr.type
     k = expr.kind
+    if t is not None and TY.isvec(t) or k == EXPRCAST and TY.isvec(expr.base.type):
+        return expr  # cimo: vectors are never constants here
     if _isi128expr(expr):
         return _i128eval(expr)
     if (t is not None and t.iscomplex) or k == EXPRCPLX or (

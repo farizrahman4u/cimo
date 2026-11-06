@@ -22,8 +22,8 @@ needs_quad = pytest.mark.skipif(not QUAD, reason='long double is double on this 
 
 REJECTED = [
     # attributes that would silently change the meaning of the program
-    ('typedef int v4 __attribute__((vector_size(16)));', 'vector types (vector_size) are not supported yet'),
-    ('typedef int v [[gnu::vector_size(16)]];', 'vector types (vector_size) are not supported yet'),
+    ('typedef int v4 __attribute__((ext_vector_type(4)));', 'vector types (ext_vector_type) are not supported yet'),
+    ('typedef __int128 v [[gnu::vector_size(32)]];', 'vector_size applied to a type that is not an integer or floating type'),
     ('typedef int q __attribute__((mode(XF)));', "unknown machine mode 'XF'"),
     ('void g(int *); int f(void){ int x __attribute__((cleanup(g))) = 1; return x; }',
      "attribute 'cleanup' is not supported"),
@@ -169,7 +169,7 @@ int f(void) {
 '''
     assert cimo.compile(src, host_headers=True, link=['libc']).f() == 7
     with pytest.raises(cimo.CompileError, match=r'<string>:2:\d+: error: vector types'):
-        cimo.compile('#include <stdio.h>\ntypedef int v4 __attribute__((vector_size(16)));\n',
+        cimo.compile('#include <stdio.h>\ntypedef int v4 __attribute__((ext_vector_type(4)));\n',
                      host_headers=True)
 
 
@@ -217,7 +217,7 @@ int f(int x) { return fp(x); }''')
 
 def test_cli_behavior_unchanged():
     """Without diagnostics=True (the cproc-qbe command line) the frontend is cproc's."""
-    src = 'typedef int v4 __attribute__((vector_size(16))); long double x;'
+    src = 'typedef int v4 __attribute__((ext_vector_type(4))); long double x;'
     assert 'data $x' in frontend_compile(src)
     with pytest.raises(Exception, match='vector types'):
         frontend_compile(src, diagnostics=True)

@@ -747,6 +747,8 @@ def parameter(s):
     global _inparam
     A.attr(None, 0)
     sc = Ref()
+    outer = DG.declvector  # cimo: a parameter's vector_size is its own
+    DG.declvector = None
     t = declspecs(s, sc, None, None)
     if not t.type:
         if U.diagnostics:
@@ -758,8 +760,11 @@ def parameter(s):
     _inparam = True
     try:
         t = declarator(s, t, name, None, None, True)
+        if DG.declvector is not None:
+            t = QualType(DG.vectortype(t.type, DG.declvector), t.qual, t.expr)
     finally:
         _inparam = False
+        DG.declvector = outer
     length = t.type.length if t.type.kind == TYPEARRAY else None
     q = Ref(t.qual)
     t.type = typeadjust(t.type, q)
@@ -936,11 +941,21 @@ def staticassert(s):
 
 
 def structdecl(s, b):
+    outer = DG.declvector  # cimo: the enclosing declaration's vector_size, if any (restored below)
+    try:
+        DG.declvector = None
+        _structdecl(s, b)
+    finally:
+        DG.declvector = outer
+
+
+def _structdecl(s, b):
     if staticassert(s):
         return
     A.attr(None, 0)
     align = Ref(0)
     base = declspecs(s, None, None, align)
+    vec = DG.declvector  # a vector_size among the specifiers: every declarator's
     if not base.type:
         if U.diagnostics:
             DG.unknowntype()
@@ -958,7 +973,10 @@ def structdecl(s, b):
         else:
             name = Ref()
             DG.memberpacked = False
+            DG.declvector = vec
             mt = declarator(s, base, name, align, None, False)
+            if DG.declvector is not None:  # cimo: a vector member (the attribute before or after its declarator)
+                mt = QualType(DG.vectortype(mt.type, DG.declvector), mt.qual, None)
             width = E.intconstexpr(s, False) if consume(TCOLON) else M64
             packed, DG.memberpacked = DG.memberpacked, False
             if packed and width == M64 and not b.pack:  # cimo: a packed member: alignment 1
@@ -975,14 +993,21 @@ def structdecl(s, b):
 
 def typename(s, tq, toeval):
     """6.7.7 Type names. tq and toeval are Refs or None."""
-    t = declspecs(s, None, None, None)
-    if t.type:
-        t = declarator(s, t, None, None, None, True)
-        if tq:
-            tq.v |= t.qual
-        if toeval:
-            toeval.v = t.expr
-    return t.type
+    outer = DG.declvector  # cimo: a vector_size in the type name (a cast, a compound literal) is its own
+    DG.declvector = None
+    try:
+        t = declspecs(s, None, None, None)
+        if t.type:
+            t = declarator(s, t, None, None, None, True)
+            if tq:
+                tq.v |= t.qual
+            if toeval:
+                toeval.v = t.expr
+            if DG.declvector is not None:
+                return DG.vectortype(t.type, DG.declvector)
+        return t.type
+    finally:
+        DG.declvector = outer
 
 
 def getlinkage(kind, sc, prior, filescope):
@@ -1056,6 +1081,7 @@ def decl(s, f):
     if U.diagnostics and tok.kind == T__ASM__:
         error(tok.loc, DG.INLINEASM)
     DG.declmode = None
+    DG.declvector = None
     a = Attr()
     a.kind = 0
     if A.attr(a, ATTRNORETURN) and consume(TSEMICOLON):
@@ -1106,6 +1132,8 @@ def decl(s, f):
         A.gnuattr(a, 0)  # appertains to identifier
         if DG.declmode is not None:  # cimo: __attribute__((mode(M)))
             t = DG.modetype(t, DG.declmode)
+        if DG.declvector is not None:  # cimo: __attribute__((vector_size(N)))
+            t = DG.vectortype(t, DG.declvector)
         kind = DECLTYPE if sc & SCTYPEDEF else DECLFUNC if t.kind == TYPEFUNC else DECLOBJECT
         if U.diagnostics and kind != DECLFUNC and fs:  # cimo: C11 6.7.4p2
             error(tok.loc, "'%s' declared with a function specifier ('inline' or '_Noreturn') "

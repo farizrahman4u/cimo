@@ -35,7 +35,7 @@ Each of these is a compile error that names the problem:
 - the hosted parts of the C library: files, time, threads, sockets, `getenv`. To use them, link the host's C library; see [Calling host libraries](host-libraries.md).
 
 > [!PLANNED]
-> GNU vector types (`__attribute__((vector_size(16)))`) for hand-written SIMD; today they are a compile error.
+> GNU vector types as vector instructions: today `__attribute__((vector_size(16)))` types, their operators, `__builtin_shuffle`, `__builtin_shufflevector` and `__builtin_convertvector` work and match gcc's results, computed one lane at a time.
 
 ## Type sizes
 

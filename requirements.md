@@ -547,7 +547,7 @@ WSL2, mains, tok/s:
 
 ## Vector code (2026-11-02)
 
-Built on arm64 and x86-64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes. GNU vector types and wasm aren't. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
+Built on arm64 and x86-64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes. GNU vector types are accepted (2026-11-06, below) but computed lane by lane; wasm isn't vectorized. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
 Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorization (`rgb2gray` up to 6.6x; `saxpy`, `jacobi2d`,
 `conv3x3` 3 to 4x).
 
@@ -1435,7 +1435,15 @@ for Linux and macOS (strategies under "Platform loading findings").
   - Attributes: cproc's own (`aligned`, `packed`, `section`, `constructor`, `destructor`,
     `noreturn`) work; an allowlist of hints that don't change meaning for cimo (`noinline`,
     `unused`, `const`, `pure`, `format`, `nonnull`, `may_alias`, `visibility`, `weak`, ...) is
-    ignored; any other is "attribute 'X' is not supported" (`vector_size`: "not supported yet").
+    ignored; any other is "attribute 'X' is not supported" (`ext_vector_type`: "not supported yet").
+  - **GNU vector types** (2026-11-06): `vector_size(N)` on a declaration, member, parameter, return type
+    or type name makes a vector of the (innermost) integer or floating type, one type per element type
+    and size (`TY.mkvector`), aligned to its size up to 16, laid out and passed as a struct of its lanes.
+    The frontend lowers operators lane by lane (`qbe._v*`): arithmetic and shifts with a scalar operand
+    broadcast, comparisons giving -1/0 in signed lanes of the same size, `v[i]` as an lvalue, casts of the
+    bits to and from types of the same size, `__builtin_shuffle` (one or two vectors, variable masks),
+    `__builtin_shufflevector`, `__builtin_convertvector`. Also GNU casts to a union (`(union U)x`).
+    Not yet: vector instructions for them (class `q`), `__int128` lanes, `ext_vector_type`.
     `aligned` after a declarator applies to the object/member, and on a typedef makes an
     over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's
     `#define __attribute__(x)` (made for non-GNU compilers), so attributes are never dropped.

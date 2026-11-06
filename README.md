@@ -111,8 +111,8 @@ k = cimo.compile(src, link=["libz.so.1"])
 
 Kernels run with the full privileges of the Python process, like ctypes. There is no sandbox.
 
-Inline assembly, `setjmp`/`longjmp`, `long double` and GNU vector types are not supported. Each is a
-compile error that says so. An empty `asm` (`asm volatile ("" ::: "memory")`, the usual optimization
+Inline assembly, `setjmp`/`longjmp` and `long double` are not supported. Each is a compile error that says
+so. An empty `asm` (`asm volatile ("" ::: "memory")`, the usual optimization
 barrier) compiles to nothing.
 
 ## Calling kernels
@@ -227,7 +227,7 @@ arm64 and x86-64. Differential-tested against gcc on random programs (Csmith, YA
 Planned:
 
 - Auto-vectorization of more loops (float `max`/`min`, `argmax`, 8- and 16-bit elements, outer loops), and on WebAssembly
-- GNU vector types (`__attribute__((vector_size(16)))`)
+- GNU vector types (`__attribute__((vector_size(16)))`) as vector instructions (today they are computed lane by lane)
 - `debug=True`: bounds checks on every access, and detection of use-after-free, double free and leaks
 - `cimo report`: which loops were optimized, and why the others weren't
 - Checking at call time that an array matches a VLA parameter's shape

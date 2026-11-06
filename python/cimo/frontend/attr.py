@@ -66,6 +66,11 @@ def parseattr(a, allowed, prefix):
             kind = ATTRDESTRUCTOR
         elif name == "packed":
             kind = ATTRPACKED
+        elif name == "vector_size" and U.diagnostics:  # cimo: GNU vector types (diag.vectortype)
+            expect(TLPAREN, "after 'vector_size'")
+            DG.declvector = E.intconstexpr(SC.filescope, False)
+            expect(TRPAREN, "after vector size")
+            return True
         elif name == "mode" and U.diagnostics:  # cimo: GNU machine modes, a type of that size
             expect(TLPAREN, "after 'mode'")
             if tok.kind < TIDENT:

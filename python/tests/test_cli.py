@@ -169,7 +169,7 @@ def test_run_defines_and_includes(capsys, prog, tmp_path):
 def test_compile_error_excerpt(capsys, prog):
     # long double is binary64 (allowed) on Apple and Windows, 128-bit (rejected) on Linux
     ty, msg = (('long double', 'long double is not supported') if driver.TARGET == 'arm64'
-               else ('__int128', 'cast type must be scalar'))
+               else ('__bf16', "type '__bf16' is not supported"))
     p = prog('bad.c', 'int main(void) {\n\tdouble y = 1;\n\ty = y * (%s)2;\n'
                       '\treturn 0;\n}\n' % ty)
     status, _, err = run(capsys, 'run', p)

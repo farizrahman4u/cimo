@@ -414,7 +414,7 @@ class Type(object):
     members). Fields that C leaves uninitialized default to zero/None."""
     __slots__ = ('fieldalign', 'kind', 'prop', 'align', 'size', 'value', 'base', 'link', 'qual', 'incomplete',
                  'issigned', 'iscomplex', 'width', 'length', 'ptrqual', 'asize',
-                 'isvararg', 'params', 'nparam', 'tag', 'members', 'origin')
+                 'isvararg', 'params', 'nparam', 'tag', 'members', 'origin', 'vlanes')
 
     def __init__(self, kind=TYPENONE, prop=0, size=0, align=0, issigned=False, width=0,
                  base=None, incomplete=False, tag=None):
@@ -422,6 +422,7 @@ class Type(object):
         self.prop = prop
         self.fieldalign = None  # cimo: a struct's alignment before `aligned(N)` after its body
         self.origin = None  # cimo: the type an `aligned(N)` typedef's type is a variant of (for compatibility)
+        self.vlanes = 0  # cimo: a GNU vector type's number of elements (base: the element type)
         self.align = align
         self.size = size
         self.value = None
@@ -451,7 +452,8 @@ SDSTATIC, SDTHREAD, SDAUTO = range(3)
 # enum builtinkind
 (BUILTINALLOCA, BUILTINCONSTANTP, BUILTINEXPECT, BUILTININFF, BUILTINNANF, BUILTINOFFSETOF,
  BUILTINTYPESCOMPATIBLEP, BUILTINUNREACHABLE, BUILTINVAARG, BUILTINVACOPY, BUILTINVAEND,
- BUILTINVALIST, BUILTINVASTART, BUILTINWIDTHOF, BUILTINCOMPLEX) = range(15)
+ BUILTINVALIST, BUILTINVASTART, BUILTINWIDTHOF, BUILTINCOMPLEX, BUILTINSHUFFLE, BUILTINSHUFFLEVECTOR,
+ BUILTINCONVERTVECTOR) = range(18)
 
 
 class Decl(object):
@@ -502,8 +504,10 @@ class Scope(object):
 # enum exprkind
 (EXPRIDENT, EXPRCONST, EXPRSTRING, EXPRCALL, EXPRBITFIELD, EXPRINCDEC, EXPRCOMPOUND,
  EXPRUNARY, EXPRCAST, EXPRBINARY, EXPRCOND, EXPRASSIGN, EXPRCOMMA, EXPRBUILTIN, EXPRTEMP,
- EXPRSIZEOF, EXPRSTMT, EXPRCPLX) = range(18)  # cimo: EXPRSTMT, a GNU statement expression; EXPRCPLX, a
-# complex value from its parts (l, r: real and imaginary, of the complex type's real type)
+ EXPRSIZEOF, EXPRSTMT, EXPRCPLX, EXPRVEC) = range(19)  # cimo: EXPRSTMT, a GNU statement expression; EXPRCPLX, a
+# complex value from its parts (l, r: real and imaginary, of the complex type's real type); EXPRVEC, a GNU vector
+# builtin (op: 'shuffle' (l, mask ct, second vector r or None), 'shufflevector' (l, r, lane indices args),
+# 'convert' (l))
 
 _pack_d = _struct.Struct('<d').pack
 _unpack_d = _struct.Struct('<d').unpack

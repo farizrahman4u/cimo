@@ -7,7 +7,7 @@ from .cc import (Expr, Init, M64, BITS0, TYPEVOID, TYPEPOINTER, TYPENULLPTR, TYP
                  PROPVM, QUALNONE, QUALCONST, QUALVOLATILE, DECLOBJECT, DECLFUNC, DECLCONST,
                  LINKNONE, LINKEXTERN, SDSTATIC, SDTHREAD, EXPRIDENT, EXPRCONST, EXPRSTRING,
                  EXPRCALL, EXPRBITFIELD, EXPRINCDEC, EXPRCOMPOUND, EXPRUNARY, EXPRCAST,
-                 EXPRBINARY, EXPRCOND, EXPRASSIGN, EXPRCOMMA, EXPRBUILTIN, EXPRTEMP, EXPRSIZEOF, EXPRSTMT, EXPRCPLX,
+                 EXPRBINARY, EXPRCOND, EXPRASSIGN, EXPRCOMMA, EXPRBUILTIN, EXPRTEMP, EXPRSIZEOF, EXPRSTMT, EXPRCPLX, EXPRVEC,
                  BUILTINVASTART, BUILTINVAARG, BUILTINALLOCA, BUILTINUNREACHABLE, TBAND, TMUL,
                  TSUB, TLOR, TLAND, TDIV, TMOD, TADD, TSHL, TSHR, TBOR, TXOR, TLESS, TGREATER,
                  TLEQ, TGEQ, TEQL, TNEQ, TINC)
@@ -286,7 +286,7 @@ _typeid = 0
 def _reset():
     global _blockid, _globalid, _typeid, curfunc
     curfunc = None
-    for c in list(TY._complex.values()) + [TY.typeint128, TY.typeuint128]:  # cimo: these types outlive a
+    for c in list(TY._complex.values()) + list(TY._vectors.values()) + [TY.typeint128, TY.typeuint128]:  # cimo: these types outlive a
         c.value = None                                                      # compile; their QBE names don't
     _blockid = 0
     _globalid = 0
@@ -1689,6 +1689,127 @@ def _convertvalue(f, dst, src, l):
         return _cxconvert(f, dst, src, e)
     return _i128convert(f, dst, src, e)
 
+# cimo: GNU vector types. A vector value is the address of its lanes (a struct's, for memory, copies, calls and
+# returns); operators are lowered lane by lane into a slot of their own. Lanes narrower than int are computed in
+# w (loaded extended by their signedness, stored truncated), as C computes them.
+
+def _vlane(f, a, el, i):
+    qt = qbetype(el)
+    return funcinst(f, qt.load, qt.base, funcinst(f, IADD, ptrclass, a, mkintconst(i * el.size)), None)
+
+
+def _vput(f, a, el, i, v):
+    funcinst(f, qbetype(el).store, 0, v, funcinst(f, IADD, ptrclass, a, mkintconst(i * el.size)))
+
+
+def _voperand(f, e):
+    """(address, None) of a vector operand, or (None, value) of a scalar one (computed once)."""
+    if TY.isvec(e.type):
+        return funcexpr(f, e), None
+    return None, funcexpr(f, e)
+
+
+def _vbinary(f, e):
+    vt = e.l.type if TY.isvec(e.l.type) else e.r.type
+    el = vt.base
+    rt = e.type
+    op = e.op
+    la, ls = _voperand(f, e.l)
+    ra, rs = _voperand(f, e.r)
+    rel = e.r.type.base if TY.isvec(e.r.type) else el
+    res = _cxslot(f, rt)
+    cls = qbetype(el).base
+    cmp = op in (TEQL, TNEQ, TLESS, TGREATER, TLEQ, TGEQ)
+    o = _binop(op, el)
+    for i in range(vt.vlanes):
+        a = _vlane(f, la, el, i) if la is not None else ls
+        b = _vlane(f, ra, rel, i) if ra is not None else rs
+        if op in (TSHL, TSHR) and cls == 'l' and qbetype(rel).base == 'w':
+            b = funcinst(f, IEXTUW, 'l', b, None)
+        if cmp:
+            v = funcinst(f, INEG, 'w', funcinst(f, o, 'w', a, b), None)  # -1 or 0
+            if rt.base.size == 8:
+                v = funcinst(f, IEXTSW, 'l', v, None)
+        else:
+            v = funcinst(f, o, cls, a, b)
+        _vput(f, res, rt.base, i, v)
+    return res
+
+
+def _vunary(f, e):
+    t = e.type
+    el = t.base
+    cls = qbetype(el).base
+    a = funcexpr(f, e.base)
+    res = _cxslot(f, t)
+    for i in range(t.vlanes):
+        x = _vlane(f, a, el, i)
+        if e.op == TSUB:
+            x = funcinst(f, INEG, cls, x, None)
+        else:
+            x = funcinst(f, IXOR, cls, x, mkintconst(-1))
+        _vput(f, res, el, i, x)
+    return res
+
+
+def _vcast(f, dst, src, e):
+    """A vector's bits as another type of the same size, or a scalar's as a vector."""
+    v = funcexpr(f, e)
+    if TY.isvec(dst):
+        res = _cxslot(f, dst)
+        if TY.isvec(src):
+            funccopy(f, res, v, dst.size, min(dst.align, src.align))
+        else:
+            if src.kind == TYPEPOINTER:
+                src = TY.typeulong
+            funcinst(f, qbetype(src).store, 0, v, res)
+        return res
+    if dst is TY.typevoid:
+        return None
+    t = TY.typeulong if dst.kind == TYPEPOINTER else dst
+    qt = qbetype(t)
+    return funcinst(f, qt.load, qt.base, v, None)
+
+
+def _vbuiltin(f, e):
+    t = e.type
+    el = t.base
+    a = funcexpr(f, e.l)
+    st = e.l.type
+    res = _cxslot(f, t)
+    if e.op == 'convert':
+        for i in range(t.vlanes):
+            _vput(f, res, el, i, convert(f, el, st.base, _vlane(f, a, st.base, i)))
+        return res
+    n = st.vlanes
+    if e.op == 'shufflevector':
+        b = funcexpr(f, e.r)
+        for i, k in enumerate(e.args):
+            v = mkintconst(0) if k < 0 else _vlane(f, a if k < n else b, el, k % n)
+            if k < 0 and el.prop & PROPFLOAT:
+                v = mkfltconst(VALUE_FLTCONST if el.size == 4 else VALUE_DBLCONST, 0.0)
+            _vput(f, res, el, i, v)
+        return res
+    m = funcexpr(f, e.ct)
+    mel = e.ct.type.base
+    base, lanes = a, n
+    if e.r is not None:  # a and b side by side, indexed together
+        b = funcexpr(f, e.r)
+        both = _cxslot(f, TY.mkvector(el, 2 * st.size))
+        funccopy(f, both, a, st.size, st.align)
+        funccopy(f, funcinst(f, IADD, ptrclass, both, mkintconst(st.size)), b, st.size, st.align)
+        base, lanes = both, 2 * n
+    for i in range(n):
+        k = _vlane(f, m, mel, i)
+        if qbetype(mel).base == 'w':
+            k = funcinst(f, IEXTUW, 'l', k, None)
+        k = funcinst(f, IAND, 'l', k, mkintconst(lanes - 1))
+        p = funcinst(f, IADD, ptrclass, base, funcinst(f, IMUL, 'l', k, mkintconst(el.size)))
+        qt = qbetype(el)
+        _vput(f, res, el, i, funcinst(f, qt.load, qt.base, p, None))
+    return res
+
+
 def funcexpr(f, e):
     if U.diagnostics:
         DG.checktype(e.type)
@@ -1804,6 +1925,8 @@ def funcexpr(f, e):
         if op == TMUL:
             r = funcexpr(f, e.base)
             return funcload(f, e.type, LValue(r), e.qual)
+        if TY.isvec(e.type):  # cimo
+            return _vunary(f, e)
         if TY.isi128(e.type) and op == TSUB:  # cimo: 0 - x
             a0, a1 = _i128parts(f, e.base)
             lo = funcinst(f, INEG, 'l', a0, None)
@@ -1825,6 +1948,8 @@ def funcexpr(f, e):
     elif k == EXPRCAST:
         if e.toeval:
             funcexpr(f, e.toeval)
+        if TY.isvec(e.type) or TY.isvec(e.base.type):
+            return _vcast(f, e.type, e.base.type, e.base)
         if (e.type.iscomplex or e.base.type.iscomplex) and e.type is not TY.typevoid:
             return _cxconvert(f, e.type, e.base.type, e.base)
         if (TY.isi128(e.type) or TY.isi128(e.base.type)) and e.type is not TY.typevoid:
@@ -1835,6 +1960,8 @@ def funcexpr(f, e):
         return convert(f, e.type, e.base.type, l)
     elif k == EXPRCPLX:
         return _cxmake(f, e.type, funcexpr(f, e.l), funcexpr(f, e.r))
+    elif k == EXPRVEC:
+        return _vbuiltin(f, e)
     elif k == EXPRBINARY:
         if e.op == TLOR or e.op == TLAND:
             b0 = mkblock("logic_true")
@@ -1855,6 +1982,8 @@ def funcexpr(f, e):
             funclabel(f, b2)
 
             return b2.phi_res
+        if TY.isvec(e.type) or TY.isvec(e.l.type) or TY.isvec(e.r.type):
+            return _vbinary(f, e)
         if e.op in (TEQL, TNEQ, TLESS, TGREATER, TLEQ, TGEQ) and (TY.isi128(e.l.type) or TY.isi128(e.r.type)):
             return _i128compare(f, e)
         if TY.isi128(e.type):

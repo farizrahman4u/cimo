@@ -12,7 +12,7 @@ defining an object of it is an error.
 
 from .cc import (TIDENT, TMUL, TLBRACE, T__ASM__, T__ALIGNOF__, TCONST, TRESTRICT, TVOLATILE,
                  TYPELDOUBLE, TYPESTRUCT, TYPEUNION, TYPEARRAY, TYPELONG, TYPEPOINTER, TYPEFUNC,
-                 TYPEENUM, TYPEBOOL, TYPEBITINT, PROPINT, PROPFLOAT, DECLFUNC, DECLOBJECT, LINKEXTERN, SDTHREAD,
+                 TYPEENUM, TYPEBOOL, TYPEBITINT, PROPINT, PROPFLOAT, PROPSCALAR, DECLFUNC, DECLOBJECT, LINKEXTERN, SDTHREAD,
                  QUALNONE, Type, Token)
 from .token import tok, tokenget, tokenstr, error
 from .type import mkpointertype, typevoid, typecompatible
@@ -37,7 +37,6 @@ IGNOREDATTRS = frozenset('''
 '''.split())
 
 _ATTRMSG = {
-    'vector_size': "vector types (vector_size) are not supported yet",
     'ext_vector_type': "vector types (ext_vector_type) are not supported yet",
     'cleanup': "attribute 'cleanup' is not supported",
     'transparent_union': "attribute 'transparent_union' is not supported",
@@ -67,6 +66,7 @@ referenced = set()  # function declarations named in an expression
 declalign = 0  # `aligned` attribute after the declarator being parsed by decl()
 declmode = None  # `mode` attribute of the declaration being parsed by decl()
 memberpacked = False  # `packed` attribute after a struct member's declarator
+declvector = None  # `vector_size` attribute of the declaration being parsed (bytes)
 _cache = {}
 
 
@@ -310,3 +310,25 @@ def modetype(t, mode):
         return typeint128 if t.issigned else typeuint128
     return {1: (TY.typeuchar, TY.typeschar), 2: (TY.typeushort, TY.typeshort), 4: (TY.typeuint, TY.typeint),
             8: (TY.typeulong, TY.typelong)}[size][bool(t.issigned)]
+
+
+def vectortype(t, size):
+    """`__attribute__((vector_size(N)))` on a declaration of type t: a vector of t (or of an array's, pointer's or
+    function's innermost element: gcc applies it there)."""
+    from . import type as TY
+    if t.kind == TYPEARRAY:
+        a = TY.mkarraytype(vectortype(t.base, size), t.qual, t.size // t.base.size if t.base.size else 0)
+        a.length, a.incomplete = t.length, t.incomplete
+        return a
+    if t.kind == TYPEFUNC or t.kind == TYPEPOINTER:  # `vector int f(...)`, `vector int *p`
+        v = Type()
+        for name in Type.__slots__:
+            setattr(v, name, getattr(t, name))
+        v.base = vectortype(t.base, size)
+        v.value = v.link = None
+        return v
+    if not (t.prop & (PROPINT | PROPFLOAT)) or t.kind == TYPEBOOL or not (t.prop & PROPSCALAR) or t.kind == TYPEENUM:
+        error(tok.loc, "vector_size applied to a type that is not an integer or floating type")
+    if size <= 0 or size % t.size or (size // t.size) & (size // t.size - 1):
+        error(tok.loc, "vector size %d is not a power-of-two multiple of the element size", size)
+    return TY.mkvector(t, size)

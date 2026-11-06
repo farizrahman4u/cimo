@@ -2,15 +2,15 @@
 
 import re
 
-from .cc import (Expr, Ref, M64, M32, EXPRIDENT, EXPRCONST, EXPRSTRING, EXPRCALL, EXPRBITFIELD,
+from .cc import (Expr, Init, BITS0, Ref, M64, M32, EXPRIDENT, EXPRCONST, EXPRSTRING, EXPRCALL, EXPRBITFIELD,
                  EXPRINCDEC, EXPRCOMPOUND, EXPRUNARY, EXPRCAST, EXPRBINARY, EXPRCOND, EXPRASSIGN,
-                 EXPRCOMMA, EXPRBUILTIN, EXPRTEMP, EXPRSIZEOF, EXPRCPLX, TYPEARRAY, TYPEFUNC, TYPESTRUCT,
+                 EXPRCOMMA, EXPRBUILTIN, EXPRTEMP, EXPRSIZEOF, EXPRCPLX, EXPRVEC, TYPEARRAY, TYPEFUNC, TYPESTRUCT,
                  TYPEUNION, TYPEPOINTER, TYPEBOOL, TYPENULLPTR, TYPEVOID, PROPINT, PROPARITH,
                  PROPSCALAR, PROPREAL, PROPVM, QUALNONE, QUALCONST, DECLOBJECT,
                  DECLBUILTIN, SDSTATIC, SDAUTO, LINKNONE, BUILTINALLOCA, BUILTINCONSTANTP,
                  BUILTINEXPECT, BUILTININFF, BUILTINNANF, BUILTINOFFSETOF,
                  BUILTINTYPESCOMPATIBLEP, BUILTINUNREACHABLE, BUILTINVAARG, BUILTINVACOPY,
-                 BUILTINVAEND, BUILTINVASTART, BUILTINWIDTHOF, BUILTINCOMPLEX,
+                 BUILTINVAEND, BUILTINVASTART, BUILTINWIDTHOF, BUILTINCOMPLEX, BUILTINSHUFFLE, BUILTINSHUFFLEVECTOR, BUILTINCONVERTVECTOR,
                  TNONE, TIDENT, TSTRINGLIT, TCHARCONST, TNUMBER, TTRUE, TFALSE, TNULLPTR,
                  TLPAREN, TRPAREN, T_GENERIC, TCOMMA, TDEFAULT, TCOLON, TLBRACK, TRBRACK,
                  TPERIOD, TARROW, TINC, TDEC, TBAND, TMUL, TADD, TSUB, TBNOT, TLNOT, TSIZEOF,
@@ -243,7 +243,87 @@ def mksizeofexpr(t):
     return e
 
 
+def _vecbinary(loc, op, l, r):
+    """cimo: a binary operator with a GNU vector operand: lane by lane; a scalar operand is converted to the
+    lane type and used for every lane. Comparisons give -1 or 0 in signed integer lanes of the same size."""
+    lv, rv = TY.isvec(l.type), TY.isvec(r.type)
+    vt = l.type if lv else r.type
+    if lv and rv and not typecompatible(l.type, r.type):
+        if l.type.size != r.type.size or l.type.vlanes != r.type.vlanes or not (
+                l.type.base.prop & PROPINT and r.type.base.prop & PROPINT) or op not in (TSHL, TSHR):
+            error(loc, "operands to '%s' are vectors of different types", tokenstr(op))
+    for v in (l, r):
+        if not TY.isvec(v.type) and not (v.type.prop & PROPARITH):
+            error(loc, "invalid operand to '%s' with a vector", tokenstr(op))
+    if not lv:
+        l = exprconvert(l, vt.base)
+    if not rv:
+        r = exprconvert(r, vt.base if op not in (TSHL, TSHR) else TY.typeint)
+    el = vt.base
+    if op in (TMOD, TSHL, TSHR, TBAND, TBOR, TXOR) and not (el.prop & PROPINT):
+        error(loc, "operator '%s' needs integer vector lanes", tokenstr(op))
+    if op in (TLOR, TLAND):
+        error(loc, "operator '%s' on vectors is not supported", tokenstr(op))
+    if op in (TEQL, TNEQ, TLESS, TGREATER, TLEQ, TGEQ):
+        t = TY.vecint(vt)
+    else:
+        t = vt
+    e = Expr(EXPRBINARY, t, None)
+    e.op = op
+    e.l = l
+    e.r = r
+    return e
+
+
+def _vecbuiltin(s, kind):
+    """cimo: __builtin_shuffle(a, mask) / (a, b, mask) (lane i of the result: lane mask[i] of a, or of a and b
+    side by side, modulo their lanes), __builtin_shufflevector(a, b, i...) (constant lanes of a and b; -1: any),
+    __builtin_convertvector(v, T) (each lane converted, as a cast)."""
+    a = assignexpr(s)
+    if not TY.isvec(a.type):
+        error(tok.loc, "the first argument of a vector builtin must be a vector")
+    e = Expr(EXPRVEC, None, None)
+    e.l, e.r, e.ct, e.args = a, None, None, None
+    if kind == BUILTINCONVERTVECTOR:
+        expect(TCOMMA, "after vector")
+        t = D.typename(s, None, None)
+        if not t or not TY.isvec(t) or t.vlanes != a.type.vlanes:
+            error(tok.loc, "__builtin_convertvector needs a vector type with as many lanes")
+        e.op, e.type = 'convert', t
+        return e
+    expect(TCOMMA, "after vector")
+    b = assignexpr(s)
+    if kind == BUILTINSHUFFLE:
+        if consume(TCOMMA):
+            m = assignexpr(s)
+            if not typecompatible(a.type, b.type):
+                error(tok.loc, "__builtin_shuffle's vectors must have the same type")
+            e.r = b
+        else:
+            m = b
+        if not TY.isvec(m.type) or not (m.type.base.prop & PROPINT) or m.type.vlanes != a.type.vlanes \
+                or m.type.base.size != a.type.base.size:
+            error(tok.loc, "__builtin_shuffle's mask must be an integer vector of as many lanes of the same size")
+        e.op, e.ct, e.type = 'shuffle', m, a.type
+        return e
+    if not typecompatible(a.type, b.type):
+        error(tok.loc, "__builtin_shufflevector's vectors must have the same type")
+    idx = []
+    while consume(TCOMMA):
+        idx.append(intconstexpr(s, True))
+    n = len(idx)
+    if n == 0 or n & (n - 1):
+        error(tok.loc, "__builtin_shufflevector needs a power-of-two number of lane indices")
+    idx = [i - (1 << 64) if i >> 63 else i for i in idx]
+    if any(i >= 2 * a.type.vlanes or i < -1 for i in idx):
+        error(tok.loc, "__builtin_shufflevector lane index out of range")
+    e.op, e.r, e.args, e.type = 'shufflevector', b, idx, TY.mkvector(a.type.base, a.type.base.size * n)
+    return e
+
+
 def mkbinaryexpr(loc, op, l, r):
+    if TY.isvec(l.type) or TY.isvec(r.type):
+        return _vecbinary(loc, op, l, r)
     t = None
     lp = l.type.prop
     rp = r.type.prop
@@ -905,6 +985,8 @@ def builtinfunc(s, kind):
         t = D.typename(s, None, None)
         expect(TCOMMA, "after type name")
         e = mkconstexpr(TY.typeint, 1 if typecompatible(t, D.typename(s, None, None)) else 0)
+    elif kind in (BUILTINSHUFFLE, BUILTINSHUFFLEVECTOR, BUILTINCONVERTVECTOR):
+        e = _vecbuiltin(s, kind)
     elif kind == BUILTINCOMPLEX:
         re = assignexpr(s)
         expect(TCOMMA, "after real part")
@@ -987,6 +1069,17 @@ def postfixexpr(s, r):
             next()
             arr = r
             idx = expr(s)
+            if TY.isvec(arr.type) or TY.isvec(idx.type):  # cimo: a vector's lane, an lvalue if the vector is
+                if TY.isvec(idx.type):
+                    arr, idx = idx, arr
+                lv = arr.lvalue
+                p = mkunaryexpr(TBAND, arr)
+                p = exprconvert(p, mkpointertype(arr.type.base, p.type.qual))
+                e = mkunaryexpr(TMUL, mkbinaryexpr(tok.loc, TADD, p, idx))
+                e.lvalue = lv
+                expect(TRBRACK, "after array index")
+                r = e
+                continue
             if arr.type.kind != TYPEPOINTER:
                 if idx.type.kind != TYPEPOINTER:
                     error(tok.loc, "either array or index must be pointer type")
@@ -1071,6 +1164,32 @@ def postfixexpr(s, r):
         r = e
 
 
+def _unaryrest(op, e):
+    """cimo: unary + - ~ of a non-vector operand, as cproc's branches below."""
+    if op == TADD:
+        if not (e.type.prop & PROPARITH):
+            error(tok.loc, "operand of unary '+' operator must have arithmetic type")
+        if e.type.prop & PROPINT:
+            e = exprpromote(e)
+        return e
+    if op == TSUB:
+        if not (e.type.prop & PROPARITH):
+            error(tok.loc, "operand of unary '-' operator must have arithmetic type")
+        if e.type.prop & PROPINT:
+            e = exprpromote(e)
+        e = Expr(EXPRUNARY, e.type, e)
+        e.op = op
+        return e
+    if e.type.iscomplex:  # ~z, the conjugate (GNU)
+        e = Expr(EXPRUNARY, e.type, e)
+        e.op = TBNOT
+        return e
+    if not (e.type.prop & PROPINT):
+        error(tok.loc, "operand of '~' operator must have integer type")
+    e = exprpromote(e)
+    return mkbinaryexpr(tok.loc, TXOR, e, mkconstexpr(e.type, (1 << 128) - 1 if TY.isi128(e.type) else M64))
+
+
 _CXPARTS = {'__real__': False, '__real': False, '__imag__': True, '__imag': True}
 
 
@@ -1093,6 +1212,16 @@ def unaryexpr(s):
             # assignment takes the address internally)
             error(tok.loc, "cannot take address of 'register' object")
         return mkunaryexpr(op, e)
+    elif op in (TADD, TSUB, TBNOT) and U.diagnostics:  # cimo: vectors lane by lane, else _unaryrest
+        next()
+        e = castexpr(s)
+        if not TY.isvec(e.type):
+            return _unaryrest(op, e)
+        if op == TBNOT and not (e.type.base.prop & PROPINT):
+            error(tok.loc, "operand of '~' must have integer vector lanes")
+        if op != TADD:
+            e = Expr(EXPRUNARY, e.type, e)
+            e.op = op
     elif op == TADD:
         next()
         e = castexpr(s)
@@ -1201,7 +1330,25 @@ def castexpr(s):
             e.init = IN.parseinit(s, t)
             e = postfixexpr(s, decay(e))
             break
-        if t is not TY.typevoid and not (t.prop & PROPSCALAR) and not t.iscomplex and not TY.isi128(t):
+        if U.diagnostics and t.kind == TYPEUNION and last is None:
+            # cimo: a GNU cast to a union, `(union U)x`: the union with the member of x's type set to x
+            x = castexpr(s)
+            m = t.members
+            while m and not typecompatible(m.type, x.type):
+                m = m.next
+            if not m:
+                error(tok.loc, "cast to union type from a type that is not one of its members'")
+            e = Expr(EXPRCOMPOUND, t, None)
+            e.qual = tq.v
+            e.lvalue = True
+            d = D.mkdecl(None, DECLOBJECT, t, tq.v, LINKNONE)
+            d.storage = SDSTATIC if s is SC.filescope else SDAUTO
+            e.decl = d
+            e.init = Init(m.offset, m.offset + m.type.size, BITS0, exprassign(x, m.type))
+            e = postfixexpr(s, decay(e))
+            break
+        if t is not TY.typevoid and not (t.prop & PROPSCALAR) and not t.iscomplex and not TY.isi128(t) \
+                and not TY.isvec(t):
             error(tok.loc, "cast type must be scalar")
         e = Expr(EXPRCAST, t, None)
         e.toeval = toeval.v
@@ -1218,7 +1365,11 @@ def castexpr(s):
     if U.diagnostics and ct and (ct.kind == TYPEPOINTER and e.type.prop & PROPFLOAT
                                  or ct.prop & PROPFLOAT and e.type.kind == TYPEPOINTER):
         error(tok.loc, "cast between pointer and floating type")  # cimo: C11 6.5.4p3-4
-    if ct and ct is not TY.typevoid and not (e.type.prop & PROPSCALAR) and not (
+    if ct and (TY.isvec(ct) or TY.isvec(e.type)):  # cimo: a vector's bits as another type of the same size
+        if ct.size != e.type.size or not (TY.isvec(e.type) or e.type.prop & PROPSCALAR) or not (
+                TY.isvec(ct) or ct.prop & PROPSCALAR or ct is TY.typevoid):
+            error(tok.loc, "cast between a vector and a type of a different size")
+    elif ct and ct is not TY.typevoid and not (e.type.prop & PROPSCALAR) and not (
             (e.type.iscomplex or TY.isi128(e.type)) and (ct.prop & PROPARITH or ct.kind == TYPEPOINTER)):
         error(tok.loc, "cast operand must have scalar type")
     if last is None:

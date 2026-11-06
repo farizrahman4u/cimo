@@ -313,3 +313,41 @@ typecdouble = mkcomplex(typedouble)
 
 typeint128 = _mki128(True)
 typeuint128 = _mki128(False)
+
+
+_vectors = {}
+
+
+def isvec(t):
+    """cimo: a GNU vector type (`__attribute__((vector_size(N)))`)."""
+    return t.vlanes > 0
+
+
+def mkvector(elem, size):
+    """cimo: the vector of size bytes of elem (an integer or floating type): a struct of its lanes for memory,
+    copies, calls and returns (one type per element type and size, so equal vector types are the same); the
+    frontend lowers operations lane by lane (qbe._v*). Aligned to its size, at most 16."""
+    key = (id(elem), size)
+    t = _vectors.get(key)
+    if t is None:
+        n = size // elem.size
+        t = Type(kind=TYPESTRUCT, size=size, align=max(elem.align, min(size, 16)), prop=0)
+        t.vlanes = n
+        t.base = elem
+        prev = None
+        for i in range(n):
+            m = Member()
+            m.name, m.type, m.offset = ' %d' % i, elem, i * elem.size
+            if prev is None:
+                t.members = m
+            else:
+                prev.next = m
+            prev = m
+        _vectors[key] = t
+    return t
+
+
+def vecint(t):
+    """cimo: the signed integer vector type a comparison of vectors of type t gives (lanes of the same size)."""
+    e = {1: typeschar, 2: typeshort, 4: typeint, 8: typelong}[t.base.size]
+    return mkvector(e, t.size)
