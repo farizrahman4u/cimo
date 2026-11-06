@@ -3,6 +3,7 @@
  * and 767 above. n is 0..100, k is small (-5..5). Functions whose name ends in _alias
  * have no restrict and are also called with fb/ib pointing into fa's/ia's buffer. */
 #include <limits.h>
+#include <math.h>
 
 #define ARGS int n, int k, float *fa, float *fb, int *ia, int *ib, double *da, unsigned char *ua
 #define RARGS int n, int k, float *restrict fa, float *restrict fb, int *restrict ia, \
@@ -114,3 +115,8 @@ double bytes_edge(RARGS) { const unsigned char *s = (const unsigned char *)fb; f
 double bytes_wide(RARGS) { const unsigned char *s = (const unsigned char *)fb; for (int i = 0; i < n; i++) ua[i] = (unsigned char)((s[i] * 300) >> 8); return 0; }
 double bytes_bgr(RARGS) { const unsigned char *s = (const unsigned char *)fb + 1; for (long i = 0; i < n; i++) ua[i + k + 8] = (unsigned char)(s[3 * i + 2] + (s[3 * i] >> 1) - (s[3 * i + 1] >> 2)); return 0; }
 double bytes_two(RARGS) { const unsigned char *s = (const unsigned char *)fb; for (int i = 0; i < n; i++) ua[i] = (unsigned char)(s[3 * i] + s[3 * i + 1]); return 0; }
+/* outer-loop vectorization: lanes of i, each running the inner loop over j in order */
+double outer_f(RARGS) { float *o = (float *)ia, *o2 = (float *)ib; int m = n % 37; for (long i = 0; i < m; i++) { float s = 1.0f, t = fa[i]; for (long j = 0; j < (n & 7) * 3; j++) { float d = fb[j] - fa[i]; s += d * d / (fa[i] * fa[i] + 1.0f); t = t * 0.5f + d; } o[i] = s; o2[i] = t; } return 0; }
+double outer_d(RARGS) { double *o = (double *)ib; int m = n % 29; for (long i = 0; i < m; i++) { double s = 0; for (long j = 0; j < m + k; j++) { double d = (double)fb[j] - da[i]; s += d / sqrt(d * d + 1.0); } o[i] = s; } return 0; }
+double outer_tri(RARGS) { float *o = (float *)ia; int m = n % 37; for (long i = 0; i < m; i++) { float s = 0; for (long j = 0; j < i; j++) s += fb[j] * fa[i]; o[i] = s; } return 0; }
+double outer_alias(ARGS) { int m = n % 37; for (long i = 0; i < m; i++) { float s = 0; for (long j = 0; j < m; j++) s += fb[j] * fa[i]; fa[i + 1] = s; } return 0; }
