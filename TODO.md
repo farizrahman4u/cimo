@@ -129,6 +129,13 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    survey: list every function whose bits differ between arm64, x86-64 and wasm (expect
    `pow`, `exp`, `log` between the bundled libm's scalar and vectorized code, and `sqrt`/`fma`), fix
    or exclude each with a reason in `faq.md`. Not the host libm: `link=["libm"]` is outside the promise.
+6. **Half types and int8 dot products** (for scramjit's Directions #6, quantized inference kernels).
+   `_Float16` and `__bf16` are rejected today (`requirements.md`, GNU extensions): accept them as
+   storage types converted to and from `float` (arm64 `fcvt`/`bfcvt`, x86-64 F16C behind a check at
+   load, wasm in software), then vectorized loads and widening in the vectorizer. Int8 dot products
+   (`sdot`/`udot` on arm64, VNNI behind a check on x86-64, wasm relaxed-SIMD dot) for a reduction of
+   `int8 * int8` into `int32`. Oracle: gcc and clang on the same C. Measure a `Q8_0` block dot against
+   ggml's before and after.
 
 ## Optimizations to lift from LLVM and GCC
 
