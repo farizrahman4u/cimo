@@ -4,10 +4,6 @@
 // Pyodide's memory.
 (function () {
   'use strict';
-  const root = document.getElementById('nn');
-  if (!root) return;
-  const $ = s => root.querySelector(s);
-
   const N = 300;          // data points
   const G = 64;           // decision-boundary grid (G*G <= NMAX in codegen.py)
   const TH = 20;          // grid of each neuron thumbnail
@@ -56,6 +52,72 @@
       });
     }
   }
+
+  // ---- Python side
+  const PY = `
+import json, time, ctypes, struct
+import cimo, codegen, wat
+import cimo.wasm as _cw
+F = ctypes.c_float
+N, G, TH = ${N}, ${G}, ${TH}
+X = (F * (N * 2))(); Y = (F * N)(); PX = (F * N)(); QX = (F * 2)(); QO = (F * 1)()
+GX = (F * (G * G * 2))(); GO = (F * (G * G))(); TX = (F * (TH * TH * 2))()
+ADDR = {k: ctypes.addressof(v) for k, v in dict(X=X, Y=Y, PX=PX, GX=GX, GO=GO, TX=TX, QX=QX, QO=QO).items()}
+_live = {}
+
+def nn_wat():
+    """The network's own functions as WebAssembly text, disassembled from the built module."""
+    mod = _live['mod']
+    text, sec, others = wat.disassemble(mod, {'init', 'train', 'predict', 'acts', 'views',
+                                              'forward', 'backward'})
+    head = [';; WebAssembly text of the network, disassembled from the %.1f KB module cimo built' % (len(mod) / 1024),
+            ';; sections: ' + ' \u00b7 '.join('%s %d B' % (n.replace('custom ', ''), z) for n, z in sec),
+            ';; also in the module: %d runtime functions (%s)' % (len(others), ', '.join(o for o in others if not o.startswith('__'))[:160]),
+            '']
+    return '\\n'.join(head) + text
+
+def nn_build(graph_json):
+    t0 = time.perf_counter()
+    pretty = json.dumps(json.loads(graph_json), indent=1)
+    try:
+        r = codegen.generate(graph_json)
+    except codegen.GraphError as e:
+        return {'ok': False, 'stage': 'graph', 'error': str(e), 'json': pretty}
+    t1 = time.perf_counter()
+    try:
+        m = cimo.compile(r['c'])
+        mod, _ = _cw.build(r['c'])
+    except cimo.CompileError as e:
+        return {'ok': False, 'stage': 'c', 'error': str(e), 'json': pretty, 'c': r['c']}
+    t2 = time.perf_counter()
+    np_ = max(r['nparams'], 1)
+    na = sum(a['width'] for a in r['acts'])
+    bufs = dict(P=(F * np_)(), M=(F * np_)(), V=(F * np_)(), WS=(F * r['ws'])(), AO=(F * max(1, na * TH * TH))(), QA=(F * max(1, na))())
+    _live.clear(); _live.update(bufs); _live['m'] = m
+    _live['mod'] = mod
+    e = m.exports
+    return {'ok': True, 'json': pretty, 'c': r['c'], 'nparams': r['nparams'],
+            'acts': r['acts'], 'widths': r['widths'], 'used': r['used'],
+            'gen_ms': (t1 - t0) * 1000, 'cc_ms': (t2 - t1) * 1000, 'size': len(mod),
+            'addr': dict(ADDR, **{k: ctypes.addressof(v) for k, v in bufs.items()}),
+            'init': m.init.function, 'train': m.train.function, 'predict': m.predict.function,
+            'acts_fn': m.acts.function,
+            'getsp': getattr(e, '__cimo_get_sp'), 'setsp': getattr(e, '__cimo_set_sp')}
+`;
+
+  // for tests (python/tests/test_wasm.py runs PY on every preset in Pyodide, before each deploy)
+  function graphJSON(g) {
+    return JSON.stringify({ nodes: g.map(n => Object.assign({ id: n.id, op: n.op }, n.op === 'dense' ? { units: n.units } : {}, OPS[n.op].ins ? { inputs: n.inputs } : {})) });
+  }
+  globalThis.cimoNN = {
+    PY, N, G, TH,
+    presets: Object.fromEntries(Object.entries(PRESETS).map(([k, v]) =>
+      [k, graphJSON(v.map(([id, op, x, y, inputs, units]) => ({ id, op, inputs, units })))])),
+  };
+
+  const root = typeof document !== 'undefined' && document.getElementById('nn');
+  if (!root) return;
+  const $ = s => root.querySelector(s);
 
   // ---- DOM
   const board = $('.nn-board'), wires = $('.nn-wires'), boundary = $('.nn-boundary'), lossCv = $('.nn-loss');
@@ -269,61 +331,8 @@
   };
   function chip(s, text) { const el = root.querySelector(`.nn-chip[data-n="${s}"] small`); if (el) el.textContent = text; }
 
-  function toJSON() {
-    return JSON.stringify({ nodes: graph.map(n => Object.assign({ id: n.id, op: n.op }, n.op === 'dense' ? { units: n.units } : {}, OPS[n.op].ins ? { inputs: n.inputs } : {})) });
-  }
+  function toJSON() { return graphJSON(graph); }
 
-  // ---- Python side
-  const PY = `
-import json, time, ctypes, struct
-import cimo, codegen, wat
-import cimo.wasm as _cw
-F = ctypes.c_float
-N, G, TH = ${N}, ${G}, ${TH}
-X = (F * (N * 2))(); Y = (F * N)(); PX = (F * N)(); QX = (F * 2)(); QO = (F * 1)()
-GX = (F * (G * G * 2))(); GO = (F * (G * G))(); TX = (F * (TH * TH * 2))()
-ADDR = {k: ctypes.addressof(v) for k, v in dict(X=X, Y=Y, PX=PX, GX=GX, GO=GO, TX=TX, QX=QX, QO=QO).items()}
-_live = {}
-
-def nn_wat():
-    """The network's own functions as WebAssembly text, disassembled from the built module."""
-    mod = _live['mod']
-    text, sec, others = wat.disassemble(mod, {'init', 'train', 'predict', 'acts', 'views',
-                                              'forward', 'backward'})
-    head = [';; WebAssembly text of the network, disassembled from the %.1f KB module cimo built' % (len(mod) / 1024),
-            ';; sections: ' + ' \u00b7 '.join('%s %d B' % (n.replace('custom ', ''), z) for n, z in sec),
-            ';; also in the module: %d runtime functions (%s)' % (len(others), ', '.join(o for o in others if not o.startswith('__'))[:160]),
-            '']
-    return '\\n'.join(head) + text
-
-def nn_build(graph_json):
-    t0 = time.perf_counter()
-    pretty = json.dumps(json.loads(graph_json), indent=1)
-    try:
-        r = codegen.generate(graph_json)
-    except codegen.GraphError as e:
-        return {'ok': False, 'stage': 'graph', 'error': str(e), 'json': pretty}
-    t1 = time.perf_counter()
-    try:
-        m = cimo.compile(r['c'])
-        mod, _ = _cw.build(r['c'])
-    except cimo.CompileError as e:
-        return {'ok': False, 'stage': 'c', 'error': str(e), 'json': pretty, 'c': r['c']}
-    t2 = time.perf_counter()
-    np_ = max(r['nparams'], 1)
-    na = sum(a['width'] for a in r['acts'])
-    bufs = dict(P=(F * np_)(), M=(F * np_)(), V=(F * np_)(), WS=(F * r['ws'])(), AO=(F * max(1, na * TH * TH))(), QA=(F * max(1, na))())
-    _live.clear(); _live.update(bufs); _live['m'] = m
-    _live['mod'] = mod
-    e = m.exports
-    return {'ok': True, 'json': pretty, 'c': r['c'], 'nparams': r['nparams'],
-            'acts': r['acts'], 'widths': r['widths'], 'used': r['used'],
-            'gen_ms': (t1 - t0) * 1000, 'cc_ms': (t2 - t1) * 1000, 'size': len(mod),
-            'addr': dict(ADDR, **{k: ctypes.addressof(v) for k, v in bufs.items()}),
-            'init': m.init.function, 'train': m.train.function, 'predict': m.predict.function,
-            'acts_fn': m.acts.function,
-            'getsp': getattr(e, '__cimo_get_sp'), 'setsp': getattr(e, '__cimo_set_sp')}
-`;
 
   let py = null, ns = null, buildPy = null, net = null, seed = 1, step = 0, t = 0, running = false, losses = [];
   function heap() { return py._module.HEAPF32; }

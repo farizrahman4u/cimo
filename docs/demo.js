@@ -149,7 +149,7 @@ def build(src):
         return {'ok': False, 'error': str(e)}
     ms = (time.perf_counter() - t) * 1000
     names = dir(m)
-    for name, sig in (('step', ['w', 'w', 'w', 'l']), ('seed', ['w', 'w', 'l'])):
+    for name, sig in (('step', ['w', 'w', 'w', 'p']), ('seed', ['w', 'w', 'p'])):
         if name not in names or getattr(m, name)._params != sig:
             return {'ok': False, 'error': 'the demo calls %s(int n, int T, %sfloat *ring); keep '
                     'its signature' % (name, 'int head, ' if name == 'step' else '')}
@@ -161,7 +161,7 @@ def build(src):
 
   globalThis.cimoDemo = { source, presets: Object.keys(PRESETS), N, T, PY };  // for tests
   const $ = (s, r) => (r || document).querySelector(s);
-  const root = $('#demo');
+  const root = typeof document !== 'undefined' && $('#demo');
   if (!root) return;
   const ui = {
     start: $('.demo-start', root), status: $('.demo-status', root), stats: $('.demo-stats', root),

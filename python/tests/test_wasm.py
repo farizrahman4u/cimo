@@ -21,6 +21,11 @@ import cimo.wasm as W  # noqa: E402
 pytestmark = pytest.mark.skipif(not available(), reason='needs node')
 ARM64 = platform.machine().lower() in ('arm64', 'aarch64')
 RT = os.path.join(HERE, 'runtime')
+# Pyodide for the tests that run in it: PYODIDE_JS, else the checkout's scratch/spikes/pyodide when installed there
+# (npm install pyodide@<the version docs/runtime.js loads>), so the full suite runs the site's demos too
+_LOCAL = os.path.join(HERE, '..', '..', 'scratch', 'spikes', 'pyodide', 'node_modules', 'pyodide', 'pyodide.mjs')
+if not os.environ.get('PYODIDE_JS') and os.path.exists(_LOCAL):
+    os.environ['PYODIDE_JS'] = os.path.abspath(_LOCAL)
 
 
 @pytest.fixture(scope='module')
@@ -234,3 +239,13 @@ print('PYODIDE OK')
     r = subprocess.run(['node', os.path.join(HERE, 'wasm', 'pyodide_run.mjs'), str(script)],
                        capture_output=True, universal_newlines=True, timeout=600)
     assert 'n=21' in r.stdout and 'PYODIDE OK' in r.stdout, r.stdout[-2000:] + r.stderr[-2000:]
+
+
+@pytest.mark.skipif(not os.environ.get('PYODIDE_JS'), reason='set PYODIDE_JS to run in Pyodide')
+def test_site_demos_in_pyodide():
+    """The website's live demos (docs/demo.js, docs/nn.js) run their own Python in Pyodide, against this cimo: every
+    preset compiled and its kernels called as the page calls them. A change to cimo once broke the attractor demo
+    (pointer parameters became 'p' in signatures, and its check still wanted 'l'); the site deploys only after this."""
+    r = subprocess.run(['node', os.path.join(HERE, 'wasm', 'site_demos.mjs')],
+                       capture_output=True, universal_newlines=True, timeout=900)
+    assert r.returncode == 0 and 'SITE DEMOS OK' in r.stdout, r.stdout[-3000:] + r.stderr[-1000:]
