@@ -12,7 +12,7 @@ defining an object of it is an error.
 
 from .cc import (TIDENT, TMUL, TLBRACE, T__ASM__, T__ALIGNOF__, TCONST, TRESTRICT, TVOLATILE,
                  TYPELDOUBLE, TYPESTRUCT, TYPEUNION, TYPEARRAY, TYPELONG, TYPEPOINTER, TYPEFUNC,
-                 TYPEENUM, TYPEBOOL, TYPEBITINT, PROPINT, DECLFUNC, DECLOBJECT, LINKEXTERN, SDTHREAD,
+                 TYPEENUM, TYPEBOOL, TYPEBITINT, PROPINT, PROPFLOAT, DECLFUNC, DECLOBJECT, LINKEXTERN, SDTHREAD,
                  QUALNONE, Type, Token)
 from .token import tok, tokenget, tokenstr, error
 from .type import mkpointertype, typevoid, typecompatible
@@ -33,6 +33,7 @@ IGNOREDATTRS = frozenset('''
     access nonstring fd_arg fd_arg_read fd_arg_write designated_init counted_by
     strict_flex_array warn_if_not_aligned fallthrough assume musttail expected_throw
     tainted_args zero_call_used_regs uninitialized unsequenced reproducible
+    returns_twice nomips16 mips16 nomicromips micromips long_call short_call far near
 '''.split())
 
 _ATTRMSG = {
@@ -68,6 +69,8 @@ aliases = {}  # extra keyword aliases, token kind -> token kind (see setup)
 inlinedefns = []  # [(decl, func)]: C99 inline definitions, held back (see emitinlinedefns)
 referenced = set()  # function declarations named in an expression
 declalign = 0  # `aligned` attribute after the declarator being parsed by decl()
+declmode = None  # `mode` attribute of the declaration being parsed by decl()
+memberpacked = False  # `packed` attribute after a struct member's declarator
 _cache = {}
 
 
@@ -232,14 +235,16 @@ def imaginary(suffix):
 def alignedtype(t, align):
     """`typedef struct {...} T __attribute__((aligned(n)))` (glibc's pthread.h): as in gcc,
     T is a variant of the struct with alignment n and the same size."""
-    if t.kind != TYPESTRUCT and t.kind != TYPEUNION or t is typeint128 or t is typeuint128:
-        error(tok.loc, "GNU attribute 'aligned' on a typedef is only supported for struct and union types")
+    if t.kind in (TYPEARRAY, TYPEFUNC) or t is typeint128 or t is typeuint128:
+        error(tok.loc, "GNU attribute 'aligned' on a typedef is only supported for scalar, struct and union types")
     v = Type()
     for f in Type.__slots__:
         setattr(v, f, getattr(t, f))
     v.align = align
     v.value = None
     v.link = None
+    if t.kind != TYPESTRUCT and t.kind != TYPEUNION:  # cimo: a scalar variant, compatible with t
+        v.origin = t.origin or t
     return v
 
 
@@ -290,3 +295,24 @@ def ptrsimilar(a, b):
         return typecompatible(a.base, b.base) or ptrsimilar(a.base, b.base)
     return (a.prop & PROPINT and b.prop & PROPINT and a.kind == b.kind
             and a.kind not in (TYPEBOOL, TYPEENUM, TYPEBITINT))
+
+
+_MODES = {'QI': 1, 'byte': 1, 'HI': 2, 'SI': 4, 'DI': 8, 'word': 8, 'pointer': 8, 'TI': 16, 'SF': 4, 'DF': 8}
+
+
+def modetype(t, mode):
+    """`__attribute__((mode(M)))` (GNU): the integer (or floating) type of mode M's size, signed if t is."""
+    from . import type as TY
+    size = _MODES.get(mode)
+    if size is None:
+        error(tok.loc, "unknown machine mode '%s'", mode)
+    if mode in ('SF', 'DF'):
+        if not (t.prop & PROPFLOAT) and not (t.prop & PROPINT):
+            error(tok.loc, "mode '%s' applied to a non-arithmetic type", mode)
+        return TY.typefloat if size == 4 else TY.typedouble
+    if not (t.prop & PROPINT) or t.kind == TYPEBOOL:
+        error(tok.loc, "mode '%s' applied to a non-integer type", mode)
+    if size == 16:
+        return typeint128 if t.issigned else typeuint128
+    return {1: (TY.typeuchar, TY.typeschar), 2: (TY.typeushort, TY.typeshort), 4: (TY.typeuint, TY.typeint),
+            8: (TY.typeulong, TY.typelong)}[size][bool(t.issigned)]

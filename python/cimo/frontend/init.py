@@ -30,7 +30,7 @@ class Object(object):
 
 
 class InitParser(object):
-    __slots__ = ('obj', 'cur', 'sub', 'init', 'last')
+    __slots__ = ('obj', 'cur', 'sub', 'init', 'last', 'rng')
 
 
 def mkinit(start, end, bits, expr):
@@ -97,7 +97,34 @@ def findmember(p, name):
     return False
 
 
+def _flushrange(p):
+    """cimo: a pending GNU range designator `[a ... b] = x` (p.rng: the array's object index, a, b): element a's
+    initializers copied to elements a+1 to b, and the array's cursor moved to b (what follows goes to b + 1)."""
+    if p.rng is None:
+        return
+    lvl, a, b = p.rng
+    p.rng = None
+    o = p.obj[lvl]
+    es = o.type.base.size
+    lo, hi = (o.offset + a * es) & M64, (o.offset + (a + 1) * es) & M64
+    first = []
+    i = p.init
+    while i is not None:
+        if lo <= i.start and i.end <= hi:
+            first.append(i)
+        i = i.next
+    for k in range(a + 1, b + 1):
+        d = (k - a) * es
+        for i in first:
+            p.last = None
+            initadd(p, mkinit((i.start + d) & M64, (i.end + d) & M64, i.bits, i.expr))
+    p.last = None
+    if o.type.kind == TYPEARRAY:
+        o.u = (b * es) & M64
+
+
 def designator(s, p):
+    _flushrange(p)
     p.last = None
     p.sub = p.cur
     while True:
@@ -107,9 +134,17 @@ def designator(s, p):
             if t.kind != TYPEARRAY:
                 error(tok.loc, "index designator is only valid for array types")
             next()
-            o.u = (E.intconstexpr(s, False) * t.base.size) & M64
-            if U.diagnostics and tok.kind == TELLIPSIS:
-                error(tok.loc, "range designators ('[a ... b]', a GNU extension) are not supported")
+            a = E.intconstexpr(s, False)
+            o.u = (a * t.base.size) & M64
+            if U.diagnostics and consume(TELLIPSIS):  # cimo: `[a ... b] =`, a GNU range designator
+                b = E.intconstexpr(s, False)
+                if b < a:
+                    error(tok.loc, "empty index range in initializer")
+                if (b * t.base.size) & M64 >= t.size:
+                    if not t.incomplete:
+                        error(tok.loc, "index designator is larger than array length")
+                    t.size = ((b + 1) * t.base.size) & M64
+                p.rng = (p.sub, a, b)
             if o.u >= t.size:
                 if not t.incomplete:
                     error(tok.loc, "index designator is larger than array length")
@@ -147,6 +182,8 @@ def focus(p):
 def advance(p):
     while True:
         p.sub -= 1
+        if p.rng is not None and p.rng[0] == p.sub:
+            _flushrange(p)
         o = p.obj[p.sub]
         t = o.type
         if t.kind == TYPEARRAY:
@@ -179,6 +216,7 @@ def parseinit(s, t):
     p.obj[0].iscur = False
     p.init = None
     p.last = None
+    p.rng = None
     if t.incomplete and t.kind != TYPEARRAY:
         error(tok.loc, "initializer specified for incomplete type")
     if t.kind == TYPEARRAY and (t.base.size == 0 or t.prop & PROPVM):
@@ -257,6 +295,7 @@ def parseinit(s, t):
             skip_to_next = False
             # next:
             if p.cur is None:
+                _flushrange(p)
                 return p.init
             if tok.kind == TCOMMA:
                 next()
@@ -265,6 +304,8 @@ def parseinit(s, t):
             elif tok.kind != TRBRACE:
                 error(tok.loc, "expected ',' or '}' after initializer")
             next()
+            if p.rng is not None and p.cur <= p.rng[0] + 1:  # the brace closing the range's element or array
+                _flushrange(p)
             p.sub = p.cur
             while True:
                 p.cur = None if p.cur == 0 else p.cur - 1

@@ -455,7 +455,13 @@ def declspecs(s, sc, fs, align):
                 align.v = i
             expect(TRPAREN, "to close 'alignas' specifier")
         elif op == T__ATTRIBUTE__:
-            A.gnuattr(None, 0)
+            if U.diagnostics and align:  # cimo: `__attribute__((aligned(32))) static struct {...} x;`: as alignas
+                aa = Attr()
+                A.gnuattr(aa, ATTRALIGNED)
+                if aa.kind & ATTRALIGNED and aa.align > align.v:
+                    align.v = aa.align
+            else:
+                A.gnuattr(None, 0)
         else:
             if U.diagnostics and op >= TIDENT and not t and not istypename(s, tokenstr(op)):
                 it = DG.typespec(tokenstr(op), bool(ts))
@@ -654,7 +660,11 @@ def declaratortypes(s, result, name, align, funcscope, allowabstract):
                 # (glibc's signal.h); for declarations, see DG.declalign
                 allowedattr = ATTRALIGNED
                 ident = True
+            if U.diagnostics and ident and align:  # cimo: `struct timeval tv __attribute__((packed));`
+                allowedattr |= ATTRPACKED
             A.gnuattr(a, allowedattr)
+            if a.kind & ATTRPACKED:
+                DG.memberpacked = True
             # attr:
             # attribute applies to identifier if ptr->prev == result, otherwise type ptr->prev
             if ident:
@@ -932,9 +942,16 @@ def structdecl(s, b):
             addmember(b, base, None, 0, width)
         else:
             name = Ref()
+            DG.memberpacked = False
             mt = declarator(s, base, name, align, None, False)
             width = E.intconstexpr(s, False) if consume(TCOLON) else M64
-            addmember(b, mt, name.v, align.v, width)
+            packed, DG.memberpacked = DG.memberpacked, False
+            if packed and width == M64 and not b.pack:  # cimo: a packed member: alignment 1
+                b.pack = True
+                addmember(b, mt, name.v, align.v, width)
+                b.pack = False
+            else:
+                addmember(b, mt, name.v, align.v, width)
         if tok.kind == TSEMICOLON:
             break
         expect(TCOMMA, "or ';' after declarator")
@@ -1023,6 +1040,7 @@ def decl(s, f):
         return False  # an asm statement (stmt.py: an empty template is accepted)
     if U.diagnostics and tok.kind == T__ASM__:
         error(tok.loc, DG.INLINEASM)
+    DG.declmode = None
     a = Attr()
     a.kind = 0
     if A.attr(a, ATTRNORETURN) and consume(TSEMICOLON):
@@ -1071,6 +1089,8 @@ def decl(s, f):
         else:
             asmname = None
         A.gnuattr(a, 0)  # appertains to identifier
+        if DG.declmode is not None:  # cimo: __attribute__((mode(M)))
+            t = DG.modetype(t, DG.declmode)
         kind = DECLTYPE if sc & SCTYPEDEF else DECLFUNC if t.kind == TYPEFUNC else DECLOBJECT
         if U.diagnostics and kind != DECLFUNC and fs:  # cimo: C11 6.7.4p2
             error(tok.loc, "'%s' declared with a function specifier ('inline' or '_Noreturn') "

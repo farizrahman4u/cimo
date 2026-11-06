@@ -414,13 +414,14 @@ class Type(object):
     members). Fields that C leaves uninitialized default to zero/None."""
     __slots__ = ('fieldalign', 'kind', 'prop', 'align', 'size', 'value', 'base', 'link', 'qual', 'incomplete',
                  'issigned', 'iscomplex', 'width', 'length', 'ptrqual', 'asize',
-                 'isvararg', 'params', 'nparam', 'tag', 'members')
+                 'isvararg', 'params', 'nparam', 'tag', 'members', 'origin')
 
     def __init__(self, kind=TYPENONE, prop=0, size=0, align=0, issigned=False, width=0,
                  base=None, incomplete=False, tag=None):
         self.kind = kind
         self.prop = prop
         self.fieldalign = None  # cimo: a struct's alignment before `aligned(N)` after its body
+        self.origin = None  # cimo: the type an `aligned(N)` typedef's type is a variant of (for compatibility)
         self.align = align
         self.size = size
         self.value = None
@@ -501,7 +502,7 @@ class Scope(object):
 # enum exprkind
 (EXPRIDENT, EXPRCONST, EXPRSTRING, EXPRCALL, EXPRBITFIELD, EXPRINCDEC, EXPRCOMPOUND,
  EXPRUNARY, EXPRCAST, EXPRBINARY, EXPRCOND, EXPRASSIGN, EXPRCOMMA, EXPRBUILTIN, EXPRTEMP,
- EXPRSIZEOF) = range(16)
+ EXPRSIZEOF, EXPRSTMT) = range(17)  # cimo: EXPRSTMT, a GNU statement expression
 
 _pack_d = _struct.Struct('<d').pack
 _unpack_d = _struct.Struct('<d').unpack
@@ -609,9 +610,11 @@ class GotoLabel(object):
 
 
 class SwitchCases(object):
-    __slots__ = ('root', 'type', 'defaultlabel', 'nvla')
+    __slots__ = ('root', 'type', 'defaultlabel', 'nvla', 'ranges', 'keys')
 
     def __init__(self):
+        self.ranges = []  # cimo: GNU case ranges, (low, high, block), values in the switch's type
+        self.keys = []  # cimo: the single cases' values (in the switch's type), checked against ranges
         self.root = None
         self.type = None
         self.defaultlabel = None

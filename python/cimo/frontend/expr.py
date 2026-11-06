@@ -738,9 +738,11 @@ def primaryexpr(s):
         next()
     elif k == TLPAREN:
         next()
-        if U.diagnostics:
-            DG.stmtexpr()
-        e = expr(s)
+        if U.diagnostics and tok.kind == TLBRACE:
+            from . import stmt as ST
+            e = ST.stmtexpr(s)
+        else:
+            e = expr(s)
         expect(TRPAREN, "after expression")
     elif k == T_GENERIC:
         e = generic(s)
@@ -1088,8 +1090,12 @@ def castexpr(s):
     r = None
     last = None  # the cast whose base is `*end`; None means end == &r
     while consume(TLPAREN):
-        if U.diagnostics:
-            DG.stmtexpr()
+        if U.diagnostics and tok.kind == TLBRACE:  # cimo: `({ ... })`, a statement expression
+            from . import stmt as ST
+            e = ST.stmtexpr(s)
+            expect(TRPAREN, "after statement expression")
+            e = postfixexpr(s, e)
+            break
         tq = Ref(QUALNONE)
         toeval = Ref(None)
         t = D.typename(s, tq, toeval)

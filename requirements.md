@@ -1436,15 +1436,21 @@ for Linux and macOS (strategies under "Platform loading findings").
     `noreturn`) work; an allowlist of hints that don't change meaning for cimo (`noinline`,
     `unused`, `const`, `pure`, `format`, `nonnull`, `may_alias`, `visibility`, `weak`, ...) is
     ignored; any other is "attribute 'X' is not supported" (`vector_size`: "not supported yet").
-    `aligned` after a declarator applies to the object/member, and on a struct typedef makes an
+    `aligned` after a declarator applies to the object/member, and on a typedef makes an
     over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's
     `#define __attribute__(x)` (made for non-GNU compilers), so attributes are never dropped.
   - Declaring `long double` (16-byte), `__int128` (an opaque 16-byte type) or thread-locals is
     fine (glibc's headers do); defining or using them is an error. `_Float16`, `__fp16`,
     `__bf16`, `_Float128` etc. are rejected outright; an undeclared identifier followed by a
     declarator is "unknown type name".
-  - Rejected GNU extensions: statement expressions, `&&label`/`goto *`, nested functions, case
-    ranges, range designators, `__label__`, `__auto_type`, `__builtin_choose_expr` and other
+  - Accepted GNU extensions (2026-11-06): statement expressions (the body is emitted at parse time
+    into blocks of its own and spliced in where the expression's code goes, so it runs in evaluation
+    order: `a && ({...})`, a `for` loop's third expression), case ranges (one unsigned compare each,
+    before the case tree), range designators (element `a`'s initializers copied to `a+1..b` once
+    complete), `__label__`, `mode(QI/HI/SI/DI/word/byte/pointer/SF/DF)` (`TI`: the opaque
+    `__int128`), `aligned` on scalar typedefs (a compatible variant, `Type.origin`) and before a
+    declaration's storage class, `packed` on one struct member; `returns_twice` is ignored.
+  - Rejected GNU extensions: `&&label`/`goto *`, nested functions, `__auto_type`, `__builtin_choose_expr` and other
     undeclared `__builtin_`/`__atomic_`/`__sync_` names, imaginary constants, empty structs,
     inline assembly (`asm` is a keyword, as in gcc's default mode; a statement with an empty
     template, gcc's optimization barrier, compiles to nothing). `a ?: b` works (cproc

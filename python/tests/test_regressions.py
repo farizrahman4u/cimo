@@ -578,3 +578,15 @@ def test_builtin_expect_evaluates_its_second_argument():
     # cproc dropped it: `__builtin_expect (c, z++)` lost the increment (gcc pr85156.c)
     m = cimo.compile('int f(int x, int z) { if (__builtin_expect(x != 0, z++)) return 7; return z; }\n')
     assert m.f(0, 10) == 11 and m.f(1, 10) == 7
+
+
+def test_constant_integer_to_float_rounds_once():
+    # folded through double, 2^62 + 2^38 + 1 was a tie and rounded to even (2^62) instead of up
+    # (gcc.dg/torture fp-int-convert-float.c, once `mode(TI)` let it compile)
+    m = cimo.compile('static float c = (1L << 62) + (1L << 38) + 1;\n'
+                     'static float d = (1UL << 63) + (1UL << 39) + 1;\n'
+                     'static float e = -((1L << 62) + (1L << 38) + 1);\n'
+                     'double get(int i) { return i == 0 ? c : i == 1 ? d : e; }\n')
+    assert m.get(0) == 2.0 ** 62 + 2.0 ** 39
+    assert m.get(1) == 2.0 ** 63 + 2.0 ** 40
+    assert m.get(2) == -(2.0 ** 62 + 2.0 ** 39)

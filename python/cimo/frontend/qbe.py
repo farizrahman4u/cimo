@@ -7,7 +7,7 @@ from .cc import (M64, BITS0, TYPEVOID, TYPEPOINTER, TYPENULLPTR, TYPEBOOL, TYPEB
                  PROPVM, QUALNONE, QUALCONST, QUALVOLATILE, DECLOBJECT, DECLFUNC, DECLCONST,
                  LINKNONE, LINKEXTERN, SDSTATIC, SDTHREAD, EXPRIDENT, EXPRCONST, EXPRSTRING,
                  EXPRCALL, EXPRBITFIELD, EXPRINCDEC, EXPRCOMPOUND, EXPRUNARY, EXPRCAST,
-                 EXPRBINARY, EXPRCOND, EXPRASSIGN, EXPRCOMMA, EXPRBUILTIN, EXPRTEMP, EXPRSIZEOF,
+                 EXPRBINARY, EXPRCOND, EXPRASSIGN, EXPRCOMMA, EXPRBUILTIN, EXPRTEMP, EXPRSIZEOF, EXPRSTMT,
                  BUILTINVASTART, BUILTINVAARG, BUILTINALLOCA, BUILTINUNREACHABLE, TBAND, TMUL,
                  TSUB, TLOR, TLAND, TDIV, TMOD, TADD, TSHL, TSHR, TBOR, TXOR, TLESS, TGREATER,
                  TLEQ, TGEQ, TEQL, TNEQ, TINC)
@@ -281,17 +281,42 @@ _typeid = 0
 
 
 def _reset():
-    global _blockid, _globalid, _typeid
+    global _blockid, _globalid, _typeid, curfunc
+    curfunc = None
     _blockid = 0
     _globalid = 0
     _typeid = 0
 
 
 def switchcase(cases, i, b):
+    k = _casevalue(cases, i)
+    if any(lo <= k <= hi for lo, hi, _ in cases.ranges):
+        error(tok.loc, "multiple 'case' labels with same value")
+    cases.keys.append(k)
     c = TR.treeinsert(cases, i, SwitchCase)
     if not c.new:
         error(tok.loc, "multiple 'case' labels with same value")
     c.body = b
+
+
+def _casevalue(cases, i):
+    """cimo: a case constant's value in the switch's (promoted) type."""
+    t = cases.type
+    bits = 64 if t is None or t.size >= 8 else 32
+    v = i & ((1 << bits) - 1)
+    if (t is None or t.issigned) and v >> (bits - 1):
+        v -= 1 << bits
+    return v
+
+
+def switchrange(cases, i, j, b):
+    """cimo: `case i ... j:` (GNU): every value from i to j; empty when j < i."""
+    lo, hi = _casevalue(cases, i), _casevalue(cases, j)
+    if lo > hi:
+        return
+    if any(lo <= k <= hi for k in cases.keys) or any(lo <= h and l <= hi for l, h, _ in cases.ranges):
+        error(tok.loc, "multiple 'case' labels with same value")
+    cases.ranges.append((lo, hi, b))
 
 
 # values
@@ -646,8 +671,13 @@ def funcload(f, t, lval, tq=QUALNONE):
     return funcbits(f, t, v, lval.bits)
 
 
+curfunc = None  # cimo: the function being parsed (statement expressions emit into it)
+
+
 def mkfunc(decl, name, t, s):
+    global curfunc
     f = Func()
+    curfunc = f
     f.decl = decl
     f.name = name
     f.type = t
@@ -693,7 +723,8 @@ def mkfunc(decl, name, t, s):
 
 
 def delfunc(f):
-    pass
+    global curfunc
+    curfunc = None
 
 
 def functype(f):
@@ -1383,6 +1414,16 @@ def funcexpr(f, e):
     elif k == EXPRBITFIELD or k == EXPRCOMPOUND:
         lval = funclval(f, e)
         return funcload(f, e.type, lval, e.qual)
+    elif k == EXPRSTMT:
+        # cimo: a statement expression's body, emitted when it was parsed into blocks of its own (ct to cf),
+        # runs here: the block chain spliced in, its last expression's value (temp) the result
+        if e.post:
+            U.fatal("internal error: statement expression emitted twice")
+        e.post = True
+        funcjmp(f, e.ct)
+        f.end.next = e.ct
+        f.end = e.cf
+        return e.temp
     elif k == EXPRINCDEC:
         lval = funclval(f, e.base)
         l = funcload(f, e.base.type, lval, e.base.qual)
@@ -1678,7 +1719,14 @@ def casesearch(f, cls, v, c, defaultlabel, mn, mx):
 
 
 def funcswitch(f, v, c, defaultlabel):
-    casesearch(f, qbetype(c.type).base, v, c.root, defaultlabel, 0, M64)
+    cls = qbetype(c.type).base
+    for lo, hi, b in c.ranges:  # cimo: a case range is one unsigned compare, (v - lo) <= (hi - lo)
+        nxt = mkblock("switch_range")
+        d = funcinst(f, ISUB, cls, v, mkintconst(lo & M64))
+        res = funcinst(f, ICULEW if cls == 'w' else ICULEL, 'w', d, mkintconst((hi - lo) & M64))
+        funcjnz(f, res, None, b, nxt)
+        funclabel(f, nxt)
+    casesearch(f, cls, v, c.root, defaultlabel, 0, M64)
 
 
 # emit

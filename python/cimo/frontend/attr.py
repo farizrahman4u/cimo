@@ -66,6 +66,14 @@ def parseattr(a, allowed, prefix):
             kind = ATTRDESTRUCTOR
         elif name == "packed":
             kind = ATTRPACKED
+        elif name == "mode" and U.diagnostics:  # cimo: GNU machine modes, a type of that size
+            expect(TLPAREN, "after 'mode'")
+            if tok.kind < TIDENT:
+                error(tok.loc, "expected machine mode")
+            DG.declmode = strip(tokenstr(tok.kind))
+            next()
+            expect(TRPAREN, "after machine mode")
+            return True
         elif name == "section":
             kind = ATTRSECTION
             expect(TLPAREN, "after 'section'")

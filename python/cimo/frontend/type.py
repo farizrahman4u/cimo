@@ -117,6 +117,8 @@ def typerank(t):
 def typecompatible(t1, t2):
     if t1 is t2:
         return True
+    if t1.origin is not None or t2.origin is not None:  # cimo: an aligned(N) variant is its type
+        return typecompatible(t1.origin or t1, t2.origin or t2)
     if t1.kind != t2.kind:
         # enum types are compatible with their underlying type, but not with each
         # other (unless they are the same type)

@@ -20,6 +20,8 @@ and the freestanding headers: `stdint.h`, `stddef.h`, `stdbool.h`, `stdarg.h`, `
 
 `printf` writes to Python's `sys.stdout`. `sqrt` and `fabs` compile to single instructions; on arm64 so do `floor`, `ceil`, `trunc`, `round`, `fmin` and `fmax` (on x86-64 they are library calls).
 
+GNU C extensions that work as in gcc: statement expressions (`({ ... })`), case ranges (`case 'a' ... 'z':`), range designators (`[0 ... 7] = x`), local labels (`__label__`), and the attributes `aligned`, `packed`, `mode` and the usual hints.
+
 GNU bit builtins work as in gcc: `__builtin_popcount`, `__builtin_clz`, `__builtin_ctz`, `__builtin_bswap32` and their `l`/`ll` forms. So do the overflow builtins (`__builtin_add_overflow` and friends, `_BitInt` results included), `__builtin_expect`, `__builtin_assume_aligned`, and the `__builtin_` names of the C library functions cimo provides (`__builtin_memcpy`, `__builtin_fma`, `__builtin_powf`, `__builtin_isdigit`, ...).
 
 ## What's not available

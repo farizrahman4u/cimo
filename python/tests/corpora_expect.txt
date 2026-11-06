@@ -6,7 +6,6 @@ gcc-torture/20000223-1.c                              unsupported  __alignof__ o
 gcc-torture/20000227-1.c                              unsupported  string literal contains invalid UTF-8
 gcc-torture/20000314-3.c                              unsupported  no type in parameter declaration
 gcc-torture/20000412-3.c                              unsupported  undeclared identifier: f
-gcc-torture/20000703-1.c                              unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/20000717-3.c                              unsupported  expected declaration or function definition
 gcc-torture/20000726-1.c                              unsupported  no type in parameter declaration
 gcc-torture/20000801-3.c                              unsupported  empty structs and unions (a GNU extension) are not supported
@@ -14,20 +13,15 @@ gcc-torture/20000808-1.c                              unsupported  no type in pa
 gcc-torture/20000815-1.c                              unsupported  no type in parameter declaration
 gcc-torture/20000822-1.c                              unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/20000914-1.c                              unsupported  no type in parameter declaration
-gcc-torture/20000917-1.c                              unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/20001026-1.c                              unsupported  no type in parameter declaration
 gcc-torture/20001101.c                                unsupported  no type in parameter declaration
-gcc-torture/20001203-2.c                              unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/20010122-1.c                              unsupported  built-in function '__builtin_return_address' is not supported
 gcc-torture/20010209-1.c                              unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/20010605-1.c                              unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/20010605-2.c                              unsupported  undeclared identifier: __complex__
 gcc-torture/20010924-1.c                              unsupported  initializer specified for incomplete type
-gcc-torture/20020108-1.c                              unsupported  attribute 'mode' is not supported
-gcc-torture/20020206-1.c                              unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/20020227-1.c                              unsupported  declaration has no type specifier
 gcc-torture/20020314-1.c                              unsupported  undeclared identifier: alloca
-gcc-torture/20020320-1.c                              unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/20020404-1.c                              unsupported  expected '}' to close enum specifier, saw 'false'
 gcc-torture/20020411-1.c                              unsupported  expected declaration or function definition
 gcc-torture/20020412-1.c                              unsupported  struct member 'x' has variably modified type
@@ -58,9 +52,6 @@ gcc-torture/20041201-1.c                              unsupported  _Complex is n
 gcc-torture/20041212-1.c                              unsupported  pointer operands to '!=' operator are to incompatible types
 gcc-torture/20041214-1.c                              unsupported  labels as values ('&&label', a GNU extension) are not supported
 gcc-torture/20041218-2.c                              unsupported  struct member 'b' has variably modified type
-gcc-torture/20050107-1.c                              unsupported  attribute 'mode' is not supported
-gcc-torture/20050119-1.c                              unsupported  attribute 'mode' is not supported
-gcc-torture/20050119-2.c                              unsupported  attribute 'mode' is not supported
 gcc-torture/20050121-1.c                              unsupported  _Complex is not yet supported
 gcc-torture/20050316-1.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/20050316-2.c                              unsupported  vector types (vector_size) are not supported yet
@@ -81,7 +72,6 @@ gcc-torture/20090113-2.c                              unsupported  empty structs
 gcc-torture/20090113-3.c                              unsupported  empty structs and unions (a GNU extension) are not supported
 gcc-torture/20090219-1.c                              unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/20101011-1.c                              skip         its x86-64 path needs signal.h (SIGFPE from a division); passes on arm64
-gcc-torture/20111212-1.c                              unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/20120427-1.c                              unsupported  expected declaration or function definition
 gcc-torture/20120427-2.c                              unsupported  expected declaration or function definition
 gcc-torture/20121108-1.c                              unsupported  assignment to pointer discards qualifiers
@@ -112,7 +102,7 @@ gcc-torture/920612-1.c                                unsupported  no type in pa
 gcc-torture/920612-2.c                                unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/920721-2.c                                unsupported  expected declaration or function definition
 gcc-torture/920721-3.c                                unsupported  declaration has no type specifier
-gcc-torture/920721-4.c                                unsupported  local labels ('__label__') are not supported
+gcc-torture/920721-4.c                                unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/920728-1.c                                unsupported  expected declaration or function definition
 gcc-torture/920730-1.c                                unsupported  expected declaration or function definition
 gcc-torture/920731-1.c                                unsupported  expected declaration or function definition
@@ -135,7 +125,6 @@ gcc-torture/921218-2.c                                unsupported  expected decl
 gcc-torture/930106-1.c                                unsupported  expected declaration or function definition
 gcc-torture/930111-1.c                                unsupported  expected declaration or function definition
 gcc-torture/930208-1.c                                unsupported  expected declaration or function definition
-gcc-torture/930406-1.c                                unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/930429-2.c                                unsupported  no type in parameter declaration
 gcc-torture/930513-1.c                                unsupported  expected declaration or function definition
 gcc-torture/930513-2.c                                unsupported  expected declaration or function definition
@@ -182,8 +171,7 @@ gcc-torture/950426-1.c                                unsupported  expected decl
 gcc-torture/950512-1.c                                unsupported  no type in parameter declaration
 gcc-torture/950605-1.c                                unsupported  expected declaration or function definition
 gcc-torture/950621-1.c                                unsupported  expected declaration or function definition
-gcc-torture/950906-1.c                                unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
-gcc-torture/960117-1.c                                unsupported  GNU attribute 'packed' is not supported here
+gcc-torture/960117-1.c                                unsupported  specified alignment of struct member 'id' is less strict than is required by type
 gcc-torture/960209-1.c                                unsupported  no type in parameter declaration
 gcc-torture/960215-1.c                                unsupported  long double is not supported
 gcc-torture/960218-1.c                                unsupported  expected declaration or function definition
@@ -201,7 +189,7 @@ gcc-torture/961112-1.c                                unsupported  expected decl
 gcc-torture/970923-1.c                                unsupported  no type in parameter declaration
 gcc-torture/980506-1.c                                unsupported  no type in parameter declaration
 gcc-torture/980506-3.c                                unsupported  no type in parameter declaration
-gcc-torture/980526-1.c                                unsupported  local labels ('__label__') are not supported
+gcc-torture/980526-1.c                                unsupported  labels as values ('&&label', a GNU extension) are not supported
 gcc-torture/980526-3.c                                unsupported  no type in parameter declaration
 gcc-torture/981130-1.c                                unsupported  no type in parameter declaration
 gcc-torture/990106-1.c                                unsupported  expected declaration or function definition
@@ -211,7 +199,6 @@ gcc-torture/991228-1.c                                unsupported  undeclared id
 gcc-torture/alias-2.c                                 unsupported  attribute 'alias' is not supported
 gcc-torture/alias-3.c                                 unsupported  attribute 'alias' is not supported
 gcc-torture/alias-4.c                                 unsupported  attribute 'alias' is not supported
-gcc-torture/align-1.c                                 unsupported  GNU attribute 'aligned' on a typedef is only supported for struct and union types
 gcc-torture/align-2.c                                 unsupported  long double is not supported
 gcc-torture/align-3.c                                 unsupported  __alignof__ operator applied to function type
 gcc-torture/align-nest.c                              unsupported  struct member 'i' has variably modified type
@@ -220,8 +207,6 @@ gcc-torture/bf-pack-1.c                               unsupported  expected ',' 
 gcc-torture/bitfld-3.c                                skip         gcc computes in a bit-field's width when it is wider than int (clang and cimo: in its declared type)
 gcc-torture/bitfld-5.c                                skip         gcc's bit-field types: s.b - 8 of an unsigned long long :40 field wraps at 40 bits (C: at 64)
 gcc-torture/built-in-setjmp.c                         unsupported  built-in function '__builtin_longjmp' is not supported
-gcc-torture/cbrt.c                                    unsupported  attribute 'mode' is not supported
-gcc-torture/ccmp-tree-1.c                             unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-torture/cmpdi-1.c                                 unsupported  expected declaration or function definition
 gcc-torture/cmpsf-1.c                                 unsupported  expected declaration or function definition
 gcc-torture/cmpsi-1.c                                 unsupported  expected declaration or function definition
@@ -288,27 +273,19 @@ gcc-torture/loop-3.c                                  unsupported  expected decl
 gcc-torture/loop-3b.c                                 unsupported  expected declaration or function definition
 gcc-torture/loop-3c.c                                 unsupported  expected declaration or function definition
 gcc-torture/loop-9.c                                  unsupported  expected '(' or identifier
-gcc-torture/memclr.c                                  unsupported  attribute 'mode' is not supported
 gcc-torture/memcpy-2.c                                unsupported  long double is not supported
-gcc-torture/memcpy-a1.c                               unsupported  attribute 'mode' is not supported
-gcc-torture/memcpy-a2.c                               unsupported  attribute 'mode' is not supported
-gcc-torture/memcpy-a4.c                               unsupported  attribute 'mode' is not supported
-gcc-torture/memcpy-a8.c                               unsupported  attribute 'mode' is not supported
 gcc-torture/memset-1.c                                unsupported  long double is not supported
 gcc-torture/memset-2.c                                unsupported  long double is not supported
 gcc-torture/memset-3.c                                unsupported  long double is not supported
-gcc-torture/misalign.c                                unsupported  attribute 'mode' is not supported
 gcc-torture/mod-1.c                                   unsupported  expected declaration or function definition
-gcc-torture/nest-align-1.c                            unsupported  GNU attribute 'aligned' on a typedef is only supported for struct and union types
+gcc-torture/nest-align-1.c                            unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/nest-stdar-1.c                            unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/nestfunc-1.c                              unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/nestfunc-2.c                              unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/nestfunc-3.c                              unsupported  nested functions (a GNU extension) are not supported
-gcc-torture/nestfunc-5.c                              unsupported  local labels ('__label__') are not supported
-gcc-torture/nestfunc-6.c                              unsupported  local labels ('__label__') are not supported
+gcc-torture/nestfunc-5.c                              unsupported  nested functions (a GNU extension) are not supported
+gcc-torture/nestfunc-6.c                              unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/nestfunc-7.c                              unsupported  nested functions (a GNU extension) are not supported
-gcc-torture/packed-1.c                                unsupported  GNU attribute 'packed' is not supported here
-gcc-torture/packed-2.c                                unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/packed-aligned.c                          unsupported  no type in parameter declaration
 gcc-torture/pending-4.c                               unsupported  no type in parameter declaration
 gcc-torture/pr103209.c                                unsupported  too many arguments for function call
@@ -325,7 +302,6 @@ gcc-torture/pr110817-2.c                              unsupported  vector types 
 gcc-torture/pr110817-3.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr117432.c                                unsupported  macro "va_start" requires 2 arguments, but only 1 given
 gcc-torture/pr121957.c                                unsupported  vector types (vector_size) are not supported yet
-gcc-torture/pr122000.c                                unsupported  GNU attribute 'aligned' is not supported here
 gcc-torture/pr123625-2.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr123625-3.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr123625.c                                unsupported  vector types (vector_size) are not supported yet
@@ -340,16 +316,14 @@ gcc-torture/pr21173.c                                 unsupported  pointer opera
 gcc-torture/pr22061-1.c                               unsupported  undeclared identifier: alloca
 gcc-torture/pr22061-3.c                               unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/pr22061-4.c                               unsupported  nested functions (a GNU extension) are not supported
-gcc-torture/pr23135.c                                 unsupported  attribute 'mode' is not supported
+gcc-torture/pr23135.c                                 unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr23324.c                                 unsupported  empty structs and unions (a GNU extension) are not supported
-gcc-torture/pr23467.c                                 unsupported  GNU attribute 'aligned' is not supported here
-gcc-torture/pr24135.c                                 unsupported  local labels ('__label__') are not supported
+gcc-torture/pr24135.c                                 unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/pr28289.c                                 unsupported  too many arguments for function call
 gcc-torture/pr28865.c                                 unsupported  initializer specified for incomplete type
 gcc-torture/pr30314.c                                 unsupported  ../../gcc.dg/tree-ssa/pr30314.c: No such file or directory
 gcc-torture/pr32244-1.c                               skip         gcc computes in a bit-field's width when it is wider than int (clang and cimo: in its declared type)
 gcc-torture/pr33382.c                                 unsupported  initializer specified for incomplete type
-gcc-torture/pr34154.c                                 unsupported  case ranges ('case a ... b', a GNU extension) are not supported
 gcc-torture/pr34971.c                                 skip         gcc computes in a bit-field's width when it is wider than int (clang and cimo: in its declared type)
 gcc-torture/pr34982.c                                 unsupported  too many arguments for function call
 gcc-torture/pr38151.c                                 unsupported  _Complex is not yet supported
@@ -366,7 +340,7 @@ gcc-torture/pr46309.c                                 unsupported  invalid opera
 gcc-torture/pr47237.c                                 unsupported  built-in function '__builtin_apply' is not supported
 gcc-torture/pr48571-1.c                               unsupported  pointer operand to '+' must be to complete object type
 gcc-torture/pr49644.c                                 unsupported  _Complex is not yet supported
-gcc-torture/pr51447.c                                 unsupported  local labels ('__label__') are not supported
+gcc-torture/pr51447.c                                 unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/pr52979-1.c                               unsupported  bit-field 'g' in packed struct is not supported
 gcc-torture/pr52979-2.c                               unsupported  bit-field 'g' in packed struct is not supported
 gcc-torture/pr53645-2.c                               unsupported  vector types (vector_size) are not supported yet
@@ -392,7 +366,7 @@ gcc-torture/pr71626-1.c                               unsupported  vector types 
 gcc-torture/pr71626-2.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr79286.c                                 unsupported  array of unknown size has empty initializer
 gcc-torture/pr80692.c                                 unsupported  expected primary expression
-gcc-torture/pr82210.c                                 unsupported  GNU attribute 'aligned' is not supported here
+gcc-torture/pr82210.c                                 unsupported  struct member 'a' has variably modified type
 gcc-torture/pr84521.c                                 unsupported  built-in function '__builtin_longjmp' is not supported
 gcc-torture/pr84748.c                                 unsupported  type 'unsigned __int128' is not supported
 gcc-torture/pr85169.c                                 unsupported  vector types (vector_size) are not supported yet
@@ -415,25 +389,23 @@ gcc-torture/regstack-1.c                              unsupported  long double i
 gcc-torture/scal-to-vec1.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-torture/scal-to-vec2.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-torture/scal-to-vec3.c                            unsupported  vector types (vector_size) are not supported yet
-gcc-torture/simd-1.c                                  unsupported  attribute 'mode' is not supported
+gcc-torture/simd-1.c                                  unsupported  vector types (vector_size) are not supported yet
 gcc-torture/simd-2.c                                  unsupported  vector types (vector_size) are not supported yet
 gcc-torture/simd-4.c                                  unsupported  vector types (vector_size) are not supported yet
 gcc-torture/simd-5.c                                  unsupported  vector types (vector_size) are not supported yet
 gcc-torture/simd-6.c                                  unsupported  vector types (vector_size) are not supported yet
 gcc-torture/stdarg-1.c                                unsupported  long double is not supported
 gcc-torture/stdarg-2.c                                unsupported  long double is not supported
-gcc-torture/stkalign.c                                unsupported  GNU attribute 'aligned' is not supported here
+gcc-torture/stkalign.c                                unsupported  assignment to arithmetic type must be from arithmetic type
 gcc-torture/strcmp-1.c                                unsupported  long double is not supported
 gcc-torture/strcpy-1.c                                unsupported  long double is not supported
-gcc-torture/strct-pack-1.c                            unsupported  GNU attribute 'packed' is not supported here
-gcc-torture/strct-pack-2.c                            unsupported  GNU attribute 'packed' is not supported here
-gcc-torture/strct-pack-3.c                            unsupported  GNU attribute 'packed' is not supported here
-gcc-torture/strct-pack-4.c                            unsupported  GNU attribute 'packed' is not supported here
+gcc-torture/strct-pack-1.c                            unsupported  specified alignment of struct member 'd' is less strict than is required by type
+gcc-torture/strct-pack-2.c                            unsupported  specified alignment of struct member 'ap' is less strict than is required by type
+gcc-torture/strct-pack-3.c                            unsupported  specified alignment of struct member 'f' is less strict than is required by type
 gcc-torture/string-opt-18.c                           unsupported  undefined symbol 'mempcpy': cimo's runtime does not provide it
 gcc-torture/strlen-1.c                                unsupported  long double is not supported
 gcc-torture/strncmp-1.c                               unsupported  long double is not supported
 gcc-torture/struct-ini-4.c                            unsupported  undeclared identifier: c
-gcc-torture/struct-ret-2.c                            unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/tstdi-1.c                                 unsupported  expected declaration or function definition
 gcc-torture/user-printf.c                             unsupported  undeclared identifier: tmpnam
 gcc-torture/va-arg-2.c                                unsupported  too many arguments for function call
@@ -445,27 +417,24 @@ gcc-torture/vfprintf-1.c                              unsupported  undeclared id
 gcc-torture/vfprintf-chk-1.c                          unsupported  unknown type name 'FILE'
 gcc-torture/zero-struct-1.c                           unsupported  empty structs and unions (a GNU extension) are not supported
 gcc-torture/zero-struct-2.c                           unsupported  empty structs and unions (a GNU extension) are not supported
-gcc-torture/zerolen-2.c                               unsupported  attribute 'mode' is not supported
 gcc-vect/bb-slp-49.c                                  unsupported  vector types (vector_size) are not supported yet
 gcc-vect/bb-slp-pr101615-1.c                          unsupported  vector types (vector_size) are not supported yet
 gcc-vect/bb-slp-pr101668.c                            unsupported  vector types (vector_size) are not supported yet
-gcc-vect/bb-slp-pr128069.c                            unsupported  local labels ('__label__') are not supported
+gcc-vect/bb-slp-pr128069.c                            unsupported  nested functions (a GNU extension) are not supported
 gcc-vect/bb-slp-pr54400.c                             unsupported  vector types (vector_size) are not supported yet
-gcc-vect/bb-slp-subgroups-1.c                         unsupported  GNU attribute 'aligned' is not supported here
-gcc-vect/bb-slp-subgroups-2.c                         unsupported  GNU attribute 'aligned' is not supported here
-gcc-vect/bb-slp-subgroups-3.c                         unsupported  GNU attribute 'aligned' is not supported here
+gcc-vect/bb-slp-subgroups-1.c                         unsupported  too many arguments for function call
+gcc-vect/bb-slp-subgroups-2.c                         unsupported  too many arguments for function call
+gcc-vect/bb-slp-subgroups-3.c                         unsupported  too many arguments for function call
 gcc-vect/fast-math-vect-complex-3.c                   unsupported  _Complex is not yet supported
 gcc-vect/group-no-gaps-1.c                            unsupported  sys/mman.h: No such file or directory
 gcc-vect/pr103116-1.c                                 unsupported  sys/mman.h: No such file or directory
 gcc-vect/pr103116-2.c                                 unsupported  sys/mman.h: No such file or directory
 gcc-vect/pr105219.c                                   unsupported  no type in parameter declaration
 gcc-vect/pr115385.c                                   unsupported  sys/mman.h: No such file or directory
-gcc-vect/pr118140.c                                   unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-vect/pr123731.c                                   unsupported  vector types (vector_size) are not supported yet
 gcc-vect/pr49038.c                                    unsupported  sys/mman.h: No such file or directory
 gcc-vect/pr51581-1.c                                  unsupported  ../../gcc.c-torture/execute/pr51581-1.c: No such file or directory
 gcc-vect/pr51581-2.c                                  unsupported  ../../gcc.c-torture/execute/pr51581-2.c: No such file or directory
-gcc-vect/pr63148.c                                    unsupported  GNU attribute 'aligned' is not supported here
 gcc-vect/pr66251.c                                    unsupported  _Complex is not yet supported
 gcc-vect/pr66253.c                                    unsupported  _Complex is not yet supported
 gcc-vect/pr79824-1.c                                  unsupported  sys/mman.h: No such file or directory
@@ -491,18 +460,13 @@ gcc-vect/vect-early-break_99-pr113287.c               unsupported  invalid signe
 gcc-vect/vect-mulh-1.c                                unsupported  cast type must be scalar
 gcc-vect/vect-multi-peel-gaps.c                       unsupported  sys/mman.h: No such file or directory
 gcc-vect/vect-nop-move.c                              unsupported  vector types (vector_size) are not supported yet
-gcc-vect/vect-pr120927-2.c                            unsupported  GNU attribute 'aligned' is not supported here
-gcc-vect/vect-pr122844.c                              unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
 gcc-vect/vect-pr124037.c                              unsupported  sys/mman.h: No such file or directory
 gcc-vect/vect-pr124802.c                              unsupported  immintrin.h: No such file or directory
 gcc-vect/vect-pr127601.c                              unsupported  sys/mman.h: No such file or directory
 gcc-vect/vect-tail-nomask-1.c                         unsupported  undefined symbol 'posix_memalign': cimo's runtime does not provide it
-gcc-vect/vect-uncounted-run_1.c                       unsupported  range designators ('[a ... b]', a GNU extension) are not supported
 gcc-dg-torture/20090618-1.c                           unsupported  built-in function '__builtin_mempcpy' is not supported
 gcc-dg-torture/20110718-1.c                           skip         gcc's bit-field types: ~ of an unsigned long :33 field computed in 33 bits (C: in unsigned long)
 gcc-dg-torture/20190327-1.c                           unsupported  vector types (vector_size) are not supported yet
-gcc-dg-torture/arm-fp16-int-convert-alt.c             unsupported  attribute 'mode' is not supported
-gcc-dg-torture/arm-fp16-int-convert-ieee.c            unsupported  attribute 'mode' is not supported
 gcc-dg-torture/bfloat16-builtin.c                     unsupported  type '__bf16' is not supported
 gcc-dg-torture/bfloat16-complex.c                     unsupported  type '__bf16' is not supported
 gcc-dg-torture/bitint-100.c                           unsupported  built-in function '__atomic_add_fetch' is not supported
@@ -543,34 +507,32 @@ gcc-dg-torture/float128-truncsf-underflow.c           unsupported  fenv.h: No su
 gcc-dg-torture/floatn-convert.c                       unsupported  type '_Float32' is not supported
 gcc-dg-torture/fp-double-convert-float-1.c            unsupported  fenv.h: No such file or directory
 gcc-dg-torture/fp-int-convert-2.c                     unsupported  type 'unsigned __int128' is not supported
-gcc-dg-torture/fp-int-convert-double.c                unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float.c                 unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float128-ieee-timode.c  unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float128-ieee.c         unsupported  attribute 'mode' is not supported
+gcc-dg-torture/fp-int-convert-float128-ieee-timode.c  unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float128-ieee.c         unsupported  type '_Float128' is not supported
 gcc-dg-torture/fp-int-convert-float128-timode-2.c     unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/fp-int-convert-float128-timode-3.c     unsupported  fenv.h: No such file or directory
-gcc-dg-torture/fp-int-convert-float128-timode.c       unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float128.c              unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float128x-timode.c      unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float128x.c             unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float16-timode.c        unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float16.c               unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float32-timode.c        unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float32.c               unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float32x-timode.c       unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float32x.c              unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float64-timode.c        unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float64.c               unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float64x-timode.c       unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float64x.c              unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float80-timode.c        unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-float80.c               unsupported  attribute 'mode' is not supported
-gcc-dg-torture/fp-int-convert-long-double.c           unsupported  attribute 'mode' is not supported
+gcc-dg-torture/fp-int-convert-float128-timode.c       unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float128.c              unsupported  type '__float128' is not supported
+gcc-dg-torture/fp-int-convert-float128x-timode.c      unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float128x.c             unsupported  type '_Float128x' is not supported
+gcc-dg-torture/fp-int-convert-float16-timode.c        unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float16.c               unsupported  type '_Float16' is not supported
+gcc-dg-torture/fp-int-convert-float32-timode.c        unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float32.c               unsupported  type '_Float32' is not supported
+gcc-dg-torture/fp-int-convert-float32x-timode.c       unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float32x.c              unsupported  type '_Float32x' is not supported
+gcc-dg-torture/fp-int-convert-float64-timode.c        unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float64.c               unsupported  type '_Float64' is not supported
+gcc-dg-torture/fp-int-convert-float64x-timode.c       unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float64x.c              unsupported  type '_Float64x' is not supported
+gcc-dg-torture/fp-int-convert-float80-timode.c        unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float80.c               unsupported  type '__float80' is not supported
+gcc-dg-torture/fp-int-convert-long-double.c           unsupported  long double is not supported
 gcc-dg-torture/fp-int-convert-timode-1.c              unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/fp-int-convert-timode-2.c              unsupported  fenv.h: No such file or directory
 gcc-dg-torture/fp-int-convert-timode-3.c              unsupported  fenv.h: No such file or directory
 gcc-dg-torture/fp-int-convert-timode-4.c              unsupported  fenv.h: No such file or directory
-gcc-dg-torture/fp-int-convert-timode.c                unsupported  attribute 'mode' is not supported
+gcc-dg-torture/fp-int-convert-timode.c                unsupported  type '__int128' is not supported
 gcc-dg-torture/fp-uint64-convert-double-1.c           unsupported  fenv.h: No such file or directory
 gcc-dg-torture/fp-uint64-convert-double-2.c           unsupported  fenv.h: No such file or directory
 gcc-dg-torture/ftrapv-1.c                             unsupported  unistd.h: No such file or directory
@@ -595,17 +557,14 @@ gcc-dg-torture/inf-compare-8.c                        unsupported  fenv.h: No su
 gcc-dg-torture/ipa-bitfield-predicate-1.c             unsupported  attribute 'scalar_storage_order' is not supported
 gcc-dg-torture/long-mul-128.c                         unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/long-mul-64-run.c                      unsupported  cast type must be scalar
-gcc-dg-torture/mips-hilo-2.c                          unsupported  attribute 'nomips16' is not supported
+gcc-dg-torture/mips-hilo-2.c                          unsupported  inline assembly is not supported
 gcc-dg-torture/mul-highpart-1.c                       unsupported  cast type must be scalar
 gcc-dg-torture/neon-sve-bridge.c                      unsupported  arm_neon_sve_bridge.h: No such file or directory
-gcc-dg-torture/pr100053.c                             unsupported  attribute 'returns_twice' is not supported
 gcc-dg-torture/pr100672.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr100778.c                             unsupported  fenv.h: No such file or directory
-gcc-dg-torture/pr102139.c                             unsupported  GNU attribute 'aligned' on a typedef is only supported for struct and union types
 gcc-dg-torture/pr103181.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr110228.c                             unsupported  inline assembly is not supported
 gcc-dg-torture/pr110799.c                             unsupported  unistd.h: No such file or directory
-gcc-dg-torture/pr111036.c                             unsupported  GNU attribute 'aligned' is not supported here
 gcc-dg-torture/pr112639.c                             unsupported  built-in function '__builtin_clzg' is not supported
 gcc-dg-torture/pr112736.c                             unsupported  sys/mman.h: No such file or directory
 gcc-dg-torture/pr113396.c                             unsupported  type '__int128' is not supported
@@ -630,7 +589,7 @@ gcc-dg-torture/pr121661-1.c                           unsupported  _Complex is n
 gcc-dg-torture/pr122188.c                             unsupported  built-in function '__builtin_ctzg' is not supported
 gcc-dg-torture/pr122835.c                             unsupported  attribute 'cleanup' is not supported
 gcc-dg-torture/pr123864.c                             unsupported  type '__int128' is not supported
-gcc-dg-torture/pr125653.c                             unsupported  local labels ('__label__') are not supported
+gcc-dg-torture/pr125653.c                             unsupported  labels as values ('&&label', a GNU extension) are not supported
 gcc-dg-torture/pr125786.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr126462.c                             unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/pr126549.c                             unsupported  type '_Float16' is not supported
@@ -641,10 +600,9 @@ gcc-dg-torture/pr128080-2.c                           unsupported  vector types 
 gcc-dg-torture/pr128080.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr128142.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr16104-1.c                            unsupported  vector types (vector_size) are not supported yet
-gcc-dg-torture/pr19683-1.c                            unsupported  attribute 'nomips16' is not supported
-gcc-dg-torture/pr25967-1.c                            unsupported  attribute 'mode' is not supported
-gcc-dg-torture/pr25967-2.c                            unsupported  attribute 'mode' is not supported
-gcc-dg-torture/pr26565.c                              unsupported  GNU attribute 'packed' is not supported here
+gcc-dg-torture/pr19683-1.c                            unsupported  inline assembly is not supported
+gcc-dg-torture/pr25967-1.c                            unsupported  attribute 'naked' is not supported
+gcc-dg-torture/pr25967-2.c                            unsupported  attribute 'naked' is not supported
 gcc-dg-torture/pr27302-2.c                            unsupported  undefined symbol 'link_error': cimo's runtime does not provide it
 gcc-dg-torture/pr27302.c                              unsupported  undefined symbol 'link_error': cimo's runtime does not provide it
 gcc-dg-torture/pr37868.c                              unsupported  bit-field 'pad' in packed struct is not supported
@@ -669,7 +627,6 @@ gcc-dg-torture/pr54261-1.c                            unsupported  built-in func
 gcc-dg-torture/pr55633.c                              unsupported  type '__int128' is not supported
 gcc-dg-torture/pr55755.c                              unsupported  bit-field 'f0' in packed struct is not supported
 gcc-dg-torture/pr56420.c                              unsupported  type 'unsigned __int128' is not supported
-gcc-dg-torture/pr56443.c                              unsupported  GNU attribute 'aligned' on a typedef is only supported for struct and union types
 gcc-dg-torture/pr56488.c                              unsupported  array of unknown size has empty initializer
 gcc-dg-torture/pr57748-1.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr57748-2.c                            unsupported  vector types (vector_size) are not supported yet
@@ -679,12 +636,11 @@ gcc-dg-torture/pr58041.c                              unsupported  vector types 
 gcc-dg-torture/pr58416.c                              unsupported  long double is not supported
 gcc-dg-torture/pr58670.c                              skip         its x86-64 path is inline assembly (asm goto); passes on arm64
 gcc-dg-torture/pr60092.c                              unsupported  undefined symbol 'posix_memalign': cimo's runtime does not provide it
-gcc-dg-torture/pr61346.c                              unsupported  attribute 'mode' is not supported
 gcc-dg-torture/pr65270-3.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr67609.c                              unsupported  vector types (vector_size) are not supported yet
-gcc-dg-torture/pr68037-1.c                            unsupported  attribute 'mode' is not supported
-gcc-dg-torture/pr68037-2.c                            unsupported  attribute 'mode' is not supported
-gcc-dg-torture/pr68037-3.c                            unsupported  attribute 'mode' is not supported
+gcc-dg-torture/pr68037-1.c                            unsupported  attribute 'interrupt' is not supported
+gcc-dg-torture/pr68037-2.c                            unsupported  attribute 'interrupt' is not supported
+gcc-dg-torture/pr68037-3.c                            unsupported  attribute 'interrupt' is not supported
 gcc-dg-torture/pr68264.c                              unsupported  fenv.h: No such file or directory
 gcc-dg-torture/pr69399.c                              unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/pr69400.c                              unsupported  type 'unsigned __int128' is not supported
@@ -710,12 +666,10 @@ gcc-dg-torture/pr79351.c                              unsupported  expected decl
 gcc-dg-torture/pr80122.c                              unsupported  built-in function '__builtin_va_arg_pack_len' is not supported
 gcc-dg-torture/pr8081.c                               unsupported  struct member 'val' has variably modified type
 gcc-dg-torture/pr82692.c                              unsupported  fenv.h: No such file or directory
-gcc-dg-torture/pr85397-1.c                            unsupported  local labels ('__label__') are not supported
-gcc-dg-torture/pr86034.c                              unsupported  attribute 'mode' is not supported
+gcc-dg-torture/pr85397-1.c                            unsupported  nested functions (a GNU extension) are not supported
 gcc-dg-torture/pr86363.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr86389.c                              unsupported  nested functions (a GNU extension) are not supported
 gcc-dg-torture/pr86505.c                              unsupported  built-in function '__builtin_va_arg_pack_len' is not supported
-gcc-dg-torture/pr86945.c                              unsupported  case ranges ('case a ... b', a GNU extension) are not supported
 gcc-dg-torture/pr89111.c                              unsupported  bit-field 'b' in packed struct is not supported
 gcc-dg-torture/pr90020.c                              unsupported  undefined symbol 'x': cimo's runtime does not provide it
 gcc-dg-torture/pr91323.c                              unsupported  fenv.h: No such file or directory
@@ -743,8 +697,7 @@ c-testsuite/00189.c                                   unsupported  unknown type 
 c-testsuite/00204.c                                   unsupported  long double is not supported
 c-testsuite/00209.c                                   unsupported  too many arguments for function call
 c-testsuite/00210.c                                   unsupported  attribute 'stdcall' is not supported
-c-testsuite/00213.c                                   unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
-c-testsuite/00214.c                                   unsupported  statement expressions ('({ ... })', a GNU extension) are not supported
+c-testsuite/00213.c                                   unsupported  invalid operands to conditional operator
 c-testsuite/00216.c                                   unsupported  empty structs and unions (a GNU extension) are not supported
 c-testsuite/00220.c                                   unsupported  wchar.h: No such file or directory
 libc-test/functional/argv.c                           unsupported  undeclared identifier: PATH_MAX

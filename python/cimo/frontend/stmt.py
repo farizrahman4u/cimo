@@ -6,7 +6,7 @@ from builtins import next as next_
 from .cc import (SwitchCases, TCASE, TDEFAULT, TIDENT, TCOLON, TLBRACE, TRBRACE, TSEMICOLON,
                  TIF, TLPAREN, TRPAREN, TELSE, TSWITCH, TWHILE, TDO, TFOR, TGOTO, TCONTINUE,
                  TBREAK, TRETURN, T__ASM__, TVOLATILE, TINLINE, TSTRINGLIT, TCOMMA,
-                 TLBRACK, TRBRACK, TCOLONCOLON, PROPSCALAR, PROPINT, TELLIPSIS, TMUL, DECLOBJECT, SDAUTO)
+                 TLBRACK, TRBRACK, TCOLONCOLON, EXPRSTMT, TYPEARRAY, TYPEFUNC, TYPEVOID, PROPSCALAR, PROPINT, TELLIPSIS, TMUL, DECLOBJECT, SDAUTO)
 from .token import tok, tokenstr, error
 from .pp import next, expect, consume, peek
 from . import type as TY
@@ -32,9 +32,10 @@ def label(f, s):
         b = Q.mkblock("switch_case")
         Q.funclabel(f, b)
         i = E.intconstexpr(s, True)
-        if U.diagnostics and tok.kind == TELLIPSIS:
-            error(tok.loc, "case ranges ('case a ... b', a GNU extension) are not supported")
-        Q.switchcase(s.switchcases, i, b)
+        if U.diagnostics and consume(TELLIPSIS):  # cimo: `case a ... b:`, a GNU case range
+            Q.switchrange(s.switchcases, i, E.intconstexpr(s, True), b)
+        else:
+            Q.switchcase(s.switchcases, i, b)
         expect(TCOLON, "after case expression")
     elif k == TDEFAULT:
         next()
@@ -83,9 +84,11 @@ def stmt(f, s):
         next()
         s = mkscope(s)
         nvla = len(f.vlas)
+        local = _locallabels(f)
         while tok.kind != TRBRACE:
             if not label(f, s) and not D.decl(s, f):
                 stmt(f, s)
+        _endlocallabels(f, local)
         _vlaleave(f, nvla)
         del f.vlas[nvla:]
         s = delscope(s)
@@ -412,3 +415,85 @@ def _asm(f, s):
             e = E.mkassignexpr(tied, e)
         Q.funcexpr(f, e)
         E.delexpr(e)
+
+
+_STMTSTART = frozenset((TLBRACE, TSEMICOLON, TIF, TSWITCH, TWHILE, TDO, TFOR, TGOTO, TCONTINUE, TBREAK, TRETURN,
+                        T__ASM__))
+
+
+def stmtexpr(s):
+    """cimo: a GNU statement expression `({ ... })`, at its '{'. Its body is emitted now, into blocks of their own
+    (cproc emits statements as it parses them, an expression's code only after the whole expression is parsed); the
+    expression (EXPRSTMT) splices them in where its code goes, so the body runs in the expression's evaluation
+    order (`a && ({ ... })`, a for loop's third expression). Its value: the last statement's, if an expression."""
+    f = Q.curfunc
+    if f is None:
+        error(tok.loc, "statement expression outside a function")
+    saved = f.end
+    head = Q.mkblock("stmt_expr")
+    f.end = head
+    next()
+    s = mkscope(s)
+    nvla = len(f.vlas)
+    local = _locallabels(f)
+    t, v = TY.typevoid, None
+    while tok.kind != TRBRACE:
+        t, v = TY.typevoid, None
+        if label(f, s) or D.decl(s, f):
+            continue
+        if tok.kind in _STMTSTART:
+            stmt(f, s)
+            continue
+        e = E.expr(s)
+        expect(TSEMICOLON, "after expression statement")
+        if tok.kind == TRBRACE:
+            if e.decayed:
+                pass  # an array or function: already its pointer
+            t = e.type
+            if t.kind == TYPEARRAY or t.kind == TYPEFUNC:
+                t = TY.typevoid
+            v = Q.funcexpr(f, e)
+            if t.kind == TYPEVOID:
+                v = None
+        else:
+            Q.funcexpr(f, e)
+        E.delexpr(e)
+    _endlocallabels(f, local)
+    _vlaleave(f, nvla)
+    del f.vlas[nvla:]
+    s = delscope(s)
+    next()
+    last = f.end
+    f.end = saved
+    r = E.Expr(EXPRSTMT, t, None)
+    r.ct, r.cf, r.temp, r.post = head, last, v, False
+    return r
+
+
+def _locallabels(f):
+    """cimo: GNU local labels, `__label__ a, b;` at a block's start: labels of this block only (a macro's
+    statement expression expanded twice in one function). Returns {name: the label it hides, or None}."""
+    hidden = {}
+    while U.diagnostics and tok.kind >= TIDENT and tokenstr(tok.kind) == '__label__':
+        next()
+        while True:
+            if tok.kind < TIDENT:
+                error(tok.loc, "expected identifier after '__label__'")
+            name = tokenstr(tok.kind)
+            next()
+            if name not in hidden:
+                hidden[name] = f.gotos.pop(name, None)
+            Q.funcgoto(f, name)
+            if not consume(TCOMMA):
+                break
+        expect(TSEMICOLON, "after '__label__' declaration")
+    return hidden
+
+
+def _endlocallabels(f, hidden):
+    for name, old in hidden.items():
+        g = f.gotos.pop(name)
+        if not g.defined and any(c[1] is g for c in f.gotochecks):
+            error(tok.loc, "label '%s' used but not defined", name)
+        if old is not None:
+            f.gotos[name] = old

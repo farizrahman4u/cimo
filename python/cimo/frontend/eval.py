@@ -206,10 +206,16 @@ def eval(expr):
                 # ((_Bool)2 was 0) and truncated a float ((_Bool)0.5 was 0, -0.5 an error)
                 expr.u = int(_truth(l))
             elif l.type.prop & PROPINT and t.prop & PROPFLOAT:
-                if l.type.issigned:
-                    expr.f = float(l.i)
-                else:
-                    expr.f = float(l.u)
+                n = l.i if l.type.issigned else l.u
+                if t.size == 4 and abs(n) >> 53:
+                    # cimo: rounded once, to float: the bits below float's 24 (and a guard bit) become one
+                    # sticky bit, so the double below is exact and rounds to float as n does (via double,
+                    # 2^62 + 2^38 + 1 was a tie, rounded to even: 2^62, not 2^62 + 2^39)
+                    m = abs(n)
+                    e = m.bit_length() - 26
+                    m = (m >> e | (1 if m & ((1 << e) - 1) else 0)) << e
+                    n = -m if n < 0 else m
+                expr.f = float(n)
             elif l.type.prop & PROPFLOAT and t.prop & PROPINT:
                 lf = l.f
                 if t.issigned:
