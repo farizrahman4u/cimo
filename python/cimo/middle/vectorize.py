@@ -550,13 +550,29 @@ def interleave(fast):
     order C doesn't fix and stores nothing, so each copy keeps its own accumulators (a chain of compares and selects,
     or of adds, is latency-bound in one), and stores never come closer than _distance allowed for."""
     stores = any(_storeclass(i) is not None for b in fast.lp.blocks for i in ir.ins(b))
-    if stores and not fast.vreds and _apart(fast, 2 * fast.vf):
-        return 2  # a loop that stores, as gemm's c[j] += a * b[j]: two vectors an iteration, fewer of the loop's own instructions
+    if stores and not fast.vreds:
+        # a loop that stores, as gemm's c[j] += a * b[j]: two vectors an iteration, fewer of the loop's own instructions;
+        # four when an iteration is a long chain of dependent float operations (conv3x3's nine fmas in C's order,
+        # jacobi2d's four adds), so more of them are in flight than the core's window would otherwise hold
+        return 4 if _chain(fast) >= 4 else 2
     if not fast.vreds or any(r.ordered for r in fast.vreds):
         return 1
     if stores:
         return 1
     return INTERLEAVE
+
+
+def _chain(fast):
+    """The longest run of dependent float operations in an iteration."""
+    depth = {}
+    best = 0
+    for i in [x for b in fast.sh.order for x in ir.ins(b)]:
+        if not ir.istmp(i.to) or i.cls not in (Ks, Kd) or ir.isload(i.op):
+            continue
+        d = 1 + max([depth.get(rval(a), 0) for a in i.arg if ir.istmp(a)] + [0])
+        depth[rval(i.to)] = d
+        best = max(best, d)
+    return best
 
 
 def _apart(fast, lanes):

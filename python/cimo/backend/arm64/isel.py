@@ -277,7 +277,7 @@ def foldaddr(pa, pi, sz, fn):
     if c.type != CBits:
         return
     off = c.i
-    if off < 0 or off % sz or off // sz > 4095:
+    if (off < 0 or off % sz or off // sz > 4095) and not (sz == 16 and -256 <= off <= 255):  # q: ldur, stur
         return
     m = Mem()
     m.base = di.arg[0]
