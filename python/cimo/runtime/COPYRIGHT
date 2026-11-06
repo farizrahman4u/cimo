@@ -7,6 +7,8 @@ sha256 a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4):
   versions) and nearbyint, which are small cimo files.
 - string/: musl src/string, with the word-at-a-time paths enabled for cimo (they are
   guarded by __GNUC__ in musl); strcoll, strxfrm and strerror are cimo's ("C" locale, no errno).
+- complex/: musl src/complex (double and float), unchanged; internal/complex_impl.h is cut down
+  (CMPLX from __builtin_complex). complex/__cimo_carith.c is cimo's.
 - ctype/ctype.c: musl src/ctype, merged into one file.
 - stdlib/: musl src/stdlib and src/internal/{intscan,floatscan}.c over a string-only
   pseudo-FILE; long double replaced by double in floatscan.c, whose hex-float digit window

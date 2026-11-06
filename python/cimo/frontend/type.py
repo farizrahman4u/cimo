@@ -1,6 +1,6 @@
 """Port of type.c."""
 
-from .cc import (Type, M64, M32, TYPEVOID, TYPEBOOL, TYPECHAR, TYPESHORT, TYPEINT,
+from .cc import (Member, Type, M64, M32, TYPEVOID, TYPEBOOL, TYPECHAR, TYPESHORT, TYPEINT,
                  TYPEENUM, TYPELONG, TYPELLONG, TYPEFLOAT, TYPEDOUBLE, TYPELDOUBLE, TYPEPOINTER,
                  TYPEARRAY, TYPEFUNC, TYPESTRUCT, TYPEUNION, TYPENULLPTR, TYPEBITINT, PROPCHAR,
                  PROPINT, PROPREAL, PROPARITH, PROPSCALAR, PROPFLOAT, PROPVM, QUALNONE)
@@ -40,6 +40,8 @@ typeullong = INTTYPE(TYPELLONG, 8, False, 0)
 typefloat = FLTTYPE(TYPEFLOAT, 4)
 typedouble = FLTTYPE(TYPEDOUBLE, 8)
 typeldouble = FLTTYPE(TYPELDOUBLE, 16)
+typecfloat = None  # cimo: float _Complex and double _Complex (set below, mkcomplex)
+typecdouble = None
 
 typenullptr = Type(kind=TYPENULLPTR, size=8, align=8, prop=PROPSCALAR)
 
@@ -177,7 +179,36 @@ def typepromote(t, width):
     return t
 
 
+def mkcomplex(t):
+    """cimo: `t _Complex` for float or double: laid out (and passed, by every target's ABI) as a struct of two
+    t, the real part first; arithmetic but not real or scalar. Its members' names can't be written in C."""
+    c = _complex.get(id(t))
+    if c is None:
+        c = Type(kind=TYPESTRUCT, size=2 * t.size, align=t.align, prop=PROPARITH)
+        c.iscomplex = True
+        c.base = t
+        re, im = Member(), Member()
+        re.name, re.type, re.offset = ' re', t, 0
+        im.name, im.type, im.offset = ' im', t, t.size
+        re.next = im
+        c.members = re
+        _complex[id(t)] = c
+    if c.size != 2 * t.size:  # long double: its size is the target's (targ.py sets it per compile)
+        c.size, c.align, c.members.next.offset = 2 * t.size, t.align, t.size
+    return c
+
+
+_complex = {}
+
+
+def realtype(t):
+    """cimo: a complex type's corresponding real type (t itself for a real type)."""
+    return t.base if t.iscomplex else t
+
+
 def typecommonreal(t1, w1, t2, w2):
+    if t1.iscomplex or t2.iscomplex:  # cimo: complex if either is, over the common real type (C11 6.3.1.8)
+        return mkcomplex(typecommonreal(realtype(t1), w1, realtype(t2), w2))
     assert t1.prop & PROPREAL and t2.prop & PROPREAL
     if t1 is typeldouble or t2 is typeldouble:
         return typeldouble
@@ -250,3 +281,7 @@ def typehasint(t, i, sign):
 
 
 from .cc import EXPRCONST  # noqa: E402
+
+
+typecfloat = mkcomplex(typefloat)
+typecdouble = mkcomplex(typedouble)

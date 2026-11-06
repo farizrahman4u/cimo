@@ -1467,7 +1467,18 @@ for Linux and macOS (strategies under "Platform loading findings").
     undeclared hosted-libc names (`fopen`, `FILE`, `time`, `pthread_*`, ...) suggest
     `host_headers=True, link=['libc']`.
   - glibc 2.39 headers (stdio, stdlib, unistd, pthread, signal, math, sys/*, ...; 70+ tried) compile
-    except `complex.h` (`_Complex`) and `glob.h` (`__SIZE_TYPE__` is not predefined).
+    except `glob.h` (`__SIZE_TYPE__` is not predefined).
+  - **Complex numbers** (2026-11-06): `float`/`double` (and, where it is double, `long double`) `_Complex`
+    are struct types of two parts (`Type.iscomplex`), so loads, stores, copies, calls and returns are a
+    struct's, which is every target's C ABI for complex values (an HFA on arm64, SSE on x86-64).
+    Arithmetic is lowered in the frontend (`qbe._cx*`): the parts are loaded, computed and stored to a
+    slot. Annex G: a real operand keeps its domain (`x * (a+bi)` is componentwise); `*` is inline and
+    calls the runtime's `__cimo_cmul` only when both parts are NaN (recovering infinities, as gcc's
+    `__muldc3`); `/` calls `__cimo_cdiv`, which carries each product as a mantissa and an exponent so
+    extreme quotients are exact to a few ulps (gcc's `ieee/cdivchk*.c`). Constant folding covers static
+    initializers (`1.0 + 2.0*I`). GNU `__real__`/`__imag__` (lvalues), `~` (conjugate), imaginary
+    constants (`2.0i`), `__builtin_complex`. `<complex.h>` is cimo's; the functions are musl's
+    `src/complex` (double and float). The runtime is now compiled in cimo's own mode (diagnostics on).
 
 **M4: middle stage.** Automate the transforms `scratch/qbe_eval/gen_opt.py` applies by hand, plus
 explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing and the loop-layout fix.

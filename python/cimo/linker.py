@@ -192,7 +192,7 @@ def compile_runtime_source(path, target):
             else {'__FP_FAST_FMA': '1', '__FP_FAST_FMAF': '1'})
     pp = preprocess(src, path, include_dirs=(RUNTIME_INCLUDE,), defines=fast, target=target,
                     warn=lambda *a, **k: None)
-    ssa, params = driver._frontend(pp, path, target, fma=False, builtins=True, prune=True)
+    ssa, params = driver._frontend(pp, path, target, fma=False, builtins=True, prune=True, diagnostics=True)
     return driver._qbe(ssa, params, stkchk=_exe.stack_checked(ssa), target=target)
 
 

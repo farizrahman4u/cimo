@@ -4,13 +4,13 @@ import re
 
 from .cc import (Expr, Ref, M64, M32, EXPRIDENT, EXPRCONST, EXPRSTRING, EXPRCALL, EXPRBITFIELD,
                  EXPRINCDEC, EXPRCOMPOUND, EXPRUNARY, EXPRCAST, EXPRBINARY, EXPRCOND, EXPRASSIGN,
-                 EXPRCOMMA, EXPRBUILTIN, EXPRTEMP, EXPRSIZEOF, TYPEARRAY, TYPEFUNC, TYPESTRUCT,
+                 EXPRCOMMA, EXPRBUILTIN, EXPRTEMP, EXPRSIZEOF, EXPRCPLX, TYPEARRAY, TYPEFUNC, TYPESTRUCT,
                  TYPEUNION, TYPEPOINTER, TYPEBOOL, TYPENULLPTR, TYPEVOID, PROPINT, PROPARITH,
                  PROPSCALAR, PROPREAL, PROPVM, QUALNONE, QUALCONST, DECLOBJECT,
                  DECLBUILTIN, SDSTATIC, SDAUTO, LINKNONE, BUILTINALLOCA, BUILTINCONSTANTP,
                  BUILTINEXPECT, BUILTININFF, BUILTINNANF, BUILTINOFFSETOF,
                  BUILTINTYPESCOMPATIBLEP, BUILTINUNREACHABLE, BUILTINVAARG, BUILTINVACOPY,
-                 BUILTINVAEND, BUILTINVASTART, BUILTINWIDTHOF,
+                 BUILTINVAEND, BUILTINVASTART, BUILTINWIDTHOF, BUILTINCOMPLEX,
                  TNONE, TIDENT, TSTRINGLIT, TCHARCONST, TNUMBER, TTRUE, TFALSE, TNULLPTR,
                  TLPAREN, TRPAREN, T_GENERIC, TCOMMA, TDEFAULT, TCOLON, TLBRACK, TRBRACK,
                  TPERIOD, TARROW, TINC, TDEC, TBAND, TMUL, TADD, TSUB, TBNOT, TLNOT, TSIZEOF,
@@ -157,6 +157,9 @@ def exprassign(e, t):
     elif k == TYPENULLPTR:
         if not nullpointer(e) and not _nullptrval(e):
             error(tok.loc, "assignment to nullptr_t must be from null pointer constant or expression with type nullptr_t")
+    elif t.iscomplex:  # cimo: from any arithmetic value
+        if not (et.prop & PROPARITH):
+            error(tok.loc, "assignment to arithmetic type must be from arithmetic type")
     elif k == TYPESTRUCT or k == TYPEUNION:
         if not typecompatible(t, et):
             error(tok.loc, "assignment to %s type must be from compatible type", "union" if k == TYPEUNION else "struct")
@@ -175,9 +178,60 @@ def exprpromote(e):
 def commonreal(e1, e2):
     """Returns (t, e1, e2)."""
     t = typecommonreal(e1.type, bitfieldwidth(e1), e2.type, bitfieldwidth(e2))
+    if t.iscomplex:  # cimo: a real operand stays real (C11 6.3.1.8): x * (a + bi) is (xa) + (xb)i
+        e1 = exprconvert(e1, t if e1.type.iscomplex else t.base)
+        e2 = exprconvert(e2, t if e2.type.iscomplex else t.base)
+        return t, e1, e2
     e1 = exprconvert(e1, t)
     e2 = exprconvert(e2, t)
     return t, e1, e2
+
+
+def mkcplx(re, im):
+    """cimo: the complex value re + im*i, of the complex type over re's (real) type."""
+    t = TY.mkcomplex(re.type)
+    e = Expr(EXPRCPLX, t, None)
+    e.l = re
+    e.r = exprconvert(im, re.type)
+    return e
+
+
+def _fzero(t):
+    z = Expr(EXPRCONST, t, None)
+    z.f = 0.0
+    return z
+
+
+def scalarcond(e):
+    """cimo: a controlling expression (if, loops, ?:, !, &&, ||): a complex value tests `!= 0`; None if e is
+    neither scalar nor complex."""
+    if e.type.prop & PROPSCALAR:
+        return e
+    if e.type.iscomplex:
+        return mkbinaryexpr(tok.loc, TNEQ, e, mkconstexpr(TY.typeint, 0))
+    return None
+
+
+def cxpart(e, imag):
+    """cimo: `__real__ e` / `__imag__ e` (GNU): a part of a complex value, an lvalue if e is; of a real value,
+    the value itself or 0."""
+    t = e.type
+    if not t.iscomplex:
+        if not (t.prop & PROPARITH):
+            error(tok.loc, "operand of '%s' must have arithmetic type", '__imag__' if imag else '__real__')
+        if not imag:
+            return exprconvert(e, t) if e.lvalue else e
+        z = Expr(EXPRCOMMA, t, e)
+        e.next = exprconvert(mkconstexpr(TY.typeint, 0), t)
+        return z
+    lvalue = e.lvalue
+    r = mkunaryexpr(TBAND, e)
+    tq = r.type.qual
+    r = mkbinaryexpr(tok.loc, TADD, exprconvert(r, TY.typeulong), mkconstexpr(TY.typeulong, t.base.size if imag else 0))
+    r.type = mkpointertype(t.base, tq)
+    r = mkunaryexpr(TMUL, r)
+    r.lvalue = lvalue
+    return r
 
 
 def mksizeofexpr(t):
@@ -194,6 +248,8 @@ def mkbinaryexpr(loc, op, l, r):
     lp = l.type.prop
     rp = r.type.prop
     if op == TLOR or op == TLAND:
+        l, r = scalarcond(l) or l, scalarcond(r) or r
+        lp, rp = l.type.prop, r.type.prop
         if not (lp & PROPSCALAR):
             error(loc, "left operand of '%s' operator must be scalar", tokenstr(op))
         if not (rp & PROPSCALAR):
@@ -686,6 +742,13 @@ def primaryexpr(s):
     elif k == TNUMBER:
         e = Expr(EXPRCONST, None, None)
         lit = tok.lit
+        imag = False
+        if U.diagnostics:  # cimo: GNU imaginary constants, `2.0i`, `1.0fi`, `3j`: i or j among the suffix letters
+            for c in 'iIjJ':
+                if c in lit:
+                    lit = lit.replace(c, '', 1)
+                    imag = True
+                    break
         if lit[0] == '0':
             c1 = lit[1:2]
             if c1 == 'x' or c1 == 'X':
@@ -728,6 +791,10 @@ def primaryexpr(s):
                 error(tok.loc, "integer constant '%s' is too large for any type", lit)
             e.type = inttype(e.u, base == 10, src[n:])
         next()
+        if imag:
+            if e.type.prop & PROPINT:  # `2i`: gcc's is an int _Complex; cimo's complex types are floating
+                e = exprconvert(e, TY.typedouble)
+            e = mkcplx(mkconstexpr(e.type, 0) if e.type.prop & PROPINT else _fzero(e.type), e)
     elif k == TTRUE or k == TFALSE:
         e = Expr(EXPRCONST, TY.typebool, None)
         e.u = 1 if tok.kind == TTRUE else 0
@@ -838,6 +905,13 @@ def builtinfunc(s, kind):
         t = D.typename(s, None, None)
         expect(TCOMMA, "after type name")
         e = mkconstexpr(TY.typeint, 1 if typecompatible(t, D.typename(s, None, None)) else 0)
+    elif kind == BUILTINCOMPLEX:
+        re = assignexpr(s)
+        expect(TCOMMA, "after real part")
+        im = assignexpr(s)
+        if not (re.type.prop & PROPFLOAT) or not typecompatible(re.type, im.type):
+            error(tok.loc, "__builtin_complex operands must have the same floating type")
+        e = mkcplx(re, im)
     elif kind == BUILTINWIDTHOF:  # cimo: the overflow builtins' result width (a _BitInt's is not its size)
         t = condexpr(s).type
         if not (t.prop & PROPINT):
@@ -997,8 +1071,15 @@ def postfixexpr(s, r):
         r = e
 
 
+_CXPARTS = {'__real__': False, '__real': False, '__imag__': True, '__imag': True}
+
+
 def unaryexpr(s):
     op = tok.kind
+    if U.diagnostics and op >= TIDENT and tokenstr(op) in _CXPARTS and not SC.scopegetdecl(s, tokenstr(op), 1):
+        imag = _CXPARTS[tokenstr(op)]  # cimo: GNU `__real__ e`, `__imag__ e`
+        next()
+        return cxpart(castexpr(s), imag)
     if op == TINC or op == TDEC:
         next()
         l = unaryexpr(s)
@@ -1031,6 +1112,10 @@ def unaryexpr(s):
     elif op == TBNOT:
         next()
         e = castexpr(s)
+        if e.type.iscomplex:  # cimo: ~z is z's conjugate (GNU)
+            e = Expr(EXPRUNARY, e.type, e)
+            e.op = TBNOT
+            return e
         if not (e.type.prop & PROPINT):
             error(tok.loc, "operand of '~' operator must have integer type")
         e = exprpromote(e)
@@ -1038,7 +1123,7 @@ def unaryexpr(s):
     elif op == TLNOT:
         next()
         e = castexpr(s)
-        if not (e.type.prop & PROPSCALAR):
+        if not (e.type.prop & PROPSCALAR) and not e.type.iscomplex:
             error(tok.loc, "operator '!' must have scalar operand")
         e = mkbinaryexpr(tok.loc, TEQL, e, mkconstexpr(TY.typeint, 0))
     elif op == TSIZEOF or op == TALIGNOF or op == T__ALIGNOF__:
@@ -1116,7 +1201,7 @@ def castexpr(s):
             e.init = IN.parseinit(s, t)
             e = postfixexpr(s, decay(e))
             break
-        if t is not TY.typevoid and not (t.prop & PROPSCALAR):
+        if t is not TY.typevoid and not (t.prop & PROPSCALAR) and not t.iscomplex:
             error(tok.loc, "cast type must be scalar")
         e = Expr(EXPRCAST, t, None)
         e.toeval = toeval.v
@@ -1133,7 +1218,8 @@ def castexpr(s):
     if U.diagnostics and ct and (ct.kind == TYPEPOINTER and e.type.prop & PROPFLOAT
                                  or ct.prop & PROPFLOAT and e.type.kind == TYPEPOINTER):
         error(tok.loc, "cast between pointer and floating type")  # cimo: C11 6.5.4p3-4
-    if ct and ct is not TY.typevoid and not (e.type.prop & PROPSCALAR):
+    if ct and ct is not TY.typevoid and not (e.type.prop & PROPSCALAR) and not (
+            e.type.iscomplex and ct.prop & PROPARITH):
         error(tok.loc, "cast operand must have scalar type")
     if last is None:
         r = e
@@ -1175,6 +1261,7 @@ def condexpr(s):
     e = binaryexpr(s, None, 0)
     if not consume(TQUESTION):
         return e
+    e = scalarcond(e) or e
     if not (e.type.prop & PROPSCALAR):  # cimo: C11 6.5.15p2 (cproc asserted later)
         error(tok.loc, "controlling expression of conditional must have scalar type")
     l = e if tok.kind == TCOLON else expr(s)

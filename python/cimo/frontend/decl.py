@@ -418,7 +418,12 @@ def declspecs(s, sc, fs, align):
             ntypes += 1
             next()
         elif op == T_COMPLEX:
-            error(tok.loc, "_Complex is not yet supported")
+            if not U.diagnostics:
+                error(tok.loc, "_Complex is not yet supported")
+            if ts & SPECCOMPLEX:
+                error(tok.loc, "duplicate '_Complex'")
+            ts |= SPECCOMPLEX  # cimo: float, double and long double _Complex
+            next()
         elif op == T_ATOMIC:
             error(tok.loc, "_Atomic is not yet supported")
         elif op == TSTRUCT or op == TUNION or op == TENUM:
@@ -485,6 +490,10 @@ def declspecs(s, sc, fs, align):
         if ntypes > 1 or (t and ts):
             error(tok.loc, "multiple types in declaration specifiers")
     # done:
+    cplx = ts & SPECCOMPLEX
+    ts &= ~SPECCOMPLEX
+    if cplx and not ts and not t:
+        ts = SPECDOUBLE  # `_Complex` alone is double _Complex (gcc)
     if ts not in _TS:
         error(tok.loc, "invalid combination of type specifiers")
     n = _TS[ts]
@@ -495,6 +504,10 @@ def declspecs(s, sc, fs, align):
             t = mkbitinttype(bits, False)
         else:
             t = getattr(TY, 'type' + n)
+    if cplx:
+        if t not in (TY.typefloat, TY.typedouble, TY.typeldouble):
+            error(tok.loc, "_Complex of a type other than float, double or long double is not supported")
+        t = TY.mkcomplex(t)
     if tq.v & QUALRESTRICT:
         # C23 6.7.4.1p2
         other = t

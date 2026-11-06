@@ -47,12 +47,12 @@ gcc-torture/20040709-1.c                              unsupported  built-in func
 gcc-torture/20040709-2.c                              unsupported  bit-field 'i' in packed struct is not supported
 gcc-torture/20040709-3.c                              unsupported  bit-field 'i' in packed struct is not supported
 gcc-torture/20041019-1.c                              unsupported  expected declaration or function definition
-gcc-torture/20041124-1.c                              unsupported  _Complex is not yet supported
-gcc-torture/20041201-1.c                              unsupported  _Complex is not yet supported
+gcc-torture/20041124-1.c                              unsupported  _Complex of a type other than float, double or long double is not supported
+gcc-torture/20041201-1.c                              unsupported  _Complex of a type other than float, double or long double is not supported
 gcc-torture/20041212-1.c                              unsupported  pointer operands to '!=' operator are to incompatible types
 gcc-torture/20041214-1.c                              unsupported  labels as values ('&&label', a GNU extension) are not supported
 gcc-torture/20041218-2.c                              unsupported  struct member 'b' has variably modified type
-gcc-torture/20050121-1.c                              unsupported  _Complex is not yet supported
+gcc-torture/20050121-1.c                              unsupported  long double is not supported
 gcc-torture/20050316-1.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/20050316-2.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/20050316-3.c                              unsupported  vector types (vector_size) are not supported yet
@@ -61,7 +61,6 @@ gcc-torture/20050607-1.c                              unsupported  vector types 
 gcc-torture/20051012-1.c                              unsupported  too many arguments for function call
 gcc-torture/20060420-1.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-torture/20061220-1.c                              unsupported  nested functions (a GNU extension) are not supported
-gcc-torture/20070614-1.c                              unsupported  _Complex is not yet supported
 gcc-torture/20070919-1.c                              unsupported  struct member 'w' has variably modified type
 gcc-torture/20071120-1.c                              unsupported  empty structs and unions (a GNU extension) are not supported
 gcc-torture/20071210-1.c                              unsupported  labels as values ('&&label', a GNU extension) are not supported
@@ -218,7 +217,7 @@ gcc-torture/complex-2.c                               unsupported  expected decl
 gcc-torture/complex-4.c                               unsupported  undeclared identifier: __complex__
 gcc-torture/complex-5.c                               unsupported  expected ',' or '
 gcc-torture/complex-6.c                               unsupported  expected declaration or function definition
-gcc-torture/complex-7.c                               unsupported  _Complex is not yet supported
+gcc-torture/complex-7.c                               unsupported  long double is not supported
 gcc-torture/compndlit-1.c                             unsupported  undeclared identifier: b
 gcc-torture/conversion.c                              unsupported  no type in parameter declaration
 gcc-torture/dbra-1.c                                  unsupported  expected declaration or function definition
@@ -235,9 +234,7 @@ gcc-torture/ieee/920810-1.c                           unsupported  no type in pa
 gcc-torture/ieee/bfloat16-builtin-issignaling-1.c     unsupported  built-in function '__builtin_nansf16b' is not supported
 gcc-torture/ieee/builtin-issignaling-1.c              unsupported  long double is not supported
 gcc-torture/ieee/builtin-nan-1.c                      unsupported  __builtin_nanf currently only supports empty string literals
-gcc-torture/ieee/cdivchkd.c                           unsupported  _Complex is not yet supported
-gcc-torture/ieee/cdivchkf.c                           unsupported  _Complex is not yet supported
-gcc-torture/ieee/cdivchkld.c                          unsupported  _Complex is not yet supported
+gcc-torture/ieee/cdivchkld.c                          unsupported  long double is not supported
 gcc-torture/ieee/copysign1.c                          unsupported  long double is not supported
 gcc-torture/ieee/copysign2.c                          unsupported  long double is not supported
 gcc-torture/ieee/float128-builtin-issignaling-1.c     unsupported  built-in function '__builtin_nansf128' is not supported
@@ -290,7 +287,7 @@ gcc-torture/packed-aligned.c                          unsupported  no type in pa
 gcc-torture/pending-4.c                               unsupported  no type in parameter declaration
 gcc-torture/pr103209.c                                unsupported  too many arguments for function call
 gcc-torture/pr103405.c                                unsupported  nested functions (a GNU extension) are not supported
-gcc-torture/pr104604.c                                unsupported  _Complex is not yet supported
+gcc-torture/pr104604.c                                unsupported  _Complex of a type other than float, double or long double is not supported
 gcc-torture/pr105613.c                                unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr105777.c                                unsupported  ../../gcc.dg/tree-ssa/pr105777.c: No such file or directory
 gcc-torture/pr108292.c                                unsupported  vector types (vector_size) are not supported yet
@@ -326,12 +323,11 @@ gcc-torture/pr32244-1.c                               skip         gcc computes 
 gcc-torture/pr33382.c                                 unsupported  initializer specified for incomplete type
 gcc-torture/pr34971.c                                 skip         gcc computes in a bit-field's width when it is wider than int (clang and cimo: in its declared type)
 gcc-torture/pr34982.c                                 unsupported  too many arguments for function call
-gcc-torture/pr38151.c                                 unsupported  _Complex is not yet supported
+gcc-torture/pr38151.c                                 unsupported  _Complex of a type other than float, double or long double is not supported
 gcc-torture/pr38969.c                                 unsupported  expected declaration or function definition
 gcc-torture/pr39120.c                                 unsupported  no type in parameter declaration
 gcc-torture/pr39228.c                                 unsupported  long double is not supported
 gcc-torture/pr41935.c                                 unsupported  struct member 'b' has variably modified type
-gcc-torture/pr42248.c                                 unsupported  _Complex is not yet supported
 gcc-torture/pr42570.c                                 unsupported  object 'foo' with static storage duration cannot have variably modified type
 gcc-torture/pr42833.c                                 unsupported  declaration has no type specifier
 gcc-torture/pr43560.c                                 unsupported  assignment to pointer discards qualifiers
@@ -339,14 +335,13 @@ gcc-torture/pr44942.c                                 unsupported  long double i
 gcc-torture/pr46309.c                                 unsupported  invalid operands to conditional operator
 gcc-torture/pr47237.c                                 unsupported  built-in function '__builtin_apply' is not supported
 gcc-torture/pr48571-1.c                               unsupported  pointer operand to '+' must be to complete object type
-gcc-torture/pr49644.c                                 unsupported  _Complex is not yet supported
 gcc-torture/pr51447.c                                 unsupported  nested functions (a GNU extension) are not supported
 gcc-torture/pr52979-1.c                               unsupported  bit-field 'g' in packed struct is not supported
 gcc-torture/pr52979-2.c                               unsupported  bit-field 'g' in packed struct is not supported
 gcc-torture/pr53645-2.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr53645.c                                 unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr55875.c                                 unsupported  expected declaration or function definition
-gcc-torture/pr56837.c                                 unsupported  _Complex is not yet supported
+gcc-torture/pr56837.c                                 unsupported  _Complex of a type other than float, double or long double is not supported
 gcc-torture/pr56982.c                                 unsupported  setjmp.h: No such file or directory
 gcc-torture/pr57344-1.c                               unsupported  bit-field 'a' in packed struct is not supported
 gcc-torture/pr57344-2.c                               unsupported  bit-field 'a' in packed struct is not supported
@@ -425,7 +420,6 @@ gcc-vect/bb-slp-pr54400.c                             unsupported  vector types 
 gcc-vect/bb-slp-subgroups-1.c                         unsupported  too many arguments for function call
 gcc-vect/bb-slp-subgroups-2.c                         unsupported  too many arguments for function call
 gcc-vect/bb-slp-subgroups-3.c                         unsupported  too many arguments for function call
-gcc-vect/fast-math-vect-complex-3.c                   unsupported  _Complex is not yet supported
 gcc-vect/group-no-gaps-1.c                            unsupported  sys/mman.h: No such file or directory
 gcc-vect/pr103116-1.c                                 unsupported  sys/mman.h: No such file or directory
 gcc-vect/pr103116-2.c                                 unsupported  sys/mman.h: No such file or directory
@@ -435,19 +429,16 @@ gcc-vect/pr123731.c                                   unsupported  vector types 
 gcc-vect/pr49038.c                                    unsupported  sys/mman.h: No such file or directory
 gcc-vect/pr51581-1.c                                  unsupported  ../../gcc.c-torture/execute/pr51581-1.c: No such file or directory
 gcc-vect/pr51581-2.c                                  unsupported  ../../gcc.c-torture/execute/pr51581-2.c: No such file or directory
-gcc-vect/pr66251.c                                    unsupported  _Complex is not yet supported
-gcc-vect/pr66253.c                                    unsupported  _Complex is not yet supported
+gcc-vect/pr66251.c                                    unsupported  _Complex of a type other than float, double or long double is not supported
 gcc-vect/pr79824-1.c                                  unsupported  sys/mman.h: No such file or directory
 gcc-vect/pr79824-2.c                                  unsupported  sys/mman.h: No such file or directory
 gcc-vect/pr88497-1.c                                  unsupported  vector types (vector_size) are not supported yet
 gcc-vect/pr88497-7.c                                  unsupported  vector types (vector_size) are not supported yet
-gcc-vect/pr96854.c                                    unsupported  _Complex is not yet supported
+gcc-vect/pr96854.c                                    unsupported  built-in function '__builtin_creal' is not supported
 gcc-vect/pr98069.c                                    unsupported  no type in parameter declaration
 gcc-vect/vect-bitint-1.c                              unsupported  built-in function '__builtin_clear_padding' is not supported
-gcc-vect/vect-complex-1.c                             unsupported  _Complex is not yet supported
-gcc-vect/vect-complex-2.c                             unsupported  _Complex is not yet supported
-gcc-vect/vect-complex-4.c                             unsupported  _Complex is not yet supported
-gcc-vect/vect-complex-5.c                             unsupported  _Complex is not yet supported
+gcc-vect/vect-complex-4.c                             unsupported  _Complex of a type other than float, double or long double is not supported
+gcc-vect/vect-complex-5.c                             unsupported  _Complex of a type other than float, double or long double is not supported
 gcc-vect/vect-cond-11.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-vect/vect-div-bitmask-4.c                         unsupported  vector types (vector_size) are not supported yet
 gcc-vect/vect-early-break_109-pr113588.c              unsupported  sys/mman.h: No such file or directory
@@ -486,7 +477,7 @@ gcc-dg-torture/builtin-iseqsig-1.c                    unsupported  fenv.h: No su
 gcc-dg-torture/builtin-iseqsig-2.c                    unsupported  fenv.h: No such file or directory
 gcc-dg-torture/builtin-iseqsig-3.c                    unsupported  fenv.h: No such file or directory
 gcc-dg-torture/builtin-issignaling-2.c                unsupported  built-in function '__builtin_nansd32' is not supported
-gcc-dg-torture/builtin-math-7.c                       unsupported  _Complex is not yet supported
+gcc-dg-torture/builtin-math-7.c                       unsupported  _Complex of a type other than float, double or long double is not supported
 gcc-dg-torture/builtin-shufflevector-pr123156.c       unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/builtin-sprintf.c                      unsupported  __builtin_nanf currently only supports empty string literals
 gcc-dg-torture/cmp-of-cmp-fenv-1.c                    unsupported  fenv.h: No such file or directory
@@ -574,8 +565,6 @@ gcc-dg-torture/pr115877.c                             unsupported  type '__int12
 gcc-dg-torture/pr116037.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr116039.c                             skip         needs -fsigned-char (char is unsigned on arm64)
 gcc-dg-torture/pr116057.c                             unsupported  vector types (vector_size) are not supported yet
-gcc-dg-torture/pr116454-1.c                           unsupported  _Complex is not yet supported
-gcc-dg-torture/pr116454-2.c                           unsupported  _Complex is not yet supported
 gcc-dg-torture/pr116835.c                             unsupported  undefined symbol 'a': cimo's runtime does not provide it
 gcc-dg-torture/pr117476-2.c                           unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/pr117811.c                             unsupported  vector types (vector_size) are not supported yet
@@ -585,7 +574,7 @@ gcc-dg-torture/pr120182.c                             unsupported  unistd.h: No 
 gcc-dg-torture/pr120242.c                             skip         needs -fsigned-char (char is unsigned on arm64)
 gcc-dg-torture/pr121116.c                             unsupported  stdckdint.h: No such file or directory
 gcc-dg-torture/pr121649.c                             unsupported  vector types (vector_size) are not supported yet
-gcc-dg-torture/pr121661-1.c                           unsupported  _Complex is not yet supported
+gcc-dg-torture/pr121661-1.c                           unsupported  _Complex of a type other than float, double or long double is not supported
 gcc-dg-torture/pr122188.c                             unsupported  built-in function '__builtin_ctzg' is not supported
 gcc-dg-torture/pr122835.c                             unsupported  attribute 'cleanup' is not supported
 gcc-dg-torture/pr123864.c                             unsupported  type '__int128' is not supported
@@ -611,7 +600,7 @@ gcc-dg-torture/pr45636.c                              unsupported  undefined sym
 gcc-dg-torture/pr45678-1.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr45678-2.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr47228.c                              unsupported  bit-field 'f0' in packed struct is not supported
-gcc-dg-torture/pr47473.c                              unsupported  _Complex is not yet supported
+gcc-dg-torture/pr47473.c                              unsupported  long double is not supported
 gcc-dg-torture/pr48542.c                              unsupported  setjmp.h: No such file or directory
 gcc-dg-torture/pr48953.c                              unsupported  struct member 'i' has variably modified type
 gcc-dg-torture/pr50396.c                              unsupported  vector types (vector_size) are not supported yet
@@ -620,8 +609,6 @@ gcc-dg-torture/pr52402.c                              unsupported  vector types 
 gcc-dg-torture/pr52407.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr52419.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr52451.c                              unsupported  fenv.h: No such file or directory
-gcc-dg-torture/pr53366-1.c                            unsupported  _Complex is not yet supported
-gcc-dg-torture/pr53366-2.c                            unsupported  _Complex is not yet supported
 gcc-dg-torture/pr53922.c                              unsupported  undefined symbol 'y': cimo's runtime does not provide it
 gcc-dg-torture/pr54261-1.c                            unsupported  built-in function '__sync_fetch_and_add' is not supported
 gcc-dg-torture/pr55633.c                              unsupported  type '__int128' is not supported

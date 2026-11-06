@@ -3,7 +3,7 @@
 from .cc import (Scope, Decl, DECLBUILTIN, DECLTYPE, BUILTINALLOCA, BUILTINCONSTANTP,
                  BUILTINEXPECT, BUILTININFF, BUILTINNANF, BUILTINOFFSETOF,
                  BUILTINTYPESCOMPATIBLEP, BUILTINUNREACHABLE, BUILTINVAARG, BUILTINVACOPY,
-                 BUILTINVAEND, BUILTINVASTART, BUILTINWIDTHOF)
+                 BUILTINVAEND, BUILTINVASTART, BUILTINWIDTHOF, BUILTINCOMPLEX)
 from . import targ as TG
 
 # always access as scope.filescope (it is replaced by scopeinit)
@@ -27,7 +27,8 @@ def scopeinit():
         ("__builtin_va_end", BUILTINVAEND),
         ("__builtin_va_start", BUILTINVASTART),
         ("__builtin_c23_va_start", BUILTINVASTART),
-        ("__cimo_widthof", BUILTINWIDTHOF),  # cimo: an integer expression's width in bits (unevaluated)
+        ("__cimo_widthof", BUILTINWIDTHOF),
+        ("__builtin_complex", BUILTINCOMPLEX),  # cimo: CMPLX (C11) from its parts  # cimo: an integer expression's width in bits (unevaluated)
     ]
     for name, b in builtins:
         scopeputdecl(filescope, Decl(name=name, kind=DECLBUILTIN, builtin=b))

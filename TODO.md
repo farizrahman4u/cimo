@@ -64,9 +64,9 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    spill pressure at qfma1/qsel1, qacrosscalls splitting a pair, ldp across qload/qstore). Each read's checked-and-sound
    list is in its commit. Not yet read: frontend, preprocessor, the ext passes, gvn/gcm, the wasm backend, runtime C.
 
-9. **`_Complex` / `complex.h`.** Not in cproc or QBE. Needs: frontend lowering (Annex G
-   `__muldc3`/`__divdc3` semantics), arm64 ABI (two FP registers), musl `src/complex` in the
-   runtime, numpy `complex128` binding.
+9. ~~**`_Complex` / `complex.h`.**~~ **Done** (2026-11-06; see "Complex numbers" in `requirements.md`). Open: a
+   complex parameter or return of a kernel called from Python (Python `complex`, numpy `complex128`), and
+   `long double _Complex` on Linux (no `long double` there).
 10. **GPU.** Plain C on any GPU with no vendor toolkit; tuned kernels as C in `python/cimo/gpu/`. WGSL, then SPIR-V, PTX, HIP
    source, Metal source. Start with one `matmul` on WebGPU, which proves type recovery and compile time. See
    "GPU" in `requirements.md`.

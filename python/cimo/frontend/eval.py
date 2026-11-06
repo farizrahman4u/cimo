@@ -8,8 +8,8 @@ the dividend. Float division by zero gives inf/nan as in C.
 import math
 import struct
 
-from .cc import (M64, EXPRIDENT, EXPRCONST, EXPRCOMPOUND, EXPRUNARY, EXPRSTRING, EXPRCAST,
-                 EXPRBINARY, PROPFLOAT, PROPINT, TYPEPOINTER, TYPEBOOL, DECLCONST, SDSTATIC, TSUB, TMUL,
+from .cc import (M64, EXPRCPLX, EXPRIDENT, EXPRCONST, EXPRCOMPOUND, EXPRUNARY, EXPRSTRING, EXPRCAST,
+                 EXPRBINARY, PROPFLOAT, PROPINT, PROPARITH, TYPEPOINTER, TYPEBOOL, DECLCONST, SDSTATIC, TSUB, TMUL,
                  TDIV, TMOD, TADD, TSHL, TSHR, TBAND, TBOR, TXOR, TLESS, TGREATER, TLEQ, TGEQ,
                  TEQL, TNEQ, TLOR, TLAND, Expr)
 from .token import tok, error
@@ -166,9 +166,97 @@ def binary(expr, op, l, r):
     cast(expr)
 
 
+def _cxconst(e):
+    """cimo: (real, imaginary or None) Python floats of a constant arithmetic e, or None."""
+    if e.kind == EXPRCPLX:
+        if e.l.kind == EXPRCONST and e.r.kind == EXPRCONST:
+            return e.l.f, e.r.f
+        return None
+    if e.kind != EXPRCONST or not (e.type.prop & PROPARITH):
+        return None
+    if e.type.prop & PROPFLOAT:
+        return e.f, None
+    return float(e.i if e.type.issigned else e.u), None
+
+
+def _cxmake(t, re, im):
+    rd = f32 if t.base.size == 4 else float
+    parts = []
+    for v in (re, im):
+        c = Expr(EXPRCONST, t.base, None)
+        c.f = rd(v)
+        parts.append(c)
+    e = Expr(EXPRCPLX, t, None)
+    e.l, e.r = parts
+    return e
+
+
+def _cxeval(expr):
+    """cimo: constant folding with complex operands or results (static initializers: `1.0 + 2.0i`)."""
+    t = expr.type
+    k = expr.kind
+    if k == EXPRCPLX:
+        expr.l = eval(expr.l)
+        expr.r = eval(expr.r)
+        return expr
+    if k == EXPRCAST:
+        expr.base = eval(expr.base)
+        p = _cxconst(expr.base)
+        if p is None:
+            return expr
+        re, im = p
+        if t.iscomplex:
+            return _cxmake(t, re, im or 0.0)
+        if t.kind == TYPEBOOL:
+            return _intconst(int(re != 0 or (im or 0.0) != 0))
+        c = Expr(EXPRCAST, t, Expr(EXPRCONST, expr.base.type.base, None))
+        c.base.f = re
+        return eval(c)
+    if k == EXPRUNARY:
+        expr.base = eval(expr.base)
+        p = _cxconst(expr.base)
+        if p is None:
+            return expr
+        re, im = p
+        return _cxmake(t, -re if expr.op == TSUB else re, -(im or 0.0))
+    if k == EXPRBINARY:
+        expr.l = eval(expr.l)
+        expr.r = eval(expr.r)
+        p, q = _cxconst(expr.l), _cxconst(expr.r)
+        if p is None or q is None:
+            return expr
+        (a, b), (c, d) = p, q
+        op = expr.op
+        if op == TEQL or op == TNEQ:
+            same = a == c and (b or 0.0) == (d or 0.0)
+            return _intconst(int(same == (op == TEQL)))
+        if op == TADD or op == TSUB:
+            sg = 1 if op == TADD else -1
+            im = b if d is None else (sg * d if b is None else b + sg * d)
+            return _cxmake(t, a + sg * c, im or 0.0)
+        if op == TMUL:
+            if b is None or d is None:
+                x, (y, z) = (a, (c, d or 0.0)) if b is None else (c, (a, b))
+                return _cxmake(t, x * y, x * z)
+            return _cxmake(t, a * c - b * d, a * d + b * c)
+        if op == TDIV:
+            b = b or 0.0
+            if d is None:
+                return _cxmake(t, a / c, b / c) if c else expr
+            den = c * c + d * d
+            if not den:
+                return expr
+            return _cxmake(t, (a * c + b * d) / den, (b * c - a * d) / den)
+    return expr
+
+
 def eval(expr):
     t = expr.type
     k = expr.kind
+    if (t is not None and t.iscomplex) or k == EXPRCPLX or (
+            k in (EXPRCAST, EXPRBINARY) and (getattr(expr.base, 'type', None) is not None and expr.base.type.iscomplex
+                                             or k == EXPRBINARY and (expr.l.type.iscomplex or expr.r.type.iscomplex))):
+        return _cxeval(expr)
     if k == EXPRIDENT:
         d = expr.decl
         if d.kind == DECLCONST:

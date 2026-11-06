@@ -104,6 +104,7 @@ def stmt(f, s):
         s = mkscope(s)
         expect(TLPAREN, "after 'if'")
         e = E.expr(s)
+        e = E.scalarcond(e) or e
         t = e.type
         if not (t.prop & PROPSCALAR):
             error(tok.loc, "controlling expression of if statement must have scalar type")
@@ -172,6 +173,7 @@ def stmt(f, s):
         s = mkscope(s)
         expect(TLPAREN, "after 'while'")
         e = E.expr(s)
+        e = E.scalarcond(e) or e
         t = e.type
         if not (t.prop & PROPSCALAR):
             error(tok.loc, "controlling expression of loop must have scalar type")
@@ -213,6 +215,7 @@ def stmt(f, s):
         expect(TLPAREN, "after 'while'")
         Q.funclabel(f, b1)
         e = E.expr(s)
+        e = E.scalarcond(e) or e
         t = e.type
         if not (t.prop & PROPSCALAR):
             error(tok.loc, "controlling expression of loop must have scalar type")
@@ -248,6 +251,7 @@ def stmt(f, s):
         Q.funclabel(f, b0)
         if tok.kind != TSEMICOLON:
             e = E.expr(s)
+            e = E.scalarcond(e) or e
             t = e.type
             if not (t.prop & PROPSCALAR):
                 error(tok.loc, "controlling expression of loop must have scalar type")

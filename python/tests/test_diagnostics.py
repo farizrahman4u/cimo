@@ -68,8 +68,8 @@ REJECTED = [
     ('int f(void){ return __builtin_choose_expr(1, 2, 3); }', "'__builtin_choose_expr' is not supported"),
     ('int f(int x){ return __builtin_ctzg(x); }', "built-in function '__builtin_ctzg' is not supported"),
     ('int f(int *p){ return __atomic_load_n(p, 0); }', "built-in function '__atomic_load_n' is not supported"),
-    ('double f(void){ return 1.0i; }', 'imaginary constants'),
-    ('int f(void){ return 2i; }', 'imaginary constants'),
+    ('int _Complex z;', '_Complex of a type other than float, double or long double'),
+    ('double f(double _Complex z){ return z < 1; }', "invalid operands to '<' operator"),
     ('struct s {};', 'empty structs and unions'),
     # hosted libc without the host's headers: a hint
     ('int f(void){ return fopen("x", "r") != 0; }',
@@ -94,7 +94,7 @@ def test_rejected(src, msg):
 HEADERS = [
     ('#include <setjmp.h>\n', 'setjmp.h: No such file or directory; setjmp/longjmp are not supported'),
     ('#include <time.h>\n', 'time.h is not bundled with cimo: pass host_headers=True'),
-    ('#include <complex.h>\n', 'complex.h is not bundled with cimo'),
+    ('#include <threads.h>\n', 'threads.h is not bundled with cimo'),
 ]
 
 

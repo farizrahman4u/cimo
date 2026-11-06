@@ -6,7 +6,7 @@ insertion point, or None for &p->init. Object.u is the C union {mem, idx}: one
 attribute, so stale values carry over exactly as in C.
 """
 
-from .cc import (Init, BITS0, M64, TYPEARRAY, TYPESTRUCT, TYPEUNION, PROPSCALAR,
+from .cc import (Init, BITS0, M64, TYPEARRAY, TYPESTRUCT, TYPEUNION, PROPSCALAR, PROPARITH,
                  PROPINT, PROPCHAR, EXPRSTRING, TLBRACK, TPERIOD, TASSIGN, TIDENT, TRBRACK,
                  TLBRACE, TRBRACE, TCOMMA, TELLIPSIS, PROPVM)
 from .token import tok, error
@@ -273,6 +273,9 @@ def parseinit(s, t):
                             # cimo: C11 6.7.9p2, 14 (only the terminating null may be dropped)
                             error(tok.loc, "initializer string is too long for the array")
                         break
+                elif t.iscomplex and expr.type.prop & PROPARITH:  # cimo: a complex object is initialized whole
+                    expr = E.exprassign(expr, t)
+                    break
                 elif t.kind == TYPESTRUCT or t.kind == TYPEUNION:
                     if typecompatible(expr.type, t):
                         break

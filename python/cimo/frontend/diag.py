@@ -53,8 +53,6 @@ _GNUIDENTS = {
     '__label__': "local labels ('__label__') are not supported",
     '__auto_type': "'__auto_type' is not supported",
     '__builtin_choose_expr': "'__builtin_choose_expr' is not supported",
-    '__real__': "'__real__' is not supported (complex numbers are not supported)",
-    '__imag__': "'__imag__' is not supported (complex numbers are not supported)",
 }
 
 INLINEASM = "inline assembly is not supported"

@@ -12,6 +12,7 @@ cimo ships its own C library, so a kernel behaves the same on every platform, th
 | `stdlib.h` | `malloc`, `calloc`, `realloc`, `free`, `qsort`, `bsearch`, `strtol`, `strtod`, `atoi`, `abs`, `div`, `rand`, `abort`, `exit` |
 | `string.h` | `memcpy`, `memmove`, `memset`, `memcmp`, `strlen`, `strcmp`, `strcpy`, `strchr`, `strstr`, ... |
 | `math.h` | the C99 math functions, `float` and `double` versions |
+| `complex.h` | `float` and `double` `_Complex` arithmetic and functions (`cexp`, `csqrt`, `cabs`, ...), `I`, `CMPLX` |
 | `ctype.h` | `isdigit`, `isalpha`, `toupper`, ... |
 | `inttypes.h` | `PRId64` and friends |
 | `assert.h` | `assert` |
@@ -34,7 +35,7 @@ Each of these is a compile error that names the problem:
 - the hosted parts of the C library: files, time, threads, sockets, `getenv`. To use them, link the host's C library; see [Calling host libraries](host-libraries.md).
 
 > [!PLANNED]
-> GNU vector types (`__attribute__((vector_size(16)))`) for hand-written SIMD; today they are a compile error. `_Complex` and `complex.h`.
+> GNU vector types (`__attribute__((vector_size(16)))`) for hand-written SIMD; today they are a compile error.
 
 ## Type sizes
 

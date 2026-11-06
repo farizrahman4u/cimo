@@ -2,12 +2,12 @@
 
 import math
 
-from .cc import (M64, BITS0, TYPEVOID, TYPEPOINTER, TYPENULLPTR, TYPEBOOL, TYPEBITINT, TYPEARRAY,
+from .cc import (Init, M64, BITS0, TYPEVOID, TYPEPOINTER, TYPENULLPTR, TYPEBOOL, TYPEBITINT, TYPEARRAY,
                  TYPEFUNC, TYPESTRUCT, TYPEUNION, PROPSCALAR, PROPFLOAT, PROPINT, PROPREAL,
                  PROPVM, QUALNONE, QUALCONST, QUALVOLATILE, DECLOBJECT, DECLFUNC, DECLCONST,
                  LINKNONE, LINKEXTERN, SDSTATIC, SDTHREAD, EXPRIDENT, EXPRCONST, EXPRSTRING,
                  EXPRCALL, EXPRBITFIELD, EXPRINCDEC, EXPRCOMPOUND, EXPRUNARY, EXPRCAST,
-                 EXPRBINARY, EXPRCOND, EXPRASSIGN, EXPRCOMMA, EXPRBUILTIN, EXPRTEMP, EXPRSIZEOF, EXPRSTMT,
+                 EXPRBINARY, EXPRCOND, EXPRASSIGN, EXPRCOMMA, EXPRBUILTIN, EXPRTEMP, EXPRSIZEOF, EXPRSTMT, EXPRCPLX,
                  BUILTINVASTART, BUILTINVAARG, BUILTINALLOCA, BUILTINUNREACHABLE, TBAND, TMUL,
                  TSUB, TLOR, TLAND, TDIV, TMOD, TADD, TSHL, TSHR, TBOR, TXOR, TLESS, TGREATER,
                  TLEQ, TGEQ, TEQL, TNEQ, TINC)
@@ -283,6 +283,8 @@ _typeid = 0
 def _reset():
     global _blockid, _globalid, _typeid, curfunc
     curfunc = None
+    for c in TY._complex.values():  # cimo: the complex types outlive a compile; their QBE type names don't
+        c.value = None
     _blockid = 0
     _globalid = 0
     _typeid = 0
@@ -1393,6 +1395,127 @@ def funcbuiltin(f, e):
     return funcinst(f, op, cls, vals[0], vals[1] if nargs == 2 else None)
 
 
+# cimo: complex values (float/double _Complex). A complex value is the address of its two parts, as a struct's
+# is: loads, stores, copies, calls and returns are a struct's. Arithmetic loads the parts, computes them and
+# stores the result in a slot of its own (C11 Annex G's rules: a real operand has no imaginary part).
+
+def _cxslot(f, t):
+    end = f.end
+    f.end = f.start
+    v = funcinst(f, IALLOC8 if t.align == 8 else IALLOC4 if t.align <= 4 else IALLOC16, ptrclass,
+                 mkintconst(t.size), None)
+    f.end = end
+    return v
+
+
+def _cxmake(f, t, re, im):
+    qt = qbetype(t.base)
+    a = _cxslot(f, t)
+    funcinst(f, qt.store, 0, re, a)
+    if im is None:
+        im = mkfltconst(VALUE_FLTCONST if t.base.size == 4 else VALUE_DBLCONST, 0.0)
+    funcinst(f, qt.store, 0, im, funcinst(f, IADD, ptrclass, a, mkintconst(t.base.size)))
+    return a
+
+
+def _cxparts(f, e):
+    """(real part, imaginary part or None for a real value, the real type's QBE class) of arithmetic e."""
+    t = e.type
+    if not t.iscomplex:
+        return funcexpr(f, e), None
+    qt = qbetype(t.base)
+    a = funcexpr(f, e)
+    re = funcinst(f, qt.load, qt.base, a, None)
+    im = funcinst(f, qt.load, qt.base, funcinst(f, IADD, ptrclass, a, mkintconst(t.base.size)), None)
+    return re, im
+
+
+def _cxcall(f, name, cls, args):
+    fn = Value(VALUE_GLOBAL | VALUE_EXTERN)
+    fn.name = name
+    fn.id = 0
+    funcinst(f, ICALL, 'w', fn, None)
+    for v, c in args:
+        funcinst(f, IARG, c, v, None)
+
+
+def _cxbinary(f, e):
+    t = e.type
+    k = qbetype(t.base).base
+    a, b = _cxparts(f, e.l)
+    c, d = _cxparts(f, e.r)
+    op = e.op
+    if op == TADD or op == TSUB:
+        o = IADD if op == TADD else ISUB
+        re = funcinst(f, o, k, a, c)
+        if b is None:
+            im = d if op == TADD or d is None else funcinst(f, INEG, k, d, None)
+        elif d is None:
+            im = b
+        else:
+            im = funcinst(f, o, k, b, d)
+        return _cxmake(f, t, re, im)
+    if op == TMUL:
+        if b is None or d is None:  # a real factor scales both parts
+            x, (y, z) = (a, (c, d)) if b is None else (c, (a, b))
+            return _cxmake(f, t, funcinst(f, IMUL, k, x, y), funcinst(f, IMUL, k, x, z))
+        re = funcinst(f, ISUB, k, funcinst(f, IMUL, k, a, c), funcinst(f, IMUL, k, b, d))
+        im = funcinst(f, IADD, k, funcinst(f, IMUL, k, a, d), funcinst(f, IMUL, k, b, c))
+        r = _cxmake(f, t, re, im)
+        # both parts NaN: Annex G's recovery of infinities (G.5.1), in the runtime, as gcc's __muldc3
+        uo = ICUOS if k == 's' else ICUOD
+        nan = funcinst(f, IAND, 'w', funcinst(f, uo, 'w', re, re), funcinst(f, uo, 'w', im, im))
+        slow, done = mkblock("cmul_nan"), mkblock("cmul_done")
+        funcjnz(f, nan, None, slow, done)
+        funclabel(f, slow)
+        _cxcall(f, '__cimo_cmul' + ('f' if k == 's' else ''), k, [(a, k), (b, k), (c, k), (d, k), (r, ptrclass)])
+        funcjmp(f, done)
+        funclabel(f, done)
+        return r
+    if op == TDIV:
+        if d is None:  # by a real: each part
+            return _cxmake(f, t, funcinst(f, IDIV, k, a, c), funcinst(f, IDIV, k, b, c))
+        if b is None:
+            b = mkfltconst(VALUE_FLTCONST if k == 's' else VALUE_DBLCONST, 0.0)
+        r = _cxslot(f, t)
+        _cxcall(f, '__cimo_cdiv' + ('f' if k == 's' else ''), k, [(a, k), (b, k), (c, k), (d, k), (r, ptrclass)])
+        return r
+    U.fatal("internal error: complex operator %d", op)
+
+
+def _cxcompare(f, e):
+    """== and != with a complex operand: both parts."""
+    t = e.l.type if e.l.type.iscomplex else e.r.type
+    k = qbetype(t.base).base
+    a, b = _cxparts(f, e.l)
+    c, d = _cxparts(f, e.r)
+    zero = mkfltconst(VALUE_FLTCONST if k == 's' else VALUE_DBLCONST, 0.0)
+    b = zero if b is None else b
+    d = zero if d is None else d
+    if e.op == TEQL:
+        o = ICEQS if k == 's' else ICEQD
+        return funcinst(f, IAND, 'w', funcinst(f, o, 'w', a, c), funcinst(f, o, 'w', b, d))
+    o = ICNES if k == 's' else ICNED
+    return funcinst(f, IOR, 'w', funcinst(f, o, 'w', a, c), funcinst(f, o, 'w', b, d))
+
+
+def _cxconvert(f, dst, src, e):
+    """A conversion to or from a complex type (e: the operand)."""
+    re, im = _cxparts(f, e)
+    if dst.iscomplex:
+        rs = src.base if src.iscomplex else src
+        re = convert(f, dst.base, rs, re)
+        if im is not None:
+            im = convert(f, dst.base, rs, im)
+        return _cxmake(f, dst, re, im)
+    if dst.kind == TYPEBOOL:  # either part nonzero
+        k = qbetype(src.base).base
+        o = ICNES if k == 's' else ICNED
+        zero = mkfltconst(VALUE_FLTCONST if k == 's' else VALUE_DBLCONST, 0.0)
+        return funcinst(f, IOR, 'w', funcinst(f, o, 'w', re, zero), funcinst(f, o, 'w', im, zero))
+    return convert(f, dst, src.base, re)  # to a real type: the real part
+
+
 def funcexpr(f, e):
     if U.diagnostics:
         DG.checktype(e.type)
@@ -1491,6 +1614,12 @@ def funcexpr(f, e):
         if op == TMUL:
             r = funcexpr(f, e.base)
             return funcload(f, e.type, LValue(r), e.qual)
+        if e.type.iscomplex:  # cimo: -z negates both parts, ~z (GNU) the imaginary one
+            re, im = _cxparts(f, e.base)
+            k = qbetype(e.type.base).base
+            if op == TSUB:
+                re = funcinst(f, INEG, k, re, None)
+            return _cxmake(f, e.type, re, funcinst(f, INEG, k, im, None))
         if op == TSUB:
             r = funcexpr(f, e.base)
             v = funcinst(f, INEG, qbetype(e.type).base, r, None)
@@ -1501,8 +1630,12 @@ def funcexpr(f, e):
     elif k == EXPRCAST:
         if e.toeval:
             funcexpr(f, e.toeval)
+        if (e.type.iscomplex or e.base.type.iscomplex) and e.type is not TY.typevoid:
+            return _cxconvert(f, e.type, e.base.type, e.base)
         l = funcexpr(f, e.base)
         return convert(f, e.type, e.base.type, l)
+    elif k == EXPRCPLX:
+        return _cxmake(f, e.type, funcexpr(f, e.l), funcexpr(f, e.r))
     elif k == EXPRBINARY:
         if e.op == TLOR or e.op == TLAND:
             b0 = mkblock("logic_true")
@@ -1523,6 +1656,10 @@ def funcexpr(f, e):
             funclabel(f, b2)
 
             return b2.phi_res
+        if e.type.iscomplex:
+            return _cxbinary(f, e)
+        if (e.op == TEQL or e.op == TNEQ) and (e.l.type.iscomplex or e.r.type.iscomplex):
+            return _cxcompare(f, e)
         if contract:
             v = funcfma(f, e)
             if v is not None:
@@ -2186,6 +2323,11 @@ def emitdata(d, init, literal=False):
     cur = init
     while cur:
         cur.expr = EV.eval(cur.expr)
+        if cur.expr.kind == EXPRCPLX:  # cimo: a complex constant is its two parts
+            n = cur.expr.type.base.size
+            im = Init(cur.start + n, cur.end, BITS0, cur.expr.r)
+            im.next = cur.next
+            cur.end, cur.expr, cur.next = cur.start + n, cur.expr.l, im
         cur = cur.next
     if d.storage == SDTHREAD:
         w("thread ")

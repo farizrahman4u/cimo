@@ -4,6 +4,53 @@
 abort.c: _Exit __assert_fail abort exit
 builtins.c: __builtin_bswap16 __builtin_bswap32 __builtin_bswap64 __builtin_clrsb __builtin_clrsbl __builtin_clrsbll __builtin_clz __builtin_clzl __builtin_clzll __builtin_ctz __builtin_ctzl __builtin_ctzll __builtin_ffs __builtin_ffsl __builtin_ffsll __builtin_isfinite __builtin_isinf __builtin_isinff __builtin_isnan __builtin_nans __builtin_nansf __builtin_parity __builtin_parityl __builtin_parityll __builtin_popcount __builtin_popcountl __builtin_popcountll __builtin_signbit __cimo_fcmp __cimo_issignaling __cimo_issignalingf __cimo_overflow
 heap.c: __cimo_heap_reset __cimo_hook_grow __cimo_hook_release aligned_alloc calloc free malloc realloc
+complex/__cexp.c: __ldexp_cexp
+complex/__cexpf.c: __ldexp_cexpf
+complex/__cimo_carith.c: __cimo_cdiv __cimo_cdivf __cimo_cmul __cimo_cmulf
+complex/cabs.c: cabs
+complex/cabsf.c: cabsf
+complex/cacos.c: cacos
+complex/cacosf.c: cacosf
+complex/cacosh.c: cacosh
+complex/cacoshf.c: cacoshf
+complex/carg.c: carg
+complex/cargf.c: cargf
+complex/casin.c: casin
+complex/casinf.c: casinf
+complex/casinh.c: casinh
+complex/casinhf.c: casinhf
+complex/catan.c: catan
+complex/catanf.c: catanf
+complex/catanh.c: catanh
+complex/catanhf.c: catanhf
+complex/ccos.c: ccos
+complex/ccosf.c: ccosf
+complex/ccosh.c: ccosh
+complex/ccoshf.c: ccoshf
+complex/cexp.c: cexp
+complex/cexpf.c: cexpf
+complex/cimag.c: cimag
+complex/cimagf.c: cimagf
+complex/clog.c: clog
+complex/clogf.c: clogf
+complex/conj.c: conj
+complex/conjf.c: conjf
+complex/cpow.c: cpow
+complex/cpowf.c: cpowf
+complex/cproj.c: cproj
+complex/cprojf.c: cprojf
+complex/creal.c: creal
+complex/crealf.c: crealf
+complex/csin.c: csin
+complex/csinf.c: csinf
+complex/csinh.c: csinh
+complex/csinhf.c: csinhf
+complex/csqrt.c: csqrt
+complex/csqrtf.c: csqrtf
+complex/ctan.c: ctan
+complex/ctanf.c: ctanf
+complex/ctanh.c: ctanh
+complex/ctanhf.c: ctanhf
 ctype/ctype.c: isalnum isalpha isblank iscntrl isdigit isgraph islower isprint ispunct isspace isupper isxdigit tolower toupper
 math/__cos.c: __cos
 math/__cosdf.c: __cosdf
