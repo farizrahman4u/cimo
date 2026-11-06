@@ -257,7 +257,7 @@ def _worth(fast, vf, skip):
     loop gains only when the rest of it took longer than those adds' latency, as gcc's cost model has it. Estimates in
     cycles: two operations a cycle, a division or square root at a time, 4 a dependent add."""
     rest = [i for i in fast.cloned if id(i) not in skip]
-    per = vf if D.T.name.startswith('arm64') else 1
+    per = 1
     chain = 4
     ordered = [r for r in fast.vreds if r.ordered]
     scalar = vf * max(sum(_cycles(i) for i in rest) + 0.5 * len(ordered), chain)
@@ -592,13 +592,14 @@ def body(fast, em, state, copy=0):
             get = getattr(D, 'Oqget' + x)
             acc = state[('phi', r.t)]
             vs = [vec(a, r.cls) for a in (r.v if isinstance(r.v, tuple) else (r.v,))]
+            op = r.op
+            if op == D.Ofma1:
+                # s = fma(a, b, s): the products as one vector multiply, then the adds; as the backend splits an fma on
+                # a recurrence (fmachain: an add's latency on the chain, not an fma's), so the scalar loop rounds alike
+                vs = [em.raw(getattr(D, 'Oqmul' + x), Kq, vs[0], vs[1])]
+                op = D.Oadd
             for n in range(_ext.qbytes() // _SIZE[r.cls]):
-                lanes = [em.raw(get, r.cls, w, em.con(n)) for w in vs]
-                if r.op == D.Ofma1:
-                    em.ins(Ins(D.Ofma0, r.cls, R, acc, R))
-                    acc = em.raw(D.Ofma1, r.cls, lanes[0], lanes[1])
-                else:
-                    acc = em.raw(r.op, r.cls, acc, lanes[0])
+                acc = em.raw(op, r.cls, acc, em.raw(get, r.cls, vs[0], em.con(n)))
             new[('phi', r.t)] = acc
             continue
         if r.op == D.Osel1:  # through a condition: the comparison and the select on each lane

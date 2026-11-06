@@ -225,8 +225,8 @@ class _Driver:
             ssa.filluse(fn)
             cfg.filldom(fn)
             ssa.ssacheck(fn)
-        if T.name.startswith('amd64') and 'fma' in ext.x86:
-            from .amd64 import fmachain
+        if (T.name.startswith('amd64') and 'fma' in ext.x86) or T.name.startswith('arm64'):
+            from .amd64 import fmachain  # arm64 too: fmadd's 4 cycles against fadd's 2 on Neoverse N1, V1, V2
             if fmachain.split(fn):
                 ssa.filluse(fn)
         T.abi1(fn)
