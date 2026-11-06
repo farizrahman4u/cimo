@@ -215,6 +215,7 @@ class Fast:
         self.ic = 1            # and vectors an iteration (vectorize.interleave)
         self.vchecks = ()      # and the arrays to compare before it
         self.vreds = ()        # and the reductions it collects (vectorize.Reduction)
+        self.vmem = ()         # and its memory accesses (vectorize.plan)
         self.prom = []         # fields kept in registers through the loop (Promoted)
 
     # ---------- materialization of invariant values (in self.em, memoized)

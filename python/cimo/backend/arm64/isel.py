@@ -1102,7 +1102,11 @@ def sel(i, fn):
         return
     if i.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1):
         _qdest[0] = i.to
-    if D.isqop(i.op):  # cimo (ext.vector): registers, and a plain address
+    if D.isqop(i.op):  # cimo (ext.vector): registers, and an address with a constant offset folded in ([x, #16])
+        if i.op == D.Oqload:
+            foldaddr(i.arg, 0, 16, fn)
+        elif i.op == D.Oqstore:
+            foldaddr(i.arg, 1, 16, fn)
         emiti(i)
         iarg = D.insb[D.curi].arg
         for n in (0, 1):

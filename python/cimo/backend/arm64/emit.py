@@ -489,6 +489,9 @@ def _qaddr(r, e):
         else:
             e.f.write("\tmov\tx17, #%d\n\tadd\tx17, %s, x17\n" % (off, base))
         return "[x17]"
+    if rtype(r) == RMem:  # isel's foldaddr: base and a multiple of 16
+        m = e.fn.mem[rval(r)]
+        return "[%s, %d]" % (rname(rval(m.base), Kl), m.offset.i)
     return "[%s]" % rname(rval(r), Kl)
 
 

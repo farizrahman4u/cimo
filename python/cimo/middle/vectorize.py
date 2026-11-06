@@ -414,6 +414,7 @@ def plan(fast, rts):
     if len(far) > MAXCHECKS:
         return 0
     fast.vchecks = _checks(mem, far)
+    fast.vmem = mem
     return vf
 
 
@@ -460,11 +461,29 @@ def interleave(fast):
     """How many vectors the loop does an iteration: more than one only for a loop that collects reductions whose
     order C doesn't fix and stores nothing, so each copy keeps its own accumulators (a chain of compares and selects,
     or of adds, is latency-bound in one), and stores never come closer than _distance allowed for."""
+    stores = any(_storeclass(i) is not None for b in fast.lp.blocks for i in ir.ins(b))
+    if stores and not fast.vreds and _apart(fast, 2 * fast.vf):
+        return 2  # a loop that stores, as gemm's c[j] += a * b[j]: two vectors an iteration, fewer of the loop's own instructions
     if not fast.vreds or any(r.ordered for r in fast.vreds):
         return 1
-    if any(_storeclass(i) is not None for b in fast.lp.blocks for i in ir.ins(b)):
+    if stores:
         return 1
     return INTERLEAVE
+
+
+def _apart(fast, lanes):
+    """Whether every store and any access to the same base plan() checked are the same element or lanes apart: then
+    copies of the body, one after the other, still see each element in the scalar loop's order."""
+    for i, f, n, isstore in fast.vmem:
+        if not isstore:
+            continue
+        for j, g, m, other in fast.vmem:
+            if j is i or f.L.noconst().ident() != g.L.noconst().ident():
+                continue  # other bases: told apart by the alias analysis or the run-time checks, over every iteration
+            d = f.L.c - g.L.c
+            if d != 0 and abs(d) < lanes * abs(f.S.c):
+                return False
+    return True
 
 
 def body(fast, em, state, copy=0):
