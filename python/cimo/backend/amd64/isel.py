@@ -565,11 +565,21 @@ def _selqfma(i, i0, fn, tn=None):
     copied there first, and register allocation keeps the two in one register (rega's radd). qxfmam's second operand
     is an address, its whole addressing mode selected."""
     assert i0.op == D.Oqfma0
+    sym = None
     if i.op in (D.Oqxfmams, D.Oqxfmamd):
         seladdr(i.arg, 1, tn, fn)
+        if rtype(i.arg[1]) == RMem:
+            m = fn.mem[rval(i.arg[1])]
+            if m.base == R and m.offset.type == CAddr:  # no sym(%rip, %idx, s): the symbol's address in a
+                sym = newtmp("isel", Kl, fn)            # register first, as fixarg does for other loads
+                c = newcon(m.offset, fn)
+                m.offset.type = CUndef
+                m.base = sym
     emit(i.op, D.Kq, i.to, i.arg[0], i.arg[1])
     emit(D.Oqfma0, D.Kq, R, i.to, R)
     emit(Ocopy, D.Kq, i.to, i0.arg[0], R)
+    if sym is not None:
+        emit(Oaddr, Kl, sym, c, R)
 
 
 def _qsel(i, tn, fn):

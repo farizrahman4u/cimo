@@ -80,6 +80,7 @@ gcc-torture/20080502-1.c                              unsupported  long double i
 gcc-torture/20090113-2.c                              unsupported  empty structs and unions (a GNU extension) are not supported
 gcc-torture/20090113-3.c                              unsupported  empty structs and unions (a GNU extension) are not supported
 gcc-torture/20090219-1.c                              unsupported  nested functions (a GNU extension) are not supported
+gcc-torture/20101011-1.c                              skip         its x86-64 path needs signal.h (SIGFPE from a division); passes on arm64
 gcc-torture/20111212-1.c                              unsupported  GNU attribute 'packed' is not supported here
 gcc-torture/20120427-1.c                              unsupported  expected declaration or function definition
 gcc-torture/20120427-2.c                              unsupported  expected declaration or function definition
@@ -676,6 +677,7 @@ gcc-dg-torture/pr57748-3.c                            unsupported  vector types 
 gcc-dg-torture/pr57748-4.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr58041.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr58416.c                              unsupported  long double is not supported
+gcc-dg-torture/pr58670.c                              skip         its x86-64 path is inline assembly (asm goto); passes on arm64
 gcc-dg-torture/pr60092.c                              unsupported  undefined symbol 'posix_memalign': cimo's runtime does not provide it
 gcc-dg-torture/pr61346.c                              unsupported  attribute 'mode' is not supported
 gcc-dg-torture/pr65270-3.c                            unsupported  vector types (vector_size) are not supported yet

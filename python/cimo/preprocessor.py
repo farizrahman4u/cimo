@@ -284,6 +284,7 @@ _APPLE_OVERRIDE = {
     '__WINT_TYPE__': 'int', '__WINT_MAX__': '2147483647', '__WINT_MIN__': '(-2147483647-1)',
 }
 _APPLE_TYPES = [(k, _APPLE_OVERRIDE.get(k, v)) for k, v in _GCC_TYPES]
+_APPLE_TYPES += [('__SIZEOF_LONG_DOUBLE__', '8')]  # long double is double there (Linux rejects it)
 # Linux x86-64 (gcc's values for x86_64-linux-gnu): plain char and wchar_t are signed
 _X86_LINUX_OVERRIDE = {
     '__WCHAR_TYPE__': 'int', '__WCHAR_MAX__': '0x7fffffff', '__WCHAR_MIN__': '(-0x7fffffff - 1)',
@@ -299,6 +300,7 @@ _WIN_OVERRIDE = dict(_APPLE_OVERRIDE, **{
     '__WINT_WIDTH__': '16',
 })
 _WIN_TYPES = [(k, _WIN_OVERRIDE.get(k, v)) for k, v in _GCC_TYPES]
+_WIN_TYPES += [('__SIZEOF_LONG_DOUBLE__', '8')]
 
 #: Predefined macros per target: cproc's config.h list (aarch64-linux-gnu), macOS and Windows
 #: variants, plus gcc's type macros.

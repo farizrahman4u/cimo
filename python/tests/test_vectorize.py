@@ -866,3 +866,18 @@ def test_bytes_run_right():
         m.rgb2gray(n, src, dst)
         want = [(77 * src[3 * k] + 150 * src[3 * k + 1] + 29 * src[3 * k + 2]) >> 8 for k in range(n)]
         assert list(dst)[:n] == want and dst[n] == 0, n
+
+
+def test_x86_fma_memory_operand_of_a_global_array(monkeypatch):
+    """A vector fma's folded load from a global array indexed by a register: the symbol's address in a register
+    first (x86-64 has no sym(%rip, %idx, s)); it was emitted as one (gcc.dg/vect vect-outer-fir.c)."""
+    from cimo import assembler_amd64
+    src = ('float in[168], coef[128], out[40];\n'  # outer-loop vectorized: a lane per i
+           'void fir(void) { for (int i = 0; i < 40; i++) { float s = 0;\n'
+           '    for (int j = 0; j < 128; j += 4) s += in[j + i] * coef[j]; out[i] = s; } }\n'
+           'void axpy(float a) { for (int i = 0; i < 40; i++) out[i] = a * in[i] + out[i]; }\n')
+    for target in ('amd64_sysv', 'amd64_windows'):
+        text = _x86with(src, _FEATURES, monkeypatch, target)
+        assert 'vfmadd' in text
+        assert not re.search(r'\(%rip, ', text), text
+        assembler_amd64.assemble(text)
