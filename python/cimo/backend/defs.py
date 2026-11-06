@@ -396,7 +396,10 @@ _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0
          # pinned, as qfma1 and sel1: gvn and gcm must never merge or move it away from its qsel0
          ('qsel1', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qload', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
-         ('qstore', ((Kq,) * 6, (Km,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)]
+         ('qstore', ((Kq,) * 6, (Km,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         # x86-64's own (amd64 isel, with fma): qfma1 with its second operand loaded from memory, %r =q qxfmams %a, %addr
+         ('qxfmams', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Km)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qxfmamd', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Km)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)]
 # cimo: x86-64's read-modify-write, made by amd64 isel from a load, an operation and a store to one address: xaddm %v, %a
 # is add %v to the word or long at %a, of the instruction's class
 _OPS += [('x%sm' % n, ((Kw, Kl, Ke, Ke, Ke, Ke), (Km, Km, Ke, Ke, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
@@ -449,7 +452,7 @@ def isstore(o): return Ostoreb <= o <= Ostored
 def isload(o): return Oloadsb <= o <= Oload
 def isvload(o): return Ovloadsb <= o <= Ovload or o == Oqload  # vector memory: as careful as volatile, for now
 def isvstore(o): return Ovstoreb <= o <= Ovstored or o == Oqstore
-def isqop(o): return Oqaddb <= o <= Oqstore
+def isqop(o): return Oqaddb <= o <= Oqxfmamd
 
 
 def unvolatile(fn, sink=None):

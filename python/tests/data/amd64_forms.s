@@ -1370,6 +1370,15 @@ zero2:
 	vfmadd132ps %ymm1, %ymm9, %ymm14
 	vfnmsub132ps %ymm8, %ymm2, %ymm3
 	vfmadd132pd %ymm1, %ymm9, %ymm14
+	# fma with a memory operand (amd64 isel folds a vector load into it)
+	vfmadd231ps (%rsi), %ymm1, %ymm2
+	vfmadd231ps 32(%r11), %ymm4, %ymm8
+	vfmadd231pd -64(%r13,%rax,8), %ymm9, %ymm15
+	vfmadd132ps (%r15), %ymm3, %ymm12
+	vfmadd231ps 16(%rdi), %xmm1, %xmm2
+	vfmadd132pd 0x1000(%rsp), %xmm13, %xmm0
+	vfmadd231ps 8(%r12), %ymm10, %ymm11
+	vfmadd231ps foo(%rip), %ymm1, %ymm2
 	vfnmsub132pd %ymm8, %ymm2, %ymm3
 	vzeroupper
 .section .note.GNU-stack,"",@progbits

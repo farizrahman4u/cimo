@@ -1005,10 +1005,17 @@ def _h_pextrw(a, ops, sz, _):
 
 
 def _h_vfma(a, ops, sz, arg):
-    """vfmadd{132,213,231}{ss,sd,ps,pd} %xmm or %ymm (packed), registers only: VEX.128 or .256 (FMA3)."""
+    """vfmadd{132,213,231}{ss,sd,ps,pd} %xmm or %ymm (packed), src2 a register or memory: VEX.128 or .256 (FMA3)."""
     _nops(ops, 3)
-    src2, src1, dst = (_vr(o) for o in ops)
     w, op = arg
+    if ops[0][0] == 'm':  # a load folded in (vfmadd231ps (%rax), %ymm1, %ymm2): VEX 66 0F38, as the rvm forms
+        src1, dst = _vr(ops[1]), _vr(ops[2])
+        if src1[0] != dst[0]:
+            raise AssemblerError('mixed %xmm and %ymm operands')
+        if op & 1 and dst[0] == 'y':
+            raise AssemblerError('scalar fused multiply-add on %ymm')
+        return _enc(a, bytes([op]), dst, ops[0], vex=(1, 2, w, dst[0] == 'y', src1[2]))
+    src2, src1, dst = (_vr(o) for o in ops)
     if len({o[0] for o in (src2, src1, dst)}) != 1:
         raise AssemblerError('mixed %xmm and %ymm operands')
     if op & 1 and dst[0] == 'y':  # the ss/sd forms (odd opcodes) are scalar

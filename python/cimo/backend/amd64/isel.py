@@ -35,6 +35,7 @@ from ..defs import (R, RTmp, RCon, RMem, RSlot, NIns, Ins, Addr, Con, Num, Kw, K
 from ..util import (err, die, newtmp, getcon, newcon, addcon, chuse, emit, emiti, idup,
                     vgrow, intern, iscmp, cmpop, argcls, salloc, isreg)
 from ..emit import stashbits
+from .. import ext as _ext
 from ..parse import printfn
 from .regs import RAX, RCX, RDX, RDI
 from .targ import amd64_op
@@ -559,10 +560,13 @@ def _selfma(i, blk, k1, fn):
     m.base, m.index = b, c
 
 
-def _selqfma(i, i0, fn):
+def _selqfma(i, i0, fn, tn=None):
     """cimo (ext.x86 fma): vfmadd231ps/pd keep the addend in the destination, as arm64's fmla: the addend is
-    copied there first, and register allocation keeps the two in one register (rega's radd)."""
+    copied there first, and register allocation keeps the two in one register (rega's radd). qxfmam's second operand
+    is an address, its whole addressing mode selected."""
     assert i0.op == D.Oqfma0
+    if i.op in (D.Oqxfmams, D.Oqxfmamd):
+        seladdr(i.arg, 1, tn, fn)
     emit(i.op, D.Kq, i.to, i.arg[0], i.arg[1])
     emit(D.Oqfma0, D.Kq, R, i.to, R)
     emit(Ocopy, D.Kq, i.to, i0.arg[0], R)
@@ -1004,6 +1008,32 @@ def _writes(op):
     return isstore(op) or op in _RMW.values() or op in (Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Oqstore)
 
 
+_FMAM = {D.Oqfma1s: D.Oqxfmams, D.Oqfma1d: D.Oqxfmamd}
+
+
+def _fmafold(fn, ins, defs):
+    """A vector load that only a vector fma reads, nothing that may write memory in between, is the fma's memory
+    operand (vfmadd231ps (%rax), %ymm1, %ymm2): gemm's row of b, one instruction fewer per fma."""
+    tmp = fn.tmp
+    for k, i in enumerate(ins):
+        if i.op not in _FMAM or k == 0 or ins[k - 1].op != D.Oqfma0 or fn.hasvolatile:
+            continue
+        for n in (1, 0):  # either factor: the product commutes
+            a = i.arg[n]
+            if rtype(a) != RTmp or tmp[rval(a)].nuse != 1 or i.arg[1 - n] == a:
+                continue
+            d = defs.get(rval(a))
+            if d is None or d >= k - 1 or ins[d].op != D.Oqload:
+                continue
+            if any(_writes(x.op) for x in ins[d + 1:k]):
+                continue
+            if rtype(ins[k - 1].arg[0]) == RTmp and ins[k - 1].arg[0] == a:
+                continue
+            ins[k] = Ins(_FMAM[i.op], D.Kq, i.to, i.arg[1 - n], ins[d].arg[0])
+            ins[d] = Ins(Onop)
+            break
+
+
 def _loadsfold(fn):
     """cimo: what x86-64 does in the load or the store itself, as gcc. A load extended to 64 bits extends to 64 bits
     (movzbl and then movzbq of its byte: 8.8 to 7.2 ms on Zen 4's histogram). A load, an operation on it and a store
@@ -1027,6 +1057,8 @@ def _loadsfold(fn):
                     ld.cls = Kl
                     ld.to = i.to
                     ins[k] = Ins(Onop)
+        if 'fma' in _ext.x86:
+            _fmafold(fn, ins, defs)
         for k, st in enumerate(ins):
             k2 = {Ostorew: Kw, Ostorel: Kl}.get(st.op)
             if k2 is None or rtype(st.arg[0]) != RTmp or fn.hasvolatile:  # a volatile access stays as written
@@ -1117,8 +1149,8 @@ def amd64_isel(fn):
             elif i.op == D.Ofma1:
                 _selfma(i.copy(), b, k, fn)
                 k -= 1  # its fma0
-            elif i.op in (D.Oqfma1s, D.Oqfma1d):
-                _selqfma(i.copy(), b.ins[k - 1], fn)
+            elif i.op in (D.Oqfma1s, D.Oqfma1d, D.Oqxfmams, D.Oqxfmamd):
+                _selqfma(i.copy(), b.ins[k - 1], fn, num)
                 k -= 1
             else:
                 sel(i.copy(), num, fn)

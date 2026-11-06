@@ -462,6 +462,17 @@ def _qy(r):
     return "%%ymm%d" % (rval(r) - XMM0)
 
 
+def _memtext(ref, e):
+    """A memory operand as emitf writes it (%M)."""
+    import io
+    f, e.f = e.f, io.StringIO()
+    try:
+        emitf("%M0", Ins(D.Onop, D.Kl, R, ref, R), e)
+        return e.f.getvalue().strip()
+    finally:
+        e.f = f
+
+
 def _emitf_y(fmt, i, e):
     """emitf, with the vector register named as a ymm (memory operands only name general registers)."""
     import io
@@ -545,6 +556,9 @@ def _qins_y(i, e):
     if name in ('qfma1s', 'qfma1d'):
         _fma3(f, 'p' + name[-1], to, a, b, e.qthird, y=True)
         return True
+    if name in ('qxfmams', 'qxfmamd'):
+        _fma3(f, 'p' + name[-1], to, a, _memtext(b, e), e.qthird, y=True)
+        return True
     if name in _QY:
         f.write("\t%s %s, %s, %s\n" % (_QY[name], _qy(b), _qy(a), _qy(to)))
     elif name in _QYSWAPPED:
@@ -609,6 +623,9 @@ def _qins(i, e):
         return True
     if name in ('qfma1s', 'qfma1d'):
         _fma3(f, 'p' + name[-1], i.to, i.arg[0], i.arg[1], e.qthird)
+        return True
+    if name in ('qxfmams', 'qxfmamd'):
+        _fma3(f, 'p' + name[-1], i.to, i.arg[0], _memtext(i.arg[1], e), e.qthird)
         return True
     if name in _QTWO:
         mn, commutes = _QTWO[name]
@@ -932,7 +949,15 @@ def _fma(i, e):
 def _fma3(f, x, to, a, b, c, mn='vfmadd', y=False):
     """to = ±(a*b) ± c in x ('ss', 'sd', 'ps', 'pd'), whichever of them to shares a register with: the 231 form
     computes src1*src2 ± dst, the 213 form src1*dst ± src2, so the sign of each part is the mnemonic's either way."""
-    q = lambda r: "%%%smm%d" % ('y' if y else 'x', rval(r) - XMM0)
+    q = lambda r: r if isinstance(r, str) else "%%%smm%d" % ('y' if y else 'x', rval(r) - XMM0)
+    if isinstance(b, str):  # b is memory (qxfmam): only the last source can be
+        if to == a:
+            f.write("\t%s132%s %s, %s, %s\n" % (mn, x, b, q(c), q(to)))  # to = to * b + c
+        else:
+            if to != c:
+                f.write("\t%s %s, %s\n" % ('vmovaps' if y else 'movaps', q(c), q(to)))
+            f.write("\t%s231%s %s, %s, %s\n" % (mn, x, b, q(a), q(to)))
+        return
     if to == c:
         f.write("\t%s231%s %s, %s, %s\n" % (mn, x, q(b), q(a), q(to)))
     elif to == a:

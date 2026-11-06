@@ -555,6 +555,34 @@ def test_x86_this_cpu_fma_and_bit_instructions(monkeypatch):
     assert 'vfmadd' not in base and 'popcnt' not in base and 'lzcnt' not in base and 'tzcnt' not in base
 
 
+GEMM = ('void gemm(int n, const float *restrict a, const float *restrict b, float *restrict c) {\n'
+        '    for (int i = 0; i < n; i++) for (int k = 0; k < n; k++) { float aik = a[i * n + k];\n'
+        '        for (int j = 0; j < n; j++) c[i * n + j] += aik * b[k * n + j]; } }\n')
+
+
+def test_x86_fma_takes_its_load(monkeypatch):
+    """A vector load only an fma reads is the fma's memory operand: gemm's rows of b, an instruction fewer per fma
+    (Ice Lake's front end was the limit)."""
+    b = _body(_x86with(GEMM, _FEATURES, monkeypatch), 'gemm')
+    assert len(re.findall(r'\tvfmadd231ps -?\d*\(%\w+\), %ymm\d+, %ymm\d+\n', b)) >= 8, b
+
+
+@pytest.mark.skipif(not hosts.AMD64, reason='runs x86-64 code')
+def test_x86_gemm_runs():
+    """gemm as the benchmark compiles it (rows jammed by 4, two vectors an iteration, b's loads in the fmas), at sizes
+    that leave every remainder: rows of k, vectors of j, and scalars."""
+    m = cimo.compile(GEMM, cache=False)
+    for n in (1, 3, 4, 5, 8, 9, 17, 33):
+        a = (ctypes.c_float * (n * n))(*[((i * 7) % 13) * 0.25 - 1 for i in range(n * n)])
+        b = (ctypes.c_float * (n * n))(*[((i * 5) % 11) * 0.5 - 2 for i in range(n * n)])
+        c = (ctypes.c_float * (n * n))(*[0.0] * (n * n))
+        m.gemm(n, a, b, c)
+        for i in range(n):
+            for j in range(n):
+                want = sum(a[i * n + k] * b[k * n + j] for k in range(n))
+                assert abs(c[i * n + j] - want) <= 1e-4 * (1 + abs(want)), (n, i, j)
+
+
 def test_x86_fma_operand_orders(monkeypatch):
     """vfmadd231 when the result shares the addend's register, 213 when a factor's, and a copy first otherwise."""
     src = ('double s(double a, double b, double c) { return a * b + c; }\n'
