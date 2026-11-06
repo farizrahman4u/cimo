@@ -243,6 +243,7 @@ def glue(names, apple=False, windows=False, target=None):
              '\tcmp\tw4, #0\n\tb.ne\t%scas\n\tmov\tx0, x3\n\tret\n'
              '%scasne:\n\t.word\t0xd5033f5f\n\tmov\tx0, x3\n\tret\n' % (L, L, L, L))  # clrex
     o.append(fn('__cimo_barrier') + '\t.word\t0xd5033bbf\n\tret\n')  # dmb ish
+    o.append(_setjmp_arm64(fn))
     for name in names:
         o.append(fn('__cimo_entry_' + name))
         o.append('\tmov\tx15, x30\n\tadrp\tx14, %s%s%s\n\tadd\tx14, x14, %s\n\tb\t%s__cimo_enter\n'
@@ -379,10 +380,68 @@ def _glue_amd64(names, windows):
                                  if windows else
                                  '\tmovq\t%rsi, %rax\n\tlock cmpxchgq\t%rdx, (%rdi)\n\tret\n'))
     o.append(fn('__cimo_barrier') + '\tmfence\n\tret\n')
+    o.append(_setjmp_amd64(fn, windows))
     for name in names:
         o.append(fn('__cimo_entry_' + name))
         o.append('\tleaq\t%s(%%rip), %%r11\n\tjmp\t__cimo_enter\n' % name)
     o.append('\t.data\n\t.p2align\t3\n\t.globl\t__cimo_ctxtab\n__cimo_ctxtab:\n\t.quad\t0\n')
+    return ''.join(o)
+
+
+# setjmp and longjmp (C11 7.13), in every module's glue: the jmp_buf (include/setjmp.h, 32 longs) holds what a call
+# must preserve, the stack pointer and setjmp's return address. arm64: x19-x30 at 0-88, sp at 96, d8-d15 at 104-160.
+# x86-64: rbx, rbp, r12-r15 at 0-40, rsp after the return at 48, the return address at 56, the shadow stack pointer
+# after the return at 64 (0 without shadow stacks; longjmp pops the entries the abandoned calls left, as the unwind
+# does); Windows also rdi, rsi at 72, 80 and xmm6-xmm15 at 96-240. longjmp(env, 0) returns 1. The floating-point
+# environment is not restored (C11 7.13.2.1). _setjmp/_longjmp (BSD's) are the same.
+_SJ_NAMES = ('setjmp', '_setjmp')
+_LJ_NAMES = ('longjmp', '_longjmp')
+
+
+def _setjmp_arm64(fn):
+    o = [''.join(fn(n) for n in _SJ_NAMES)]
+    o += ['\tstp\t%s, %s, [x0, #%d]\n' % r for r in _SAVE]
+    o.append('\tstp\tx29, x30, [x0, #80]\n\tmov\tx16, sp\n\tstr\tx16, [x0, #96]\n')
+    o += ['\tstp\t%s, %s, [x0, #%d]\n' % r for r in _DSAVE]
+    o.append('\tmov\tw0, #0\n\tret\n')
+    o.append(''.join(fn(n) for n in _LJ_NAMES))
+    o += ['\tldp\t%s, %s, [x0, #%d]\n' % r for r in _SAVE]
+    o.append('\tldp\tx29, x30, [x0, #80]\n\tldr\tx16, [x0, #96]\n\tmov\tsp, x16\n')
+    o += ['\tldp\t%s, %s, [x0, #%d]\n' % r for r in _DSAVE]
+    o.append('\tcmp\tw1, #0\n\tcsinc\tw0, w1, wzr, ne\n\tret\n')
+    return ''.join(o)
+
+
+_RDSSP_RDX = '\t.byte\t0xf3, 0x48, 0x0f, 0x1e, 0xca\n'  # rdsspq %rdx
+
+
+def _setjmp_amd64(fn, windows):
+    buf, val = ('rcx', 'edx') if windows else ('rdi', 'esi')
+    regs = [('rbx', 0), ('rbp', 8), ('r12', 16), ('r13', 24), ('r14', 32), ('r15', 40)]
+    if windows:
+        regs += [('rdi', 72), ('rsi', 80)]
+    xregs = [('xmm%d' % (6 + k), 96 + 16 * k) for k in range(10)] if windows else []
+    o = [''.join(fn(n) for n in _SJ_NAMES)]
+    o += ['\tmovq\t%%%s, %d(%%%s)\n' % (r, off, buf) for r, off in regs]
+    o += ['\tmovdqu\t%%%s, %d(%%%s)\n' % (r, off, buf) for r, off in xregs]
+    o.append('\tleaq\t8(%%rsp), %%rdx\n\tmovq\t%%rdx, 48(%%%s)\n\tmovq\t(%%rsp), %%rdx\n\tmovq\t%%rdx, 56(%%%s)\n'
+             % (buf, buf))
+    o.append('\txorl\t%%edx, %%edx\n%s\ttestq\t%%rdx, %%rdx\n\tjz\t.Lcimo_sjnossp\n\taddq\t$8, %%rdx\n'
+             '.Lcimo_sjnossp:\n\tmovq\t%%rdx, 64(%%%s)\n\txorl\t%%eax, %%eax\n\tret\n' % (_RDSSP_RDX, buf))
+    o.append(''.join(fn(n) for n in _LJ_NAMES))
+    o.append('\tmovl\t%%%s, %%eax\n\ttestl\t%%eax, %%eax\n\tjnz\t.Lcimo_ljval\n\tmovl\t$1, %%eax\n.Lcimo_ljval:\n'
+             % val)
+    if windows:  # the buffer's register is rcx, which incssp needs: move it to r11
+        o.append('\tmovq\t%rcx, %r11\n')
+        buf = 'r11'
+    # incssp takes the low 8 bits of its count: at most 255 entries at a time
+    o.append('\tmovq\t64(%%%s), %%r10\n\ttestq\t%%r10, %%r10\n\tjz\t.Lcimo_ljnossp\n' % buf + _RDSSP_RCX +
+             '\tsubq\t%rcx, %r10\n\tshrq\t$3, %r10\n\tjz\t.Lcimo_ljnossp\n.Lcimo_ljssp:\n\tmovl\t$255, %ecx\n'
+             '\tcmpq\t%rcx, %r10\n\tcmovbq\t%r10, %rcx\n' + _INCSSP_RCX + '\tsubq\t%rcx, %r10\n\tjnz\t.Lcimo_ljssp\n'
+             '.Lcimo_ljnossp:\n')
+    o += ['\tmovq\t%d(%%%s), %%%s\n' % (off, buf, r) for r, off in regs]
+    o += ['\tmovdqu\t%d(%%%s), %%%s\n' % (off, buf, r) for r, off in xregs]
+    o.append('\tmovq\t48(%%%s), %%rsp\n\tjmpq\t*56(%%%s)\n' % (buf, buf))
     return ''.join(o)
 
 

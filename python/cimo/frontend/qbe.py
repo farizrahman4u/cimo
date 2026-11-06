@@ -203,6 +203,7 @@ IUMULH = 123
 # cimo: the floating-point environment (<fenv.h>, the runtime's fenv.c): the control and status registers read and
 # written (arm64 FPCR and FPSR; x86-64 MXCSR for both), the declared external functions of these names
 IRDFPCR, IRDFPSR, IWRFPCR, IWRFPSR = 124, 125, 126, 127
+_SETJMP = ('setjmp', '_setjmp')  # cimo: functions that return twice (emitfunc)
 _FPUBUILTINS = {'__cimo_rdfpcr': IRDFPCR, '__cimo_rdfpsr': IRDFPSR, '__cimo_wrfpcr': IWRFPCR,
                 '__cimo_wrfpsr': IWRFPSR}
 _BITBUILTINS = {}
@@ -279,7 +280,7 @@ class SwitchCase(object):
 
 class Func(object):
     __slots__ = ('decl', 'namedecl', 'name', 'paramtemps', 'type', 'start', 'end', 'gotos',
-                 'lastid', 'vlas', 'vlagotos', 'gotochecks')
+                 'lastid', 'vlas', 'vlagotos', 'gotochecks', 'retwice')
 
 
 ptrclass = 'l'
@@ -716,6 +717,7 @@ def mkfunc(decl, name, t, s):
     f.vlas = []  # cimo (vlafree): stack pointers saved before the VLAs now in scope
     f.vlagotos = []  # (block, VLAs in scope at the goto, GotoLabel) of forward gotos
     f.gotochecks = []  # (VLAs in scope, GotoLabel, location) of forward gotos, for emitfunc
+    f.retwice = False  # cimo: calls setjmp (see emitfunc)
     emittype(t.base)
 
     # allocate space for parameters
@@ -1935,6 +1937,9 @@ def funcexpr(f, e):
         v = funcstore(f, e.type, e.qual, lval, v)
         return l if e.post else v
     elif k == EXPRCALL:
+        b = e.base
+        if b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT and b.base.decl.name in _SETJMP:
+            f.retwice = True
         if U.diagnostics:
             v = _fpubuiltin(f, e)
             if v is not None:
@@ -2622,6 +2627,19 @@ def emitfunc(f, glob):
     w(") {\n")
     if paraminfo is not None:
         _recordparams(f)
+    if f.retwice and volatile:
+        # cimo: setjmp returns again when longjmp is called, which no edge of the function's graph shows, so the
+        # backend could keep a variable in a register or share its slot with one that is dead on the graph but
+        # read after the second return: every load and store becomes volatile (the variables stay in their own
+        # memory), and the function isn't inlined (its caller's variables would be exposed the same way)
+        b = f.start
+        while b:
+            for inst in b.insts:
+                if ISTORED <= inst.kind <= ILOADUB:
+                    inst.kind = IVOL + inst.kind - ISTORED
+            b = b.next
+        if paraminfo is not None:
+            paraminfo.setdefault('#noinline', set()).add(f.decl.value.name)
     b = f.start
     while b:
         emitname(b.label)

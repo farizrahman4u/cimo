@@ -87,7 +87,8 @@ def test_a_32_bit_python_is_refused(monkeypatch):
 def test_entry_keeps_calls_and_returns_paired(windows):
     text = execution._glue_amd64(['f'], windows)
     assert 'jmp\t*%r10' not in text
-    assert text.count(execution._RDSSP_R10) == 1 and text.count(execution._INCSSP_RCX) == 1
+    # incssp twice: the unwind and longjmp (both pop what the abandoned calls left on the shadow stack)
+    assert text.count(execution._RDSSP_R10) == 1 and text.count(execution._INCSSP_RCX) == 2
     assembler_amd64.assemble(text)
 
 

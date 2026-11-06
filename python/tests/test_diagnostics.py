@@ -89,7 +89,7 @@ def test_rejected(src, msg):
 
 
 HEADERS = [
-    ('#include <setjmp.h>\n', 'setjmp.h: No such file or directory; setjmp/longjmp are not supported'),
+    ('#include <signal.h>\n', 'signal.h is not bundled with cimo: pass host_headers=True'),
     ('#include <time.h>\n', 'time.h is not bundled with cimo: pass host_headers=True'),
     ('#include <threads.h>\n', 'threads.h is not bundled with cimo'),
 ]

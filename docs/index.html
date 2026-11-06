@@ -770,11 +770,11 @@ void ema(int n, const double x[n],
     <div>
       <ul class="pts">
         <li><b>Language.</b> Structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs, VLAs, <code>goto</code>, <code>switch</code>, globals, <code>const</code> tables.</li>
-        <li><b>Headers.</b> <code>stdio.h</code>, <code>stdlib.h</code>, <code>string.h</code>, <code>math.h</code>, <code>complex.h</code>, <code>fenv.h</code>, <code>ctype.h</code>, <code>inttypes.h</code> and the freestanding headers. <code>printf</code> writes to <code>sys.stdout</code>, so output appears in notebooks.</li>
+        <li><b>Headers.</b> <code>stdio.h</code>, <code>stdlib.h</code>, <code>string.h</code>, <code>math.h</code>, <code>complex.h</code>, <code>fenv.h</code>, <code>setjmp.h</code>, <code>ctype.h</code>, <code>inttypes.h</code> and the freestanding headers. <code>printf</code> writes to <code>sys.stdout</code>, so output appears in notebooks.</li>
         <li><b>SIMD.</b> GNU vector types for NEON, AVX2 and AVX-512. <code>#pragma omp simd</code> and <code>restrict</code> honored as written.</li>
         <li><b>System libraries.</b> Link the host libc for files, clocks, threads and sockets, or any shared library such as zlib, BLAS or the Python C API.</li>
       </ul>
-      <p class="no">Not supported: inline assembly (an empty <code>asm</code> barrier is fine), <code>setjmp</code>/<code>longjmp</code>, 128-bit <code>long double</code>. Each is a compile error that says so.</p>
+      <p class="no">Not supported: inline assembly (an empty <code>asm</code> barrier is fine), 128-bit <code>long double</code>. Each is a compile error that says so.</p>
     </div>
     <div class="stack">
       <div class="code">

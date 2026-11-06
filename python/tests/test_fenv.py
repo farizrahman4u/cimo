@@ -219,3 +219,38 @@ def test_x86_register_access_keeps_the_flags_and_the_stack():
     assert 'ldmxcsr (%rsp)' in text and 'stmxcsr (%rsp)' in text
     assert text.count('leaq -8(%rsp), %rsp') == 2 and text.count('leaq 8(%rsp), %rsp') == 2
     assert 'subq' not in text and 'addq' not in text
+
+
+def test_software_fma_rounds_in_the_mode():
+    # x86-64 without FMA and wasm use the runtime's integer fma; checked against arm64's fmadd
+    import math
+    import os
+    import struct
+    from cimo import loader
+    if not loader._ARM64:
+        pytest.skip('the reference is the arm64 instruction')
+    rt = os.path.join(os.path.dirname(cimo.__file__), 'runtime', 'internal')
+    m = cimo.compile('#include <fenv.h>\n#include "%s/softfma.h"\n'
+                     'static int md[4] = { FE_TONEAREST, FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO };\n'
+                     'double sd(double x, double y, double z, int k) { fesetround(md[k]); return __cimo_softfma(x, y, z); }\n'
+                     'double hd(double x, double y, double z, int k) { fesetround(md[k]); return __builtin_fma(x, y, z); }\n'
+                     'float sf(float x, float y, float z, int k) { fesetround(md[k]); return __cimo_softfmaf(x, y, z); }\n'
+                     'float hf(float x, float y, float z, int k) { fesetround(md[k]); return __builtin_fmaf(x, y, z); }\n'
+                     % rt.replace(os.sep, '/'))
+    rng = random.Random(3)
+
+    def same(a, b):
+        return a == b and math.copysign(1, a) == math.copysign(1, b) or a != a and b != b
+
+    def rd():
+        if rng.random() < .1:
+            return rng.choice([1e308, -1e308, 5e-324, -5e-324, 2.2250738585072014e-308, 1.0, -3.0])
+        return rng.uniform(-4, 4) * 2.0 ** rng.randint(-1074, 1023)
+    for _ in range(4000):
+        x, y = rd(), rd()
+        z = -x * y if rng.random() < .1 and math.isfinite(x * y) else rd()
+        k = rng.randrange(4)
+        assert same(m.sd(x, y, z, k), m.hd(x, y, z, k)), (x, y, z, k)
+        f = [struct.unpack('<f', struct.pack('<f', v if abs(v) < 3e38 else 1.0))[0] * 2.0 ** -rng.randint(0, 100)
+             for v in (x, y, z)]
+        assert same(m.sf(*f, k), m.hf(*f, k)), (f, k)

@@ -459,8 +459,6 @@ def _hint(msg, host_headers):
             "call their functions)")
     m = re.search(r'([\w/.+-]+\.h): No such file or directory', msg)
     if m and not host_headers:
-        if m.group(1) == 'setjmp.h':
-            return msg + '; setjmp/longjmp are not supported by cimo'
         return msg + '; %s is not bundled with cimo: %s' % (m.group(1), host)
     m = re.search(r"(?:undeclared identifier: |unknown type name ')(\w+)", msg)
     if m and not host_headers and (m.group(1) in _HOSTED or m.group(1).startswith('pthread_')):

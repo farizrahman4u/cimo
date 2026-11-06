@@ -129,6 +129,8 @@ def link(objs, exports, imports_ok=lambda name: name.startswith('__cimo_js_')):
         for s, key in f.calls.items():
             if lookup(oi, s) is None:
                 if not imports_ok(s):
+                    if s in ('setjmp', 'longjmp', '_setjmp', '_longjmp'):  # the native glue's (cimo.execution)
+                        raise LinkError('setjmp/longjmp are not supported on WebAssembly (%s)' % s)
                     raise LinkError('undefined symbol: %s' % s)
                 if imports.setdefault(s, key) != key:
                     raise LinkError('conflicting types for %s' % s)

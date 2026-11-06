@@ -153,7 +153,7 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
 - **Not supported:**
   - inline asm (raw system calls go through a linked libc instead)
   - `_Atomic` / threads in kernels without a linked libc (v2, if parallel reductions need them)
-  - `setjmp`/`longjmp`
+  - `setjmp`/`longjmp` on WebAssembly (native targets have them, 2026-11-06)
   - `long double` where it is 128-bit quad (arm64 Linux); rejected with a clear error
   - most GNU extensions, except the common ones (vector types, statement expressions, simple attributes)
 - **Semantics:** standard C. A program with defined behavior in our compiler behaves the same
@@ -1469,7 +1469,7 @@ for Linux and macOS (strategies under "Platform loading findings").
   - Unsupported types are reported where the expression is parsed (a hook on expression
     construction), so the column points at the `long double` sub-expression. A C99 inline definition with no external definition in the
     unit becomes a local function when referenced (cproc emits nothing, so the call failed to link).
-  - Driver hints: a missing header suggests `host_headers=True` (`setjmp.h`: unsupported);
+  - Driver hints: a missing header suggests `host_headers=True` (`setjmp.h` bundled since 2026-11-06);
     undeclared hosted-libc names (`fopen`, `FILE`, `time`, `pthread_*`, ...) suggest
     `host_headers=True, link=['libc']`.
   - glibc 2.39 headers (stdio, stdlib, unistd, pthread, signal, math, sys/*, ...; 70+ tried) compile
@@ -1515,10 +1515,19 @@ for Linux and macOS (strategies under "Platform loading findings").
     `#pragma STDC FENV_ACCESS ON` (gcc's tests: `-frounding-math`) marks the functions it covers: the backend
     folds only exact, flag-free floating-point operations there and pins the rest (no GVN merging, no GCM
     motion across `fesetround`). Without it, constants fold in round-to-nearest, as gcc and clang do by
-    default. `__int128` to float conversions round in the current mode (sticky bit, signed 64-bit convert).
+    default. `__int128` to float conversions round in the current mode (sticky bit, signed 64-bit convert). So does the
+    software `fma` of x86-64 without FMA and wasm (`softfma.h`; found by libc-test on x86-64 CI).
     `noinline`/`noipa` are honored (the tests rely on them). The runtime's math stays pure (`FORCE_EVAL` a
     no-op), so its exception flags are not musl's; its results pass libc-test in all four rounding modes.
     Not supported: `feenableexcept` (traps), the flags of `long double` operations.
+  - **`setjmp`/`longjmp`** (2026-11-06): in every module's glue (`execution._setjmp_arm64`/`_setjmp_amd64`): the
+    callee-saved registers (Windows: rdi, rsi, xmm6-15 too), sp and the return address in a 32-long `jmp_buf`;
+    x86-64 also the shadow stack pointer, whose entries longjmp pops as the unwind does. A function that calls
+    `setjmp` has all its loads and stores made volatile by the frontend and is never inlined: the second return
+    has no edge in the graph, so otherwise a variable unmodified after `setjmp` could live in a register or a
+    slot coalesced with one that is dead on the graph. `_setjmp`/`_longjmp` too; not `sigsetjmp` (signal masks
+    are POSIX), not GCC's `__builtin_setjmp` (its 5-word buffer can't hold the registers), not WebAssembly
+    (a clear link error).
 
 **M4: middle stage.** Automate the transforms `scratch/qbe_eval/gen_opt.py` applies by hand, plus
 explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing and the loop-layout fix.

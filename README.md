@@ -97,7 +97,7 @@ including the browser.
 
 - Structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs, VLAs, `goto`,
   `switch`, globals and `const` tables
-- `stdio.h`, `stdlib.h`, `string.h`, `math.h`, `complex.h`, `fenv.h`, `ctype.h`, `inttypes.h` and the freestanding headers.
+- `stdio.h`, `stdlib.h`, `string.h`, `math.h`, `complex.h`, `fenv.h`, `setjmp.h`, `ctype.h`, `inttypes.h` and the freestanding headers.
   `printf` writes to `sys.stdout`, so output appears in notebooks
 - `restrict`, used by the loop optimizer
 
@@ -111,7 +111,7 @@ k = cimo.compile(src, link=["libz.so.1"])
 
 Kernels run with the full privileges of the Python process, like ctypes. There is no sandbox.
 
-Inline assembly, `setjmp`/`longjmp` and `long double` are not supported. Each is a compile error that says
+Inline assembly and `long double` are not supported. Each is a compile error that says
 so. An empty `asm` (`asm volatile ("" ::: "memory")`, the usual optimization
 barrier) compiles to nothing.
 

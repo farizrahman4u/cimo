@@ -200,7 +200,7 @@ def test_cli(tmp_path):
 
 def test_bundled_headers_preprocess():
     names = sorted(os.listdir(preprocessor.BUNDLED_INCLUDE))
-    expected = ['assert.h', 'complex.h', 'ctype.h', 'fenv.h', 'float.h', 'inttypes.h', 'iso646.h', 'limits.h', 'math.h', 'stdalign.h',
+    expected = ['assert.h', 'complex.h', 'ctype.h', 'fenv.h', 'float.h', 'inttypes.h', 'iso646.h', 'limits.h', 'math.h', 'setjmp.h', 'stdalign.h',
                 'stdarg.h', 'stdbool.h', 'stddef.h', 'stdint.h', 'stdio.h', 'stdlib.h',
                 'stdnoreturn.h', 'string.h']
     assert names == expected

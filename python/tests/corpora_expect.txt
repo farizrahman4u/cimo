@@ -70,7 +70,6 @@ gcc-torture/20120427-2.c                              unsupported  expected decl
 gcc-torture/20121108-1.c                              unsupported  assignment to pointer discards qualifiers
 gcc-torture/20170401-2.c                              unsupported  no type in parameter declaration
 gcc-torture/20190820-1.c                              unsupported  multiple types in declaration specifiers
-gcc-torture/20210505-1.c                              unsupported  setjmp.h: No such file or directory
 gcc-torture/20230630-2.c                              unsupported  attribute 'scalar_storage_order' is not supported
 gcc-torture/20230630-4.c                              unsupported  attribute 'scalar_storage_order' is not supported
 gcc-torture/920302-1.c                                unsupported  no type in parameter declaration
@@ -320,7 +319,6 @@ gcc-torture/pr53645-2.c                               unsupported  initializer i
 gcc-torture/pr53645.c                                 unsupported  initializer is not a constant expression
 gcc-torture/pr55875.c                                 unsupported  expected declaration or function definition
 gcc-torture/pr56837.c                                 unsupported  _Complex of a type other than float, double or long double is not supported
-gcc-torture/pr56982.c                                 unsupported  setjmp.h: No such file or directory
 gcc-torture/pr57344-1.c                               unsupported  bit-field 'a' in packed struct is not supported
 gcc-torture/pr57344-2.c                               unsupported  bit-field 'a' in packed struct is not supported
 gcc-torture/pr57344-3.c                               unsupported  bit-field 'a' in packed struct is not supported
@@ -423,10 +421,10 @@ gcc-dg-torture/convert-dfp.c                          unsupported  expected decl
 gcc-dg-torture/dfp-default-init-1.c                   unsupported  expected declaration or function definition
 gcc-dg-torture/float128-cmp-invalid.c                 unsupported  type '__float128' is not supported
 gcc-dg-torture/float128-div-underflow.c               unsupported  type '__float128' is not supported
-gcc-dg-torture/float128-exact-underflow.c             unsupported  setjmp.h: No such file or directory
+gcc-dg-torture/float128-exact-underflow.c             unsupported  signal.h: No such file or directory
 gcc-dg-torture/float128-extend-inf.c                  unsupported  long double is not supported
 gcc-dg-torture/float128-extend-nan.c                  unsupported  long double is not supported
-gcc-dg-torture/float128-extendxf-underflow.c          unsupported  setjmp.h: No such file or directory
+gcc-dg-torture/float128-extendxf-underflow.c          unsupported  signal.h: No such file or directory
 gcc-dg-torture/float128-mul-underflow.c               unsupported  type '__float128' is not supported
 gcc-dg-torture/float128-nan.c                         unsupported  type '__float128' is not supported
 gcc-dg-torture/float128-truncdf-underflow.c           unsupported  type '__float128' is not supported
@@ -482,7 +480,6 @@ gcc-dg-torture/pr39678.c                              unsupported  no type in st
 gcc-dg-torture/pr45636.c                              unsupported  undefined symbol 'mempcpy': cimo's runtime does not provide it
 gcc-dg-torture/pr47228.c                              unsupported  bit-field 'f0' in packed struct is not supported
 gcc-dg-torture/pr47473.c                              unsupported  long double is not supported
-gcc-dg-torture/pr48542.c                              unsupported  setjmp.h: No such file or directory
 gcc-dg-torture/pr48953.c                              unsupported  struct member 'i' has variably modified type
 gcc-dg-torture/pr50444.c                              unsupported  built-in function '__builtin_ia32_pxor128' is not supported
 gcc-dg-torture/pr52451.c                              unsupported  long double is not supported

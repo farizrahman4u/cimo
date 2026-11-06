@@ -2,9 +2,34 @@
    without a fused multiply-add instruction: wasm and baseline x86-64.
 
    x*y is formed exactly as a 106-bit integer, z is aligned to it in a 128-bit window (bits
-   shifted out are kept as a sticky bit), they are added, and the sum is rounded to nearest
-   even once at the target precision, subnormals included. Infinities, NaNs and zero operands
-   take the plain x*y + z path, which is exact for them. */
+   shifted out are kept as a sticky bit), they are added, and the sum is rounded once at the
+   target precision in the current rounding mode (<fenv.h>), subnormals included. Infinities,
+   NaNs and zero operands take the plain x*y + z path, which is exact for them. */
+
+unsigned __cimo_rdfpcr(void);
+
+/* the rounding mode: 0 to nearest, 1 upward, 2 downward, 3 toward zero (wasm: always 0) */
+static int
+rmode(void)
+{
+#ifdef __x86_64__
+	static const int m[4] = { 0, 2, 1, 3 }; /* MXCSR RC: nearest, down, up, zero */
+	return m[__cimo_rdfpcr() >> 13 & 3];
+#else
+	return __cimo_rdfpcr() >> 22 & 3; /* FPCR RMode: nearest, up, down, zero */
+#endif
+}
+
+/* whether a value of sign s that is not exact moves away from zero, by mode (roundbit and sticky: to nearest) */
+static int
+away(int mode, int s, int roundbit, int sticky, int odd)
+{
+	if (mode == 0)
+		return roundbit && (sticky || odd);
+	if (mode == 3)
+		return 0;
+	return (roundbit || sticky) && s == (mode == 2);
+}
 
 typedef unsigned long u64;
 
@@ -144,7 +169,7 @@ decode(double d, u64 *m, int *e, int *s)
    (the unbiased exponent of its leading bit position p-1); 1 for an exact zero; 2 for
    overflow. */
 static int
-core(double x, double y, double z, int p, int emin, int emax, int *sign, u64 *keep, int *exp)
+core(double x, double y, double z, int p, int emin, int emax, int mode, int *sign, u64 *keep, int *exp)
 {
 	u64 mx, my, mz;
 	int ex, ey, ez, sx, sy, sz, sp, ep, eb, sb, lz, e, shift, prec;
@@ -203,12 +228,9 @@ core(double x, double y, double z, int p, int emin, int emax, int *sign, u64 *ke
 	*sign = sb;
 	if (prec <= 0) {
 		/* below half the smallest subnormal unless prec == 0 and above the halfway point */
-		kept = 0;
-		if (prec == 0) {
-			roundbit = 1;
-			sticky = (R.hi << 1) != 0 || R.lo != 0;
-			kept = roundbit && sticky;
-		}
+		roundbit = prec == 0;
+		sticky = prec < 0 || (R.hi << 1) != 0 || R.lo != 0;
+		kept = away(mode, sb, roundbit, sticky, 0);
 		*keep = kept;
 		*exp = emin;
 		return 0;
@@ -227,7 +249,7 @@ core(double x, double y, double z, int p, int emin, int emax, int *sign, u64 *ke
 		roundbit = R.lo >> (shift - 1) & 1;
 		sticky = shift > 1 && (R.lo & ((1UL << (shift - 1)) - 1)) != 0;
 	}
-	if (roundbit && (sticky || (kept & 1)))
+	if (away(mode, sb, roundbit, sticky, kept & 1))
 		kept++;
 	if (prec == p && kept >> p) { /* carry into a new leading bit */
 		kept >>= 1;
@@ -244,7 +266,7 @@ static double
 __cimo_softfma(double x, double y, double z)
 {
 	union dbl u;
-	int sign, exp, r;
+	int sign, exp, r, mode;
 	u64 keep;
 
 	u.f = x;
@@ -258,11 +280,12 @@ __cimo_softfma(double x, double y, double z)
 		return z + z;
 	if (z == 0) /* x*y is rounded once; adding a zero could only turn an underflow's -0 into +0 */
 		return x * y;
-	r = core(x, y, z, 53, -1022, 1023, &sign, &keep, &exp);
-	if (r == 1)
-		return 0.0;
-	if (r == 2)
-		u.i = 0x7ffUL << 52;
+	mode = rmode();
+	r = core(x, y, z, 53, -1022, 1023, mode, &sign, &keep, &exp);
+	if (r == 1) /* an exact zero sum is +0, -0 rounding downward */
+		return mode == 2 ? -0.0 : 0.0;
+	if (r == 2) /* overflow: infinity, or the largest finite value when the mode rounds toward zero */
+		u.i = mode == 3 || (mode == 1 && sign) || (mode == 2 && !sign) ? 0x7feUL << 52 | ((1UL << 52) - 1) : 0x7ffUL << 52;
 	else if (keep >> 52) /* normal (a subnormal that rounded up to the smallest normal too) */
 		u.i = (u64)(exp + 1023) << 52 | (keep & ((1UL << 52) - 1));
 	else
@@ -275,7 +298,7 @@ static float
 __cimo_softfmaf(float x, float y, float z)
 {
 	union flt u;
-	int sign, exp, r;
+	int sign, exp, r, mode;
 	u64 keep;
 
 	if (x != x || y != y || z != z || x == 0 || y == 0 || x - x != 0 || y - y != 0 ||
@@ -283,11 +306,12 @@ __cimo_softfmaf(float x, float y, float z)
 		return (float)((double)x * y + z); /* NaN, infinity or a zero factor: exact */
 	if (z == 0) /* x*y is rounded once; adding a zero could only turn an underflow's -0 into +0 */
 		return x * y;
-	r = core(x, y, z, 24, -126, 127, &sign, &keep, &exp);
-	if (r == 1)
-		return 0.0f;
-	if (r == 2)
-		u.i = 0xffU << 23;
+	mode = rmode();
+	r = core(x, y, z, 24, -126, 127, mode, &sign, &keep, &exp);
+	if (r == 1) /* an exact zero sum is +0, -0 rounding downward */
+		return mode == 2 ? -0.0f : 0.0f;
+	if (r == 2) /* overflow: infinity, or the largest finite value when the mode rounds toward zero */
+		u.i = mode == 3 || (mode == 1 && sign) || (mode == 2 && !sign) ? 0xfeU << 23 | ((1U << 23) - 1) : 0xffU << 23;
 	else if (keep >> 23)
 		u.i = (unsigned)(exp + 127) << 23 | (unsigned)(keep & ((1U << 23) - 1));
 	else
