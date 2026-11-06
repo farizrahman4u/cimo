@@ -145,6 +145,7 @@ omap = [
     (D.Oaands, Ki, "ands %=, %0, %1"),
     (Oacmn, Ki, "cmn %0, %1"),
     (Oafcmp, Ka, "fcmpe %0, %1"),
+    (D.Oafcmpq, Ka, "fcmp %0, %1"),  # cimo: the quiet comparison (isel.selcmp)
     # cimo math builtins (ext.math)
     (D.Ofsqrt, Ka, "fsqrt %=, %0"),
     (D.Ofabs, Ka, "fabs %=, %0"),
@@ -765,6 +766,10 @@ def emitins(i, e):
         emitf("mov %=, sp", i, e)
     elif op == D.Osetsp:
         emitf("mov sp, %0", i, e)
+    elif op == D.Ordfpcr or op == D.Ordfpsr:  # cimo (<fenv.h>)
+        emitf("mrs %L=, " + ("fpcr" if op == D.Ordfpcr else "fpsr"), i, e)
+    elif op == D.Owrfpcr or op == D.Owrfpsr:
+        emitf("msr " + ("fpcr" if op == D.Owrfpcr else "fpsr") + ", %L0", i, e)
     elif op == Osalloc:
         emitf("sub sp, sp, %0", i, e)
         if not req(i.to, R):
@@ -1164,7 +1169,7 @@ def _flagsfrom(e):
                 elif j.op == D.Oacsel:
                     readers.append(e.fn.mem[rval(j.arg[1])].offset.i)
                 elif j.op not in _SAFEFLAGS and not isload(j.op) and not isstore(j.op):
-                    if j.op in (Oacmp, Oacmn, D.Oatst, Oafcmp):
+                    if j.op in (Oacmp, Oacmn, D.Oatst, Oafcmp, D.Oafcmpq):
                         break
                     readers = None
                     break

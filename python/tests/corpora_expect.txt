@@ -243,7 +243,6 @@ gcc-torture/ieee/fp-cmp-8l.c                          unsupported  long double i
 gcc-torture/ieee/inf-1.c                              unsupported  long double is not supported
 gcc-torture/ieee/inf-2.c                              unsupported  long double is not supported
 gcc-torture/ieee/inf-3.c                              unsupported  long double is not supported
-gcc-torture/ieee/pr122307.c                           unsupported  fenv.h: No such file or directory
 gcc-torture/ieee/pr29302-1.c                          unsupported  long double is not supported
 gcc-torture/ieee/pr36332.c                            unsupported  long double is not supported
 gcc-torture/inst-check.c                              unsupported  expected declaration or function definition
@@ -415,32 +414,27 @@ gcc-dg-torture/bitint-64.c                            unsupported  _Atomic type 
 gcc-dg-torture/bitint-73.c                            unsupported  invalid signed _BitInt width 513
 gcc-dg-torture/bitint-84.c                            unsupported  _Atomic type qualifier is not yet supported
 gcc-dg-torture/builtin-complex-1.c                    unsupported  long double is not supported
-gcc-dg-torture/builtin-fp-int-inexact.c               unsupported  fenv.h: No such file or directory
-gcc-dg-torture/builtin-iseqsig-1.c                    unsupported  fenv.h: No such file or directory
-gcc-dg-torture/builtin-iseqsig-2.c                    unsupported  fenv.h: No such file or directory
-gcc-dg-torture/builtin-iseqsig-3.c                    unsupported  fenv.h: No such file or directory
+gcc-dg-torture/builtin-fp-int-inexact.c               unsupported  long double is not supported
+gcc-dg-torture/builtin-iseqsig-3.c                    unsupported  long double is not supported
 gcc-dg-torture/builtin-issignaling-2.c                unsupported  built-in function '__builtin_nansd32' is not supported
 gcc-dg-torture/builtin-math-7.c                       unsupported  _Complex of a type other than float, double or long double is not supported
-gcc-dg-torture/cmp-of-cmp-fenv-1.c                    unsupported  fenv.h: No such file or directory
-gcc-dg-torture/cmp-of-cmp-fenv-2.c                    unsupported  fenv.h: No such file or directory
 gcc-dg-torture/convert-dfp-2.c                        unsupported  expected declaration or function definition
 gcc-dg-torture/convert-dfp.c                          unsupported  expected declaration or function definition
 gcc-dg-torture/dfp-default-init-1.c                   unsupported  expected declaration or function definition
-gcc-dg-torture/float128-cmp-invalid.c                 unsupported  fenv.h: No such file or directory
-gcc-dg-torture/float128-div-underflow.c               unsupported  fenv.h: No such file or directory
-gcc-dg-torture/float128-exact-underflow.c             unsupported  fenv.h: No such file or directory
+gcc-dg-torture/float128-cmp-invalid.c                 unsupported  type '__float128' is not supported
+gcc-dg-torture/float128-div-underflow.c               unsupported  type '__float128' is not supported
+gcc-dg-torture/float128-exact-underflow.c             unsupported  setjmp.h: No such file or directory
 gcc-dg-torture/float128-extend-inf.c                  unsupported  long double is not supported
-gcc-dg-torture/float128-extend-nan.c                  unsupported  fenv.h: No such file or directory
-gcc-dg-torture/float128-extendxf-underflow.c          unsupported  fenv.h: No such file or directory
-gcc-dg-torture/float128-mul-underflow.c               unsupported  fenv.h: No such file or directory
-gcc-dg-torture/float128-nan.c                         unsupported  fenv.h: No such file or directory
-gcc-dg-torture/float128-truncdf-underflow.c           unsupported  fenv.h: No such file or directory
-gcc-dg-torture/float128-truncsf-underflow.c           unsupported  fenv.h: No such file or directory
-gcc-dg-torture/fp-double-convert-float-1.c            unsupported  fenv.h: No such file or directory
+gcc-dg-torture/float128-extend-nan.c                  unsupported  long double is not supported
+gcc-dg-torture/float128-extendxf-underflow.c          unsupported  setjmp.h: No such file or directory
+gcc-dg-torture/float128-mul-underflow.c               unsupported  type '__float128' is not supported
+gcc-dg-torture/float128-nan.c                         unsupported  type '__float128' is not supported
+gcc-dg-torture/float128-truncdf-underflow.c           unsupported  type '__float128' is not supported
+gcc-dg-torture/float128-truncsf-underflow.c           unsupported  type '__float128' is not supported
 gcc-dg-torture/fp-int-convert-float128-ieee-timode.c  unsupported  type '_Float128' is not supported
 gcc-dg-torture/fp-int-convert-float128-ieee.c         unsupported  type '_Float128' is not supported
 gcc-dg-torture/fp-int-convert-float128-timode-2.c     unsupported  type '__float128' is not supported
-gcc-dg-torture/fp-int-convert-float128-timode-3.c     unsupported  fenv.h: No such file or directory
+gcc-dg-torture/fp-int-convert-float128-timode-3.c     unsupported  type '__float128' is not supported
 gcc-dg-torture/fp-int-convert-float128-timode.c       unsupported  type '__float128' is not supported
 gcc-dg-torture/fp-int-convert-float128.c              unsupported  type '__float128' is not supported
 gcc-dg-torture/fp-int-convert-float128x-timode.c      unsupported  type '_Float128x' is not supported
@@ -450,35 +444,14 @@ gcc-dg-torture/fp-int-convert-float64x.c              unsupported  long double i
 gcc-dg-torture/fp-int-convert-float80-timode.c        unsupported  type '__float80' is not supported
 gcc-dg-torture/fp-int-convert-float80.c               unsupported  type '__float80' is not supported
 gcc-dg-torture/fp-int-convert-long-double.c           unsupported  long double is not supported
-gcc-dg-torture/fp-int-convert-timode-2.c              unsupported  fenv.h: No such file or directory
-gcc-dg-torture/fp-int-convert-timode-3.c              unsupported  fenv.h: No such file or directory
-gcc-dg-torture/fp-int-convert-timode-4.c              unsupported  fenv.h: No such file or directory
 gcc-dg-torture/fp-int-convert-timode.c                unsupported  long double is not supported
-gcc-dg-torture/fp-uint64-convert-double-1.c           unsupported  fenv.h: No such file or directory
-gcc-dg-torture/fp-uint64-convert-double-2.c           unsupported  fenv.h: No such file or directory
 gcc-dg-torture/ftrapv-1.c                             unsupported  unistd.h: No such file or directory
 gcc-dg-torture/ftrapv-2.c                             unsupported  unistd.h: No such file or directory
 gcc-dg-torture/hardbool.c                             unsupported  attribute 'hardbool' is not supported
-gcc-dg-torture/inf-compare-1-float.c                  unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-1.c                        unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-2-float.c                  unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-2.c                        unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-3-float.c                  unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-3.c                        unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-4-float.c                  unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-4.c                        unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-5-float.c                  unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-5.c                        unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-6-float.c                  unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-6.c                        unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-7-float.c                  unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-7.c                        unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-8-float.c                  unsupported  fenv.h: No such file or directory
-gcc-dg-torture/inf-compare-8.c                        unsupported  fenv.h: No such file or directory
 gcc-dg-torture/ipa-bitfield-predicate-1.c             unsupported  attribute 'scalar_storage_order' is not supported
 gcc-dg-torture/mips-hilo-2.c                          unsupported  inline assembly is not supported
 gcc-dg-torture/neon-sve-bridge.c                      unsupported  arm_neon_sve_bridge.h: No such file or directory
-gcc-dg-torture/pr100778.c                             unsupported  fenv.h: No such file or directory
+gcc-dg-torture/pr100778.c                             unsupported  undeclared identifier: feenableexcept
 gcc-dg-torture/pr110228.c                             unsupported  inline assembly is not supported
 gcc-dg-torture/pr110799.c                             unsupported  unistd.h: No such file or directory
 gcc-dg-torture/pr112639.c                             unsupported  built-in function '__builtin_clzg' is not supported
@@ -512,7 +485,7 @@ gcc-dg-torture/pr47473.c                              unsupported  long double i
 gcc-dg-torture/pr48542.c                              unsupported  setjmp.h: No such file or directory
 gcc-dg-torture/pr48953.c                              unsupported  struct member 'i' has variably modified type
 gcc-dg-torture/pr50444.c                              unsupported  built-in function '__builtin_ia32_pxor128' is not supported
-gcc-dg-torture/pr52451.c                              unsupported  fenv.h: No such file or directory
+gcc-dg-torture/pr52451.c                              unsupported  long double is not supported
 gcc-dg-torture/pr53922.c                              unsupported  undefined symbol 'y': cimo's runtime does not provide it
 gcc-dg-torture/pr54261-1.c                            unsupported  built-in function '__sync_fetch_and_add' is not supported
 gcc-dg-torture/pr55755.c                              unsupported  bit-field 'f0' in packed struct is not supported
@@ -523,7 +496,7 @@ gcc-dg-torture/pr60092.c                              unsupported  undefined sym
 gcc-dg-torture/pr68037-1.c                            unsupported  attribute 'interrupt' is not supported
 gcc-dg-torture/pr68037-2.c                            unsupported  attribute 'interrupt' is not supported
 gcc-dg-torture/pr68037-3.c                            unsupported  attribute 'interrupt' is not supported
-gcc-dg-torture/pr68264.c                              unsupported  fenv.h: No such file or directory
+gcc-dg-torture/pr68264.c                              unsupported  errno.h: No such file or directory
 gcc-dg-torture/pr69613.c                              unsupported  vector_size applied to a type that is not an integer or floating type
 gcc-dg-torture/pr69760.c                              unsupported  unistd.h: No such file or directory
 gcc-dg-torture/pr69909.c                              unsupported  vector_size applied to a type that is not an integer or floating type
@@ -536,16 +509,13 @@ gcc-dg-torture/pr77768.c                              unsupported  invalid opera
 gcc-dg-torture/pr79351.c                              unsupported  expected declaration or function definition
 gcc-dg-torture/pr80122.c                              unsupported  built-in function '__builtin_va_arg_pack_len' is not supported
 gcc-dg-torture/pr8081.c                               unsupported  struct member 'val' has variably modified type
-gcc-dg-torture/pr82692.c                              unsupported  fenv.h: No such file or directory
 gcc-dg-torture/pr85397-1.c                            unsupported  nested functions (a GNU extension) are not supported
 gcc-dg-torture/pr86389.c                              unsupported  nested functions (a GNU extension) are not supported
 gcc-dg-torture/pr86505.c                              unsupported  built-in function '__builtin_va_arg_pack_len' is not supported
 gcc-dg-torture/pr89111.c                              unsupported  bit-field 'b' in packed struct is not supported
 gcc-dg-torture/pr90020.c                              unsupported  undefined symbol 'x': cimo's runtime does not provide it
-gcc-dg-torture/pr91323.c                              unsupported  fenv.h: No such file or directory
 gcc-dg-torture/pr92088-1.c                            unsupported  struct member 'toto' has variably modified type
-gcc-dg-torture/pr92690.c                              unsupported  fenv.h: No such file or directory
-gcc-dg-torture/pr93133.c                              unsupported  fenv.h: No such file or directory
+gcc-dg-torture/pr92690.c                              unsupported  undeclared identifier: feenableexcept
 gcc-dg-torture/pr93170.c                              unsupported  vector_size applied to a type that is not an integer or floating type
 gcc-dg-torture/pr98219-1.c                            unsupported  x86gprintrin.h: No such file or directory
 gcc-dg-torture/pr98219-2.c                            unsupported  x86gprintrin.h: No such file or directory

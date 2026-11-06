@@ -86,6 +86,8 @@ def parseattr(a, allowed, prefix):
             if a:
                 a.section = section
             expect(TRPAREN, "after section name")
+    if prefix == PREFIXGNU and name in ('noinline', 'noipa') and U.diagnostics:
+        DG.declnoinline = True  # cimo: still an ignored attribute otherwise (diag.IGNOREDATTRS)
     if kind:
         if not (kind & allowed):
             error(tok.loc, "%sattribute '%s' is not supported here", prefixname, name)

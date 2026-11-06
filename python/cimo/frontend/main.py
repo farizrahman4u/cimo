@@ -150,6 +150,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.bitops = _opset(bitops)
         _qbe.bigcopy = bigcopy
         U.diagnostics = bool(diagnostics)
+        U.fenvaccess = U.fenvtouched = False
         if diagnostics:
             from . import cc as _cc, diag as _diag
             _cc.exprhook = _diag.checktype

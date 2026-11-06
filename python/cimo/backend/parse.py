@@ -46,6 +46,7 @@ Tq = Ntok + 6  # cimo extension: class q and its instructions, keywords when ext
 _QNAMES = {optab[o].name: o for o in range(D.Oqaddb, D.Oqstore + 1) if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
 _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
+_FPUOPS = ('rdfpcr', 'rdfpsr', 'wrfpcr', 'wrfpsr')  # cimo: the floating-point environment (ext.math)
 _BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16', 'umulh')  # umulh: arm64's, for the frontend's __int128
 
 kwmap = {
@@ -241,6 +242,9 @@ def lex():
         if _ext.math and S.tokval_str in _BITOPS:
             S.mathop = getattr(D, 'O' + S.tokval_str)
             return Tbits
+        if _ext.math and S.tokval_str in _FPUOPS:
+            S.mathop = getattr(D, 'O' + S.tokval_str)
+            return Tsp
         if _ext.vla and S.tokval_str in ('getsp', 'setsp'):
             S.mathop = D.Ogetsp if S.tokval_str == 'getsp' else D.Osetsp
             return Tsp
@@ -559,9 +563,9 @@ def parseline(ps):
         r = R
         k = Kw
         op = Tvol
-    elif t == Tsp and S.mathop == D.Osetsp:
+    elif t == Tsp and S.mathop in (D.Osetsp, D.Owrfpcr, D.Owrfpsr):
         r = R
-        k = Kl
+        k = Kl if S.mathop == D.Osetsp else Kw
         op = Tsp
     elif t == Tq and S.mathop == D.Oqstore:
         r = R
@@ -659,6 +663,11 @@ def parseline(ps):
             return _ins(S.mathop, k, r, arg)
         if i != 1 or KBASE(k) != 0 or (S.mathop == D.Obswap16 and k != Kw):
             err("%s needs one argument and class w or l", optab[S.mathop].name)
+        return _ins(S.mathop, k, r, arg)
+    elif op == Tsp and S.mathop in (D.Ordfpcr, D.Ordfpsr, D.Owrfpcr, D.Owrfpsr):
+        if i != (0 if S.mathop in (D.Ordfpcr, D.Ordfpsr) else 1) or k != Kw:
+            err("%s needs class w and %s", optab[S.mathop].name,
+                "no argument" if S.mathop in (D.Ordfpcr, D.Ordfpsr) else "one argument")
         return _ins(S.mathop, k, r, arg)
     elif op == Tsp:
         if i != (0 if S.mathop == D.Ogetsp else 1) or (S.mathop == D.Ogetsp and k != Kl):
@@ -1186,7 +1195,7 @@ _clsops = None
 def printfn(fn, f):
     global _clsops
     if _clsops is None:
-        _clsops = {D.Oarg, D.Oswap, D.Oxcmp, D.Oacmp, D.Oacmn, D.Oafcmp, D.Oxtest,
+        _clsops = {D.Oarg, D.Oswap, D.Oxcmp, D.Oxcmpe, D.Oacmp, D.Oacmn, D.Oafcmp, D.Oafcmpq, D.Oxtest,
                    D.Oxdiv, D.Oxidiv}
     f.write("function $%s() {\n" % fn.name)
     b = fn.start

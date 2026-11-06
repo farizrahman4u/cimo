@@ -69,6 +69,8 @@ declalign = 0  # `aligned` attribute after the declarator being parsed by decl()
 declmode = None  # `mode` attribute of the declaration being parsed by decl()
 memberpacked = False  # `packed` attribute after a struct member's declarator
 declvector = None  # `vector_size` attribute of the declaration being parsed (bytes)
+declnoinline = False  # `noinline` or `noipa` in the declaration being parsed by decl()
+noinline = set()  # the functions declared so (the backend's inliner leaves their calls: qbe.paraminfo['#noinline'])
 _cache = {}
 
 
@@ -86,6 +88,7 @@ def setup():
     global declalign
     del inlinedefns[:]
     referenced.clear()
+    noinline.clear()
     declalign = 0
     _cache.clear()
 

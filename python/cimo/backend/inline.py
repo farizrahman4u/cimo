@@ -696,6 +696,13 @@ def _deadparam(fn, par, uses, slots):
     return None
 
 
+def _noinline():
+    """cimo: the functions declared noinline or noipa (the frontend's paraminfo, through the middle end's params):
+    their calls stay calls, their parameters and results unknown to the callers"""
+    from .. import middle
+    return middle.params.get('#noinline', ()) if middle.params else ()
+
+
 def ipo(fns, datarefs):
     """LLVM's IPSCCP and DeadArgumentElimination, on static functions whose every use is a direct call: a
     parameter that all calls give the same constant is that constant, one nothing reads goes, and a result
@@ -716,7 +723,7 @@ def ipo(fns, datarefs):
                 calls.setdefault(c.sym.id, []).append((fn, b, i, args))
     for s, fn in byid.items():
         sites = calls.get(s)
-        if fn.lnk.export or s in data or not sites or refs.get(s, 0) != len(sites):
+        if fn.lnk.export or s in data or not sites or refs.get(s, 0) != len(sites) or fn.name in _noinline():
             continue
         pars = _params(fn)
         if pars is None or fn.vararg or any(len(a) != len(pars) or any(x.op != D.Oarg for x in a) for _, _, _, a in sites):
@@ -820,12 +827,13 @@ def expand_all(fns, limit, datarefs=()):
                 stack.pop()
                 order.append(fn)
     bodies = {}
+    noinl = _noinline()
     nomem = {intern(n) for n in _LIBM | _READONLY if intern(n) not in byid}
     for fn in order:
         expand(fn, bodies)
         s = intern(fn.name)
         once = not fn.lnk.export and refs.get(s, 0) == 1 and s not in data
-        body = snapshot(fn, ONCE_LIMIT if once else limit)
+        body = None if fn.name in noinl else snapshot(fn, ONCE_LIMIT if once else limit)
         if body is not None:
             bodies[s] = body
         if not _writesmemory(fn, nomem):

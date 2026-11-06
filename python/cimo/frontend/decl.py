@@ -1082,6 +1082,7 @@ def decl(s, f):
         error(tok.loc, DG.INLINEASM)
     DG.declmode = None
     DG.declvector = None
+    DG.declnoinline = False
     a = Attr()
     a.kind = 0
     if A.attr(a, ATTRNORETURN) and consume(TSEMICOLON):
@@ -1130,6 +1131,8 @@ def decl(s, f):
         else:
             asmname = None
         A.gnuattr(a, 0)  # appertains to identifier
+        if DG.declnoinline and t.kind == TYPEFUNC and name:
+            DG.noinline.add(name)
         if DG.declmode is not None:  # cimo: __attribute__((mode(M)))
             t = DG.modetype(t, DG.declmode)
         if DG.declvector is not None:  # cimo: __attribute__((vector_size(N)))
@@ -1234,7 +1237,12 @@ def decl(s, f):
                     error(tok.loc, "function '%s' defined with a typedef'd function type", name)
                 s = funcscope
                 f = Q.mkfunc(d, name, t, s)
+                U.fenvtouched = U.fenvaccess
                 ST.stmt(f, s)
+                if U.fenvtouched and Q.paraminfo is not None:  # cimo: see util.fenvaccess
+                    Q.paraminfo.setdefault('#fenv', set()).add(d.value.name if d.value else name)
+                if name in DG.noinline and Q.paraminfo is not None:
+                    Q.paraminfo.setdefault('#noinline', set()).add(d.value.name if d.value else name)
                 if d.isnoreturn:
                     Q.funchlt(f)
                 # XXX: need to keep track of function in case a later declaration specifies extern

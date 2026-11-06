@@ -24,7 +24,22 @@ def isdivwl(i):
 
 
 def pinned(i):
-    return optab[i.op].pinned or isdivwl(i)
+    return optab[i.op].pinned or isdivwl(i) or (fenv and _fpop(i))
+
+
+# cimo: the function being compiled is under `#pragma STDC FENV_ACCESS ON` (fold._fenvfns, set by main.compile): its
+# floating-point operations, which read the rounding mode and set the exception flags, stay where the program put
+# them (between its fesetround and fetestexcept calls) and are never merged
+fenv = False
+_FPARITH = frozenset((D.Oadd, D.Osub, D.Omul, D.Odiv, D.Ofsqrt, D.Ofrint, D.Ofnearbyint, D.Ofma1))
+_FPCONV = frozenset((D.Ostosi, D.Ostoui, D.Odtosi, D.Odtoui, D.Oswtof, D.Ouwtof, D.Osltof, D.Oultof, D.Oexts,
+                     D.Otruncd))
+
+
+def _fpop(i):
+    if i.op in _FPCONV or D.Ocmps <= i.op <= D.Ocmpd1:
+        return True
+    return i.op in _FPARITH and KBASE(i.cls) == 1
 
 
 def canelim(i):

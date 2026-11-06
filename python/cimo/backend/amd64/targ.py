@@ -29,7 +29,7 @@ loadsh 0 0 1;loaduh 0 0 1;loadsw 0 0 1;loaduw 0 0 1;load 0 0 1;extsb 0 0 1;extub
 extsh 0 0 1;extuh 0 0 1;extsw 0 0 1;extuw 0 0 1;exts 0 0 1;truncd 0 0 1;stosi 0 0 1;
 stoui 0 0 1;dtosi 0 0 1;dtoui 0 0 1;swtof 0 0 1;uwtof 0 0 1;sltof 0 0 1;ultof 0 0 1;
 cast 0 0 1;copy 0 0 1;dbgloc 0 0 1;nop 0 0 1;addr 0 0 1;blit0 0 1 0;blit1 0 1 0;swap 1 0 0;
-xidiv 1 0 0;xdiv 1 0 0;xcmp 1 1 0;xtest 1 1 0;flagieq 0 0 1;flagine 0 0 1;flagisge 0 0 1;
+xidiv 1 0 0;xdiv 1 0 0;xcmp 1 1 0;xcmpe 1 1 0;xtest 1 1 0;flagieq 0 0 1;flagine 0 0 1;flagisge 0 0 1;
 flagisgt 0 0 1;flagisle 0 0 1;flagislt 0 0 1;flagiuge 0 0 1;flagiugt 0 0 1;flagiule 0 0 1;
 flagiult 0 0 1;flagfeq 0 0 1;flagfge 0 0 1;flagfgt 0 0 1;flagfle 0 0 1;flagflt 0 0 1;
 flagfne 0 0 1;flagfo 0 0 1;flagfuo 0 0 1

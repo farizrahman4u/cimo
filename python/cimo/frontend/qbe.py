@@ -200,6 +200,11 @@ bigcopy = None
 IFRINT, IFNEARBYINT = 121, 122
 # cimo: the high 64 bits of an unsigned 64-bit product (the backend's arm64 umulh), for __int128 multiplication
 IUMULH = 123
+# cimo: the floating-point environment (<fenv.h>, the runtime's fenv.c): the control and status registers read and
+# written (arm64 FPCR and FPSR; x86-64 MXCSR for both), the declared external functions of these names
+IRDFPCR, IRDFPSR, IWRFPCR, IWRFPSR = 124, 125, 126, 127
+_FPUBUILTINS = {'__cimo_rdfpcr': IRDFPCR, '__cimo_rdfpsr': IRDFPSR, '__cimo_wrfpcr': IWRFPCR,
+                '__cimo_wrfpsr': IWRFPSR}
 _BITBUILTINS = {}
 for _n, _i in (('clz', IBCLZ), ('ctz', IBCTZ), ('popcount', IBPOPCNT)):
     _BITBUILTINS['__builtin_' + _n] = (_i, 'w')
@@ -224,6 +229,7 @@ instname += ['getsp', 'setsp']
 instname += ['bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16']
 instname += ['frint', 'fnearbyint']
 instname += ['umulh']
+instname += ['rdfpcr', 'rdfpsr', 'wrfpcr', 'wrfpsr']
 
 
 def _vol(op, tq):
@@ -1355,6 +1361,25 @@ def _libcall(f, e, name, d):
     return None
 
 
+def _fpubuiltin(f, e):
+    """cimo: __cimo_rdfpcr() and the rest (see _FPUBUILTINS) as their instruction."""
+    b = e.base
+    if not (b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT):
+        return None
+    d = b.base.decl
+    op = _FPUBUILTINS.get(d.name)
+    if op is None or d.asmname or d.kind != DECLFUNC or d.linkage != LINKEXTERN or d.defined:
+        return None
+    if op in (IRDFPCR, IRDFPSR):
+        if e.args:
+            return None
+        return funcinst(f, op, 'w', None, None)
+    if not e.args or e.args.next or not e.args.type.prop & PROPINT:
+        return None
+    funcinst(f, op, 0, convert(f, TY.typeuint, e.args.type, funcexpr(f, e.args)), None)
+    return mkintconst(0)
+
+
 def funcbuiltin(f, e):
     """cimo extension: a call of sqrt, fabs, fmin, fmax, floor, ceil, trunc, round, rint,
     nearbyint, fma (or
@@ -1910,6 +1935,10 @@ def funcexpr(f, e):
         v = funcstore(f, e.type, e.qual, lval, v)
         return l if e.post else v
     elif k == EXPRCALL:
+        if U.diagnostics:
+            v = _fpubuiltin(f, e)
+            if v is not None:
+                return v
         if builtins:
             v = funcbuiltin(f, e)
             if v is not None:
@@ -2427,7 +2456,7 @@ def emitinst(insts, i, n):
     w(instname[inst.kind])
     if inst.nsw:
         w('nsw')
-    if inst.kind == IGETSP:
+    if inst.kind in (IGETSP, IRDFPCR, IRDFPSR):
         w('\n')
         return i + 1
     w(' ')

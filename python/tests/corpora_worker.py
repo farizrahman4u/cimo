@@ -44,7 +44,10 @@ def run(line):
     try:
         first = '#include "%s"\n' % prelude.replace(os.sep, '/') if prelude else ''
         with open(path, 'rb') as f:
-            wrapv = b'-fwrapv' in f.read()  # the program's own dg-options
+            text = f.read()
+        wrapv = b'-fwrapv' in text  # the program's own dg-options
+        if b'-frounding-math' in text:  # C's way to say the same
+            first = '#pragma STDC FENV_ACCESS ON\n' + first
         m = cimo.compile(first + '#include "%s"\n' % path.replace(os.sep, '/') + WRAPPER,
                          include_dirs=inc, wrapv=wrapv)
     except CompileError as e:

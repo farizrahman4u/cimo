@@ -543,6 +543,10 @@ class _Gen:
             self.paddr(a0)
             self.gset(G_SP)
             return
+        elif o in (D.Ordfpcr, D.Ordfpsr):  # cimo (<fenv.h>): wasm has one rounding mode and no exception flags
+            self.i32c(0)
+        elif o in (D.Owrfpcr, D.Owrfpsr):
+            return
         elif D.isalloc(o):
             off = self.slots.get(id(i))
             if off is not None:

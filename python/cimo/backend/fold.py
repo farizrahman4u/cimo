@@ -346,5 +346,73 @@ def foldref(fn, i):
             return R
         cr = fn.con[rval(rr)]
 
+        if fn.name in _fenvfns() and not _fenvexact(i, cl, cr):
+            return R
         return opfold(i.op, i.cls, cl, cr, fn)
     return R
+
+
+def _fenvfns():
+    """cimo: the functions under `#pragma STDC FENV_ACCESS ON` (the frontend's paraminfo, through the middle end's
+    params): their floating-point operations run in the program's rounding mode and raise its flags, so only the
+    exact ones fold"""
+    from .. import middle
+    return middle.params.get('#fenv', ()) if middle.params else ()
+
+
+_FINT = frozenset((Oswtof, Ouwtof, Osltof, Oultof))
+
+
+def _fenvexact(i, cl, cr):
+    """Whether i (constant operands cl, cr) folds to the value it computes in any rounding mode, raising nothing."""
+    from fractions import Fraction
+    op = i.op
+    fres = i.cls in (Ks, Kd)
+    if op == Ocast or op == D.Ocopy:
+        return True
+    if not fres and not any(optab[op].argcls[n][i.cls] in (Ks, Kd) for n in (0, 1)):
+        return True  # integer
+    if cl.type != CBits or cr.type != CBits:
+        return False
+    k0 = optab[op].argcls[0][i.cls]
+    if op in _FINT:
+        n = {Oswtof: s32(cl.i), Ouwtof: cl.i & U32, Osltof: cl.i, Oultof: cl.i & M64}[op]
+        f = float(n) if i.cls == Kd else f32(float(n))
+        return math.isfinite(f) and int(f) == n
+
+    def val(c, k):
+        return c.d if k == Kd else c.s
+    a = val(cl, k0)
+    b = val(cr, optab[op].argcls[1][i.cls]) if optab[op].argcls[1][i.cls] in (Ks, Kd) else 0.0
+    if not (math.isfinite(a) and math.isfinite(b)):
+        return False
+    if not fres:  # comparisons and conversions to integers: no NaN (checked), in range
+        if op in (Ostosi, Ostoui, Odtosi, Odtoui):
+            lo, hi = ((INT64_MIN, (1 << 63) - 1) if op in (Ostosi, Odtosi) else (0, M64)) if KWIDE(i.cls) \
+                else ((INT32_MIN, (1 << 31) - 1) if op in (Ostosi, Odtosi) else (0, U32))
+            return a == int(a) and lo <= a <= hi
+        return True
+    if op == Oneg or op == Oexts:
+        return True
+    if op == Otruncd:
+        return math.isfinite(f32(a)) and f32(a) == a and (a == 0 or abs(a) >= 2.0 ** -126)
+    x, y = Fraction(a), Fraction(b)
+    if op == Oadd:
+        exact = x + y
+    elif op == Osub:
+        exact = x - y
+    elif op == Omul:
+        exact = x * y
+    elif op == Odiv:
+        if y == 0:
+            return False
+        exact = x / y
+    else:
+        return False
+    r = (lambda v: v) if i.cls == Kd else f32
+    try:
+        f = r(float(exact))
+    except OverflowError:
+        return False
+    tiny = 2.0 ** (-1022 if i.cls == Kd else -126)
+    return math.isfinite(f) and Fraction(f) == exact and (f == 0 or abs(f) >= tiny)

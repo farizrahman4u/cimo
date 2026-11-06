@@ -873,6 +873,14 @@ def _h_fixed(a, ops, sz, code):
     a.put(code, ())
 
 
+def _h_mxcsr(a, ops, sz, digit):
+    """stmxcsr m32 (0f ae /3), ldmxcsr m32 (/2)"""
+    _nops(ops, 1)
+    if ops[0][0] != 'm':
+        raise AssemblerError('expected a memory operand')
+    _enc(a, b'\x0f\xae', digit, ops[0])
+
+
 def _h_bswap(a, ops, sz, _):
     _nops(ops, 1)
     r = _gpr(ops[0], (4, 8))
@@ -1241,6 +1249,8 @@ for _n, _code in (('ret', b'\xc3'), ('leave', b'\xc9'), ('cqto', b'\x48\x99'), (
                   ('cpuid', b'\x0f\xa2'), ('syscall', b'\x0f\x05')):
     _INSNS[_n] = (_h_fixed, 0, _code)
 _INSNS['retq'] = _INSNS['ret']
+_INSNS['stmxcsr'] = (_h_mxcsr, 0, 3)
+_INSNS['ldmxcsr'] = (_h_mxcsr, 0, 2)
 _INSNS['leaveq'] = _INSNS['leave']
 
 _CC = {'o': 0, 'no': 1, 'b': 2, 'c': 2, 'nae': 2, 'ae': 3, 'nb': 3, 'nc': 3, 'e': 4, 'z': 4,

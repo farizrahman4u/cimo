@@ -249,13 +249,18 @@ def cmpswap(arg, op):
     return int(rtype(arg[0]) == RCon)
 
 
-def selcmp(arg, k, swap, fn):
-    """arg: a 2-element list, swapped in place."""
+_ORDERED = frozenset((NCmpI + Cflt, NCmpI + Cfle, NCmpI + Cfgt, NCmpI + Cfge))
+
+
+def selcmp(arg, k, swap, fn, c=None):
+    """arg: a 2-element list, swapped in place. c: the condition; cimo: the ordered relations (<, <=, >, >=) of
+    floats compare with comis, which raises invalid on a quiet NaN as IEEE 754 and C's Annex F ask; ==, != and
+    the rest stay quiet (ucomis)"""
     if swap:
         r = arg[1]
         arg[1] = arg[0]
         arg[0] = r
-    emit(Oxcmp, k, R, arg[1], arg[0])
+    emit(D.Oxcmpe if c in _ORDERED and KBASE(k) == 1 else Oxcmp, k, R, arg[1], arg[0])
     icmp = D.insb[D.curi]
     if rtype(arg[0]) == RCon:
         assert k != Kw
@@ -479,7 +484,7 @@ def sel(i, tn, fn):
             if swap:
                 x = cmpop(x)
             emit(Oflag + x, k, i.to, R, R)
-            selcmp(i.arg, kc, swap, fn)
+            selcmp(i.arg, kc, swap, fn, x)
         else:
             die("unknown instruction %s", optab[op].name)
 
@@ -493,8 +498,8 @@ _EMIT = frozenset((Odbgloc, Ocall, Osalloc, Ocopy, Oadd, Osub, Oneg, Omul, Oand,
                    Oxtest, Ostosi, Odtosi, Oswtof, Osltof, Oexts, Otruncd, Ocast))
 
 
-_EXTINT = frozenset((D.Obclz, D.Obctz, D.Obpopcnt, D.Obswap, D.Obswap16))
-_EXTOPS = _EXTINT | frozenset((D.Ogetsp, D.Osetsp, D.Ofsqrt, D.Ofabs))
+_EXTINT = frozenset((D.Obclz, D.Obctz, D.Obpopcnt, D.Obswap, D.Obswap16, D.Owrfpcr, D.Owrfpsr))
+_EXTOPS = _EXTINT | frozenset((D.Ogetsp, D.Osetsp, D.Ofsqrt, D.Ofabs, D.Ordfpcr, D.Ordfpsr))
 
 
 def _inreg(r, k, fn):
@@ -735,7 +740,7 @@ def selsel(fn, b, i, tn):
         isel1 -= 1
     assert not gencmp or not gencpy
     if gencmp:
-        selcmp(cr, k, swap, fn)
+        selcmp(cr, k, swap, fn, c)
     if gencpy:
         emit(Ocopy, Kw, R, r, R)
     ins[isel0] = Ins(Onop)
@@ -772,7 +777,7 @@ def seljmp(b, fn):
         if swap:
             c = cmpop(c)
         if t.nuse == 1:
-            selcmp(ins[fi].arg, k, swap, fn)
+            selcmp(ins[fi].arg, k, swap, fn, c)
             ins[fi] = Ins(Onop)
         b.jmp.type = Jjf + c
     elif (ins[fi].op == Oand and t.nuse == 1

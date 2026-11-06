@@ -147,6 +147,8 @@ omap = [
     (Oxcmp, Ks, "ucomiss %S0, %S1"),
     (Oxcmp, Kd, "ucomisd %D0, %D1"),
     (Oxcmp, Ki, "cmp%k %0, %1"),
+    (D.Oxcmpe, Ks, "comiss %S0, %S1"),  # cimo: the signaling comparison (isel.selcmp)
+    (D.Oxcmpe, Kd, "comisd %D0, %D1"),
     (Oxtest, Ki, "test%k %0, %1"),
     (D.Oxaddm, Ki, "add%k %0, %M1"),
     (D.Oxsubm, Ki, "sub%k %0, %M1"),
@@ -950,6 +952,14 @@ def emitins(i, e):
         emitf("movq %%rsp, %L=", i, e)
     elif op == Osetsp:
         emitf("movq %L0, %%rsp", i, e)
+    elif op in (D.Ordfpcr, D.Ordfpsr):  # cimo (<fenv.h>): MXCSR through 8 bytes below the stack pointer; lea
+        f.write("\tleaq -8(%rsp), %rsp\n\tstmxcsr (%rsp)\n")  # keeps the flags
+        emitf("movl (%%rsp), %W=", i, e)
+        f.write("\tleaq 8(%rsp), %rsp\n")
+    elif op in (D.Owrfpcr, D.Owrfpsr):
+        f.write("\tleaq -8(%rsp), %rsp\n")
+        emitf("movl %W0, (%%rsp)", i, e)
+        f.write("\tldmxcsr (%rsp)\n\tleaq 8(%rsp), %rsp\n")
     elif op == Ofsqrt:
         emitf("sqrt%k %0, %=", i, e)
     elif op == Ofabs:

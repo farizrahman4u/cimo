@@ -15,6 +15,10 @@ out = []
 # cimo extension, off by default (cproc's behavior), set by compile(diagnostics=True): clear
 # errors for unsupported C instead of silent acceptance or generic messages (see diag.py)
 diagnostics = False
+# cimo: `#pragma STDC FENV_ACCESS ON` in effect (pp.directive), and whether it was at any point in the function being
+# parsed: the backend then leaves floating-point operations whose result is inexact to run (cimo.backend.fold)
+fenvaccess = False
+fenvtouched = False
 
 
 class FrontendError(Exception):

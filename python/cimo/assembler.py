@@ -1323,7 +1323,17 @@ def _i_adrp(a, mn, ops):
     return 0x90000000 | rd[1]
 
 
+_SYSREGS = {'fpcr': 0x4400, 'fpsr': 0x4420}  # op1=3, CRn=4, CRm=4, op2 0 or 1 (the floating-point environment)
+
+
 def _i_tls(a, mn, ops):
+    """mrs Xt, fpcr|fpsr and msr fpcr|fpsr, Xt; other system registers (tpidr_el0: thread-local storage) are not
+    supported"""
+    if len(ops) == 2:
+        sysreg, reg = (ops[1], ops[0]) if mn == 'mrs' else (ops[0], ops[1])
+        if sysreg.lower() in _SYSREGS:
+            rt = _reg(reg, 'x')
+            return (0xd53b0000 if mn == 'mrs' else 0xd51b0000) | _SYSREGS[sysreg.lower()] | rt[1]
     raise AssemblerError('thread-local storage is not supported')
 
 
@@ -1353,7 +1363,7 @@ _INSNS = {
     'scvtf': _i_cvtf, 'ucvtf': _i_cvtf, 'fcmp': _i_fcmp, 'fcmpe': _i_fcmp,
     'ldp': _i_pair, 'stp': _i_pair,
     'b': _i_b, 'bl': _i_b, 'blr': _i_blr, 'br': _i_blr, 'ret': _i_ret,
-    'brk': _i_brk, 'hint': _i_brk, 'nop': _i_nop, 'adrp': _i_adrp, 'mrs': _i_tls,
+    'brk': _i_brk, 'hint': _i_brk, 'nop': _i_nop, 'adrp': _i_adrp, 'mrs': _i_tls, 'msr': _i_tls,
 }
 for _k in _LDST:
     _INSNS[_k[0]] = _i_ldst

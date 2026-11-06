@@ -115,6 +115,8 @@ class _Driver:
         (cfg, ssa, mem, alias, load, copy, gvn, gcm, ifopt, simpl, live, spill,
          rega) = (_Lazy(m) for m in ('cfg', 'ssa', 'mem', 'alias', 'load', 'copy', 'gvn',
                                      'gcm', 'ifopt', 'simpl', 'live', 'spill', 'rega'))
+        from . import fold as _fold, gcm as _gcm
+        _gcm.fenv = fn.name in _fold._fenvfns()
         T.abi0(fn)
         cfg.fillcfg(fn)
         ssa.filluse(fn)

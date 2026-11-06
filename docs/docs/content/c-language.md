@@ -13,6 +13,7 @@ cimo ships its own C library, so a kernel behaves the same on every platform, th
 | `string.h` | `memcpy`, `memmove`, `memset`, `memcmp`, `strlen`, `strcmp`, `strcpy`, `strchr`, `strstr`, ... |
 | `math.h` | the C99 math functions, `float` and `double` versions |
 | `complex.h` | `float` and `double` `_Complex` arithmetic and functions (`cexp`, `csqrt`, `cabs`, ...), `I`, `CMPLX` |
+| `fenv.h` | rounding modes and exception flags: `fesetround`, `fetestexcept`, `feholdexcept`, ... |
 | `ctype.h` | `isdigit`, `isalpha`, `toupper`, ... |
 | `inttypes.h` | `PRId64` and friends |
 | `assert.h` | `assert` |
@@ -70,4 +71,6 @@ Signed integer overflow is undefined, and the compiler assumes it doesn't happen
 
 By default cimo contracts `a * b + c` within one expression into a fused multiply-add, as clang does with `-ffp-contract=on`, except in a loop when the same product is computed more than once (then it's one multiply and plain adds, as gcc does). That is faster and slightly more accurate, and it means results can differ in the last bit from a compiler that doesn't contract. Set `CIMO_FMA=0` for results identical to `-ffp-contract=off`. x86-64 CPUs without FMA and WebAssembly never contract, so results there are always those of `-ffp-contract=off`.
 
-There is no floating-point environment: rounding is to nearest and there are no exception flags.
+`<fenv.h>` controls the hardware's rounding mode and exception flags. Comparisons follow IEEE 754: `==`, `!=` and `isgreater` and its family are quiet, while `<`, `<=`, `>`, `>=` and `iseqsig` raise `FE_INVALID` on a NaN. Each call from Python starts with the flags clear and in the rounding mode Python uses, and leaves Python's mode as it was, even after `fesetround` or an `abort()`. Floating-point operations on constants are folded at compile time in round-to-nearest; write `#pragma STDC FENV_ACCESS ON` before code that changes the rounding mode or reads the flags, and those operations run at run time in the program's mode. WebAssembly has only round-to-nearest and no flags: `fesetround` to another mode returns nonzero. The math library returns correctly rounded or near results in every mode, but doesn't promise exact exception flags.
+
+`__attribute__((noinline))` and `noipa` keep a function from being inlined into its callers.

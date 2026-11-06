@@ -198,10 +198,15 @@ def fixarg(pa, pi, k, phi, fn):
         pa[pi] = r1
 
 
-def selcmp(arg, k, fn):
-    """arg is a two-element list, modified in place (swap)."""
+_ORDERED = frozenset((D.NCmpI + D.Cflt, D.NCmpI + D.Cfle, D.NCmpI + D.Cfgt, D.NCmpI + D.Cfge))
+
+
+def selcmp(arg, k, fn, c=None):
+    """arg is a two-element list, modified in place (swap). c: the condition; cimo: fcmpe, which raises invalid on
+    a quiet NaN, only for the ordered relations of floats (<, <=, >, >=), as IEEE 754 and C's Annex F ask; ==, !=
+    and the rest compare quietly (fcmp); C QBE used fcmpe for all"""
     if KBASE(k) == 1:
-        emit(Oafcmp, k, R, arg[0], arg[1])
+        emit(Oafcmp if c in _ORDERED else D.Oafcmpq, k, R, arg[0], arg[1])
         iarg = D.insb[D.curi].arg
         fixarg(iarg, 0, k, 0, fn)
         fixarg(iarg, 1, k, 0, fn)
@@ -949,7 +954,7 @@ def selcincadd(i, fn):
         x.scale = CSINC | 1 << 4
         chuse(a, +1, fn)
         emit(D.Oacsel, k, i.to, a, MEM(fn.nmem - 1))
-        if selcmp(args, ck, fn):
+        if selcmp(args, ck, fn, cc):
             cc = cmpop(cc)
         x.offset.i = cc
         return True
@@ -1052,7 +1057,7 @@ def selcsel(i, fn):
         args = list(cd[1].arg)
         for a in args:
             chuse(a, +1, fn)
-        if selcmp(args, ck, fn):
+        if selcmp(args, ck, fn, cc):
             cc = cmpop(cc)
     else:
         cc = None
@@ -1132,7 +1137,7 @@ def sel(i, fn):
         ck, cc = cm
         emit(Oflag, i.cls, i.to, R, R)
         i0 = D.insb[D.curi]
-        if selcmp(i.arg, ck, fn):
+        if selcmp(i.arg, ck, fn, cc):
             i0.op += cmpop(cc)
         else:
             i0.op += cc
@@ -1317,7 +1322,7 @@ def _ccmp(b, ir, fn, keep=False):
     args0 = list(d0.arg)
     cc0 = c0[1]
     emit(D.Oaccmp, k, R, a, MEM(fn.nmem - 1))
-    if selcmp(args0, c0[0], fn):
+    if selcmp(args0, c0[0], fn, cc0):
         cc0 = cmpop(cc0)
     # scale: the flags, the first comparison's condition, and whether ccmp runs when it fails
     if op == Oand:
@@ -1392,7 +1397,7 @@ def seljmp(b, fn):
             return
     if cm:
         ck, cc = cm
-        if selcmp(ir.arg, ck, fn):
+        if selcmp(ir.arg, ck, fn, cc):
             cc = cmpop(cc)
         b.jmp.type = Jjf + cc
         ir.set(Ins(Onop))

@@ -28,8 +28,8 @@ Design (requirements.md, "Execution model"):
 
       0 err   8 msg   16 file   24 line   32 func   40 pc   48 depth   56 stack limit   64 tid
       72 fault kind   80 fault address (these first 88 bytes also in cimo.fault's C)
-      128 frames: MAXDEPTH x 176 bytes (x19-x28, x29, lr, sp, d8-d15; x86-64 Linux: rbx,
-          rbp, r12-r15, the return address and rsp)
+      128 frames: MAXDEPTH x 176 bytes (x19-x28, x29, lr, sp, d8-d15, fpcr; x86-64 Linux: rbx,
+          rbp, r12-r15, the return address, rsp, the shadow stack pointer, mxcsr, scratch)
       3072 the thread's heap (struct heap in runtime/heap.c, at most 1024 bytes)
       4096 the thread's stdout buffer (runtime/stdio/stdout.c: length, then 4088 bytes)
 
@@ -59,10 +59,10 @@ from . import loader as _jit
 __all__ = ['KernelError', 'glue', 'stack_checked', 'State']
 
 CTX_SIZE = 8192
-# Windows x64 frames also hold rdi, rsi and xmm6-xmm15 (240 bytes): they go after the stdout
+# Windows x64 frames also hold rdi, rsi and xmm6-xmm15 (256 bytes): they go after the stdout
 # buffer, in a third page (_glue_amd64)
 _WIN_X64 = sys.platform == 'win32' and _jit._X86
-WFRAMES, WFRAMESZ = 8192, 248
+WFRAMES, WFRAMESZ = 8192, 256
 if _WIN_X64:
     CTX_SIZE = 12288
 ERR, MSG, FILE, LINE, FUNC, PC, DEPTH, LIMIT, TID, FAULT, ADDR = range(0, 88, 8)
@@ -150,6 +150,11 @@ def _find(apple, s, windows=False):
 
 _SAVE = [('x19', 'x20', 0), ('x21', 'x22', 16), ('x23', 'x24', 32), ('x25', 'x26', 48),
          ('x27', 'x28', 64)]
+# the caller's floating-point control register (rounding mode): each call starts with the exception flags clear (FPSR),
+# as a C program does, and a return or an unwind puts the rounding mode back (writing FPCR only when the kernel changed
+# it: a write costs several ns), so a kernel's fesetround never reaches Python's own arithmetic. The flags are left as
+# the kernel set them (Python doesn't read them; numpy clears them before it does)
+FPCR = 168
 _DSAVE = [('d8', 'd9', 104), ('d10', 'd11', 120), ('d12', 'd13', 136), ('d14', 'd15', 152)]
 
 
@@ -186,7 +191,10 @@ def glue(names, apple=False, windows=False, target=None):
     o += ['\tstp\t%s, %s, [x11, #%d]\n' % r for r in _SAVE]
     o.append('\tstp\tx29, x15, [x11, #80]\n\tmov\tx12, sp\n\tstr\tx12, [x11, #96]\n')
     o += ['\tstp\t%s, %s, [x11, #%d]\n' % r for r in _DSAVE]
+    o.append('\tmrs\tx12, fpcr\n\tstr\tw12, [x11, #%d]\n\tmsr\tfpsr, xzr\n' % FPCR)
     o.append('\tmov\tx19, x9\n\tmov\tx20, x11\n\tblr\tx14\n'
+             '\tldr\tw12, [x20, #%d]\n\tmrs\tx13, fpcr\n\tcmp\tw12, w13\n\tb.eq\t%sfpok\n\tmsr\tfpcr, x12\n%sfpok:\n'
+             % (FPCR, L, L) +
              '\tldr\tx30, [x20, #88]\n\tldr\tx10, [x19, #%d]\n\tsub\tx10, x10, #1\n'
              '\tstr\tx10, [x19, #%d]\n\tldp\tx19, x20, [x20]\n\tret\n' % (DEPTH, DEPTH))
     o.append('%sdeep:\n\tmov\tx10, #%d\n\tstr\tx10, [x9]\n\tmov\tx30, x15\n\tb\t%sret0\n'
@@ -198,6 +206,7 @@ def glue(names, apple=False, windows=False, target=None):
     o += ['\tldp\t%s, %s, [x11, #%d]\n' % r for r in _SAVE]
     o.append('\tldp\tx29, x30, [x11, #80]\n\tldr\tx12, [x11, #96]\n\tmov\tsp, x12\n')
     o += ['\tldp\t%s, %s, [x11, #%d]\n' % r for r in _DSAVE]
+    o.append('\tldr\tw12, [x11, #%d]\n\tmsr\tfpcr, x12\n' % FPCR)
     o.append('%sret0:\n\tmov\tx0, #0\n\tmov\tx1, #0\n\tfmov\td0, x0\n\tfmov\td1, x0\n\tret\n'
              '%snoframe:\n\tbrk\t#0xc1\n' % (L, L))
     # __cimo_fault: where cimo.fault's handler resumes a faulting kernel, with x9 = ctx
@@ -276,6 +285,7 @@ def _glue_amd64(names, windows):
         xregs = []
     RET, RSP = 64, 72
     SSP = 240 if windows else 80
+    MXCSR = 248 if windows else 88  # the caller's, its rounding control put back on return and unwind (FPCR on arm64)
 
     def fn(name):
         return '\t.globl\t%s\n\t.p2align\t4\n%s:\n' % (name, name)
@@ -306,14 +316,18 @@ def _glue_amd64(names, windows):
              % (DEPTH, MAXDEPTH, DEPTH, framesz, frames))
     o += ['\tmovq\t%%%s, %d(%%r10)\n' % r for r in regs]
     o += ['\tmovdqu\t%%%s, %d(%%r10)\n' % r for r in xregs]
+    o.append('\tstmxcsr\t%d(%%r10)\n' % MXCSR)
     o.append('\tmovq\t%%r11, %%r13\n\tmovq\t%%r10, %%r12\n'   # r13 = ctx, r12 = frame
              '\tpopq\t%%r11\n\tpopq\t%%r10\n'                # kernel, return address
              '\tmovq\t%%r10, %d(%%r12)\n\tmovq\t%%rsp, %d(%%r12)\n'
              '\txorl\t%%r10d, %%r10d\n%s\tmovq\t%%r10, %d(%%r12)\n'
-             '\tcallq\t*%%r11\n'
+             '\tmovl\t%d(%%r12), %%r10d\n\tandl\t$-64, %%r10d\n\tmovl\t%%r10d, %d(%%r12)\n\tldmxcsr\t%d(%%r12)\n'
+             '\tcallq\t*%%r11\n\tstmxcsr\t%d(%%r12)\n\tmovl\t%d(%%r12), %%r10d\n\txorl\t%d(%%r12), %%r10d\n'
+             '\tandl\t$-64, %%r10d\n\tjz\t.Lcimo_mxok\n\tldmxcsr\t%d(%%r12)\n.Lcimo_mxok:\n'
              '\tsubq\t$1, %d(%%r13)\n\tmovq\t%d(%%r12), %%r10\n'
              '\tmovq\t24(%%r12), %%r13\n\tmovq\t16(%%r12), %%r12\n\tpushq\t%%r10\n\tret\n'
-             % (RET, RSP, _RDSSP_R10, SSP, DEPTH, RET))
+             % (RET, RSP, _RDSSP_R10, SSP, MXCSR, MXCSR + 4, MXCSR + 4, MXCSR + 4, MXCSR + 4, MXCSR, MXCSR, DEPTH,
+                RET))
     o.append('.Lcimo_deep:\n\tmovq\t$%d, (%%r11)\n\taddq\t$8, %%rsp\n\tjmp\t.Lcimo_ret0\n'
              % E_DEPTH)
     # unwind: r11 = ctx with the error stored; back to the innermost trampoline's caller
@@ -323,6 +337,7 @@ def _glue_amd64(names, windows):
              % (DEPTH, DEPTH, framesz, frames))
     o += ['\tmovq\t%d(%%r10), %%%s\n' % (off, r) for r, off in regs]
     o += ['\tmovdqu\t%d(%%r10), %%%s\n' % (off, r) for r, off in xregs]
+    o.append('\tldmxcsr\t%d(%%r10)\n' % MXCSR)
     # incssp takes the low 8 bits of its count: at most 255 entries at a time
     o.append('\tmovq\t%d(%%r10), %%rax\n\ttestq\t%%rax, %%rax\n\tjz\t.Lcimo_nossp\n'
              % SSP + _RDSSP_RCX + '\tsubq\t%rcx, %rax\n\tshrq\t$3, %rax\n'

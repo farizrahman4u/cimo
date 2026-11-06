@@ -97,7 +97,7 @@ including the browser.
 
 - Structs, unions, bitfields, pointers of any depth, function pointers, recursion, varargs, VLAs, `goto`,
   `switch`, globals and `const` tables
-- `stdio.h`, `stdlib.h`, `string.h`, `math.h`, `ctype.h`, `inttypes.h` and the freestanding headers.
+- `stdio.h`, `stdlib.h`, `string.h`, `math.h`, `complex.h`, `fenv.h`, `ctype.h`, `inttypes.h` and the freestanding headers.
   `printf` writes to `sys.stdout`, so output appears in notebooks
 - `restrict`, used by the loop optimizer
 

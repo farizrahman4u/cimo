@@ -91,6 +91,12 @@ int __cimo_issignaling(double x)
 	return (bits(x) & -1ULL >> 1) > 0x7ffULL << 52 && !(bits(x) & 1ULL << 51);
 }
 
+/* __builtin_iseqsig: x == y, raising invalid when either is a NaN (<= and >= signal) */
+int __cimo_iseqsig(double x, double y)
+{
+	return x <= y && x >= y;
+}
+
 /* __builtin_isunordered, isgreater, isgreaterequal, isless, islessequal, islessgreater
    (op 0 to 5): quiet comparisons, false when either is a NaN. float arguments arrive as
    double, exactly. */
@@ -246,24 +252,32 @@ void __cimo_i128shift(int kind, uint64_t lo, uint64_t hi, int n, uint64_t *r)
 	}
 }
 
-/* |v| rounded once to the target precision: the bits below 64 become one sticky bit, so that converting the
-   top 64 bits rounds as the whole value does; then scaled by the dropped bits' count */
-static double u128tod(uint64_t lo, uint64_t hi, int isfloat)
+/* v (negated if neg) rounded once to the target precision in the current rounding mode: the bits beyond 63
+   become one sticky bit, so that converting the signed 64-bit value rounds as the whole value does (the sign
+   included, for the directed modes); then scaled by the dropped bits' count, exactly */
+static double u128tod(uint64_t lo, uint64_t hi, int isfloat, int neg)
 {
 	int s = 0;
-	if (hi) {
-		int lz = __builtin_clzll(hi);
-		s = 64 - lz;  /* bits to drop so that the value fits in 64 */
-		uint64_t top = hi << lz | (lz ? lo >> (64 - lz) : 0);
-		uint64_t dropped = lz ? lo << lz : lo;
+	if (hi || lo >> 63) {
+		int n = hi ? 128 - __builtin_clzll(hi) : 64;  /* significant bits */
+		uint64_t top, dropped;
+		s = n - 63;
+		if (s >= 64) {
+			top = hi >> (s - 64);
+			dropped = lo | (s > 64 ? hi << (128 - s) : 0);
+		} else {
+			top = lo >> s | hi << (64 - s);
+			dropped = lo << (64 - s);
+		}
 		lo = top | (dropped != 0);
 	}
+	int64_t m = neg ? -(int64_t)lo : (int64_t)lo;
+	double scale = (double)(1ULL << (s > 62 ? 62 : s)) * (s > 62 ? (double)(1ULL << (s - 62)) : 1.0);
 	if (isfloat) {
-		float x = (float)lo;
-		return (double)x * (double)(1ULL << (s > 62 ? 62 : s)) * (s > 62 ? (double)(1ULL << (s - 62)) : 1.0);
+		float x = (float)m;
+		return (double)x * scale;
 	}
-	double x = (double)lo;
-	return x * (double)(1ULL << (s > 62 ? 62 : s)) * (s > 62 ? (double)(1ULL << (s - 62)) : 1.0);
+	return (double)m * scale;
 }
 
 void __cimo_i128tod(int sign, uint64_t lo, uint64_t hi, double *r)
@@ -271,8 +285,7 @@ void __cimo_i128tod(int sign, uint64_t lo, uint64_t hi, double *r)
 	uint64_t v[2] = { lo, hi };
 	int neg = sign && hi >> 63;
 	if (neg) neg128(v);
-	double x = u128tod(v[0], v[1], 0);
-	*r = neg ? -x : x;
+	*r = u128tod(v[0], v[1], 0, neg);
 }
 
 void __cimo_i128tof(int sign, uint64_t lo, uint64_t hi, float *r)
@@ -280,8 +293,7 @@ void __cimo_i128tof(int sign, uint64_t lo, uint64_t hi, float *r)
 	uint64_t v[2] = { lo, hi };
 	int neg = sign && hi >> 63;
 	if (neg) neg128(v);
-	float x = (float)u128tod(v[0], v[1], 1);
-	*r = neg ? -x : x;
+	*r = (float)u128tod(v[0], v[1], 1, neg);
 }
 
 /* truncation toward zero; out of range is undefined in C (here: wraps) */

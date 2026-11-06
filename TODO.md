@@ -332,7 +332,7 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 - ~~**Inline small functions**~~ **Done** (`backend/inline.py`): helpers now run as fast as macros
   (`ema` 5.12 to 3.33 ns, a wrapping-add sum 2.05 to 0.34 ns). Costs 13-38% compile time and about
   25-30% more code on `t_printf` and `t_math`. Open: drop a static function once every call is
-  inlined (its definition is still compiled and emitted); honor `noinline`.
+  inlined (its definition is still compiled and emitted). `noinline` and `noipa` are honored (2026-11-06).
 - ~~`ratio_sum` in scramjit's `bench/m1.py` slower at `79d11d6`~~ **Not a regression: this machine only.** On Snapdragon X
   it runs at 1.02 ns per element before that commit and 1.05 to 1.11 after, moving with nops before the loop, though the
   hot loop's instructions are the same. On Neoverse N1, V1, V2 both commits take 2.03, 0.98 and 0.91 ns, with under

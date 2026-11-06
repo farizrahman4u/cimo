@@ -14,13 +14,16 @@ MaxPhis = 2
 # cimo (ext.isel): what LLVM's SimplifyCFG charges TCC_Expensive for: not worth running on the path
 # that doesn't need it
 _COSTLY = (D.Odiv, D.Orem, D.Oudiv, D.Ourem, D.Ofsqrt)
+# cimo: the ordered comparisons of floats (<, <=, >, >=), which raise invalid on a NaN: not run on the path that
+# doesn't ask for them (math.h's isgreater is !isunordered(x, y) && x > y)
+_SIGNALING = frozenset(getattr(D, 'Oc%s%s' % (c, k)) for c in ('gt', 'ge', 'lt', 'le') for k in 'sd')
 
 
 def okbranch(b):
     n = 0
     for i in b.ins[:b.nins]:
         if i.op != Odbgloc:
-            if pinned(i) or (_ext.isel and i.op in _COSTLY):
+            if pinned(i) or (_ext.isel and i.op in _COSTLY) or i.op in _SIGNALING:
                 return 0
             if i.op != Onop:
                 n += 1

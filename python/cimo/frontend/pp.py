@@ -374,8 +374,14 @@ def directive():
             raise U.FrontendError(''.join(msg))
         sys.stderr.write(''.join(msg) + '\n')
     elif kind == TPRAGMA:
+        words = []
         while tok.kind != TNEWLINE and tok.kind != TEOF:
             next()
+            if tok.kind != TNEWLINE and tok.kind != TEOF and len(words) < 4:
+                words.append(tokenstr(tok.kind) if not tok.lit else tok.lit)
+        if words[:2] == ['STDC', 'FENV_ACCESS'] and len(words) == 3:  # cimo (C11 7.6.1)
+            U.fenvaccess = words[2] == 'ON'
+            U.fenvtouched |= U.fenvaccess
     else:
         error(tok.loc, "invalid preprocessor directive #%s", tokenstr(tok.kind))
     tokencheck(tok, TNEWLINE, "after preprocessing directive")

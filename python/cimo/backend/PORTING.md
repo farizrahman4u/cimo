@@ -56,6 +56,12 @@ port literally; don't "improve" anything.
 Bugs of the reference are fixed in the port, marked `fix over C QBE` in the code (C QBE's
 output for these is broken, so no comparison test depends on it):
 
+- Float comparisons (`arm64.isel.selcmp`, `amd64.isel.selcmp`): arm64 compared with `fcmpe` and x86-64 with
+  `ucomis` whatever the relation; IEEE 754 (C Annex F) has `==`, `!=` and unordered quiet and `<`, `<=`, `>`,
+  `>=` raise invalid on a quiet NaN. Now `fcmp`/`ucomis` for the first and `fcmpe`/`comis` (new ops `afcmpq`,
+  `xcmpe`) for the second; `ifopt` doesn't run a signaling comparison on the path that doesn't ask for it
+  (`!isunordered(x, y) && x > y`). Found by gcc's `inf-compare-*.c`.
+
 - `amd64.isel` (`seljmp`, `selsel`): a `jnz` (or select) on a value whose definition set the flags reused
   them even when that instruction was 64-bit: `jnz` tests the low 32 bits, so a w lane loaded (and forwarded)
   from the l `or` that stored two lanes was tested whole (gcc pr94412). Only w instructions' flags are reused.
@@ -176,7 +182,14 @@ data goes through the GOT; ELF syntax with `.L` labels.
 - `vla`: `getsp` / `setsp` read and reset the stack pointer (arm64 `mov`, wasm `__stack_pointer`),
   pinned, mark the function `dynalloc`, and are scheduling barriers for `ldp` pairing.
 - `math` also covers the bit builtins: `bclz`, `bctz`, `bpopcnt` (through v31: `fmov`,
-  `cnt`, `addv`), `bswap`, `bswap16`.
+  `cnt`, `addv`), `bswap`, `bswap16`; and the floating-point environment: `%r =w rdfpcr`, `rdfpsr`,
+  `wrfpcr %v`, `wrfpsr %v` (arm64 `mrs`/`msr` FPCR and FPSR; x86-64 `stmxcsr`/`ldmxcsr` through the 8 bytes
+  below rsp, moved with `lea` to keep the flags; wasm: 0 and nothing), pinned.
+- `#pragma STDC FENV_ACCESS ON` (the frontend's `paraminfo['#fenv']`, through `middle.params`): in those
+  functions `fold` only folds floating-point operations whose result is exact and raises nothing
+  (`fold._fenvexact`), and `gcm.pinned` holds their floating-point operations, so `gvn` doesn't merge them and
+  `gcm` doesn't move them across the calls that change the rounding mode. `paraminfo['#noinline']`: functions
+  declared `noinline` or `noipa`, which `inline` neither copies nor gives constant parameters.
 - `bigcopy`: a struct argument or return value passed by reference and at least that large is
   copied by a call to `memcpy`, emitted already lowered (before any argument register is set),
   instead of an unrolled blit.

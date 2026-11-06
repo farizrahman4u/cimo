@@ -42,11 +42,23 @@ CORPORA = {
                   'src', ['math/*.c', 'functional/*.c']),
 }
 
-_FENV = '''/* cimo has no floating-point environment (no rounding modes, no exception flags): without
-   the FE_ macros, libc-test skips the other rounding modes and does not check exceptions */
+_FENV = '''/* cimo's rounding modes, but not its exception flags: the runtime's math is pure (musl's
+   FORCE_EVAL is a no-op), so the flags it raises are not musl's; without FE_ALL_EXCEPT, libc-test
+   checks the results in every rounding mode and not the exceptions */
 #ifndef CIMO_FENV_H
 #define CIMO_FENV_H
-static int fesetround(int r) { return r ? -1 : 0; }
+#ifdef __x86_64__
+#define FE_TONEAREST 0
+#define FE_DOWNWARD 0x400
+#define FE_UPWARD 0x800
+#define FE_TOWARDZERO 0xc00
+#else
+#define FE_TONEAREST 0
+#define FE_UPWARD 0x400000
+#define FE_DOWNWARD 0x800000
+#define FE_TOWARDZERO 0xc00000
+#endif
+int fesetround(int);
 static int feclearexcept(int e) { return 0; }
 static int fetestexcept(int e) { return 0; }
 #define FE_ALL_EXCEPT 0

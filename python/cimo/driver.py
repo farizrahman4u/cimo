@@ -172,6 +172,8 @@ int __cimo_fcmp(int, double, double);
 #define __builtin_isless(x, y) __cimo_fcmp(3, x, y)
 #define __builtin_islessequal(x, y) __cimo_fcmp(4, x, y)
 #define __builtin_islessgreater(x, y) __cimo_fcmp(5, x, y)
+int __cimo_iseqsig(double, double);
+#define __builtin_iseqsig(x, y) __cimo_iseqsig(x, y)
 int __cimo_overflow(int, unsigned long long, int, unsigned long long, int, void *,
                     unsigned long, int);
 #define __cimo_signed(x) ((__typeof__(x))-1 < 0)

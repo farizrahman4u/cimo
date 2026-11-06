@@ -429,6 +429,15 @@ _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0
 # is add %v to the word or long at %a, of the instruction's class
 _OPS += [('x%sm' % n, ((Kw, Kl, Ke, Ke, Ke, Ke), (Km, Km, Ke, Ke, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
          for n in ('add', 'sub', 'and', 'or', 'xor')]
+# cimo: the floating-point environment (ext.math, <fenv.h>): "%r =w rdfpcr" reads the control register, rdfpsr the
+# status (arm64 FPCR and FPSR; x86-64 MXCSR for both), "wrfpcr %v" and "wrfpsr %v" write them; pinned. xcmpe (x86-64
+# comis) and afcmpq (arm64 fcmp): the float comparisons, signaling and quiet, beside xcmp (quiet) and afcmp (signaling)
+_OPS += [('rdfpcr', ((Kx, Kx, Kx, Kx), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('rdfpsr', ((Kx, Kx, Kx, Kx), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('wrfpcr', ((Kw, Kw, Kw, Kw), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('wrfpsr', ((Kw, Kw, Kw, Kw), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('xcmpe', ((Kw, Kl, Ks, Kd), (Kw, Kl, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('afcmpq', ((Ke, Ke, Ks, Kd), (Ke, Ke, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
 del _QQ, _Q1, _QS
 
 

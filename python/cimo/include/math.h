@@ -116,6 +116,7 @@ static inline int __cimo_lgf(float __x, float __y) { return !__cimo_isunorderedf
 #define islessequal(x, y) __CIMO_TG2(x, y, __cimo_lef, __cimo_le)
 #define islessgreater(x, y) __CIMO_TG2(x, y, __cimo_lgf, __cimo_lg)
 #define isunordered(x, y) __CIMO_TG2(x, y, __cimo_isunorderedf, __cimo_isunordered)
+#define iseqsig(x, y) __builtin_iseqsig(x, y)  /* C23: x == y, raising invalid for a NaN */
 
 double acos(double x);
 float acosf(float x);
