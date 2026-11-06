@@ -247,10 +247,14 @@ class Runtime:
             if t is not None:
                 return t
             p = self.dir and os.path.join(self.dir, member_file(member))
+            t = None
             if p and os.path.exists(p):
-                with open(p) as f:
-                    t = f.read()
-            else:
+                try:
+                    with open(p) as f:
+                        t = f.read()
+                except OSError:  # Windows: another process replacing it (PermissionError): compile it here
+                    pass
+            if t is None:
                 t = self._compile(member)
                 if p and cache_writes.get():
                     try:

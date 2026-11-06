@@ -212,8 +212,11 @@ def _cache_get(key):
     path = os.path.join(d, key + '.s')
     sig = path[:-2] + '.sig'
     if os.path.exists(path) and os.path.exists(sig):
-        with open(path) as f, open(sig) as g:
-            return f.read(), g.read()
+        try:
+            with open(path) as f, open(sig) as g:
+                return f.read(), g.read()
+        except OSError:  # Windows: another process replacing it (PermissionError): a miss
+            pass
     return None
 
 
@@ -223,9 +226,10 @@ def _cache_put(key, text, sigs):
         path = os.path.join(d, key + '.s')
         try:
             for p, data in ((path[:-2] + '.sig', sigs), (path, text)):  # .s last: it marks
-                with open(p + '.tmp', 'w') as f:                       # the entry complete
+                tmp = p + '.tmp%d' % os.getpid()                       # the entry complete
+                with open(tmp, 'w') as f:  # a temporary per process: two writing one entry don't mix
                     f.write(data)
-                os.replace(p + '.tmp', p)
+                os.replace(tmp, p)
             return
         except OSError:
             pass
