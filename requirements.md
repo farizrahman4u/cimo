@@ -648,6 +648,10 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
 - **x86-64 result (Ice Lake, Sapphire Rapids, Zen 4; gcc -O3 also baseline):** geomean 1.46, 1.47, 1.61x with the vectorizer off,
   1.07, 1.05, 1.08x on. Left: `nbody_acc` 1.3 to 1.4x, `gemm` 1.3 to 1.5x, `saxpy` 1.2 to 1.7x, `conv3x3`'s scalar path 2 to 4x,
   `rgb2gray` 1.0x because SSE2 gcc doesn't vectorize it either.
+- **gemm, register block (2026-11-06):** unroll-and-jam by 4 around a vectorized inner loop (c's vector loaded and stored once
+  per 4 rows; jam was off for vectorizing loops), with store-to-load forwarding in the vector body. Against `gcc -O3 -march=native`
+  / `-mcpu=native`, gemm before and after: Graviton 2 1.47 to 0.92x, Graviton 3 1.14 to 0.79x, Graviton 4 1.50 to 1.11x, Ice Lake
+  1.51 to 1.00x, Sapphire Rapids 1.20 to 0.86x, Zen 4 1.17 to 0.78x; 15-kernel geomean 1.03, 1.06, 1.08, 1.07, 1.03, 1.14x.
 
 ## GPU (planned, 2026-11-02)
 

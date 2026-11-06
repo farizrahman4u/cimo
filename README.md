@@ -83,8 +83,8 @@ running integer `max` or `min` vectorizes, with a fast path when a stride argume
 loops that leave early (`any`, `all`, finding the first match). Float `max`/`min`, `argmax`, narrower elements and
 WebAssembly stay scalar, so the
 reference compilers are ahead where they vectorize those. Geomean over 15 kernels, against vectorized
-`gcc -O3`: 1.11 to 1.18x on Neoverse N1, V1 and V2. On x86-64 cimo compiles for the CPU it runs on (FMA, POPCNT,
-LZCNT, TZCNT, 256-bit AVX2): against `gcc -O3 -march=native`, 1.05x on Sapphire Rapids, 1.10x on Ice Lake and 1.18x on
+`gcc -O3`: 1.03 to 1.08x on Neoverse N1, V1 and V2. On x86-64 cimo compiles for the CPU it runs on (FMA, POPCNT,
+LZCNT, TZCNT, 256-bit AVX2): against `gcc -O3 -march=native`, 1.03x on Sapphire Rapids, 1.07x on Ice Lake and 1.14x on
 Zen 4, from 1.16 to 1.41x with 128-bit vectors. See [`requirements.md`](requirements.md) for the full measurements.
 
 Compiling a kernel file takes under a second, and compiled modules are cached by content hash.
