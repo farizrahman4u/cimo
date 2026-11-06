@@ -20,7 +20,8 @@
     if (!window.loadPyodide) await script(PYODIDE + 'pyodide.js');
     const py = await loadPyodide({ indexURL: PYODIDE });
     say('Loading cimo (one 1.1 MB Python file)…');
-    const text = await (await fetch('cimo.py')).text();
+    // revalidated every time: it is rebuilt on each deploy, and the demos' scripts must meet the cimo they were written for
+    const text = await (await fetch('cimo.py', { cache: 'no-cache' })).text();
     py.FS.writeFile('/home/pyodide/cimo.py', text);
     py.runPython("import sys; sys.path.insert(0, '/home/pyodide')");
     say('Importing cimo…');

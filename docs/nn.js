@@ -650,7 +650,7 @@ def nn_build(graph_json):
       py = await window.cimoRuntime.load(m => { ui.status.textContent = m; });
       ui.status.textContent = 'Loading the code generator…';
       for (const f of ['codegen.py', 'wat.py'])
-        py.FS.writeFile('/home/pyodide/' + f, await (await fetch('nn/' + f)).text());
+        py.FS.writeFile('/home/pyodide/' + f, await (await fetch('nn/' + f, { cache: 'no-cache' })).text());
       ns = py.toPy({});  // its own namespace: the banner demo's Python shares globals
       await py.runPythonAsync(PY, { globals: ns });
       buildPy = ns.get('nn_build');
