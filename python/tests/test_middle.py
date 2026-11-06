@@ -145,7 +145,7 @@ def test_loop_shapes_transformed(loops):
     """The suite actually exercises the transformations."""
     stats = loops[3]
     assert stats.get('versioned', 0) >= 50, stats
-    for k in ('full_unroll', 'jam', 'ifconv', 'forward', 'dead_store', 'tiled', 'promoted', 'outer_vectorized'):
+    for k in ('full_unroll', 'jam', 'ifconv', 'forward', 'dead_store', 'tiled', 'promoted', 'outer_vectorized', 'forward_carried'):
         assert stats.get(k, 0) >= 1, (k, stats)
 
 

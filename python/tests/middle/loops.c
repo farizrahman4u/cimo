@@ -120,3 +120,9 @@ double outer_f(RARGS) { float *o = (float *)ia, *o2 = (float *)ib; int m = n % 3
 double outer_d(RARGS) { double *o = (double *)ib; int m = n % 29; for (long i = 0; i < m; i++) { double s = 0; for (long j = 0; j < m + k; j++) { double d = (double)fb[j] - da[i]; s += d / sqrt(d * d + 1.0); } o[i] = s; } return 0; }
 double outer_tri(RARGS) { float *o = (float *)ia; int m = n % 37; for (long i = 0; i < m; i++) { float s = 0; for (long j = 0; j < i; j++) s += fb[j] * fa[i]; o[i] = s; } return 0; }
 double outer_alias(ARGS) { int m = n % 37; for (long i = 0; i < m; i++) { float s = 0; for (long j = 0; j < m; j++) s += fb[j] * fa[i]; fa[i + 1] = s; } return 0; }
+/* a store the next iteration loads back, carried in a register */
+double carry_r(RARGS) { for (int i = 0; i < n; i++) ia[i + 1] = ia[i] * 3 + ib[i]; return ia[n]; }
+double carry_two(RARGS) { for (int i = 0; i < n; i++) { ia[i + 1] = ia[i] + ib[i]; ia[i + 2] = ia[i + 1] ^ 5; } return ia[n]; }
+double carry_down(RARGS) { for (int i = n; i > 0; i--) fa[i - 1] = fa[i] * 0.5f + fb[i]; return fa[0]; }
+double carry_alias(ARGS) { for (int i = 0; i < n; i++) { fa[i + 1] = fa[i] + 1.0f; fb[i] = 2.0f; } return fa[n]; }
+double carry_min(RARGS) { for (int i = 1; i <= n; i++) { int v = ib[i] < ia[i - 1] + 1 ? ib[i] : ia[i - 1] + 1; ia[i] = v; } return ia[n]; }

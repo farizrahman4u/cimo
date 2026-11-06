@@ -198,6 +198,10 @@ class Promoted:
     __slots__ = ('idx', 'key', 'size', 'cls', 'op', 'scls', 'form', 'addr')
 
 
+class Forward:
+    __slots__ = ('idx', 'store', 'load', 'size', 'cls', 'form')
+
+
 class Fast:
     def __init__(self, fn, lp, sh, A, rts):
         self.fn = fn
@@ -218,6 +222,7 @@ class Fast:
         self.vmem = ()         # and its memory accesses (vectorize.plan)
         self.vnarrow = None    # or, a loop over bytes: its pixel groups (vectorize._narrow)
         self.prom = []         # fields kept in registers through the loop (Promoted)
+        self.fwd = []          # stores whose value the next iteration loads (Forward)
 
     # ---------- materialization of invariant values (in self.em, memoized)
 
@@ -406,6 +411,62 @@ class Fast:
                 self.prom.append(p)
                 M.count('promoted')
 
+    def find_forwards(self):
+        """Stores whose value the next iteration loads back (edit_distance's cur[j] then cur[j - 1]): LLVM's
+        LoopLoadElimination. The copies of one trip already forward within it (LocalMem); across trips the value is a
+        state variable instead of a load of what the last copy stored, which took a store-to-load round trip on the
+        loop's chain once a trip. The store still happens. Same base and step, the load's offset the store's minus
+        the step, one size and class, and no other store that may touch either."""
+        A = self.A
+        accs = []
+        for b in self.sh.order:
+            for i in ir.ins(b):
+                if ir.isstore(i.op) or ir.isload(i.op):
+                    accs.append(i)
+        for st in accs:
+            if not ir.isstore(st.op):
+                continue
+            cls, size = _storeinfo(st.op)
+            if size < 4 or (ir.istmp(st.arg[0]) and self.fn.tmp[rval(st.arg[0])].cls != cls):
+                continue
+            f = A.form(st.arg[1], 64)
+            if f is None or not f.S.isconst() or f.S.c in (0,) or A.avlevel(f) == 'X':
+                continue
+            for ld in accs:
+                if not ir.isload(ld.op):
+                    continue
+                info = _loadinfo(ld.op, ld.cls) if ld.cls in (Kw, Kl, Ks, Kd) else None
+                g = A.form(ld.arg[0], 64)
+                if info is None or info[0] != size or ld.cls != cls or g is None or not g.S.isconst() \
+                        or g.S.c != f.S.c or g.L.noconst().ident() != f.L.noconst().ident() \
+                        or norm(64, g.L.c) != norm(64, f.L.c - f.S.c) \
+                        or not (info[1] is None or (info[1] in (D.Oextsw, D.Oextuw) and ld.cls == Kw)):
+                    continue
+                if rval(ld.to) in self.srload or any(q.load is ld for q in self.fwd):
+                    continue
+                ok = True
+                for x in accs:
+                    if x is st or not ir.isstore(x.op):
+                        continue
+                    xs = _storeinfo(x.op)[1]
+                    ka = ('a', f.L.noconst().ident(), 0, 0)
+                    h = A.form(x.arg[1], 64)
+                    if h is not None and h.S.isconst() and h.S.c == f.S.c and \
+                            h.L.noconst().ident() == f.L.noconst().ident():
+                        # the same rows: apart unless an iteration's offsets meet the store's or the load's
+                        for c in (f.L.c, g.L.c):
+                            d = (h.L.c - c) % abs(f.S.c)
+                            if d < size or abs(f.S.c) - d < xs:
+                                ok = False
+                    elif self.rts.may_alias(x.arg[1], st.arg[1]):
+                        ok = False
+                if ok:
+                    q = Forward()
+                    q.idx, q.store, q.load, q.size, q.cls, q.form = len(self.fwd), st, ld, size, cls, g
+                    self.fwd.append(q)
+                    M.count('forward_carried')
+                    break
+
     def _akey(self, a):
         """LocalMem's key of an address the same every iteration, else None."""
         f = self.A.form(a, 64)
@@ -543,6 +604,14 @@ class Fast:
             v = state[('pm', p.idx)]
             lm.prom[p.key] = v
             lm.avail.append((p.key, p.size, p.cls, v, p.addr))
+        last = {}
+        for q in self.fwd:
+            last[q.idx] = state[('fw', q.idx)]
+            if closed is None:  # copy 0's load: what the last trip's last copy stored
+                lm.avail.append((lm.key(q.load, q.load.arg[0], None, 0, None), q.size, q.cls, last[q.idx],
+                                 q.load.arg[0]))
+        lm.fwd = {id(q.store): q.idx for q in self.fwd}
+        lm.last = last
         for k in range(n):
             env = {}
             fresh = {}
@@ -602,6 +671,8 @@ class Fast:
         lm.finish()
         for p in self.prom:
             state[('pm', p.idx)] = lm.prom[p.key]
+        for q in self.fwd:
+            state[('fw', q.idx)] = last[q.idx]
         return state, env
 
     def advance(self, em, state, n):
@@ -650,6 +721,8 @@ class LocalMem:
         self.avail = []      # (key, size, cls, value, orig addr)  values readable
         self.pending = []    # (key, size, orig addr, Ins)  stores not yet read
         self.prom = {}       # key -> value of a promoted field (Fast.find_promoted): never in memory here
+        self.fwd = {}        # id(store) -> Forward.idx (Fast.find_forwards)
+        self.last = {}       # Forward.idx -> the value its store wrote last
 
     def key(self, i, addr_orig, addr_new, k, closed):
         A = self.f.A
@@ -675,6 +748,8 @@ class LocalMem:
             self.avail = [a for a in self.avail if not self.overlap(a[0], a[1], a[4], key, size, ao)]
             self.avail.append((key, size, cls, args[0], ao))
             return
+        if id(i) in self.fwd:
+            self.last[self.fwd[id(i)]] = args[0]
         ins = Ins(i.op, i.cls, R, args[0], args[1])
         # an earlier store to exactly these bytes, not read since, is dead
         keep = []
@@ -905,6 +980,7 @@ def transform(fn, lp, rts, done, mode='opt'):
     if not vf:  # lanes read their own elements: nothing to reuse
         fast.find_chains(noalias_load)
         fast.find_promoted()
+        fast.find_forwards()
     ncl = 0
     fast.ic = vectorize.interleave(fast) if vf else 1  # vectors an iteration
     U = vf * fast.ic or max(1, M.unroll)
@@ -915,7 +991,7 @@ def transform(fn, lp, rts, done, mode='opt'):
     fast.U = U
     if vf:
         M.count('vectorized')
-    if U == 1 and not fast.groups and not hoist and not fast.chains and not fast.prom:
+    if U == 1 and not fast.groups and not hoist and not fast.chains and not fast.prom and not fast.fwd:
         return False
     emit_versioned(fn, lp, sh, A, ctl, fast, U, done)
     M.count('versioned')
@@ -1067,6 +1143,8 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
             state0[('sr', ch.idx, q)] = ef.raw(ch.op, ch.cls, addr)
     for p in fast.prom:
         state0[('pm', p.idx)] = ef.raw(D.Oload, p.cls, fast.inv_value(p.form))
+    for q in fast.fwd:  # what the first iteration's load reads: the memory before the loop
+        state0[('fw', q.idx)] = ef.raw(q.load.op, q.cls, fast.affine_value(q.form, 0, state0, None))
     # hoisted invariant loads are materialized lazily into FP while copying
     kc = Kw if ctlg.W == 32 else Kl
     T4 = ef.op(D.Oand, Kl, T, ef.con(-U)) if U > 1 else T
@@ -1204,6 +1282,8 @@ def _svcls(fn, sv, fast, vals):
         return ch.cls
     if sv[0] == 'pm':
         return fast.prom[sv[1]].cls
+    if sv[0] == 'fw':
+        return fast.fwd[sv[1]].cls
     raise AssertionError(sv)
 
 

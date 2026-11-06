@@ -5,7 +5,7 @@ marks: from here on every other pass may rewrite an add as it likes, the mistake
 against all over. Before it, only gvn merges or rewrites arithmetic, and it clears or ands the mark.
 
 - Comparisons, from InstSimplify and InstCombine: x + 1 > x, x + c < y + c, x + c1 < c2, x - y < 0,
-  x * c < y * c, x * c < 0.
+  x * c < y * c, x * c < 0, x < y + 1 (x <= y).
 - Divisions: x * c / c, x * c % c, (x * 2^n) >> n, x * 6 / 2.
 - WidenIV of LLVM's IndVarSimplify: a w induction variable with an extension in the loop becomes an l
   one, which removes the extensions of it and of what's computed from it (a[i + 1], a[i * m + j]).
@@ -89,6 +89,12 @@ def _cmp(fn, i, k, cc):
         return Ins(Ocopy, i.cls, i.to, getcon(int(_holds(cc, c1, c2)), fn), R)
     if c1 and c1 == c2:
         return cc, x, y
+    # a < y + 1 is a <= y, and the like: edit_distance's v < cur + 1, whose select is then a csinc on cur itself, one
+    # operation off the loop's chain
+    if not c1 and rtype(a) == RTmp and rtype(y) == RTmp and y != b:
+        to = {(Cislt, 1): Cisle, (Cisle, -1): Cislt, (Cisgt, -1): Cisge, (Cisge, 1): Cisgt}.get((cc, c2))
+        if to is not None:
+            return to, a, y
     if cc in _SIGNED or c1:
         kb = _bits(fn, b, k)
         if kb is not None and c1 and _fits(k, kb - c1):  # x + c1 < kb
