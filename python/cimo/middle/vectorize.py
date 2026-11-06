@@ -652,8 +652,11 @@ def _narrow_body(fast, em, state, copy):
                     if arm:
                         em.ins(Ins(D.Oqld3x, Kq, R, base, R))
                         pixels[key] = None
-                    else:
-                        pixels[key] = {c: em.raw(D.Oqld3bh, Kq, base, em.con(c - c0)) for c in sorted(offs)}
+                    else:  # x86-64: the 24 bytes as two windows, each channel two vpshufb and an or
+                        wa, wb = em.raw(D.Oqxwin, Kq, base, em.con(0)), em.raw(D.Oqxwin, Kq, base, em.con(8))
+                        pixels[key] = {c: em.raw(D.Oqor, Kq, em.raw(D.Oqxshufb, Kq, wa, em.con(2 * (c - c0))),
+                                                 em.raw(D.Oqxshufb, Kq, wb, em.con(2 * (c - c0) + 1)))
+                                       for c in sorted(offs)}
                 if arm:
                     pending[rval(i.to)] = ('ch', f.L.c - c0)
                 else:

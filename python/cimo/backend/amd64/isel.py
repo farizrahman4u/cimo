@@ -579,7 +579,7 @@ def _qsel(i, tn, fn):
         seladdr(i.arg, 0, tn, fn)
     elif op in (D.Oqstore, D.Oqstbh):
         seladdr(i.arg, 1, tn, fn)
-    elif op == D.Oqld3bh:  # a base register: the emitter loads at three offsets from it
+    elif op in (D.Oqld3bh, D.Oqxwin):  # a base register: the emitter loads at offsets from it
         emiti(i)
         fixarg(D.insb[D.curi].arg, 0, Kl, D.insb[D.curi], fn)
         return
@@ -599,7 +599,7 @@ def _qsel(i, tn, fn):
         return
     emiti(i)
     i1 = D.insb[D.curi]
-    keep1 = D.Oqshlb <= op <= D.Oqsarl or D.Oqgetb <= op <= D.Oqgetd or op == D.Oqxshufd
+    keep1 = D.Oqshlb <= op <= D.Oqsarl or D.Oqgetb <= op <= D.Oqgetd or op in (D.Oqxshufd, D.Oqxshufb)
     fixarg(i1.arg, 0, argcls(i, 0), i1, fn)
     if i1.arg[1] != R and argcls(i, 1) != D.Kx and not keep1:
         fixarg(i1.arg, 1, argcls(i, 1), i1, fn)

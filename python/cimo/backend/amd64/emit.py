@@ -486,7 +486,18 @@ def _narrowins(i, e, y):
     r = (lambda x: "%%ymm%d" % (rval(x) - XMM0)) if y else (lambda x: "%%xmm%d" % (rval(x) - XMM0))
     s15 = "%ymm15" if y else "%xmm15"
     twice = (lambda m: m + m) if y else (lambda m: m)
-    if op == D.Oqldbh:
+    if op == D.Oqxwin:
+        base = "%%%s" % regtoa(rval(i.arg[0]), SLong)
+        off = e.fn.con[rval(i.arg[1])].i
+        if y:
+            f.write("\tvmovdqu %d(%s), %%xmm15\n\tvinserti128 $1, %d(%s), %%ymm15, %s\n" % (off, base, off + 24, base, r(i.to)))
+        else:
+            f.write("\tvmovdqu %d(%s), %s\n" % (off, base, r(i.to)))
+    elif op == D.Oqxshufb:
+        m = e.fn.con[rval(i.arg[1])].i
+        mask = _narrowmasks(m >> 1)[m & 1]
+        f.write("\tvpshufb %s(%%rip), %s, %s\n" % (stashvec(twice(mask)), r(i.arg[0]), r(i.to)))
+    elif op == D.Oqldbh:
         f.write("\tvpmovzxbw %s, %s\n" % (_memtext(i.arg[0], e), r(i.to)))
     elif op == D.Oqld3bh:
         base = "%%%s" % regtoa(rval(i.arg[0]), SLong)
@@ -584,7 +595,7 @@ def _qins_y(i, e):
         a, b = _qy(i.arg[0]), _qy(i.arg[1])
         f.write("\tvmovaps %s, %%ymm15\n\tvmovaps %s, %s\n\tvmovaps %%ymm15, %s\n" % (a, b, a, b))
         return True
-    if op in (D.Oqldbh, D.Oqld3bh, D.Oqstbh):
+    if op in (D.Oqldbh, D.Oqld3bh, D.Oqstbh, D.Oqxwin, D.Oqxshufb):
         return _narrowins(i, e, True)
     if (op == Oload and i.cls == D.Kq) or op == D.Oqload:
         _emitf_y("vmovups %M0, %=", i, e)
@@ -655,7 +666,7 @@ def _qins(i, e):
         a, b = _qx(i.arg[0]), _qx(i.arg[1])
         f.write("\tmovaps %s, %s\n\tmovaps %s, %s\n\tmovaps %s, %s\n" % (a, _QX15, b, a, _QX15, b))
         return True
-    if op in (D.Oqldbh, D.Oqld3bh, D.Oqstbh):
+    if op in (D.Oqldbh, D.Oqld3bh, D.Oqstbh, D.Oqxwin, D.Oqxshufb):
         return _narrowins(i, e, False)
     if (op == Oload and i.cls == D.Kq) or op == D.Oqload:
         emitf("movups %M0, %=", i, e)
