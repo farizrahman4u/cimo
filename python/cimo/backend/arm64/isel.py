@@ -1100,7 +1100,7 @@ def sel(i, fn):
         emit(i.op, D.Kq, R, d, R)
         emit(Ocopy, D.Kq, d, i.arg[0], R)
         return
-    if i.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1, D.Oqwmla3):
+    if i.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1, D.Oqwmla3, D.Oqwmla3h):
         _qdest[0] = i.to
     if D.isqop(i.op):  # cimo (ext.vector): registers, and an address with a constant offset folded in ([x, #16])
         if i.op == D.Oqload:
@@ -1118,7 +1118,8 @@ def sel(i, fn):
         for n in (0, 1):
             if iarg[n] != R and argcls(i, n) != D.Kx and not (i.op >= D.Oqshlb and i.op <= D.Oqsarl and n == 1) \
                     and not (i.op >= D.Oqgetb and i.op <= D.Oqgetd and n == 1) and not (i.op == D.Oqld3bh and n == 1) \
-                    and not (i.op in (D.Oqwmul3, D.Oqwmla3, D.Oqstshrn) and n == 1) and not (i.op == D.Oqwide3 and n == 0):
+                    and not (i.op in (D.Oqwmul3, D.Oqwmla3, D.Oqstshrn, D.Oqwmul3h, D.Oqwmla3h) and n == 1) \
+                    and not (i.op in (D.Oqwide3, D.Oqwide3h) and n == 0):
                 fixarg(iarg, n, argcls(i, n), 0, fn)
         return
     if INRANGE(i.op, Oalloc, Oalloc1):
@@ -1491,7 +1492,7 @@ def qacrosscalls(fn):
             isslotop = x.op == D.Oqload and x.arg[0] in slots.values() or x.op == D.Oqstore and x.arg[1] in slots.values()
             if not isslotop:
                 # the reloads for a qfma1 or qsel1 go before its qfma0 or qsel0: the two stay side by side
-                first = new.pop() if x.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1, D.Oqwmla3) and new and \
+                first = new.pop() if x.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1, D.Oqwmla3, D.Oqwmla3h) and new and \
                     new[-1].op in (D.Oqfma0, D.Oqsel0, D.Oqwmla0) else None
                 for n in (0, 1):
                     a = x.arg[n]

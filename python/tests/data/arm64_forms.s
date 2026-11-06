@@ -361,3 +361,7 @@ t2:
 	umlal	v31.8h, v30.8b, v17.8b
 	shrn	v31.8b, v3.8h, #8
 	shrn	v0.8b, v12.8h, #1
+	ld3	{v28.16b, v29.16b, v30.16b}, [x1]
+	umull2	v3.8h, v29.16b, v0.16b
+	umlal2	v3.8h, v28.16b, v1.16b
+	ushll2	v5.8h, v30.16b, #0

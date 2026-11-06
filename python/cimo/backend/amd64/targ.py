@@ -40,7 +40,7 @@ for _e in _X.replace('\n', '').split(';'):
     _n, _m, _z, _l = _e.split()
     amd64_op[getattr(D, 'O' + _n)] = Amd64Op(int(_m), int(_z), int(_l))
 del _e, _n, _m, _z, _l
-for _o in range(D.Oqaddb, D.Oqxshufb + 1):  # cimo (ext.vector): SSE leaves the flags alone; qget of a byte may shift
+for _o in range(D.Oqaddb, D.Oqwmla3h + 1):  # cimo (ext.vector): SSE leaves the flags alone; qget of a byte may shift
     if not D.Oqgetb <= _o <= D.Oqgetd:
         amd64_op[_o] = Amd64Op(0, 0, 1)
 del _o

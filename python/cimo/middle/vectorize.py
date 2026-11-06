@@ -614,6 +614,10 @@ def _narrow_body(fast, em, state, copy):
     pixels = {}
     pending = {}  # tmp -> ('ch', k): channel k of the ld3; ('mul', c, k): channel k times c, not made yet
     arm = D.T.name.startswith('arm64') and len(fast.vnarrow) == 1
+    # with two copies an iteration, the first loads both copies' 16 pixels with one ld3 and the second reads the upper
+    # halves (umull2, umlal2): gcc's 16 pixels an ld3
+    hi = arm and fast.ic == 2 and copy == 1
+    wide = arm and fast.ic == 2
     uses = {}
     for i in fast.cloned:
         for a in i.arg:
@@ -629,11 +633,11 @@ def _narrow_body(fast, em, state, copy):
         if ir.istmp(a) and rval(a) in pending:
             p = pending.pop(rval(a))
             if p[0] == 'ch':
-                env[rval(a)] = em.raw(D.Oqwide3, Kq, em.con(p[1]))
+                env[rval(a)] = em.raw(D.Oqwide3h if hi else D.Oqwide3, Kq, em.con(p[1]))
             elif p[0] == 'shr':
                 env[rval(a)] = em.raw(D.Oqshrh, Kq, vec(p[1]), em.con(p[2]))
             else:
-                env[rval(a)] = em.raw(D.Oqwmul3, Kq, dupb(p[1]), em.con(p[2]))
+                env[rval(a)] = em.raw(D.Oqwmul3h if hi else D.Oqwmul3, Kq, dupb(p[1]), em.con(p[2]))
         if ir.istmp(a) and rval(a) in env:
             return env[rval(a)]
         c = ir.conval(fn, a)
@@ -659,7 +663,8 @@ def _narrow_body(fast, em, state, copy):
                 if key not in pixels:
                     base = fast.opmap(offs[c0].arg[0], k0, env, state, None)
                     if arm:
-                        em.ins(Ins(D.Oqld3x, Kq, R, base, R))
+                        if not hi:
+                            em.ins(Ins(D.Oqld3x16 if wide else D.Oqld3x, Kq, R, base, R))
                         pixels[key] = None
                     else:  # x86-64: the 24 bytes as two windows, each channel two vpshufb and an or
                         wa, wb = em.raw(D.Oqxwin, Kq, base, em.con(0)), em.raw(D.Oqxwin, Kq, base, em.con(8))
@@ -704,7 +709,7 @@ def _narrow_body(fast, em, state, copy):
                     acc = vec(y)
                     pending.pop(rval(x))
                     em.ins(Ins(D.Oqwmla0, Kq, R, acc, R))
-                    env[rval(i.to)] = em.raw(D.Oqwmla3, Kq, dupb(p[1]), em.con(p[2]))
+                    env[rval(i.to)] = em.raw(D.Oqwmla3h if hi else D.Oqwmla3, Kq, dupb(p[1]), em.con(p[2]))
                     done = True
                     break
             if done:

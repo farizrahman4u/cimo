@@ -545,20 +545,27 @@ def _qins(i, e):
     if op == D.Oqld3x:  # 8 pixels' channels into v28, v29, v30 (kept from the allocator)
         f.write("\tld3\t{v28.8b, v29.8b, v30.8b}, %s\n" % _qaddr(i.arg[0], e))
         return True
-    if op == D.Oqwide3:  # channel k zero-extended
-        f.write("\tushll\tv%d.8h, v%d.8b, #0\n" % (rval(i.to) - V0, 28 + e.fn.con[rval(i.arg[0])].i))
+    if op == D.Oqld3x16:  # 16 pixels' channels into v28, v29, v30
+        f.write("\tld3\t{v28.16b, v29.16b, v30.16b}, %s\n" % _qaddr(i.arg[0], e))
         return True
-    if op in (D.Oqwmul3, D.Oqwmla3):  # channel k times the bytes of a (umull), plus the destination (umlal)
+    if op in (D.Oqwide3, D.Oqwide3h):  # channel k zero-extended (h: the upper 8 of 16)
+        hi = op == D.Oqwide3h
+        f.write("\tushll%s\tv%d.8h, v%d.%s, #0\n" % ('2' if hi else '', rval(i.to) - V0, 28 + e.fn.con[rval(i.arg[0])].i,
+                                                     '16b' if hi else '8b'))
+        return True
+    if op in (D.Oqwmul3, D.Oqwmla3, D.Oqwmul3h, D.Oqwmla3h):  # channel k times the bytes of a (umull), + the destination (umlal)
         d, c, k = rval(i.to) - V0, rval(i.arg[0]) - V0, 28 + e.fn.con[rval(i.arg[1])].i
-        if op == D.Oqwmul3:
-            f.write("\tumull\tv%d.8h, v%d.8b, v%d.8b\n" % (d, k, c))
+        hi = op in (D.Oqwmul3h, D.Oqwmla3h)
+        s2, l = ('2', '16b') if hi else ('', '8b')
+        if op in (D.Oqwmul3, D.Oqwmul3h):
+            f.write("\tumull%s\tv%d.8h, v%d.%s, v%d.%s\n" % (s2, d, k, l, c, l))
         elif req(i.to, e.qthird):
-            f.write("\tumlal\tv%d.8h, v%d.8b, v%d.8b\n" % (d, k, c))
+            f.write("\tumlal%s\tv%d.8h, v%d.%s, v%d.%s\n" % (s2, d, k, l, c, l))
         elif rval(i.to) == rval(i.arg[0]):
-            f.write("\tmov\tv31.16b, %s\n\tumlal\tv31.8h, v%d.8b, v%d.8b\n\tmov\t%s, v31.16b\n"
-                    % (_qv(e.qthird), k, c, _qv(i.to)))
+            f.write("\tmov\tv31.16b, %s\n\tumlal%s\tv31.8h, v%d.%s, v%d.%s\n\tmov\t%s, v31.16b\n"
+                    % (_qv(e.qthird), s2, k, l, c, l, _qv(i.to)))
         else:
-            f.write("\tmov\t%s, %s\n\tumlal\tv%d.8h, v%d.8b, v%d.8b\n" % (_qv(i.to), _qv(e.qthird), d, k, c))
+            f.write("\tmov\t%s, %s\n\tumlal%s\tv%d.8h, v%d.%s, v%d.%s\n" % (_qv(i.to), _qv(e.qthird), s2, d, k, l, c, l))
         return True
     if op == D.Oqstshrn:  # the lanes of the qshrn0 before, shifted right and narrowed to bytes, stored
         f.write("\tshrn\tv31.8b, %s, #%d\n\tstr\td31, %s\n" % (_qv(e.qthird, '8h'), e.fn.con[rval(i.arg[1])].i,

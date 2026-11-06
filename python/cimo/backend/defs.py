@@ -418,7 +418,13 @@ _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0
          # x86-64's own, for pixels: %r =q qxwin %addr, off, the 16 bytes at addr + off (with AVX2 those at + 24 too, in the
          # upper half); %r =q qxshufb %v, m, vpshufb with mask m (2 * channel + 0 or 1 for the window at 0 or 8)
          ('qxwin', ((Ke, Ke, Ke, Ke, Ke, Km), (Ke, Ke, Ke, Ke, Ke, Kw)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
-         ('qxshufb', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Kw)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
+         ('qxshufb', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Kw)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         # arm64, 16 pixels: qld3x16 %addr, ld3 of 16 pixels into v28-v30; qwide3h, qwmul3h, qwmla3h as qwide3, qwmul3,
+         # qwmla3 on the upper 8 (ushll2, umull2, umlal2)
+         ('qld3x16', ((Km,) * 6, (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qwide3h', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qwmul3h', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Kw)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qwmla3h', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Kw)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)]
 # cimo: x86-64's read-modify-write, made by amd64 isel from a load, an operation and a store to one address: xaddm %v, %a
 # is add %v to the word or long at %a, of the instruction's class
 _OPS += [('x%sm' % n, ((Kw, Kl, Ke, Ke, Ke, Ke), (Km, Km, Ke, Ke, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
@@ -469,9 +475,9 @@ def INRANGE(x, l, u):
 
 def isstore(o): return Ostoreb <= o <= Ostored
 def isload(o): return Oloadsb <= o <= Oload
-def isvload(o): return Ovloadsb <= o <= Ovload or o in (Oqload, Oqldbh, Oqld3bh, Oqld3x, Oqxwin)  # vector memory: as careful as volatile, for now
+def isvload(o): return Ovloadsb <= o <= Ovload or o in (Oqload, Oqldbh, Oqld3bh, Oqld3x, Oqxwin, Oqld3x16)  # vector memory: as careful as volatile, for now
 def isvstore(o): return Ovstoreb <= o <= Ovstored or o in (Oqstore, Oqstbh, Oqstshrn)
-def isqop(o): return Oqaddb <= o <= Oqxshufb
+def isqop(o): return Oqaddb <= o <= Oqwmla3h
 
 
 def unvolatile(fn, sink=None):

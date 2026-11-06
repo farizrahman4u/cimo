@@ -782,8 +782,9 @@ def _i_simd(a, mn, ops):  # cnt Vd.8B, Vn.8B / addv Bd, Vn.8B (the popcount buil
 
 
 _VREG8H = re.compile(r'^v([0-9]|[12][0-9]|3[01])\.8h$')
-_LIST3 = re.compile(r'^\{\s*v([0-9]|[12][0-9]|3[01])\.8b\s*,\s*v([0-9]|[12][0-9]|3[01])\.8b\s*,'
-                    r'\s*v([0-9]|[12][0-9]|3[01])\.8b\s*\}$')
+_LIST3 = re.compile(r'^\{\s*v([0-9]|[12][0-9]|3[01])\.(8b|16b)\s*,\s*v([0-9]|[12][0-9]|3[01])\.\2\s*,'
+                    r'\s*v([0-9]|[12][0-9]|3[01])\.\2\s*\}$')
+_VREG16B = re.compile(r'^v([0-9]|[12][0-9]|3[01])\.16b$')
 
 
 def _i_bytes(a, mn, ops):
@@ -793,23 +794,31 @@ def _i_bytes(a, mn, ops):
         if len(ops) != 2:
             raise AssemblerError('ld3 needs 2 operands')
         m = _LIST3.match(ops[0].strip().lower())
-        t = [int(x) for x in m.groups()] if m else None
+        t = [int(m.group(1)), int(m.group(3)), int(m.group(4))] if m else None
         if t is None or t[1] != (t[0] + 1) % 32 or t[2] != (t[0] + 2) % 32:
             raise AssemblerError('ld3 takes three consecutive .8b registers: %r' % ops[0])
         b = ops[1].strip().lower()
         if not (b.startswith('[') and b.endswith(']')):
             raise AssemblerError('ld3 takes [Xn]')
         n = _reg(b[1:-1].strip(), 'x', sp=True, zr=False)[1]
-        return 0x0c404000 | n << 5 | t[0]
-    if mn in ('umull', 'umlal'):  # Vd.8H, Vn.8B, Vm.8B
+        return (0x4c404000 if m.group(2) == '16b' else 0x0c404000) | n << 5 | t[0]
+    if mn in ('umull', 'umlal', 'umull2', 'umlal2'):  # Vd.8H, Vn.8B, Vm.8B (the 2 forms: .16B, the upper halves)
         if len(ops) != 3:
             raise AssemblerError('%s needs 3 operands' % mn)
+        src = _VREG16B if mn.endswith('2') else _VREG8B
         d = _VREG8H.match(ops[0].strip().lower())
-        n, m = _VREG8B.match(ops[1].strip().lower()), _VREG8B.match(ops[2].strip().lower())
+        n, m = src.match(ops[1].strip().lower()), src.match(ops[2].strip().lower())
         if not d or not n or not m:
             raise AssemblerError('unsupported operands for %s' % mn)
-        return (0x2e20c000 if mn == 'umull' else 0x2e208000) | int(m.group(1)) << 16 | int(n.group(1)) << 5 | \
-            int(d.group(1))
+        return ((0x2e20c000 if mn.startswith('umull') else 0x2e208000) | (0x40000000 if mn.endswith('2') else 0)
+                | int(m.group(1)) << 16 | int(n.group(1)) << 5 | int(d.group(1)))
+    if mn == 'ushll2':
+        if len(ops) != 3 or _imm(ops[2], True) != 0:
+            raise AssemblerError('ushll2 takes Vd.8h, Vn.16b, #0')
+        d, n = _VREG8H.match(ops[0].strip().lower()), _VREG16B.match(ops[1].strip().lower())
+        if not d or not n:
+            raise AssemblerError('unsupported operands for ushll2')
+        return 0x6f08a400 | int(n.group(1)) << 5 | int(d.group(1))
     if mn == 'ushll':
         if len(ops) != 3 or _imm(ops[2], True) != 0:
             raise AssemblerError('ushll takes Vd.8h, Vn.8b, #0')
@@ -1338,7 +1347,7 @@ _INSNS = {
     'frintm': _i_fneg, 'frintz': _i_fneg, 'frinta': _i_fneg, 'frintx': _i_fneg,
     'frinti': _i_fneg,
     'clz': _i_dp1, 'rbit': _i_dp1, 'rev16': _i_dp1, 'rev': _i_dp1, 'cnt': _i_simd,
-    'addv': _i_simd, 'ushll': _i_bytes, 'xtn': _i_bytes, 'ld3': _i_bytes, 'umlal': _i_bytes, 'shrn': _i_bytes,
+    'addv': _i_simd, 'ushll': _i_bytes, 'xtn': _i_bytes, 'ld3': _i_bytes, 'umlal': _i_bytes, 'shrn': _i_bytes, 'umull2': _i_bytes, 'umlal2': _i_bytes, 'ushll2': _i_bytes,
     'fmadd': _i_fp4, 'fmsub': _i_fp4, 'fnmadd': _i_fp4, 'fnmsub': _i_fp4,
     'fmov': _i_fmov, 'fcvt': _i_fcvt, 'fcvtzs': _i_fcvtz, 'fcvtzu': _i_fcvtz,
     'scvtf': _i_cvtf, 'ucvtf': _i_cvtf, 'fcmp': _i_fcmp, 'fcmpe': _i_fcmp,
@@ -1571,7 +1580,7 @@ class _Asm:
                 f = insns.get(mn)
                 if f is _i_bytes:
                     pass
-                elif mn in ('umull', 'umlal') and ops and ops[0].strip().lower().startswith('v'):
+                elif mn in ('umull', 'umlal', 'umull2', 'umlal2') and ops and ops[0].strip().lower().startswith('v'):
                     f = _i_bytes
                 elif _isneon(ops):
                     f = lambda a, mn, ops: _neon(mn, ops)
