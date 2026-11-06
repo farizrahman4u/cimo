@@ -7,16 +7,15 @@
    NaNs and zero operands take the plain x*y + z path, which is exact for them. */
 
 /* the rounding mode: 0 to nearest, 1 upward, 2 downward, 3 toward zero (wasm: always 0) */
-#ifdef __GNUC__ /* the reference build of tests/test_runtime.py: the host's <fenv.h> */
-#include <fenv.h>
-static int
-rmode(void)
-{
-	int r = fegetround();
-	return r == FE_UPWARD ? 1 : r == FE_DOWNWARD ? 2 : r == FE_TOWARDZERO ? 3 : 0;
-}
+#ifdef __GNUC__ /* the reference build of tests/test_runtime.py: gcc's own register builtins */
+#ifdef __x86_64__
+#define __cimo_rdfpcr() __builtin_ia32_stmxcsr()
+#else
+#define __cimo_rdfpcr() ((unsigned)__builtin_aarch64_get_fpcr())
+#endif
 #else
 unsigned __cimo_rdfpcr(void);
+#endif
 
 static int
 rmode(void)
@@ -28,7 +27,6 @@ rmode(void)
 	return __cimo_rdfpcr() >> 22 & 3; /* FPCR RMode: nearest, up, down, zero */
 #endif
 }
-#endif
 
 /* whether a value of sign s that is not exact moves away from zero, by mode (roundbit and sticky: to nearest) */
 static int
