@@ -355,3 +355,9 @@ t2:
 	xtn	v0.8b, v31.8h
 	ldr	d31, [x2]
 	str	d31, [x3, 8]
+	ld3	{v28.8b, v29.8b, v30.8b}, [x5]
+	umull	v3.8h, v29.8b, v0.8b
+	umlal	v3.8h, v28.8b, v1.8b
+	umlal	v31.8h, v30.8b, v17.8b
+	shrn	v31.8b, v3.8h, #8
+	shrn	v0.8b, v12.8h, #1

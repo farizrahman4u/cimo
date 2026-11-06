@@ -62,6 +62,6 @@ Signed integer overflow is undefined, and the compiler assumes it doesn't happen
 
 ## Floating point
 
-By default cimo contracts `a * b + c` within one expression into a fused multiply-add, as clang does with `-ffp-contract=on`. That is faster and slightly more accurate, and it means results can differ in the last bit from a compiler that doesn't contract. Set `CIMO_FMA=0` for results identical to `-ffp-contract=off`. On x86-64 and WebAssembly cimo never contracts (it targets baseline x86-64, which has no FMA instruction), so results there are always those of `-ffp-contract=off`.
+By default cimo contracts `a * b + c` within one expression into a fused multiply-add, as clang does with `-ffp-contract=on`, except in a loop when the same product is computed more than once (then it's one multiply and plain adds, as gcc does). That is faster and slightly more accurate, and it means results can differ in the last bit from a compiler that doesn't contract. Set `CIMO_FMA=0` for results identical to `-ffp-contract=off`. x86-64 CPUs without FMA and WebAssembly never contract, so results there are always those of `-ffp-contract=off`.
 
 There is no floating-point environment: rounding is to nearest and there are no exception flags.
