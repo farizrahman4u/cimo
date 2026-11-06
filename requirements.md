@@ -659,6 +659,18 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   (x86-64; Ice Lake didn't move: L2-bound, all of b read per row of c), and tiling of k by 16 (`middle/tile.py`; KB 16 to
   32 was best everywhere at n = 384, 64 and up no gain): gemm 0.68, 0.51, 0.73, 0.60, 0.48, 0.69x on the same six machines
   (2026-11-06); geomean 0.98, 0.99, 1.00, 1.04, 0.98, 1.14x.
+- **Closing the benchmark gaps (2026-11-06), what each took:** rgb2gray: bytes in 16-bit lanes when no value can leave
+  [0, 65535] (`vectorize._narrow`), pixels by one `ld3 .16b` into v28-v30 with `umull`/`umlal`(`2`) and `shrn` on arm64,
+  by two byte windows and `vpshufb` masks on x86-64. nbody_acc: outer-loop vectorization (`middle/outer.py`), lanes of i
+  so every sum stays in C's order; vectorizing j with in-order lane adds was slower on most machines. edit_distance:
+  `a < y + 1` as `a <= y` (nowrap) and a store the next iteration loads carried in a register; x86-64 then needed the
+  compare re-issued at the cmov (an add came between). mandelbrot: a product computed twice in a loop isn't fused
+  (`fmashare.py`, as gcc). jacobi2d, conv3x3: `ldur`/`stur` offsets, 4 vectors an iteration for long fp chains (arm64).
+  Measured and left: arm64 `fmachain` (mandelbrot +7% on V1/V2) breaks matching gcc's contracted bits on dot, iir,
+  conv3x3, nbody_acc (`test_ext_kernels`); a phi's latch value sunk to the block end didn't remove mandelbrot's fmov.
+- **What remains is vector width:** gcc -O3 native uses 256-bit SVE on Graviton 3 and AVX-512 on Zen 4 (zmm in nine of the
+  kernels; 256-bit on Sapphire Rapids); cimo has 128-bit NEON and 256-bit AVX2. Graviton 4's SVE is 128-bit, and there the
+  same kernels are level.
 
 ## GPU (planned, 2026-11-02)
 

@@ -13,7 +13,7 @@ cimo is an optimizing compiler. On loops it can analyze it runs close to gcc and
 - adds runtime checks where two pointers might overlap, with a fast path when they don't
 - contracts `a * b + c` into fused multiply-adds (arm64, and x86-64 CPUs with FMA)
 - on x86-64, compiles for the CPU it runs on: FMA, POPCNT, LZCNT and TZCNT where present (`CIMO_X86=baseline` for SSE2 only)
-- auto-vectorizes straight counted loops, 128 bits at a time (arm64, x86-64), 256 on x86-64 CPUs with AVX2
+- auto-vectorizes straight counted loops, 128 bits at a time (arm64, x86-64), 256 on x86-64 CPUs with AVX2; loops over bytes in 16-bit lanes when their values fit; an outer loop, one lane per iteration, when the inner loop's sums must stay in order
 - selects arm64 or x86-64 instructions with their addressing modes; on arm64 it also pairs adjacent loads and stores
 
 ## Write loops it can see through
@@ -57,7 +57,7 @@ Compiling a kernel file takes well under a second. A single generated function o
 
 On arm64 and x86-64, straight counted loops over 4- and 8-byte elements are auto-vectorized, 128 bits at a time (256 bits on x86-64 CPUs with AVX2, `CIMO_X86=baseline` for 128), including integer sums, and arrays that might overlap are compared when the loop runs. So are conditions that choose a value, like `x > 0 ? x : 0` or a clamp, with the same result as the scalar loop for NaNs and signed zeros; on x86-64 only integer ones for now. A running integer maximum or minimum (`if (a[i] > m) m = a[i];`) vectorizes too, and integer reductions keep four vectors of accumulators, so they aren't held up waiting on one. A loop that steps by a stride argument (`a[i * st]`) gets a vectorized copy that runs when the stride is 1. Loops that leave as soon as they find something (`any`, `all`, the index of the first match, `a[i] < lo || a[i] != a[i]`) check a chunk of elements at a time; the scalar loop then finds the exact element, so the result is the same, and reading ahead never crosses into memory the loop wouldn't have touched. Floating-point sums keep C's order, adding the lanes one by one, so they vectorize only where the rest of the loop is worth it (a square root or a division on x86-64, a polynomial), not in a plain sum or dot product. Other code is scalar.
 
-With vectorization on both sides, the geomean over the 15 benchmark kernels is 0.98 to 1.00x gcc `-O3`'s time on Neoverse N1, V1 and V2, and 0.98 to 1.14x on Sapphire Rapids, Ice Lake and Zen 4.
+With vectorization on both sides, the geomean over the 15 benchmark kernels is 0.83 to 0.86x gcc `-O3`'s time on Neoverse N1, V1 and V2, and 0.87 to 0.95x on Sapphire Rapids, Ice Lake and Zen 4.
 
 > [!PLANNED]
 > SIMD: auto-vectorization of more loops (float `max`/`min`, `argmax`, float conditions on x86-64, 8- and 16-bit elements, outer loops), and on WebAssembly. This is the remaining gap to gcc and clang with vectorization on.

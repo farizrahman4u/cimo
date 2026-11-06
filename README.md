@@ -80,11 +80,12 @@ On arm64 and x86-64, cimo also auto-vectorizes straight counted loops over 4- an
 time (256 with AVX2), conditions included (`x > 0 ? x : 0`; integer ones only on x86-64). Floating-point sums vectorize only where
 the loop does enough else, since C fixes their order. Integer reductions use four vectors of accumulators, and a
 running integer `max` or `min` vectorizes, with a fast path when a stride argument is 1 (`a[i * st]`), and so do
-loops that leave early (`any`, `all`, finding the first match). Float `max`/`min`, `argmax`, narrower elements and
-WebAssembly stay scalar, so the
+loops that leave early (`any`, `all`, finding the first match). Loops over bytes vectorize in 16-bit lanes when their
+values fit (pixels: `rgb2gray`), and an outer loop vectorizes when its inner loop's sums must stay in order (`nbody_acc`).
+Float `max`/`min`, `argmax`, 16-bit elements and WebAssembly stay scalar, so the
 reference compilers are ahead where they vectorize those. Geomean over 15 kernels, against vectorized
-`gcc -O3`: 0.98 to 1.00x on Neoverse N1, V1 and V2. On x86-64 cimo compiles for the CPU it runs on (FMA, POPCNT,
-LZCNT, TZCNT, 256-bit AVX2): against `gcc -O3 -march=native`, 0.98x on Sapphire Rapids, 1.04x on Ice Lake and 1.14x on
+`gcc -O3`: 0.83 to 0.86x on Neoverse N1, V1 and V2. On x86-64 cimo compiles for the CPU it runs on (FMA, POPCNT,
+LZCNT, TZCNT, 256-bit AVX2): against `gcc -O3 -march=native`, 0.87x on Sapphire Rapids, 0.88x on Ice Lake and 0.95x on
 Zen 4, from 1.16 to 1.41x with 128-bit vectors. See [`requirements.md`](requirements.md) for the full measurements.
 
 Compiling a kernel file takes under a second, and compiled modules are cached by content hash.
