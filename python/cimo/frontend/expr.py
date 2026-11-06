@@ -10,7 +10,7 @@ from .cc import (Expr, Ref, M64, M32, EXPRIDENT, EXPRCONST, EXPRSTRING, EXPRCALL
                  DECLBUILTIN, SDSTATIC, SDAUTO, LINKNONE, BUILTINALLOCA, BUILTINCONSTANTP,
                  BUILTINEXPECT, BUILTININFF, BUILTINNANF, BUILTINOFFSETOF,
                  BUILTINTYPESCOMPATIBLEP, BUILTINUNREACHABLE, BUILTINVAARG, BUILTINVACOPY,
-                 BUILTINVAEND, BUILTINVASTART,
+                 BUILTINVAEND, BUILTINVASTART, BUILTINWIDTHOF,
                  TNONE, TIDENT, TSTRINGLIT, TCHARCONST, TNUMBER, TTRUE, TFALSE, TNULLPTR,
                  TLPAREN, TRPAREN, T_GENERIC, TCOMMA, TDEFAULT, TCOLON, TLBRACK, TRBRACK,
                  TPERIOD, TARROW, TINC, TDEC, TBAND, TMUL, TADD, TSUB, TBNOT, TLNOT, TSIZEOF,
@@ -803,7 +803,12 @@ def builtinfunc(s, kind):
         # TODO: check that the expression and the expected value have type 'long'
         e = assignexpr(s)
         expect(TCOMMA, "after expression")
-        delexpr(assignexpr(s))
+        c = assignexpr(s)
+        if c.kind == EXPRCONST:
+            delexpr(c)
+        else:  # cimo: evaluated, as a call's argument (`__builtin_expect (x, z++)`); cproc dropped it
+            c.next = e
+            e = Expr(EXPRCOMMA, e.type, c)
     elif kind == BUILTININFF:
         e = Expr(EXPRCONST, TY.typefloat, None)
         # TODO: use INFINITY here when we can handle musl's math.h
@@ -831,6 +836,11 @@ def builtinfunc(s, kind):
         t = D.typename(s, None, None)
         expect(TCOMMA, "after type name")
         e = mkconstexpr(TY.typeint, 1 if typecompatible(t, D.typename(s, None, None)) else 0)
+    elif kind == BUILTINWIDTHOF:  # cimo: the overflow builtins' result width (a _BitInt's is not its size)
+        t = condexpr(s).type
+        if not (t.prop & PROPINT):
+            error(tok.loc, "__cimo_widthof operand must have integer type")
+        e = mkconstexpr(TY.typeint, t.width)
     elif kind == BUILTINUNREACHABLE:
         e = Expr(EXPRBUILTIN, TY.typevoid, None)
         e.bkind = BUILTINUNREACHABLE
@@ -1239,9 +1249,11 @@ def _constmember(t):
     m = t.members
     while m:
         mt = m.type
-        while mt.kind == TYPEARRAY:
+        q = m.qual
+        while mt.kind == TYPEARRAY:  # an array type's qual is its element's; a pointer's is its target's
+            q |= mt.qual
             mt = mt.base
-        if m.qual & QUALCONST or mt.qual & QUALCONST or _constmember(mt):
+        if q & QUALCONST or _constmember(mt):
             return True
         m = m.next
     return False

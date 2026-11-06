@@ -488,17 +488,22 @@ def convert(f, dst, src, l):
                 if dst.kind == TYPEBITINT:
                     return funcbits(f, dst, l, BITS0)
                 return l
-            if src.kind == TYPEBITINT and (src.size == 8 or dst.size == 4):
-                return l
-            sz = src.size
-            if sz == 4:
-                op = IEXTSW if src.issigned else IEXTUW
-            elif sz == 2:
-                op = IEXTSH if src.issigned else IEXTUH
-            elif sz == 1:
-                op = IEXTSB if src.issigned else IEXTUB
-            else:
-                U.fatal("internal error; unknown integer conversion")
+            if not (src.kind == TYPEBITINT and (src.size == 8 or dst.size == 4)):
+                sz = src.size
+                if sz == 4:
+                    op = IEXTSW if src.issigned else IEXTUW
+                elif sz == 2:
+                    op = IEXTSH if src.issigned else IEXTUH
+                elif sz == 1:
+                    op = IEXTSB if src.issigned else IEXTUB
+                else:
+                    U.fatal("internal error; unknown integer conversion")
+                l = funcinst(f, op, cls, l, None)
+            if U.diagnostics and dst.kind == TYPEBITINT and src.issigned and not dst.issigned:
+                # cimo: a negative value to a wider unsigned _BitInt wraps at its width (-25 as
+                # unsigned _BitInt(9) is 487, not the sign-extended -25)
+                l = funcbits(f, dst, l, BITS0)
+            return l
         else:
             if dst.issigned:
                 op = IDTOSI if src.size == 8 else ISTOSI
@@ -1447,7 +1452,10 @@ def funcexpr(f, e):
             return funcload(f, e.type, LValue(r), e.qual)
         if op == TSUB:
             r = funcexpr(f, e.base)
-            return funcinst(f, INEG, qbetype(e.type).base, r, None)
+            v = funcinst(f, INEG, qbetype(e.type).base, r, None)
+            if U.diagnostics and e.type.kind == TYPEBITINT:  # cimo: -1uwb is 1 (an unsigned _BitInt(1)), as binary ops wrap
+                v = funcbits(f, e.type, v, BITS0)
+            return v
         U.fatal("internal error; unknown unary expression")
     elif k == EXPRCAST:
         if e.toeval:

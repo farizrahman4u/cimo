@@ -319,6 +319,10 @@ def opfold(op, cls, cl, cr, fn):
         if foldint(c, op, cls == Kl, cl, cr):
             return R
     else:
+        if cl.type != CBits or cr.type != CBits:
+            # cimo: an address as a float op's operand (`(double)u.i[0]` after u.p = &x: the load
+            # forwarded the symbol) is left to run, as an integer op's is; QBE stopped with an error
+            return R
         foldflt(c, op, cls == Kd, cl, cr)
     if not KWIDE(cls):
         c.i &= 0xffffffff

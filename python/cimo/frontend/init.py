@@ -201,6 +201,10 @@ def parseinit(s, t):
                 focus(p)
         if consume(TLBRACE):
             if consume(TRBRACE):
+                if p.cur is not None and p.cur == p.sub and obj[p.cur].type.kind == TYPEARRAY:
+                    # cimo: `{}` for an array's element (cproc's `{{}, {}, 5}` left the cursor on the
+                    # array itself, so the 5 went to element 0)
+                    focus(p)
                 if obj[p.sub].type.incomplete:
                     error(tok.loc, "array of unknown size has empty initializer")
                 skip_to_next = True

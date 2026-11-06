@@ -199,6 +199,7 @@ _COMMON_DEFINES = [
     ('__BYTE_ORDER__', '__STDC_ENDIAN_NATIVE__'),
     ('__FLT_EVAL_METHOD__', '0'),  # cproc's config.h says 1, but cproc + QBE compute float in float
     ('__BITINT_MAXWIDTH__', '64'),
+    ('__BIGGEST_ALIGNMENT__', '16'),  # gcc's for arm64 and x86-64 (max_align_t's alignment)
     ('__LP64__', None),
     ('__SIZEOF_LONG__', '8'),
     ('__SIZEOF_POINTER__', '8'),

@@ -112,7 +112,8 @@ k = cimo.compile(src, link=["libz.so.1"])
 Kernels run with the full privileges of the Python process, like ctypes. There is no sandbox.
 
 Inline assembly, `setjmp`/`longjmp`, `long double` and GNU vector types are not supported. Each is a
-compile error that says so.
+compile error that says so. An empty `asm` (`asm volatile ("" ::: "memory")`, the usual optimization
+barrier) compiles to nothing.
 
 ## Calling kernels
 

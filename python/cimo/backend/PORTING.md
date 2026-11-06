@@ -56,6 +56,9 @@ port literally; don't "improve" anything.
 Bugs of the reference are fixed in the port, marked `fix over C QBE` in the code (C QBE's
 output for these is broken, so no comparison test depends on it):
 
+- `fold.opfold`: a float operation on a symbol's address (`swtof $P`, after a load forwarded the
+  stored address: gcc.dg/torture pr65077) stopped compilation with "invalid address operand"; it
+  is left unfolded, as an integer operation on one is.
 - `gvn.assoccon`: reassociating a `w` add/sub chain folded the constants in 64 bits, so
   `x + -1 + -30` became `sub w0, w0, #18446744065119617055` (rejected by the assembler).
   The folded constant is now masked to 32 bits, as `fold.opfold` does.

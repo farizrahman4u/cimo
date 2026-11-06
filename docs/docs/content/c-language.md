@@ -20,13 +20,13 @@ and the freestanding headers: `stdint.h`, `stddef.h`, `stdbool.h`, `stdarg.h`, `
 
 `printf` writes to Python's `sys.stdout`. `sqrt` and `fabs` compile to single instructions; on arm64 so do `floor`, `ceil`, `trunc`, `round`, `fmin` and `fmax` (on x86-64 they are library calls).
 
-GNU bit builtins work as in gcc: `__builtin_popcount`, `__builtin_clz`, `__builtin_ctz`, `__builtin_bswap32` and their `l`/`ll` forms.
+GNU bit builtins work as in gcc: `__builtin_popcount`, `__builtin_clz`, `__builtin_ctz`, `__builtin_bswap32` and their `l`/`ll` forms. So do the overflow builtins (`__builtin_add_overflow` and friends, `_BitInt` results included), `__builtin_expect`, `__builtin_assume_aligned`, and the `__builtin_` names of the C library functions cimo provides (`__builtin_memcpy`, `__builtin_fma`, `__builtin_powf`, `__builtin_isdigit`, ...).
 
 ## What's not available
 
 Each of these is a compile error that names the problem:
 
-- inline assembly
+- inline assembly (an empty `asm`, such as the barrier `asm volatile ("" ::: "memory")`, is accepted and compiles to nothing)
 - `setjmp` / `longjmp`
 - 128-bit `long double`
 - the hosted parts of the C library: files, time, threads, sockets, `getenv`. To use them, link the host's C library; see [Calling host libraries](host-libraries.md).

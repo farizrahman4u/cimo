@@ -107,10 +107,39 @@ double __builtin_floor(double) __cimo_lib(floor);
 double __builtin_ceil(double) __cimo_lib(ceil);
 double __builtin_fmin(double, double) __cimo_lib(fmin);
 double __builtin_fmax(double, double) __cimo_lib(fmax);
+double __builtin_fma(double, double, double) __cimo_lib(fma);
+float __builtin_fmaf(float, float, float) __cimo_lib(fmaf);
+float __builtin_fminf(float, float) __cimo_lib(fminf);
+float __builtin_fmaxf(float, float) __cimo_lib(fmaxf);
+double __builtin_pow(double, double) __cimo_lib(pow);
+float __builtin_powf(float, float) __cimo_lib(powf);
+float __builtin_floorf(float) __cimo_lib(floorf);
+float __builtin_ceilf(float) __cimo_lib(ceilf);
+double __builtin_trunc(double) __cimo_lib(trunc);
+float __builtin_truncf(float) __cimo_lib(truncf);
+double __builtin_round(double) __cimo_lib(round);
+float __builtin_roundf(float) __cimo_lib(roundf);
+double __builtin_exp(double) __cimo_lib(exp);
+double __builtin_log(double) __cimo_lib(log);
+char *__builtin_strdup(const char *) __cimo_lib(strdup);
+int __builtin_iscntrl(int) __cimo_lib(iscntrl);
+int __builtin_isdigit(int) __cimo_lib(isdigit);
+int __builtin_isalpha(int) __cimo_lib(isalpha);
+int __builtin_isalnum(int) __cimo_lib(isalnum);
+int __builtin_isspace(int) __cimo_lib(isspace);
+int __builtin_isupper(int) __cimo_lib(isupper);
+int __builtin_islower(int) __cimo_lib(islower);
+int __builtin_isprint(int) __cimo_lib(isprint);
+int __builtin_isxdigit(int) __cimo_lib(isxdigit);
+int __builtin_ispunct(int) __cimo_lib(ispunct);
+int __builtin_isgraph(int) __cimo_lib(isgraph);
+int __builtin_toupper(int) __cimo_lib(toupper);
+int __builtin_tolower(int) __cimo_lib(tolower);
 #undef __cimo_lib
 #undef __cimo_s
 #undef __cimo_s2
 #define __builtin_prefetch(...) ((void)(__VA_ARGS__))
+#define __builtin_assume_aligned(p, ...) ((void *)(p))
 int __builtin_isinff(float);
 double __builtin_nans(const char *); float __builtin_nansf(const char *);
 int __cimo_issignalingf(float); int __cimo_issignaling(double);
@@ -128,13 +157,13 @@ int __cimo_overflow(int, unsigned long long, int, unsigned long long, int, void 
 #define __cimo_signed(x) ((__typeof__(x))-1 < 0)
 #define __cimo_ovf(op, a, b, r, rs, rsg) __cimo_overflow(op, (unsigned long long)(a), \
 	__cimo_signed(a), (unsigned long long)(b), __cimo_signed(b), r, rs, rsg)
-#define __builtin_add_overflow(a, b, r) __cimo_ovf(0, a, b, r, sizeof(*(r)), __cimo_signed(*(r)))
-#define __builtin_sub_overflow(a, b, r) __cimo_ovf(1, a, b, r, sizeof(*(r)), __cimo_signed(*(r)))
-#define __builtin_mul_overflow(a, b, r) __cimo_ovf(2, a, b, r, sizeof(*(r)), __cimo_signed(*(r)))
-#define __builtin_add_overflow_p(a, b, c) __cimo_ovf(0, a, b, (void *)0, sizeof(c), __cimo_signed(c))
-#define __builtin_sub_overflow_p(a, b, c) __cimo_ovf(1, a, b, (void *)0, sizeof(c), __cimo_signed(c))
-#define __builtin_mul_overflow_p(a, b, c) __cimo_ovf(2, a, b, (void *)0, sizeof(c), __cimo_signed(c))
-#define __cimo_ovft(op, t, a, b, r) __cimo_ovf(op, (t)(a), (t)(b), (t *)(r), sizeof(t), (t)-1 < 0)
+#define __builtin_add_overflow(a, b, r) __cimo_ovf(0, a, b, r, __cimo_widthof(*(r)), __cimo_signed(*(r)))
+#define __builtin_sub_overflow(a, b, r) __cimo_ovf(1, a, b, r, __cimo_widthof(*(r)), __cimo_signed(*(r)))
+#define __builtin_mul_overflow(a, b, r) __cimo_ovf(2, a, b, r, __cimo_widthof(*(r)), __cimo_signed(*(r)))
+#define __builtin_add_overflow_p(a, b, c) __cimo_ovf(0, a, b, (void *)0, __cimo_widthof(c), __cimo_signed(c))
+#define __builtin_sub_overflow_p(a, b, c) __cimo_ovf(1, a, b, (void *)0, __cimo_widthof(c), __cimo_signed(c))
+#define __builtin_mul_overflow_p(a, b, c) __cimo_ovf(2, a, b, (void *)0, __cimo_widthof(c), __cimo_signed(c))
+#define __cimo_ovft(op, t, a, b, r) __cimo_ovf(op, (t)(a), (t)(b), (t *)(r), __cimo_widthof((t)0), (t)-1 < 0)
 #define __builtin_sadd_overflow(a, b, r) __cimo_ovft(0, int, a, b, r)
 #define __builtin_saddl_overflow(a, b, r) __cimo_ovft(0, long, a, b, r)
 #define __builtin_saddll_overflow(a, b, r) __cimo_ovft(0, long long, a, b, r)

@@ -491,3 +491,90 @@ def test_long_programs_do_not_hit_the_recursion_limit():
     for a, b in zip(blocks, blocks[1:]):
         a.s1 = b
     assert cfg.reachrec(blocks[0], blocks[-1]) == 1
+
+
+def test_empty_braces_for_an_array_element():
+    # cproc's `{}` left the cursor on the array itself: `{{}, {}, 5, 5}` put the 5s in element 0
+    # (gcc.dg/torture pr123310.c)
+    m = cimo.compile('struct a { short b; };\n'
+                     'struct a f[3][2] = {{}, {}, 5, 5};\n'
+                     'int g[3] = {{}, 7, {}};\n'
+                     'int h[] = {{}, {}, 3};\n'
+                     'int get(int i, int j) { return f[i][j].b; }\n'
+                     'int sum(void) { return g[0] * 100 + g[1] * 10 + g[2] + sizeof h / sizeof *h * 1000 + h[2]; }\n')
+    assert [m.get(i, j) for i in range(3) for j in range(2)] == [0, 0, 0, 0, 5, 5]
+    assert m.sum() == 3073
+
+
+def test_bitint_wraps_at_its_width():
+    # a negative value to a wider unsigned _BitInt, and unary minus of an unsigned _BitInt,
+    # wrap at the _BitInt's width (gcc.dg/torture bitint-1.c, bitint-2.c)
+    m = cimo.compile('long conv(_BitInt(6) a) { unsigned _BitInt(9) b = a; return b; }\n'
+                     'long conv2(int a) { unsigned _BitInt(40) b = a; return b; }\n'
+                     'long neg(void) { return -1uwb; }\n'
+                     'long neg2(void) { return -13uwb; }\n')
+    assert m.conv(-25) == 487 and m.conv2(-1) == 2 ** 40 - 1
+    assert m.neg() == 1 and m.neg2() == 3
+
+
+def test_overflow_builtins_into_a_bitint():
+    # the result's width, not its size: 2^30 * 2 overflows an unsigned _BitInt(31)
+    # (gcc.dg/torture pr116135.c)
+    m = cimo.compile('int f(unsigned long long a, unsigned long long b, long *v) {\n'
+                     '    unsigned _BitInt(31) r; int o = __builtin_mul_overflow(a, b, &r); *v = r; return o; }\n'
+                     'int g(int a, int b, long *v) {\n'
+                     '    _BitInt(5) r; int o = __builtin_add_overflow(a, b, &r); *v = r; return o; }\n')
+    import ctypes
+    v = ctypes.c_long()
+    assert m.f(1 << 30, 2, v) == 1 and v.value == 0
+    assert m.f(1 << 15, (1 << 15) - 1, v) == 0 and v.value == (1 << 30) - (1 << 15)
+    assert m.g(10, 5, v) == 0 and v.value == 15
+    assert m.g(10, 6, v) == 1 and v.value == -16
+
+
+def test_struct_with_a_pointer_to_const_member_is_assignable():
+    # a pointer type's qualifiers are its target's: `const struct t *p` is not a const member
+    # (gcc.dg/torture pr55305.c)
+    m = cimo.compile('struct m { const int *p; int *const q[0 + 1 - 1 + 1]; };\n'
+                     'struct w { const char *s; int n; };\n'
+                     'int f(void) { struct w a = {"x", 3}, b; b = a; return b.n; }\n')
+    assert m.f() == 3
+    with pytest.raises(cimo.CompileError, match="'const' member"):
+        cimo.compile('struct w { int *const p; };\n'
+                     'void f(struct w *a, struct w *b) { *a = *b; }\n')
+
+
+def test_float_conversion_of_a_forwarded_address():
+    # QBE's fold stopped at `swtof $P` (a load forwarded the stored address): left to run
+    # (gcc.dg/torture pr65077.c)
+    m = cimo.compile('double P[2];\n'
+                     'double f(void) { union { void *p; int i[2]; } u; u.p = P; P[0] = u.i[0]; return P[0]; }\n'
+                     'long g(void) { return (unsigned)(long)P; }\n')
+    import ctypes
+    assert m.f() == float(ctypes.c_int32(m.g()).value)
+
+
+def test_empty_asm_statements():
+    # an empty template does nothing: inputs evaluated, a tied output assigned its input,
+    # other outputs evaluated once (gcc's optimization barrier; gcc 990130-1.c)
+    m = cimo.compile('int g, dummy;\n'
+                     'int *bar(void) { ++g; return &dummy; }\n'
+                     'int f(void) {\n'
+                     '    int x = 5, y = 7, z = 0, w = 1;\n'
+                     '    __asm__ volatile ("" ::: "memory");\n'
+                     '    asm ("");\n'
+                     '    __asm__ ("" : "+r" (x));\n'
+                     '    __asm__ ("" : "=r" (z) : "0" (y + 1));\n'
+                     '    __asm__ ("" : [o] "=g" (w) : "r" (g++), "[o]" (40 + x) : "memory", "cc");\n'
+                     '    __asm__ ("" : "+r" (*bar()));\n'
+                     '    __asm__ (" \\n\\t" : : "r" (x), "g" (&y));\n'
+                     '    return x * 1000000 + y * 100000 + z * 10000 + w * 10 + g; }\n')
+    assert m.f() == 5000000 + 700000 + 80000 + 450 + 2
+    with pytest.raises(cimo.CompileError, match='inline assembly'):
+        cimo.compile('int f(void) { __asm__ ("nop"); return 0; }\n')
+
+
+def test_builtin_expect_evaluates_its_second_argument():
+    # cproc dropped it: `__builtin_expect (c, z++)` lost the increment (gcc pr85156.c)
+    m = cimo.compile('int f(int x, int z) { if (__builtin_expect(x != 0, z++)) return 7; return z; }\n')
+    assert m.f(0, 10) == 11 and m.f(1, 10) == 7

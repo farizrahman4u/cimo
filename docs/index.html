@@ -774,7 +774,7 @@ void ema(int n, const double x[n],
         <li><b>SIMD.</b> GNU vector types for NEON, AVX2 and AVX-512. <code>#pragma omp simd</code> and <code>restrict</code> honored as written.</li>
         <li><b>System libraries.</b> Link the host libc for files, clocks, threads and sockets, or any shared library such as zlib, BLAS or the Python C API.</li>
       </ul>
-      <p class="no">Not supported: inline assembly, <code>setjmp</code>/<code>longjmp</code>, 128-bit <code>long double</code>. Each is a compile error that says so.</p>
+      <p class="no">Not supported: inline assembly (an empty <code>asm</code> barrier is fine), <code>setjmp</code>/<code>longjmp</code>, 128-bit <code>long double</code>. Each is a compile error that says so.</p>
     </div>
     <div class="stack">
       <div class="code">

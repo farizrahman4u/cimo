@@ -111,13 +111,13 @@ int __cimo_fcmp(int op, double x, double y)
 /* __builtin_{add,sub,mul}_overflow (op 0, 1, 2) for any integer types: a and b are the
    operands' bits, as and bs whether their types are signed; the exact result is computed
    (sign and magnitude, the magnitude up to 128 bits), stored truncated to the result type
-   (rsize bytes, rsigned) at r unless r is null, and 1 returned if it does not fit. */
+   (bits wide, a _BitInt's narrower than its storage; rsigned) at r unless r is null, and 1
+   returned if it does not fit. */
 int __cimo_overflow(int op, uint64_t a, int as, uint64_t b, int bs, void *r,
-                    unsigned long rsize, int rsigned)
+                    unsigned long bits, int rsigned)
 {
 	int an = as && (int64_t)a < 0, bn = bs && (int64_t)b < 0, neg;
 	uint64_t am = an ? -a : a, bm = bn ? -b : b, hi = 0, lo, max, v;
-	unsigned bits = rsize * 8;
 
 	if (op == 2) {
 		uint64_t a0 = am & 0xffffffff, a1 = am >> 32, b0 = bm & 0xffffffff, b1 = bm >> 32;
@@ -148,13 +148,16 @@ int __cimo_overflow(int op, uint64_t a, int as, uint64_t b, int bs, void *r,
 	else
 		max = neg ? 0 : bits == 64 ? -1ULL : (1ULL << bits) - 1;
 	v = neg ? -lo : lo;
+	if (bits < 64) {  /* the truncated value, sign- or zero-extended from its width */
+		v &= (1ULL << bits) - 1;
+		if (rsigned && v >> (bits - 1))
+			v |= -1ULL << bits;
+	}
 	if (r) {
-		switch (rsize) {
-		case 1: *(uint8_t *)r = v; break;
-		case 2: *(uint16_t *)r = v; break;
-		case 4: *(uint32_t *)r = v; break;
-		default: *(uint64_t *)r = v; break;
-		}
+		if (bits <= 8) *(uint8_t *)r = v;
+		else if (bits <= 16) *(uint16_t *)r = v;
+		else if (bits <= 32) *(uint32_t *)r = v;
+		else *(uint64_t *)r = v;
 	}
 	return hi || lo > max;
 }

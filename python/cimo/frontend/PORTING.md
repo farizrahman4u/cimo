@@ -85,6 +85,12 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   `arm64_win`.
 - Line markers: the file name's `\\` and `\"` escapes are decoded (cproc has an "XXX" and
   takes the text up to the next quote), so Windows paths in diagnostics are right.
+- Found by gcc's `gcc.dg/torture` and `gcc.dg/vect` (2026-11-06): an empty `{}` for an array's
+  element left the initializer cursor on the array (`{{}, {}, 5, 5}` put the 5s in element 0);
+  `__builtin_expect`'s second argument was dropped unevaluated (`z++`); a struct with a
+  pointer-to-const member was taken for one with a const member (a pointer type's `qual` is its
+  target's) and could not be assigned; a negative value converted to a wider unsigned `_BitInt`,
+  and unary minus of an unsigned `_BitInt`, did not wrap at its width (`-1uwb` was -1).
 - Bugs fixed (marked `cimo:` in the code; found by gcc's torture tests): a block-scope `extern`
   that hides a local took the local's absent linkage and crashed (C11 6.2.2p4); the size of a
   variably modified typedef was computed at its first use, which need not dominate the others

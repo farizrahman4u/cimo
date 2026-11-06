@@ -1,8 +1,12 @@
 """Port of stmt.c."""
 
+import re
+from builtins import next as next_
+
 from .cc import (SwitchCases, TCASE, TDEFAULT, TIDENT, TCOLON, TLBRACE, TRBRACE, TSEMICOLON,
                  TIF, TLPAREN, TRPAREN, TELSE, TSWITCH, TWHILE, TDO, TFOR, TGOTO, TCONTINUE,
-                 TBREAK, TRETURN, T__ASM__, PROPSCALAR, PROPINT, TELLIPSIS, TMUL, DECLOBJECT, SDAUTO)
+                 TBREAK, TRETURN, T__ASM__, TVOLATILE, TINLINE, TSTRINGLIT, TCOMMA,
+                 TLBRACK, TRBRACK, TCOLONCOLON, PROPSCALAR, PROPINT, TELLIPSIS, TMUL, DECLOBJECT, SDAUTO)
 from .token import tok, tokenstr, error
 from .pp import next, expect, consume, peek
 from . import type as TY
@@ -306,11 +310,105 @@ def stmt(f, s):
         expect(TSEMICOLON, "after 'return' statement")
 
     elif k == T__ASM__:
-        if U.diagnostics:
-            error(tok.loc, DG.INLINEASM)
-        error(tok.loc, "inline assembly is not yet supported")
+        _asm(f, s)
     else:
         e = E.expr(s)
         v = Q.funcexpr(f, e)
         E.delexpr(e)
         expect(TSEMICOLON, "after expression statement")
+
+
+_EMPTYASM = re.compile(r'(?:\s|\\[nt])*')
+
+
+def _asmstrings():
+    """Adjacent string literals: their text between the quotes."""
+    parts = []
+    while tok.kind == TSTRINGLIT:
+        parts.append(tok.lit[tok.lit.index('"') + 1:-1])
+        next()
+    if not parts:
+        error(tok.loc, "expected string literal in 'asm' statement")
+    return ''.join(parts)
+
+
+def _colon():
+    """Consume one ':' (half of a `::` token: `asm ("" ::: "memory")`)."""
+    if tok.kind == TCOLONCOLON:
+        tok.kind = TCOLON
+        return True
+    return consume(TCOLON)
+
+
+def _asmoperands(s, out):
+    """`[name] "constraint" (expression)`, comma-separated: (name, constraint, expression)s."""
+    ops = []
+    if tok.kind in (TCOLON, TCOLONCOLON, TRPAREN):
+        return ops
+    while True:
+        name = None
+        if consume(TLBRACK):
+            name = expect(TIDENT, "in 'asm' operand name")
+            expect(TRBRACK, "after 'asm' operand name")
+        c = _asmstrings()
+        expect(TLPAREN, "before 'asm' operand")
+        e = E.expr(s)
+        expect(TRPAREN, "after 'asm' operand")
+        if out and not e.lvalue:
+            error(tok.loc, "'asm' output operand is not an lvalue")
+        ops.append((name, c, e))
+        if not consume(TCOMMA):
+            return ops
+
+
+def _asm(f, s):
+    """cimo: a GNU asm statement whose template is empty (`asm volatile ("" ::: "memory")`, gcc's tests'
+    and benchmarks' optimization barrier) does nothing, so it is compiled as nothing: its inputs are
+    evaluated, an output tied to an input ("0", "[name]") is assigned that input, other outputs are
+    evaluated (once, for their side effects) and keep their values. Any other template is an error (cimo has no inline assembly)."""
+    loc = tok.loc
+    next()
+    while tok.kind in (TVOLATILE, TINLINE, TGOTO):
+        next()
+    expect(TLPAREN, "after 'asm'")
+    if tok.kind != TSTRINGLIT or not _EMPTYASM.fullmatch(_asmstrings()):
+        error(loc, DG.INLINEASM if U.diagnostics else "inline assembly is not yet supported")
+    outs, ins = [], []
+    if _colon():
+        outs = _asmoperands(s, True)
+        if _colon():
+            ins = _asmoperands(s, False)
+            if _colon():
+                if tok.kind == TSTRINGLIT:
+                    while True:  # clobbers
+                        _asmstrings()
+                        if not consume(TCOMMA):
+                            break
+                if _colon():  # asm goto's labels: never jumped to
+                    while tok.kind == TIDENT:
+                        next()
+                        if not consume(TCOMMA):
+                            break
+    expect(TRPAREN, "after 'asm' operands")
+    expect(TSEMICOLON, "after 'asm' statement")
+    tiedouts = set()
+    for name, c, e in ins:
+        c = c.lstrip('=+&%')
+        if c.isdigit():
+            tiedouts.add(int(c))
+        elif c.startswith('['):
+            tiedouts.update(n for n, o in enumerate(outs) if o[0] == c[1:-1])
+    for n, (name, c, e) in enumerate(outs):  # an output's side effects (`"+r" (*bar())`), once
+        if n not in tiedouts:
+            Q.funcexpr(f, e)
+    for name, c, e in ins:
+        c = c.lstrip('=+&%')
+        tied = None
+        if c.isdigit() and int(c) < len(outs):
+            tied = outs[int(c)][2]
+        elif c.startswith('[') and c.endswith(']'):
+            tied = next_((o[2] for o in outs if o[0] == c[1:-1]), None)
+        if tied is not None:
+            e = E.mkassignexpr(tied, e)
+        Q.funcexpr(f, e)
+        E.delexpr(e)

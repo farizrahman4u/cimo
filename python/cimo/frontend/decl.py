@@ -1019,6 +1019,8 @@ def decl(s, f):
     allowfunc = not f
     if staticassert(s):
         return True
+    if tok.kind == T__ASM__ and f:
+        return False  # an asm statement (stmt.py: an empty template is accepted)
     if U.diagnostics and tok.kind == T__ASM__:
         error(tok.loc, DG.INLINEASM)
     a = Attr()

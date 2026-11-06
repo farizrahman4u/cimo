@@ -15,8 +15,9 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   acceptable now. cimo runs gcc's `c-torture/execute`, c-testsuite and musl's libc-test (`tests/corpora.py`, fetched at
   pinned commits, never copied: several are GPL), plus Csmith, YARPGen, random loops and the ABI tests. Add, in this
   order (most likely to find what's been breaking first):
-  - **gcc.dg/vect** (the vectorizer's run tests, `dg-do run`) and **gcc.dg/torture**: the auto-vectorizer, early exits,
-    reductions and conditions are the newest code and where most of the misses were.
+  - ~~**gcc.dg/vect** and **gcc.dg/torture**~~ **Done** (2026-11-06, corpora `gcc-vect` and `gcc-dg-torture`: 1865 of
+    2155 pass, 8 bugs fixed; see "Conformance corpora" in `requirements.md`). Not yet: vect's subdirectories
+    (`costmodel/`, `tsvc/`, ...), and the programs that include `../../c-c++-common/` files.
   - **gcc.dg** run tests generally (`/* { dg-do run } */`, skipping target-specific `dg-require`s and extensions cimo
     rejects with a clear error), and **gcc.c-torture/compile** (compile-only: crashes and asserts in the compiler).
   - **LLVM test-suite** `SingleSource/UnitTests`, `SingleSource/Regression/C` and the small `SingleSource/Benchmarks`,
