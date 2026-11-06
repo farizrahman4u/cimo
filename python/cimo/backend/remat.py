@@ -35,6 +35,41 @@ def _first(b):
     return n
 
 
+def _storecons(fn):
+    """An integer constant a loop stores, other than zero (xzr), in a register made in the loop's preheader: isel made
+    it before each store (sieve's comp[j] = 1: a mov a byte). Returns True if it changed anything."""
+    cfg.filldom(fn)
+    cfg.fillloop(fn)
+    made = {}
+    changed = False
+    for b in fn.rpo[:fn.nblk]:
+        if b.loop <= 1:
+            continue
+        h = b
+        while h.idom is not None and h.idom.loop >= b.loop:
+            h = h.idom
+        h = h.idom
+        if h is None:
+            continue
+        for i in b.ins[:b.nins]:
+            if i.op not in (D.Ostoreb, D.Ostoreh, D.Ostorew, D.Ostorel) or rtype(i.arg[0]) != RCon:
+                continue
+            c = fn.con[rval(i.arg[0])]
+            if c.type != CBits or c.i == 0:
+                continue
+            k = D.Kl if i.op == D.Ostorel else D.Kw
+            key = (h, rval(i.arg[0]), k)
+            if key not in made:
+                r = newtmp('rs', k, fn)
+                made[key] = r
+                n = _first(h)
+                h.ins = h.ins[:n] + [Ins(D.Ocopy, k, r, i.arg[0], R)] + h.ins[n:h.nins]
+                h.nins = len(h.ins)
+            i.arg[0] = made[key]
+            changed = True
+    return changed
+
+
 def run(fn, floats):
     """floats: also give float constant operands a home (arm64, whose isel would load each one in the start block).
     Only for a function of LARGE blocks or more: in a small one a constant live all through costs little, and changing
@@ -43,7 +78,7 @@ def run(fn, floats):
     global homed
     homed = False
     if fn.nblk < LARGE:
-        return False
+        return _storecons(fn)
     homed = floats
     cfg.filldom(fn)
     cfg.fillloop(fn)

@@ -1028,17 +1028,25 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
     s = ctl.s
     up = ctl.kind in ('up_lt', 'up_le') or (ctl.kind == 'ne' and s > 0)
     if ctl.sym:
-        # the step's magnitude a, checked to be in [1, 2^20) before any division by it
+        # the step's magnitude a, checked to be in [1, 2^20) before any division by it; in a block of its own after
+        # the first test, so a loop that doesn't run costs that test alone (sieve's inner loop, for most i)
+        e1.flush()
+        GS = ir.newblock(fn, G1, 'g')
+        newblocks.add(GS)
+        ir.setjnz(G1, cont0, GS, SL)
+        es = Emitter(fn, GS)
+        fast.em = es
         sv = fast.lin(ctl.x.S, W)
-        sl = e1.op(D.Oextsw, Kl, sv) if W == 32 else sv
-        a = Sym(sl if up else e1.op(D.Oneg, Kl, sl))
-        sok = e1.raw(D.Oand, Kw, e1.cmp(D.Ocsgel, a.r, e1.con(1)),
-                     e1.cmp(D.Ocsltl, a.r, e1.con(1 << 20)))
-        cont0 = e1.raw(D.Oand, Kw, cont0, sok)
+        sl = es.op(D.Oextsw, Kl, sv) if W == 32 else sv
+        a = Sym(sl if up else es.op(D.Oneg, Kl, sl))
+        sok = es.raw(D.Oand, Kw, es.cmp(D.Ocsgel, a.r, es.con(1)),
+                     es.cmp(D.Ocsltl, a.r, es.con(1 << 20)))
+        es.flush()
+        ir.setjnz(GS, sok, G2, SL)
     else:
         a = abs(s)
-    e1.flush()
-    ir.setjnz(G1, cont0, G2, SL)
+        e1.flush()
+        ir.setjnz(G1, cont0, G2, SL)
 
     e2 = Emitter(fn, G2)
     fast.em = e2

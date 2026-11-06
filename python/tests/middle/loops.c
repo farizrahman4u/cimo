@@ -126,3 +126,7 @@ double carry_two(RARGS) { for (int i = 0; i < n; i++) { ia[i + 1] = ia[i] + ib[i
 double carry_down(RARGS) { for (int i = n; i > 0; i--) fa[i - 1] = fa[i] * 0.5f + fb[i]; return fa[0]; }
 double carry_alias(ARGS) { for (int i = 0; i < n; i++) { fa[i + 1] = fa[i] + 1.0f; fb[i] = 2.0f; } return fa[n]; }
 double carry_min(RARGS) { for (int i = 1; i <= n; i++) { int v = ib[i] < ia[i - 1] + 1 ? ib[i] : ia[i - 1] + 1; ia[i] = v; } return ia[n]; }
+/* fills, and constants a loop stores */
+double fill_bytes(RARGS) { for (int i = 0; i < n; i++) ua[i + k + 5] = 7; return 0; }
+double fill_two(RARGS) { unsigned char *u = (unsigned char *)ia; for (long i = 0; i < n; i++) { ua[i] = 0; u[2 * i + 1] = 200; } return 0; }
+double mark_strided(RARGS) { int c = 0; for (long j = (k & 3) + 2; j <= n * 5; j += (k & 3) + 2) { ua[j] = 1; c++; } return c; }

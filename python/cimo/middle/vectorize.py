@@ -345,6 +345,15 @@ def _narrow(fast, rts):
         rng[rval(i.to)] = v
     if not stores:
         return 0
+    if not loads and all(ir.conval(fn, st.arg[0]) is not None for st, _ in stores):
+        # a fill (sieve's comp[i] = 0): lanes of bytes, a whole vector stored at a time
+        for st, f in stores:
+            for x, g in stores:
+                if x is not st and rts.may_alias(st.arg[1], x.arg[1]):
+                    return 0
+        fast.vnarrow = 'fill'
+        fast.vmem = ()
+        return _ext.qbytes()
     for offs in groups.values():  # all three bytes of a pixel: the vector reads no byte the loop didn't
         c0 = min(offs)
         if sorted(offs) != [c0, c0 + 1, c0 + 2]:
@@ -711,6 +720,15 @@ def _narrow_body(fast, em, state, copy):
 def body(fast, em, state, copy=0):
     """One vector's worth of an iteration of the vector loop, in em, the copy-th of interleave(fast); state only has
     induction variables, which it leaves for advance()."""
+    if fast.vnarrow == 'fill':
+        for i in fast.cloned:
+            if i.op == D.Ostoreb:
+                c = ir.conval(fast.fn, i.arg[0]) & 0xff
+                if ('dupb', c) not in fast.memo:
+                    fast.memo[('dupb', c)] = fast.fp.raw(D.Oqdupb, Kq, fast.fp.con(c))
+                em.ins(Ins(D.Oqstore, Kq, R, fast.memo[('dupb', c)],
+                           fast.opmap(i.arg[1], copy * fast.vf, {}, state, None)))
+        return dict(state)
     if fast.vnarrow is not None:
         return _narrow_body(fast, em, state, copy)
     fn = fast.fn
