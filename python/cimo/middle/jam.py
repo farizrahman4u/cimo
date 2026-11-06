@@ -1,14 +1,15 @@
-"""Unroll-and-jam by 2 of a loop around an innermost loop (gemm's k loop).
+"""Unroll-and-jam of a loop around an innermost loop (gemm's k loop), by F = 2, or 4 when the inner loop vectorizes:
+a register block, where c's vector is loaded once and stored once for 4 rows of b.
 
     for (k...) { pre(k); for (j...) body(k, j); post(k); }
-becomes
+becomes (F = 2)
     while (test(k) && test(k')) {             // k' = k's next value, same arithmetic
         pre(k); pre(k');
         for (j...) { body(k, j); body(k', j); }
         post(k); post(k');
         k = k'';
     }
-    original loop, from k                     // the 0 or 1 iterations left, and the exit
+    original loop, from k                     // the 0 to F-1 iterations left, and the exit
 
 Each fused iteration runs body(k, j) before body(k', j), as C does, so floating-point
 results are unchanged; what moves is body(k', j) before body(k, j') for j' > j, pre(k')
@@ -17,8 +18,8 @@ store involved may touch what the other access touches:
   * the alias analysis says the two addresses don't alias, or
   * both are the same affine function of j alone (base and offset not depending on k) with
     a stride at least the access size, so different j never overlap.
-The point is the second case: c[i*n + j] is then loaded and stored once per two updates,
-after the inner loop pass forwards the store of body(k, j) to the load of body(k', j) and
+The point is the second case: c[i*n + j] is then loaded and stored once per F updates,
+after the inner loop pass (or the vector body, vectorize.body) forwards the store of body(k, j) to the load of body(k', j) and
 deletes the first store.
 
 Shape required: outer loop {Ho, Bpre, inner loop, Ej} where Ho (pure instructions, the exit
@@ -64,8 +65,8 @@ def transform(fn, O, rts, done):
     shi = Shape(fn, I)
     if shi.pre is not Bpre or Bpre.npred != 1 or Bpre.phi:
         raise Bail('inner preheader')
-    if vectorizable(fn, I, rts):  # as LLVM, where unroll-and-jam is off by default: lanes beat a second row
-        raise Bail('the inner loop vectorizes')
+    # an inner loop that vectorizes takes 4 rows, a register block: c's vector is loaded and stored once per 4 updates
+    F = 4 if vectorizable(fn, I, rts) else 2
     Ej = shi.E
     if Ej not in O.blocks or Ej.npred != 1 or Ej.jmp.type != D.Jjmp or Ej.s1 is not Ho \
             or Ej.phi or O.latches[0] is not Ej:
@@ -177,62 +178,57 @@ def transform(fn, O, rts, done):
     if not reuse:
         raise Bail('nothing to reuse')
 
-    JH = _emit(fn, O, I, Ho, Bpre, Ej, Eo, shi, Ao)
+    JH = _emit(fn, O, I, Ho, Bpre, Ej, Eo, shi, Ao, F)
     done.update([Ho, JH])
     M.count('jam')
     return True
 
 
-def _emit(fn, O, I, Ho, Bpre, Ej, Eo, shi, Ao):
-    """Build the jammed loop in front of the original one."""
+def _emit(fn, O, I, Ho, Bpre, Ej, Eo, shi, Ao, F=2):
+    """Build the loop jammed by F in front of the original one."""
     pre = [p for p in Ho.pred[:Ho.npred] if p not in O.blocks]
     if len(pre) != 1 or pre[0].jmp.type != D.Jjmp:
         raise Bail('outer preheader')
     pre = pre[0]
-    JH = ir.newblock(fn, pre, 'jh')
-    J2 = ir.newblock(fn, JH, 'j2')
-    JP = ir.newblock(fn, J2, 'jp')       # pre(k), pre(k')
+    JT = [ir.newblock(fn, pre, 'jh')]    # P_o(k) and its test, then P_o(k') and its test, ...
+    for _ in range(F - 1):
+        JT.append(ir.newblock(fn, JT[-1], 'j2'))
+    JH = JT[0]
+    JP = ir.newblock(fn, JT[-1], 'jp')   # pre(k), pre(k'), ...
     FH = ir.newblock(fn, JP, 'jih')      # fused inner header
     FB = ir.newblock(fn, FH, 'jib')      # fused inner body
-    JE = ir.newblock(fn, FB, 'je')       # post(k), post(k'), latch
+    JE = ir.newblock(fn, FB, 'je')       # post(k), post(k'), ..., latch
     SL = ir.newblock(fn, JE, 'jslow')    # into the original loop
     latch_o = O.latches[0]
-
     # outer phis of the jammed loop
     ophis = list(ir.phis(Ho))
     cur = {}
     for p in ophis:
         cur[rval(p.to)] = newtmp('m', p.cls, fn)
-    # JH: P_o(k), test
-    e = Emitter(fn, JH)
-    env0 = dict(cur)
-    for i in ir.ins(Ho):
-        _clone(e, i, env0)
-    e.flush()
-    c1 = env0.get(rval(Ho.jmp.arg), Ho.jmp.arg)
     cont_true = Ho.s1 not in (Eo,)
-    # next values k' = latch args, computed from k with the latch's own instructions
-    e2 = Emitter(fn, J2)
-    nxt = _next(fn, Ao, ophis, latch_o, env0, e2)
-    env1 = dict(nxt)
-    for i in ir.ins(Ho):
-        _clone(e2, i, env1)
-    e2.flush()
-    c2 = env1.get(rval(Ho.jmp.arg), Ho.jmp.arg)
-    if cont_true:
-        ir.setjnz(JH, c1, J2, SL)
-        ir.setjnz(J2, c2, JP, SL)
-    else:
-        ir.setjnz(JH, c1, SL, J2)
-        ir.setjnz(J2, c2, SL, JP)
-    # JP: pre(k), pre(k')
+    envs0 = []
+    for n, blk in enumerate(JT):
+        e = Emitter(fn, blk)
+        # the next copy's values are the latch args, computed from the last with the latch's own instructions
+        env = dict(cur) if n == 0 else dict(_next(fn, Ao, ophis, latch_o, envs0[-1], e))
+        for i in ir.ins(Ho):
+            _clone(e, i, env)
+        e.flush()
+        c = env.get(rval(Ho.jmp.arg), Ho.jmp.arg)
+        nx = JT[n + 1] if n + 1 < F else JP
+        if cont_true:
+            ir.setjnz(blk, c, nx, SL)
+        else:
+            ir.setjnz(blk, c, SL, nx)
+        envs0.append(env)
+    # JP: pre(k), pre(k'), ...
     ep = Emitter(fn, JP)
-    for env in (env0, env1):
+    for env in envs0:
         for i in ir.ins(Bpre):
             _clone(ep, i, env)
     ep.flush()
     ir.setjmp(JP, FH)
-    # fused inner loop: shared inner phis, header and body of both copies
+    # fused inner loop: shared inner phis, header and body of every copy
     iphis = list(ir.phis(shi.H))
     ilatch = shi.latch
     shared = {}
@@ -240,17 +236,20 @@ def _emit(fn, O, I, Ho, Bpre, Ej, Eo, shi, Ao):
         shared[rval(p.to)] = newtmp('m', p.cls, fn)
     envs = []
     eh = Emitter(fn, FH)
-    for env in (env0, env1):
+    test = shi.H.jmp.arg
+    lone = rtype(test) == RTmp and fn.tmp[rval(test)].nuse == 1  # read by the jump alone: one copy is enough
+    for n, env in enumerate(envs0):
         en = dict(env)
         en.update(shared)
         for i in ir.ins(shi.H):
+            if n and lone and i.to == test:
+                continue  # more compares of the counter, dead, would keep the inner loop from vectorizing
             _clone(eh, i, en)
         envs.append(en)
     eh.flush()
     ci = envs[0].get(rval(shi.H.jmp.arg), shi.H.jmp.arg)
     if shi.B is None:
         body = FH
-        eb = eh
     else:
         body = FB
         eb = Emitter(fn, FB)
@@ -275,12 +274,12 @@ def _emit(fn, O, I, Ho, Bpre, Ej, Eo, shi, Ao):
         nx = ir.phiargof(p, ilatch)
         nxv = envs[0].get(rval(nx), nx) if ir.istmp(nx) else nx
         ir.addphi(FH, p.cls, shared[t], [(JP, init), (body, nxv)])
-    # JE: post(k), post(k'), then k'' = next(k')
+    # JE: post(k), post(k'), ..., then the values after the last copy
     ee = Emitter(fn, JE)
-    for env in (env0, env1):
+    for env in envs0:
         for i in ir.ins(Ej):
             _clone(ee, i, env)
-    nn = _next(fn, Ao, ophis, latch_o, env1, ee)
+    nn = _next(fn, Ao, ophis, latch_o, envs0[-1], ee)
     ee.flush()
     ir.setjmp(JE, JH)
     for p in ophis:
@@ -291,7 +290,7 @@ def _emit(fn, O, I, Ho, Bpre, Ej, Eo, shi, Ao):
     for p in ophis:
         t = rval(p.to)
         v = newtmp('m', p.cls, fn)
-        ir.addphi(SL, p.cls, v, [(JH, cur[t]), (J2, cur[t])])
+        ir.addphi(SL, p.cls, v, [(b, cur[t]) for b in JT])
         ir.setphiarg(p, pre, v)
     ir.renamepred(Ho, pre, SL)
     ir.retarget(pre, Ho, JH)

@@ -475,6 +475,19 @@ def body(fast, em, state, copy=0):
     k0 = copy * fast.vf  # the scalar iteration this copy starts at
     third = None
     lane = None
+    # within the iteration, by address form: plan() kept every address on one base and step (others the run-time checks
+    # keep apart), so the same form is the same vector and other offsets of a base overlap only when less than a
+    # vector apart
+    avail = {}    # key -> vector there
+    pending = {}  # key -> store nothing has read yet
+    span = _ext.qbytes()
+
+    def mkey(a):
+        f = fast.A.form(a, 64)
+        return (f.L.noconst().ident(), f.S.c, f.L.c)
+
+    def overlaps(x, key):
+        return x != key and x[:2] == key[:2] and abs(x[2] - key[2]) < span
 
     def vec(a, k):
         if ir.istmp(a) and rval(a) in env:
@@ -522,12 +535,28 @@ def body(fast, em, state, copy=0):
             env[rval(i.to)] = em.raw(getattr(D, 'Oqfma1' + _LANE[i.cls]), Kq, a, b)
             continue
         if _loadsize(i) is not None:
-            env[rval(i.to)] = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], k0, env, state, None))
+            key = mkey(i.arg[0])
+            if key in avail:
+                env[rval(i.to)] = avail[key]  # what this iteration stored there (unroll-and-jam's c[j], row k then k')
+                continue
+            for p in [p for p in pending if overlaps(p, key)]:
+                del pending[p]
+            env[rval(i.to)] = avail[key] = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], k0, env, state, None))
             continue
         k = _storeclass(i)
         if k is not None:
             v = vec(i.arg[0], k)
-            em.ins(Ins(D.Oqstore, Kq, R, v, fast.opmap(i.arg[1], k0, env, state, None)))
+            key = mkey(i.arg[1])
+            if key in pending:
+                em.out.remove(pending[key])  # overwritten before anything read it
+            for x in [x for x in avail if overlaps(x, key)]:
+                del avail[x]
+            for p in [p for p in pending if overlaps(p, key)]:
+                del pending[p]
+            st = Ins(D.Oqstore, Kq, R, v, fast.opmap(i.arg[1], k0, env, state, None))
+            em.ins(st)
+            avail[key] = v
+            pending[key] = st
             continue
         name = _opname(i)
         op = getattr(D, 'O' + name)

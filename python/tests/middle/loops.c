@@ -92,3 +92,10 @@ double fields_int(RARGS) { for (int i = 0; i < n; i++) ia[3] = ia[3] * 3 + ib[i]
 double fields_bytes(RARGS) { for (int i = 0; i < n; i++) { ia[0] += i; ((unsigned char *)ia)[k & 3] = (unsigned char)i; } return ia[0]; }
 double fields_wide(RARGS) { for (int i = 0; i < n; i++) { ia[0] += 1; ia[2] += *(long *)&ia[0] & 255; } return ia[2]; }
 double fields_global(RARGS) { for (int i = 0; i < n; i++) { gi[1] += ia[i]; ia[i] = gi[1] & 255; } return gi[1]; }
+/* unroll-and-jam by 4 around an inner loop that vectorizes (gemm's register block), 0 to 3 rows left over */
+double jam4_r(RARGS) { int m = n % 19; for (int i = 0; i < m; i++) for (int q = 0; q < m; q++) { float a = fb[i * m + q]; for (int j = 0; j < m; j++) fa[i * m + j] += a * fb[256 + q * m + j]; } return 0; }
+double jam4_int(RARGS) { int m = n % 19; for (int i = 0; i < m; i++) for (int q = 0; q < m; q++) { int a = ib[i * m + q]; for (int j = 0; j < m; j++) ia[i * m + j] += a * ib[256 + q * m + j] + q; } return 0; }
+double jam4_alias(ARGS) { int m = n % 13; for (int q = 0; q < m; q++) { float a = fb[q]; for (int j = 0; j < m; j++) fa[j] += a * fb[j + q]; } return 0; }
+/* a vector iteration reading what it stored */
+double vfwd_r(RARGS) { for (int j = 0; j < n; j++) { fa[j] = fb[j] * 2.0f; fb[j] = fa[j] + 1.0f; fa[j] = fa[j] * fb[j]; } return 0; }
+double vfwd_alias(ARGS) { for (int j = 0; j < n; j++) { fa[j] = fb[j] * 2.0f; fb[j] = fa[j] + 1.0f; fa[j] = fa[j] * fb[j]; } return 0; }
