@@ -26,19 +26,20 @@ def _tags(fix=False):
     stale = []
     for page in ('index.html', os.path.join('docs', 'index.html')):
         path = os.path.join(DOCS, page)
-        with open(path) as f:
+        with open(path, newline='') as f:
             text = f.read()
 
         def sub(m):
             target = os.path.normpath(os.path.join(os.path.dirname(path), m.group(2)))
             with open(target, 'rb') as f:
-                want = hashlib.sha256(f.read()).hexdigest()[:8]
+                # as deployed: a Windows checkout has CRLF line ends, the site is built from LF
+                want = hashlib.sha256(f.read().replace(b'\r\n', b'\n')).hexdigest()[:8]
             if m.group(3) != want:
                 stale.append('%s: %s?v=%s, the file is %s' % (page, m.group(2), m.group(3), want))
             return m.group(1) + want + '"'
         new = TAG.sub(sub, text)
         if fix and new != text:
-            with open(path, 'w') as f:
+            with open(path, 'w', newline='') as f:
                 f.write(new)
     return stale
 
