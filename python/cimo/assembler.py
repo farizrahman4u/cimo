@@ -236,9 +236,9 @@ def _split(s):
                 q = False
         elif c == '"':
             q = True
-        elif c == '[':
+        elif c in '[{':
             depth += 1
-        elif c == ']':
+        elif c in ']}':
             depth -= 1
         elif c == ',' and depth == 0:
             out.append(s[start:i].strip())
@@ -781,6 +781,41 @@ def _i_simd(a, mn, ops):  # cnt Vd.8B, Vn.8B / addv Bd, Vn.8B (the popcount buil
     return (0x0e205800 if mn == 'cnt' else 0x0e31b800) | int(n.group(1)) << 5 | int(d.group(1))
 
 
+_VREG8H = re.compile(r'^v([0-9]|[12][0-9]|3[01])\.8h$')
+_LIST3 = re.compile(r'^\{\s*v([0-9]|[12][0-9]|3[01])\.8b\s*,\s*v([0-9]|[12][0-9]|3[01])\.8b\s*,'
+                    r'\s*v([0-9]|[12][0-9]|3[01])\.8b\s*\}$')
+
+
+def _i_bytes(a, mn, ops):
+    """cimo (vectorize's loops over bytes): ushll Vd.8H, Vn.8B, #0 (uxtl); xtn Vd.8B, Vn.8H; ld3 {Vt.8B, Vt+1.8B, Vt+2.8B},
+    [Xn], consecutive registers modulo 32."""
+    if mn == 'ld3':
+        if len(ops) != 2:
+            raise AssemblerError('ld3 needs 2 operands')
+        m = _LIST3.match(ops[0].strip().lower())
+        t = [int(x) for x in m.groups()] if m else None
+        if t is None or t[1] != (t[0] + 1) % 32 or t[2] != (t[0] + 2) % 32:
+            raise AssemblerError('ld3 takes three consecutive .8b registers: %r' % ops[0])
+        b = ops[1].strip().lower()
+        if not (b.startswith('[') and b.endswith(']')):
+            raise AssemblerError('ld3 takes [Xn]')
+        n = _reg(b[1:-1].strip(), 'x', sp=True, zr=False)[1]
+        return 0x0c404000 | n << 5 | t[0]
+    if mn == 'ushll':
+        if len(ops) != 3 or _imm(ops[2], True) != 0:
+            raise AssemblerError('ushll takes Vd.8h, Vn.8b, #0')
+        d, n = _VREG8H.match(ops[0].strip().lower()), _VREG8B.match(ops[1].strip().lower())
+        if not d or not n:
+            raise AssemblerError('unsupported operands for ushll')
+        return 0x2f08a400 | int(n.group(1)) << 5 | int(d.group(1))
+    if len(ops) != 2:  # xtn
+        raise AssemblerError('xtn needs 2 operands')
+    d, n = _VREG8B.match(ops[0].strip().lower()), _VREG8H.match(ops[1].strip().lower())
+    if not d or not n:
+        raise AssemblerError('unsupported operands for xtn')
+    return 0x0e212800 | int(n.group(1)) << 5 | int(d.group(1))
+
+
 def _fpimm8(v):
     """abcdefgh such that v is (-1)^a * (16 + efgh) / 16 * 2^n, with n from bcd: 000 is 1, 011 is
     4, 100 is -3, 111 is 0; or None."""
@@ -1286,7 +1321,7 @@ _INSNS = {
     'frintm': _i_fneg, 'frintz': _i_fneg, 'frinta': _i_fneg, 'frintx': _i_fneg,
     'frinti': _i_fneg,
     'clz': _i_dp1, 'rbit': _i_dp1, 'rev16': _i_dp1, 'rev': _i_dp1, 'cnt': _i_simd,
-    'addv': _i_simd,
+    'addv': _i_simd, 'ushll': _i_bytes, 'xtn': _i_bytes, 'ld3': _i_bytes,
     'fmadd': _i_fp4, 'fmsub': _i_fp4, 'fnmadd': _i_fp4, 'fnmsub': _i_fp4,
     'fmov': _i_fmov, 'fcvt': _i_fcvt, 'fcvtzs': _i_fcvtz, 'fcvtzu': _i_fcvtz,
     'scvtf': _i_cvtf, 'ucvtf': _i_cvtf, 'fcmp': _i_fcmp, 'fcmpe': _i_fcmp,
@@ -1517,7 +1552,9 @@ class _Asm:
                     continue
                 ops = _split(rest)
                 f = insns.get(mn)
-                if _isneon(ops):
+                if f is _i_bytes:
+                    pass
+                elif _isneon(ops):
                     f = lambda a, mn, ops: _neon(mn, ops)
                 elif mn in ('umov', 'dup') and ops:
                     f = _i_vscalar

@@ -1382,3 +1382,16 @@ zero2:
 	vfnmsub132pd %ymm8, %ymm2, %ymm3
 	vzeroupper
 .section .note.GNU-stack,"",@progbits
+	# loops over bytes (vectorize's narrow mode)
+	vpshufb .Lmask(%rip), %xmm15, %xmm3
+	vpshufb (%rax), %ymm15, %ymm12
+	vpshufb %xmm1, %xmm2, %xmm3
+	vpshufb 32(%r9,%rcx,4), %ymm8, %ymm0
+	vpmovzxbw (%rsi), %xmm4
+	vpmovzxbw 8(%r13), %ymm11
+	vinserti128 $1, 24(%rsi), %ymm15, %ymm15
+	vpermq $8, %ymm15, %ymm15
+	vmovsd %xmm15, (%rdx)
+	vmovdqu %xmm15, 16(%r10)
+.Lmask:
+	.byte 0

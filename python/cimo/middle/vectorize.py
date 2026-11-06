@@ -257,7 +257,7 @@ def _worth(fast, vf, skip):
     loop gains only when the rest of it took longer than those adds' latency, as gcc's cost model has it. Estimates in
     cycles: two operations a cycle, a division or square root at a time, 4 a dependent add."""
     rest = [i for i in fast.cloned if id(i) not in skip]
-    per = 1
+    per = vf if D.T.name.startswith('arm64') else 1
     chain = 4
     ordered = [r for r in fast.vreds if r.ordered]
     scalar = vf * max(sum(_cycles(i) for i in rest) + 0.5 * len(ordered), chain)
@@ -276,10 +276,98 @@ def _widening(fast, r, cloned):
     return None
 
 
+def _narrow(fast, rts):
+    """Loops over bytes (rgb2gray): unsigned byte loads, one after another or the three bytes of each pixel, arithmetic
+    C does in int, and byte stores, in lanes of 16 bits, 8 a vector (16 with AVX2). Exact when no value the loop
+    computes can leave [0, 65535]: then its low 16 bits are all of it, and a store keeps the low 8 of those as C's does.
+    Ranges: a byte [0, 255], constants themselves, and the operation's on its operands'. The vf iterations a vector
+    does read and write exactly the bytes the scalar ones did (all three of a pixel's). Returns vf, or 0."""
+    if _ext.qbytes() == 32 or D.T.name.startswith('amd64'):
+        if 'avx' not in _ext.x86:  # vpshufb and vpmovzxbw: VEX
+            return 0
+    elif not D.T.name.startswith('arm64'):
+        return 0
+    if fast.vreds or any(rval(p.to) not in fast.A.biv for p in ir.phis(fast.sh.H)):
+        return 0
+    A = fast.A
+    fn = fast.fn
+    rng = {}
+    groups = {}   # base ident -> {offset: load}
+    loads, stores = [], []
+
+    def r(a):
+        c = ir.conval(fn, a)
+        if c is not None:
+            return (c, c)
+        return rng.get(rval(a)) if ir.istmp(a) else None
+
+    for i in fast.cloned:
+        if i.op in (D.Onop, D.Odbgloc):
+            continue
+        if i.op == D.Oloadub and i.cls == Kw:
+            f = A.form(i.arg[0], 64)
+            if f is None or not f.S.isconst() or f.S.c not in (1, 3) or A.avlevel(f) == 'X':
+                return 0
+            if f.S.c == 3:
+                groups.setdefault(f.L.noconst().ident(), {})[f.L.c] = i
+            loads.append((i, f))
+            rng[rval(i.to)] = (0, 255)
+            continue
+        if i.op == D.Ostoreb:
+            f = A.form(i.arg[1], 64)
+            if f is None or not f.S.isconst() or f.S.c != 1 or A.avlevel(f) == 'X' or r(i.arg[0]) is None:
+                return 0
+            stores.append((i, f))
+            continue
+        if i.cls != Kw or not ir.istmp(i.to):
+            return 0
+        a, b = r(i.arg[0]), (r(i.arg[1]) if i.arg[1] != R else None)
+        if a is None or (i.arg[1] != R and b is None):
+            return 0
+        op = i.op
+        if op == D.Oadd:
+            v = (a[0] + b[0], a[1] + b[1])
+        elif op == D.Osub:
+            v = (a[0] - b[1], a[1] - b[0])
+        elif op == D.Omul:
+            ps = [x * y for x in a for y in b]
+            v = (min(ps), max(ps))
+        elif op in (D.Oshr, D.Osar, D.Oshl) and b[0] == b[1] and 0 <= b[0] < 16 and ir.conval(fn, i.arg[1]) is not None:
+            v = (a[0] << b[0], a[1] << b[0]) if op == D.Oshl else (a[0] >> b[0], a[1] >> b[0])
+        elif op == D.Oand and b[0] == b[1] and b[0] >= 0:
+            v = (0, min(a[1], b[0]))
+        elif op in (D.Oor, D.Oxor) and min(a[0], b[0]) >= 0:
+            v = (0, (1 << max(a[1], b[1]).bit_length()) - 1)
+        else:
+            return 0
+        if v[0] < 0 or v[1] > 0xffff:
+            return 0
+        rng[rval(i.to)] = v
+    if not stores:
+        return 0
+    for offs in groups.values():  # all three bytes of a pixel: the vector reads no byte the loop didn't
+        c0 = min(offs)
+        if sorted(offs) != [c0, c0 + 1, c0 + 2]:
+            return 0
+    # stores and loads of one array apart, other arrays not overlapping (no run-time checks here)
+    for st, f in stores:
+        for x, g in loads + stores:
+            a1, a2 = st.arg[1], (x.arg[1] if ir.isstore(x.op) else x.arg[0])
+            if x is st or not rts.may_alias(a1, a2):
+                continue
+            return 0
+    fast.vnarrow = groups
+    fast.vmem = ()
+    return _ext.qbytes() // 2
+
+
 def plan(fast, rts):
     """The number of lanes to vectorize this loop with, or 0. Needs fast.plan() done."""
     A = fast.A
     sh = fast.sh
+    fast.vnarrow = None
+    if any(i.op in (D.Oloadub, D.Ostoreb) for i in fast.cloned):
+        return _narrow(fast, rts)
     fast.vreds = []
     skip = set()
     for p in ir.phis(sh.H):
@@ -486,9 +574,59 @@ def _apart(fast, lanes):
     return True
 
 
+_NARROWOPS = {D.Oadd: 'qaddh', D.Osub: 'qsubh', D.Omul: 'qmulh', D.Oshl: 'qshlh', D.Oshr: 'qshrh', D.Osar: 'qshrh',
+              D.Oand: 'qand', D.Oor: 'qor', D.Oxor: 'qxor'}  # sar of what _narrow knows is never negative: shr
+
+
+def _narrow_body(fast, em, state, copy):
+    """body() for a loop over bytes (_narrow): 16-bit lanes; a pixel's three loads together (one ld3 on arm64)."""
+    fn = fast.fn
+    A = fast.A
+    k0 = copy * fast.vf
+    env = {}
+    pixels = {}
+
+    def vec(a):
+        if ir.istmp(a) and rval(a) in env:
+            return env[rval(a)]
+        c = ir.conval(fn, a)
+        key = ('duph', c)
+        if key not in fast.memo:
+            fast.memo[key] = fast.fp.raw(D.Oqduph, Kq, fast.fp.con(c & 0xffff))
+        return fast.memo[key]
+
+    for i in fast.cloned:
+        if i.op in (D.Onop, D.Odbgloc):
+            continue
+        if i.op == D.Oloadub:
+            f = A.form(i.arg[0], 64)
+            if f.S.c == 3:
+                key = f.L.noconst().ident()
+                offs = fast.vnarrow[key]
+                c0 = min(offs)
+                if key not in pixels:
+                    base = fast.opmap(offs[c0].arg[0], k0, env, state, None)
+                    pixels[key] = {c: em.raw(D.Oqld3bh, Kq, base, em.con(c - c0)) for c in sorted(offs)}
+                env[rval(i.to)] = pixels[key][f.L.c]
+            else:
+                env[rval(i.to)] = em.raw(D.Oqldbh, Kq, fast.opmap(i.arg[0], k0, env, state, None))
+            continue
+        if i.op == D.Ostoreb:
+            em.ins(Ins(D.Oqstbh, Kq, R, vec(i.arg[0]), fast.opmap(i.arg[1], k0, env, state, None)))
+            continue
+        op = getattr(D, 'O' + _NARROWOPS[i.op])
+        if i.op in (D.Oshl, D.Oshr, D.Osar):
+            env[rval(i.to)] = em.raw(op, Kq, vec(i.arg[0]), i.arg[1])
+        else:
+            env[rval(i.to)] = em.raw(op, Kq, vec(i.arg[0]), vec(i.arg[1]))
+    return dict(state)
+
+
 def body(fast, em, state, copy=0):
     """One vector's worth of an iteration of the vector loop, in em, the copy-th of interleave(fast); state only has
     induction variables, which it leaves for advance()."""
+    if fast.vnarrow is not None:
+        return _narrow_body(fast, em, state, copy)
     fn = fast.fn
     env = {}
     k0 = copy * fast.vf  # the scalar iteration this copy starts at
@@ -592,14 +730,13 @@ def body(fast, em, state, copy=0):
             get = getattr(D, 'Oqget' + x)
             acc = state[('phi', r.t)]
             vs = [vec(a, r.cls) for a in (r.v if isinstance(r.v, tuple) else (r.v,))]
-            op = r.op
-            if op == D.Ofma1:
-                # s = fma(a, b, s): the products as one vector multiply, then the adds; as the backend splits an fma on
-                # a recurrence (fmachain: an add's latency on the chain, not an fma's), so the scalar loop rounds alike
-                vs = [em.raw(getattr(D, 'Oqmul' + x), Kq, vs[0], vs[1])]
-                op = D.Oadd
             for n in range(_ext.qbytes() // _SIZE[r.cls]):
-                acc = em.raw(op, r.cls, acc, em.raw(get, r.cls, vs[0], em.con(n)))
+                lanes = [em.raw(get, r.cls, w, em.con(n)) for w in vs]
+                if r.op == D.Ofma1:
+                    em.ins(Ins(D.Ofma0, r.cls, R, acc, R))
+                    acc = em.raw(D.Ofma1, r.cls, lanes[0], lanes[1])
+                else:
+                    acc = em.raw(r.op, r.cls, acc, lanes[0])
             new[('phi', r.t)] = acc
             continue
         if r.op == D.Osel1:  # through a condition: the comparison and the select on each lane

@@ -1307,7 +1307,8 @@ for _n, _o in (('vpmulld', 0x40), ('vpcmpeqq', 0x29), ('vpcmpgtq', 0x37), ('vpmi
                ('vpminuw', 0x3a), ('vpminud', 0x3b), ('vpmaxsb', 0x3c), ('vpmaxsd', 0x3d), ('vpmaxuw', 0x3e),
                ('vpmaxud', 0x3f)):
     _AVX.append((_n, _P66, 2, _o, 0, 'rvm'))
-_AVX += [('vbroadcastss', _P66, 2, 0x18, 0, 'rm'), ('vbroadcastsd', _P66, 2, 0x19, 0, 'rm'),
+_AVX += [('vpshufb', _P66, 2, 0x00, 0, 'rvm'), ('vpmovzxbw', _P66, 2, 0x30, 0, 'rm'),  # vectorize's loops over bytes
+         ('vbroadcastss', _P66, 2, 0x18, 0, 'rm'), ('vbroadcastsd', _P66, 2, 0x19, 0, 'rm'),
          ('vpbroadcastb', _P66, 2, 0x78, 0, 'rm'), ('vpbroadcastw', _P66, 2, 0x79, 0, 'rm'),
          ('vpbroadcastd', _P66, 2, 0x58, 0, 'rm'), ('vpbroadcastq', _P66, 2, 0x59, 0, 'rm'),
          ('vptest', _P66, 2, 0x17, 0, 'rm'),

@@ -1111,7 +1111,7 @@ def sel(i, fn):
         iarg = D.insb[D.curi].arg
         for n in (0, 1):
             if iarg[n] != R and argcls(i, n) != D.Kx and not (i.op >= D.Oqshlb and i.op <= D.Oqsarl and n == 1) \
-                    and not (i.op >= D.Oqgetb and i.op <= D.Oqgetd and n == 1):
+                    and not (i.op >= D.Oqgetb and i.op <= D.Oqgetd and n == 1) and not (i.op == D.Oqld3bh and n == 1):
                 fixarg(iarg, n, argcls(i, n), 0, fn)
         return
     if INRANGE(i.op, Oalloc, Oalloc1):

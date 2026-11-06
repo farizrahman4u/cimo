@@ -107,3 +107,10 @@ double tile_alias(ARGS) { int m = n % 13; for (long i = 0; i < m; i++) for (long
 double tile_kstore(RARGS) { long m = n % 20; for (long i = 0; i < m; i++) for (long q = 0; q < m; q++) for (long j = 0; j < m; j++) fa[i * m + q] += fb[q * m + j]; return 0; }
 double tile_rowshort(RARGS) { long m = n % 20; for (long i = 0; i < m; i++) for (long q = 0; q < m; q++) for (long j = 0; j < m + 1; j++) fa[i * m + j] += fb[q * m + j]; return 0; }
 double tile_uwrap(RARGS) { long m = n % 9; for (long i = 0; i < m; i++) for (unsigned q = 4294967295u - 40u; q < 4294967295u - (unsigned)(k & 3); q++) for (long j = 0; j < m; j++) fa[i * m + j] += fb[(q - (4294967295u - 40u)) * 2 + j]; return 0; }
+/* loops over bytes, in 16-bit lanes when no value can leave [0, 65535] */
+double bytes_rgb(RARGS) { const unsigned char *s = (const unsigned char *)fb; for (int i = 0; i < n; i++) ua[i] = (unsigned char)((77 * s[3 * i] + 150 * s[3 * i + 1] + 29 * s[3 * i + 2]) >> 8); return 0; }
+double bytes_mix(RARGS) { const unsigned char *s = (const unsigned char *)fb; for (int i = 0; i < n; i++) ua[i] = (unsigned char)(((s[i] * 3 + 7) >> 2) ^ (s[i] & 15) | 1); return 0; }
+double bytes_edge(RARGS) { const unsigned char *s = (const unsigned char *)fb; for (int i = 0; i < n; i++) ua[i] = (unsigned char)((s[i] * 257) >> 8); return 0; }
+double bytes_wide(RARGS) { const unsigned char *s = (const unsigned char *)fb; for (int i = 0; i < n; i++) ua[i] = (unsigned char)((s[i] * 300) >> 8); return 0; }
+double bytes_bgr(RARGS) { const unsigned char *s = (const unsigned char *)fb + 1; for (long i = 0; i < n; i++) ua[i + k + 8] = (unsigned char)(s[3 * i + 2] + (s[3 * i] >> 1) - (s[3 * i + 1] >> 2)); return 0; }
+double bytes_two(RARGS) { const unsigned char *s = (const unsigned char *)fb; for (int i = 0; i < n; i++) ua[i] = (unsigned char)(s[3 * i] + s[3 * i + 1]); return 0; }

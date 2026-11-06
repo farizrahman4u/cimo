@@ -575,10 +575,14 @@ def _selqfma(i, i0, fn, tn=None):
 def _qsel(i, tn, fn):
     """cimo (ext.vector): registers, a whole addressing mode, and a constant for shifts, shuffles and lanes."""
     op = i.op
-    if op == D.Oqload:
+    if op in (D.Oqload, D.Oqldbh):
         seladdr(i.arg, 0, tn, fn)
-    elif op == D.Oqstore:
+    elif op in (D.Oqstore, D.Oqstbh):
         seladdr(i.arg, 1, tn, fn)
+    elif op == D.Oqld3bh:  # a base register: the emitter loads at three offsets from it
+        emiti(i)
+        fixarg(D.insb[D.curi].arg, 0, Kl, D.insb[D.curi], fn)
+        return
     if D.Oqdupb <= op <= D.Oqdupd and rtype(i.arg[0]) == RCon:
         c = fn.con[rval(i.arg[0])]
         if c.type == CBits and c.i in (0, -1) and op not in (D.Oqdups, D.Oqdupd):
@@ -1005,7 +1009,7 @@ _ZEXT = {D.Oextub: ((D.Oloadub,), D.Oloadub), D.Oextuh: ((D.Oloaduh,), D.Oloaduh
 
 def _writes(op):
     """Whether op may write memory."""
-    return isstore(op) or op in _RMW.values() or op in (Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Oqstore)
+    return isstore(op) or op in _RMW.values() or op in (Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Oqstore, D.Oqstbh)
 
 
 _FMAM = {D.Oqfma1s: D.Oqxfmams, D.Oqfma1d: D.Oqxfmamd}

@@ -292,11 +292,11 @@ REDUCTIONS = {
     'dsum': ('double f(const double *restrict x, long n) { double s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_double, False),
     'ddot': ('double f(const double *restrict x, long n) { double s = 0; for (long i = 0; i < n; i++) s += x[i] * x[i]; return s; }', ctypes.c_double, False),
     'fdot': ('float f(const float *restrict x, long n) { float s = 0; for (long i = 0; i < n; i++) s += x[i] * (x[i] + 1); return s; }', ctypes.c_float, False),
-    'dheavy': ('#include <math.h>\ndouble f(const double *restrict x, long n) { double s = 0.5; for (long i = 0; i < n; i++) s += 1.0 / sqrt(x[i] * x[i] + 1.0); return s; }', ctypes.c_double, True),
-    'fheavy': ('#include <math.h>\nfloat f(const float *restrict x, long n) { float s = 3; for (long i = 0; i < n; i++) s -= sqrtf(fabsf(x[i]) + 2.0f) / x[i]; return s; }', ctypes.c_float, True),
-    'swapped': ('#include <math.h>\nfloat f(const float *restrict x, long n) { float s = 1e7f; for (long i = 0; i < n; i++) s = 1.0f / sqrtf(x[i] * x[i] + 1.0f) + s; return s; }', ctypes.c_float, True),
-    'fmaheavy': ('#include <math.h>\ndouble f(const double *restrict x, long n) { double s = 0; for (long i = 0; i < n; i++) s += x[i] * (1.0 / sqrt(x[i] * x[i] + 2.0)); return s; }', ctypes.c_double, True),
-    'three': ('#include <math.h>\ndouble f(const double *restrict x, long n) { double a = 0, b = 1, c = 2; for (long i = 0; i < n; i++) { double r = 1.0 / sqrt(x[i] * x[i] + 1e-9); a += x[i] * r; b -= r; c += r * r; } return a + 3 * b + 9 * c; }', ctypes.c_double, True),
+    'dheavy': ('#include <math.h>\ndouble f(const double *restrict x, long n) { double s = 0.5; for (long i = 0; i < n; i++) s += 1.0 / sqrt(x[i] * x[i] + 1.0); return s; }', ctypes.c_double, hosts.AMD64),
+    'fheavy': ('#include <math.h>\nfloat f(const float *restrict x, long n) { float s = 3; for (long i = 0; i < n; i++) s -= sqrtf(fabsf(x[i]) + 2.0f) / x[i]; return s; }', ctypes.c_float, hosts.AMD64),
+    'swapped': ('#include <math.h>\nfloat f(const float *restrict x, long n) { float s = 1e7f; for (long i = 0; i < n; i++) s = 1.0f / sqrtf(x[i] * x[i] + 1.0f) + s; return s; }', ctypes.c_float, hosts.AMD64),
+    'fmaheavy': ('#include <math.h>\ndouble f(const double *restrict x, long n) { double s = 0; for (long i = 0; i < n; i++) s += x[i] * (1.0 / sqrt(x[i] * x[i] + 2.0)); return s; }', ctypes.c_double, hosts.AMD64),
+    'three': ('#include <math.h>\ndouble f(const double *restrict x, long n) { double a = 0, b = 1, c = 2; for (long i = 0; i < n; i++) { double r = 1.0 / sqrt(x[i] * x[i] + 1e-9); a += x[i] * r; b -= r; c += r * r; } return a + 3 * b + 9 * c; }', ctypes.c_double, hosts.AMD64),
     # cheap arithmetic is worth it on both: the lanes do it at once, and only the adds wait for each other
     'poly': ('float f(const float *restrict x, long n) { float s = 0; for (long i = 0; i < n; i++) { float t = x[i] * 0.01f; s += (((((t * 3 - 1) * t + 2) * t - 5) * t + 7) * t - 11) * t * t + 13 * t; } return s; }', ctypes.c_float, True),
     'dpoly': ('double f(const double *restrict x, long n) { double s = 1; for (long i = 0; i < n; i++) { double t = x[i] * 0.01; s -= (((((t * 3 - 1) * t + 2) * t - 5) * t + 7) * t - 11) * t * t + 13 * t * t * t; } return s; }', ctypes.c_double, True),
@@ -841,3 +841,28 @@ def test_early_exit_with_a_narrower_test():
     a[20] = 3
     for n in (-2147483643, -1, 0, 5, 21, 40):
         assert on.f(a, n) == off.f(a, n), n
+
+
+RGB = ('void rgb2gray(int n, const unsigned char *restrict rgb, unsigned char *restrict gray) {\n'
+       '    for (int i = 0; i < n; i++) gray[i] = (unsigned char)((77 * rgb[3 * i] + 150 * rgb[3 * i + 1] + 29 * rgb[3 * i + 2]) >> 8); }\n')
+
+
+def test_bytes_in_16_bit_lanes(monkeypatch):
+    """A loop over bytes whose values stay in [0, 65535] runs in 16-bit lanes: arm64 loads a pixel's three bytes with
+    one ld3; x86-64 with AVX picks them apart with vpshufb; a store keeps each lane's low byte."""
+    if hosts.ARM64:
+        b = _body(driver._build(RGB)[0], driver.SYM + 'rgb2gray' if hasattr(driver, 'SYM') else 'rgb2gray')
+        assert b.count('\tld3\t') == 1 and '\txtn\t' in b, b
+    b = _body(_x86with(RGB, _FEATURES, monkeypatch), 'rgb2gray')
+    assert b.count('vpshufb') >= 7 and 'vpermq' in b, b
+
+
+def test_bytes_run_right():
+    """rgb2gray at sizes that leave every remainder, against the formula."""
+    m = cimo.compile(RGB, cache=False)
+    for n in (0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 100):
+        src = (ctypes.c_ubyte * (3 * n + 1))(*[(k * 89 + 7) % 256 for k in range(3 * n + 1)])
+        dst = (ctypes.c_ubyte * (n + 1))(*[0] * (n + 1))
+        m.rgb2gray(n, src, dst)
+        want = [(77 * src[3 * k] + 150 * src[3 * k + 1] + 29 * src[3 * k + 2]) >> 8 for k in range(n)]
+        assert list(dst)[:n] == want and dst[n] == 0, n

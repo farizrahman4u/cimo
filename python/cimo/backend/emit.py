@@ -105,6 +105,16 @@ class Asmbits:
 
 
 _stash = None
+_vstash = []  # cimo: vector constants (byte masks), 16 or 32 bytes each, emitted as T.asloc + 'vc%d'
+
+
+def stashvec(data):
+    """The label of a 16- or 32-byte constant in the function's read-only data, data as bytes."""
+    data = bytes(data)
+    assert len(data) in (16, 32)
+    if data not in _vstash:
+        _vstash.append(data)
+    return '%svc%d' % (D.T.asloc, _vstash.index(data))
 
 
 def stashbits(n, size):
@@ -141,6 +151,11 @@ def _fmtf(x):
 def emitfin(f, sec):
     global _stash
     T = D.T
+    if _vstash:
+        f.write("/* vector constants */\n.section %s\n" % sec[2])
+        for n, data in enumerate(_vstash):
+            f.write(".p2align 5\n%svc%d:\n\t.byte %s\n" % (T.asloc, n, ', '.join(str(b) for b in data)))
+        del _vstash[:]
     if not _stash:
         return
     f.write("/* floating point constants */\n")

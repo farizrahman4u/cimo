@@ -462,6 +462,50 @@ def _qy(r):
     return "%%ymm%d" % (rval(r) - XMM0)
 
 
+def _narrowmasks(k):
+    """vpshufb masks for channel k of 8 pixels (24 bytes) as 16-bit lanes: from the 16 bytes at 0 and the 16 at 8;
+    0x80 makes a zero byte, so the lanes come out zero-extended."""
+    a, b = [0x80] * 16, [0x80] * 16
+    for i in range(8):
+        x = 3 * i + k
+        if x < 16:
+            a[2 * i] = x
+        else:
+            b[2 * i] = x - 8
+    return a, b
+
+
+_LOWBYTES = list(range(0, 16, 2)) + [0x80] * 8  # each 16-bit lane's low byte, packed in the low 8
+
+
+def _narrowins(i, e, y):
+    """cimo: vectorize's loops over bytes (qldbh, qld3bh, qstbh), VEX; y: 16 lanes in a ymm, else 8 in an xmm."""
+    from ..emit import stashvec
+    f = e.f
+    op = i.op
+    r = (lambda x: "%%ymm%d" % (rval(x) - XMM0)) if y else (lambda x: "%%xmm%d" % (rval(x) - XMM0))
+    s15 = "%ymm15" if y else "%xmm15"
+    twice = (lambda m: m + m) if y else (lambda m: m)
+    if op == D.Oqldbh:
+        f.write("\tvpmovzxbw %s, %s\n" % (_memtext(i.arg[0], e), r(i.to)))
+    elif op == D.Oqld3bh:
+        base = "%%%s" % regtoa(rval(i.arg[0]), SLong)
+        ma, mb = _narrowmasks(e.fn.con[rval(i.arg[1])].i)
+        for off, m, dst in ((0, ma, r(i.to)), (8, mb, s15)):
+            f.write("\tvmovdqu %d(%s), %%xmm15\n" % (off, base))
+            if y:  # the next 8 pixels, 24 bytes on, in the upper half
+                f.write("\tvinserti128 $1, %d(%s), %%ymm15, %%ymm15\n" % (off + 24, base))
+            f.write("\tvpshufb %s(%%rip), %s, %s\n" % (stashvec(twice(m)), s15, dst))
+        f.write("\tvpor %s, %s, %s\n" % (s15, r(i.to), r(i.to)))
+    else:  # qstbh
+        f.write("\tvpshufb %s(%%rip), %s, %s\n" % (stashvec(twice(_LOWBYTES)), r(i.arg[0]), s15))
+        if y:
+            f.write("\tvpermq $8, %%ymm15, %%ymm15\n\tvmovdqu %%xmm15, %s\n" % _memtext(i.arg[1], e))
+        else:
+            f.write("\tvmovsd %%xmm15, %s\n" % _memtext(i.arg[1], e))
+    return True
+
+
 def _memtext(ref, e):
     """A memory operand as emitf writes it (%M)."""
     import io
@@ -540,6 +584,8 @@ def _qins_y(i, e):
         a, b = _qy(i.arg[0]), _qy(i.arg[1])
         f.write("\tvmovaps %s, %%ymm15\n\tvmovaps %s, %s\n\tvmovaps %%ymm15, %s\n" % (a, b, a, b))
         return True
+    if op in (D.Oqldbh, D.Oqld3bh, D.Oqstbh):
+        return _narrowins(i, e, True)
     if (op == Oload and i.cls == D.Kq) or op == D.Oqload:
         _emitf_y("vmovups %M0, %=", i, e)
         return True
@@ -609,6 +655,8 @@ def _qins(i, e):
         a, b = _qx(i.arg[0]), _qx(i.arg[1])
         f.write("\tmovaps %s, %s\n\tmovaps %s, %s\n\tmovaps %s, %s\n" % (a, _QX15, b, a, _QX15, b))
         return True
+    if op in (D.Oqldbh, D.Oqld3bh, D.Oqstbh):
+        return _narrowins(i, e, False)
     if (op == Oload and i.cls == D.Kq) or op == D.Oqload:
         emitf("movups %M0, %=", i, e)
         return True

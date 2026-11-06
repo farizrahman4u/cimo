@@ -39,7 +39,7 @@ def _storesz(i):
 
 
 class E:
-    __slots__ = ('f', 'fn', 'frame', 'padding', 'tbzok', 'qthird')
+    __slots__ = ('f', 'fn', 'frame', 'padding', 'tbzok', 'qthird', 'ld3')
 
     def __init__(self, f, fn):
         self.f = f
@@ -47,6 +47,7 @@ class E:
         self.frame = 0
         self.padding = 0
         self.tbzok = False
+        self.ld3 = None  # the address of the ld3 in v29-v31, while the instructions after it may use it
 
 
 _CMP = [
@@ -530,6 +531,20 @@ def _qins(i, e):
         a, b = _qv(i.arg[0]), _qv(i.arg[1])
         f.write("\tmov\tv31.16b, %s\n\tmov\t%s, %s\n\tmov\t%s, v31.16b\n" % (a, a, b, b))
         return True
+    if op == D.Oqldbh:  # 8 bytes, zero-extended to 8 x 16 bits
+        t = rval(i.to) - V0
+        f.write("\tldr\td%d, %s\n\tushll\tv%d.8h, v%d.8b, #0\n" % (t, _qaddr(i.arg[0], e), t, t))
+        return True
+    if op == D.Oqld3bh:  # channel k of 8 pixels: one ld3 into v29-v31 serves the three channels that follow it
+        a = _qaddr(i.arg[0], e)
+        if e.ld3 != a:
+            f.write("\tld3\t{v29.8b, v30.8b, v31.8b}, %s\n" % a)
+            e.ld3 = a
+        f.write("\tushll\tv%d.8h, v%d.8b, #0\n" % (rval(i.to) - V0, 29 + e.fn.con[rval(i.arg[1])].i))
+        return True
+    if op == D.Oqstbh:  # the low byte of each of 8 lanes
+        f.write("\txtn\tv31.8b, v%d.8h\n\tstr\td31, %s\n" % (rval(i.arg[0]) - V0, _qaddr(i.arg[1], e)))
+        return True
     if (op == D.Oload and i.cls == D.Kq) or op == D.Oqload:
         f.write("\tldr\tq%d, %s\n" % (rval(i.to) - V0, _qaddr(i.arg[0], e)))
         return True
@@ -895,7 +910,10 @@ def emitinsl(ins, e):
     """emitins() for each instruction in a list, pairing accesses when ext.ldp is on."""
     k = 0
     n = len(ins)
+    e.ld3 = None  # an ld3 is reused only by the instructions right after it in a block
     while k < n:
+        if ins[k].op != D.Oqld3bh:
+            e.ld3 = None
         if _ext.ldp and not e.fn.hasvolatile and k + 1 < n and emitpair(ins[k], ins[k + 1], e, ins[k + 2:k + 10]):
             k += 2
             continue

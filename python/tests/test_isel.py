@@ -1074,9 +1074,8 @@ def test_accumulator_stays_on_its_way_round_the_loop():
     src = 'double f(int n, const double *restrict x, const double *restrict y) { double s = 0.0; for (int i = 0; i < n; i++) s += x[i] * y[i]; return s; }'
     text = body(src, 'f')
     loops = [m.group(2) for m in re.finditer(r'^(\.?L\d+):\n((?:(?!^\.?L\d+:).*\n)*?\tb\w*\t\1\n)', text, re.M)]
-    # fmul and fadd since fmachain runs on arm64 (the add's 2 cycles on the chain, not fmadd's 4)
-    assert any('fadd' in x or 'fmadd' in x for x in loops), text
-    assert not any(('fadd' in x or 'fmadd' in x) and 'fmov' in x for x in loops), text
+    assert any('fmadd' in x for x in loops), text
+    assert not any('fmadd' in x and 'fmov' in x for x in loops), text
     x = (ctypes.c_double * 9)(*[i + 0.5 for i in range(9)])
     y = (ctypes.c_double * 9)(*[2.0 * i - 1 for i in range(9)])
     m = cimo.compile(src, cache=False)

@@ -345,3 +345,13 @@ bssglob:
 t2:
 	ret
 .section .note.GNU-stack,"",@progbits
+	// loops over bytes (vectorize's narrow mode)
+	ld3	{v29.8b, v30.8b, v31.8b}, [x1]
+	ld3	{v0.8b, v1.8b, v2.8b}, [sp]
+	ld3	{v30.8b, v31.8b, v0.8b}, [x28]
+	ushll	v3.8h, v29.8b, #0
+	ushll	v31.8h, v0.8b, #0
+	xtn	v31.8b, v7.8h
+	xtn	v0.8b, v31.8h
+	ldr	d31, [x2]
+	str	d31, [x3, 8]
