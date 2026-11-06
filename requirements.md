@@ -655,6 +655,10 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   per 4 rows; jam was off for vectorizing loops), with store-to-load forwarding in the vector body. Against `gcc -O3 -march=native`
   / `-mcpu=native`, gemm before and after: Graviton 2 1.47 to 0.92x, Graviton 3 1.14 to 0.79x, Graviton 4 1.50 to 1.11x, Ice Lake
   1.51 to 1.00x, Sapphire Rapids 1.20 to 0.86x, Zen 4 1.17 to 0.78x; 15-kernel geomean 1.03, 1.06, 1.08, 1.07, 1.03, 1.14x.
+  Then two vectors an iteration for loops that store, offsets folded into q loads (arm64), b's loads folded into vfmadd
+  (x86-64; Ice Lake didn't move: L2-bound, all of b read per row of c), and tiling of k by 16 (`middle/tile.py`; KB 16 to
+  32 was best everywhere at n = 384, 64 and up no gain): gemm 0.68, 0.51, 0.73, 0.60, 0.48, 0.69x on the same six machines
+  (2026-11-06); geomean 0.98, 0.99, 1.00, 1.04, 0.98, 1.14x.
 
 ## GPU (planned, 2026-11-02)
 
