@@ -363,7 +363,6 @@ gcc-torture/pr79286.c                                 unsupported  array of unkn
 gcc-torture/pr80692.c                                 unsupported  expected primary expression
 gcc-torture/pr82210.c                                 unsupported  struct member 'a' has variably modified type
 gcc-torture/pr84521.c                                 unsupported  built-in function '__builtin_longjmp' is not supported
-gcc-torture/pr84748.c                                 unsupported  type 'unsigned __int128' is not supported
 gcc-torture/pr85169.c                                 unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr85331.c                                 unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr86659-1.c                               unsupported  no type in parameter declaration
@@ -373,7 +372,6 @@ gcc-torture/pr87623.c                                 unsupported  attribute 'sc
 gcc-torture/pr91597.c                                 unsupported  GNU attribute 'aligned' is not supported here
 gcc-torture/pr92618.c                                 unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr92904.c                                 unsupported  GNU attribute 'aligned' is not supported here
-gcc-torture/pr93213.c                                 unsupported  type 'unsigned __int128' is not supported
 gcc-torture/pr94412.c                                 unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr94524-1.c                               unsupported  vector types (vector_size) are not supported yet
 gcc-torture/pr94524-2.c                               unsupported  vector types (vector_size) are not supported yet
@@ -448,7 +446,6 @@ gcc-vect/vect-early-break_138-pr121020.c              unsupported  sys/mman.h: N
 gcc-vect/vect-early-break_86.c                        unsupported  no type in parameter declaration
 gcc-vect/vect-early-break_87.c                        unsupported  no type in parameter declaration
 gcc-vect/vect-early-break_99-pr113287.c               unsupported  invalid signed _BitInt width 998
-gcc-vect/vect-mulh-1.c                                unsupported  cast type must be scalar
 gcc-vect/vect-multi-peel-gaps.c                       unsupported  sys/mman.h: No such file or directory
 gcc-vect/vect-nop-move.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-vect/vect-pr124037.c                              unsupported  sys/mman.h: No such file or directory
@@ -467,7 +464,6 @@ gcc-dg-torture/bitint-111.c                           unsupported  invalid unsig
 gcc-dg-torture/bitint-28.c                            unsupported  ../../c-c++-common/torture/builtin-arith-overflow-1.h: No such file or directory
 gcc-dg-torture/bitint-30.c                            unsupported  ../../c-c++-common/torture/builtin-arith-overflow-12.h: No such file or directory
 gcc-dg-torture/bitint-58.c                            unsupported  invalid unsigned _BitInt width 512
-gcc-dg-torture/bitint-61.c                            unsupported  type '__int128' is not supported
 gcc-dg-torture/bitint-64.c                            unsupported  _Atomic type qualifier is not yet supported
 gcc-dg-torture/bitint-73.c                            unsupported  invalid signed _BitInt width 513
 gcc-dg-torture/bitint-84.c                            unsupported  _Atomic type qualifier is not yet supported
@@ -497,33 +493,31 @@ gcc-dg-torture/float128-truncdf-underflow.c           unsupported  fenv.h: No su
 gcc-dg-torture/float128-truncsf-underflow.c           unsupported  fenv.h: No such file or directory
 gcc-dg-torture/floatn-convert.c                       unsupported  type '_Float32' is not supported
 gcc-dg-torture/fp-double-convert-float-1.c            unsupported  fenv.h: No such file or directory
-gcc-dg-torture/fp-int-convert-2.c                     unsupported  type 'unsigned __int128' is not supported
-gcc-dg-torture/fp-int-convert-float128-ieee-timode.c  unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float128-ieee-timode.c  unsupported  type '_Float128' is not supported
 gcc-dg-torture/fp-int-convert-float128-ieee.c         unsupported  type '_Float128' is not supported
-gcc-dg-torture/fp-int-convert-float128-timode-2.c     unsupported  type 'unsigned __int128' is not supported
+gcc-dg-torture/fp-int-convert-float128-timode-2.c     unsupported  type '__float128' is not supported
 gcc-dg-torture/fp-int-convert-float128-timode-3.c     unsupported  fenv.h: No such file or directory
-gcc-dg-torture/fp-int-convert-float128-timode.c       unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float128-timode.c       unsupported  type '__float128' is not supported
 gcc-dg-torture/fp-int-convert-float128.c              unsupported  type '__float128' is not supported
-gcc-dg-torture/fp-int-convert-float128x-timode.c      unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float128x-timode.c      unsupported  type '_Float128x' is not supported
 gcc-dg-torture/fp-int-convert-float128x.c             unsupported  type '_Float128x' is not supported
-gcc-dg-torture/fp-int-convert-float16-timode.c        unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float16-timode.c        unsupported  type '_Float16' is not supported
 gcc-dg-torture/fp-int-convert-float16.c               unsupported  type '_Float16' is not supported
-gcc-dg-torture/fp-int-convert-float32-timode.c        unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float32-timode.c        unsupported  type '_Float32' is not supported
 gcc-dg-torture/fp-int-convert-float32.c               unsupported  type '_Float32' is not supported
-gcc-dg-torture/fp-int-convert-float32x-timode.c       unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float32x-timode.c       unsupported  type '_Float32x' is not supported
 gcc-dg-torture/fp-int-convert-float32x.c              unsupported  type '_Float32x' is not supported
-gcc-dg-torture/fp-int-convert-float64-timode.c        unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float64-timode.c        unsupported  type '_Float64' is not supported
 gcc-dg-torture/fp-int-convert-float64.c               unsupported  type '_Float64' is not supported
-gcc-dg-torture/fp-int-convert-float64x-timode.c       unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float64x-timode.c       unsupported  type '_Float64x' is not supported
 gcc-dg-torture/fp-int-convert-float64x.c              unsupported  type '_Float64x' is not supported
-gcc-dg-torture/fp-int-convert-float80-timode.c        unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-float80-timode.c        unsupported  type '__float80' is not supported
 gcc-dg-torture/fp-int-convert-float80.c               unsupported  type '__float80' is not supported
 gcc-dg-torture/fp-int-convert-long-double.c           unsupported  long double is not supported
-gcc-dg-torture/fp-int-convert-timode-1.c              unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/fp-int-convert-timode-2.c              unsupported  fenv.h: No such file or directory
 gcc-dg-torture/fp-int-convert-timode-3.c              unsupported  fenv.h: No such file or directory
 gcc-dg-torture/fp-int-convert-timode-4.c              unsupported  fenv.h: No such file or directory
-gcc-dg-torture/fp-int-convert-timode.c                unsupported  type '__int128' is not supported
+gcc-dg-torture/fp-int-convert-timode.c                unsupported  long double is not supported
 gcc-dg-torture/fp-uint64-convert-double-1.c           unsupported  fenv.h: No such file or directory
 gcc-dg-torture/fp-uint64-convert-double-2.c           unsupported  fenv.h: No such file or directory
 gcc-dg-torture/ftrapv-1.c                             unsupported  unistd.h: No such file or directory
@@ -546,10 +540,7 @@ gcc-dg-torture/inf-compare-7.c                        unsupported  fenv.h: No su
 gcc-dg-torture/inf-compare-8-float.c                  unsupported  fenv.h: No such file or directory
 gcc-dg-torture/inf-compare-8.c                        unsupported  fenv.h: No such file or directory
 gcc-dg-torture/ipa-bitfield-predicate-1.c             unsupported  attribute 'scalar_storage_order' is not supported
-gcc-dg-torture/long-mul-128.c                         unsupported  type 'unsigned __int128' is not supported
-gcc-dg-torture/long-mul-64-run.c                      unsupported  cast type must be scalar
 gcc-dg-torture/mips-hilo-2.c                          unsupported  inline assembly is not supported
-gcc-dg-torture/mul-highpart-1.c                       unsupported  cast type must be scalar
 gcc-dg-torture/neon-sve-bridge.c                      unsupported  arm_neon_sve_bridge.h: No such file or directory
 gcc-dg-torture/pr100672.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr100778.c                             unsupported  fenv.h: No such file or directory
@@ -558,15 +549,12 @@ gcc-dg-torture/pr110228.c                             unsupported  inline assemb
 gcc-dg-torture/pr110799.c                             unsupported  unistd.h: No such file or directory
 gcc-dg-torture/pr112639.c                             unsupported  built-in function '__builtin_clzg' is not supported
 gcc-dg-torture/pr112736.c                             unsupported  sys/mman.h: No such file or directory
-gcc-dg-torture/pr113396.c                             unsupported  type '__int128' is not supported
 gcc-dg-torture/pr113703-2.c                           unsupported  sys/mman.h: No such file or directory
 gcc-dg-torture/pr115406.c                             unsupported  vector types (vector_size) are not supported yet
-gcc-dg-torture/pr115877.c                             unsupported  type '__int128' is not supported
 gcc-dg-torture/pr116037.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr116039.c                             skip         needs -fsigned-char (char is unsigned on arm64)
 gcc-dg-torture/pr116057.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr116835.c                             unsupported  undefined symbol 'a': cimo's runtime does not provide it
-gcc-dg-torture/pr117476-2.c                           unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/pr117811.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr117938.c                             unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr118184.c                             unsupported  type '_Float128' is not supported
@@ -577,10 +565,8 @@ gcc-dg-torture/pr121649.c                             unsupported  vector types 
 gcc-dg-torture/pr121661-1.c                           unsupported  _Complex of a type other than float, double or long double is not supported
 gcc-dg-torture/pr122188.c                             unsupported  built-in function '__builtin_ctzg' is not supported
 gcc-dg-torture/pr122835.c                             unsupported  attribute 'cleanup' is not supported
-gcc-dg-torture/pr123864.c                             unsupported  type '__int128' is not supported
 gcc-dg-torture/pr125653.c                             unsupported  labels as values ('&&label', a GNU extension) are not supported
 gcc-dg-torture/pr125786.c                             unsupported  vector types (vector_size) are not supported yet
-gcc-dg-torture/pr126462.c                             unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/pr126549.c                             unsupported  type '_Float16' is not supported
 gcc-dg-torture/pr126566.c                             unsupported  labels as values ('&&label', a GNU extension) are not supported
 gcc-dg-torture/pr126650.c                             unsupported  attribute 'scalar_storage_order' is not supported
@@ -611,9 +597,7 @@ gcc-dg-torture/pr52419.c                              unsupported  vector types 
 gcc-dg-torture/pr52451.c                              unsupported  fenv.h: No such file or directory
 gcc-dg-torture/pr53922.c                              unsupported  undefined symbol 'y': cimo's runtime does not provide it
 gcc-dg-torture/pr54261-1.c                            unsupported  built-in function '__sync_fetch_and_add' is not supported
-gcc-dg-torture/pr55633.c                              unsupported  type '__int128' is not supported
 gcc-dg-torture/pr55755.c                              unsupported  bit-field 'f0' in packed struct is not supported
-gcc-dg-torture/pr56420.c                              unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/pr56488.c                              unsupported  array of unknown size has empty initializer
 gcc-dg-torture/pr57748-1.c                            unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr57748-2.c                            unsupported  vector types (vector_size) are not supported yet
@@ -629,10 +613,6 @@ gcc-dg-torture/pr68037-1.c                            unsupported  attribute 'in
 gcc-dg-torture/pr68037-2.c                            unsupported  attribute 'interrupt' is not supported
 gcc-dg-torture/pr68037-3.c                            unsupported  attribute 'interrupt' is not supported
 gcc-dg-torture/pr68264.c                              unsupported  fenv.h: No such file or directory
-gcc-dg-torture/pr69399.c                              unsupported  type 'unsigned __int128' is not supported
-gcc-dg-torture/pr69400.c                              unsupported  type 'unsigned __int128' is not supported
-gcc-dg-torture/pr69546-1.c                            unsupported  type 'unsigned __int128' is not supported
-gcc-dg-torture/pr69546-2.c                            unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/pr69613.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr69760.c                              unsupported  unistd.h: No such file or directory
 gcc-dg-torture/pr69909.c                              unsupported  vector types (vector_size) are not supported yet
@@ -645,10 +625,7 @@ gcc-dg-torture/pr71522.c                              unsupported  long double i
 gcc-dg-torture/pr71598-2.c                            unsupported  base types of pointer assignment must be compatible or void
 gcc-dg-torture/pr71984.c                              unsupported  vector types (vector_size) are not supported yet
 gcc-dg-torture/pr77768.c                              unsupported  invalid operands to conditional operator
-gcc-dg-torture/pr78416.c                              unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/pr78542.c                              unsupported  vector types (vector_size) are not supported yet
-gcc-dg-torture/pr78546-1.c                            unsupported  type 'unsigned __int128' is not supported
-gcc-dg-torture/pr78546-2.c                            unsupported  type 'unsigned __int128' is not supported
 gcc-dg-torture/pr79351.c                              unsupported  expected declaration or function definition
 gcc-dg-torture/pr80122.c                              unsupported  built-in function '__builtin_va_arg_pack_len' is not supported
 gcc-dg-torture/pr8081.c                               unsupported  struct member 'val' has variably modified type
@@ -660,8 +637,6 @@ gcc-dg-torture/pr86505.c                              unsupported  built-in func
 gcc-dg-torture/pr89111.c                              unsupported  bit-field 'b' in packed struct is not supported
 gcc-dg-torture/pr90020.c                              unsupported  undefined symbol 'x': cimo's runtime does not provide it
 gcc-dg-torture/pr91323.c                              unsupported  fenv.h: No such file or directory
-gcc-dg-torture/pr91656-2.c                            unsupported  type '__int128' is not supported
-gcc-dg-torture/pr91656-3.c                            unsupported  type '__int128' is not supported
 gcc-dg-torture/pr92088-1.c                            unsupported  struct member 'toto' has variably modified type
 gcc-dg-torture/pr92690.c                              unsupported  fenv.h: No such file or directory
 gcc-dg-torture/pr93133.c                              unsupported  fenv.h: No such file or directory

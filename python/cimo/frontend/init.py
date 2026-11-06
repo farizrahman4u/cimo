@@ -13,6 +13,7 @@ from .token import tok, error
 from .pp import next, expect, consume
 from .type import typecompatible
 from . import expr as E
+from . import type as TY
 from . import util as U
 from . import diag as DG
 
@@ -273,7 +274,7 @@ def parseinit(s, t):
                             # cimo: C11 6.7.9p2, 14 (only the terminating null may be dropped)
                             error(tok.loc, "initializer string is too long for the array")
                         break
-                elif t.iscomplex and expr.type.prop & PROPARITH:  # cimo: a complex object is initialized whole
+                elif (t.iscomplex or TY.isi128(t)) and expr.type.prop & PROPARITH:  # cimo: initialized whole
                     expr = E.exprassign(expr, t)
                     break
                 elif t.kind == TYPESTRUCT or t.kind == TYPEUNION:

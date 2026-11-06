@@ -45,7 +45,7 @@ def delexpr(e):
 
 def mkconstexpr(t, n):
     e = Expr(EXPRCONST, t, None)
-    e.u = n & M64
+    e.u = n & ((1 << 128) - 1 if TY.isi128(t) else M64)  # cimo: an __int128 constant keeps its 128 bits
     return e
 
 
@@ -157,7 +157,7 @@ def exprassign(e, t):
     elif k == TYPENULLPTR:
         if not nullpointer(e) and not _nullptrval(e):
             error(tok.loc, "assignment to nullptr_t must be from null pointer constant or expression with type nullptr_t")
-    elif t.iscomplex:  # cimo: from any arithmetic value
+    elif t.iscomplex or TY.isi128(t):  # cimo: from any arithmetic value
         if not (et.prop & PROPARITH):
             error(tok.loc, "assignment to arithmetic type must be from arithmetic type")
     elif k == TYPESTRUCT or k == TYPEUNION:
@@ -207,7 +207,7 @@ def scalarcond(e):
     neither scalar nor complex."""
     if e.type.prop & PROPSCALAR:
         return e
-    if e.type.iscomplex:
+    if e.type.iscomplex or TY.isi128(e.type):
         return mkbinaryexpr(tok.loc, TNEQ, e, mkconstexpr(TY.typeint, 0))
     return None
 
@@ -1119,11 +1119,11 @@ def unaryexpr(s):
         if not (e.type.prop & PROPINT):
             error(tok.loc, "operand of '~' operator must have integer type")
         e = exprpromote(e)
-        e = mkbinaryexpr(tok.loc, TXOR, e, mkconstexpr(e.type, M64))
+        e = mkbinaryexpr(tok.loc, TXOR, e, mkconstexpr(e.type, (1 << 128) - 1 if TY.isi128(e.type) else M64))
     elif op == TLNOT:
         next()
         e = castexpr(s)
-        if not (e.type.prop & PROPSCALAR) and not e.type.iscomplex:
+        if not (e.type.prop & PROPSCALAR) and not e.type.iscomplex and not TY.isi128(e.type):
             error(tok.loc, "operator '!' must have scalar operand")
         e = mkbinaryexpr(tok.loc, TEQL, e, mkconstexpr(TY.typeint, 0))
     elif op == TSIZEOF or op == TALIGNOF or op == T__ALIGNOF__:
@@ -1201,7 +1201,7 @@ def castexpr(s):
             e.init = IN.parseinit(s, t)
             e = postfixexpr(s, decay(e))
             break
-        if t is not TY.typevoid and not (t.prop & PROPSCALAR) and not t.iscomplex:
+        if t is not TY.typevoid and not (t.prop & PROPSCALAR) and not t.iscomplex and not TY.isi128(t):
             error(tok.loc, "cast type must be scalar")
         e = Expr(EXPRCAST, t, None)
         e.toeval = toeval.v
@@ -1219,7 +1219,7 @@ def castexpr(s):
                                  or ct.prop & PROPFLOAT and e.type.kind == TYPEPOINTER):
         error(tok.loc, "cast between pointer and floating type")  # cimo: C11 6.5.4p3-4
     if ct and ct is not TY.typevoid and not (e.type.prop & PROPSCALAR) and not (
-            e.type.iscomplex and ct.prop & PROPARITH):
+            (e.type.iscomplex or TY.isi128(e.type)) and (ct.prop & PROPARITH or ct.kind == TYPEPOINTER)):
         error(tok.loc, "cast operand must have scalar type")
     if last is None:
         r = e

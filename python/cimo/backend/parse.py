@@ -46,7 +46,7 @@ Tq = Ntok + 6  # cimo extension: class q and its instructions, keywords when ext
 _QNAMES = {optab[o].name: o for o in range(D.Oqaddb, D.Oqstore + 1) if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
 _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
-_BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16')
+_BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16', 'umulh')  # umulh: arm64's, for the frontend's __int128
 
 kwmap = {
     Tloadw: "loadw", Tloadl: "loadl", Tloads: "loads", Tloadd: "loadd",
@@ -653,6 +653,10 @@ def parseline(ps):
         D.insb[D.curi - 1].nsw = True
         return p
     elif op == Tbits:
+        if S.mathop == D.Oumulh:
+            if i != 2 or k != Kl:
+                err("umulh needs two arguments and class l")
+            return _ins(S.mathop, k, r, arg)
         if i != 1 or KBASE(k) != 0 or (S.mathop == D.Obswap16 and k != Kw):
             err("%s needs one argument and class w or l", optab[S.mathop].name)
         return _ins(S.mathop, k, r, arg)

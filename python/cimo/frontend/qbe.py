@@ -2,7 +2,7 @@
 
 import math
 
-from .cc import (Init, M64, BITS0, TYPEVOID, TYPEPOINTER, TYPENULLPTR, TYPEBOOL, TYPEBITINT, TYPEARRAY,
+from .cc import (Expr, Init, M64, BITS0, TYPEVOID, TYPEPOINTER, TYPENULLPTR, TYPEBOOL, TYPEBITINT, TYPEARRAY,
                  TYPEFUNC, TYPESTRUCT, TYPEUNION, PROPSCALAR, PROPFLOAT, PROPINT, PROPREAL,
                  PROPVM, QUALNONE, QUALCONST, QUALVOLATILE, DECLOBJECT, DECLFUNC, DECLCONST,
                  LINKNONE, LINKEXTERN, SDSTATIC, SDTHREAD, EXPRIDENT, EXPRCONST, EXPRSTRING,
@@ -198,6 +198,8 @@ bitops = False
 bigcopy = None
 # cimo extension: rint and nearbyint as instructions (cimo.backend.ext.math), see funcbuiltin
 IFRINT, IFNEARBYINT = 121, 122
+# cimo: the high 64 bits of an unsigned 64-bit product (the backend's arm64 umulh), for __int128 multiplication
+IUMULH = 123
 _BITBUILTINS = {}
 for _n, _i in (('clz', IBCLZ), ('ctz', IBCTZ), ('popcount', IBPOPCNT)):
     _BITBUILTINS['__builtin_' + _n] = (_i, 'w')
@@ -221,6 +223,7 @@ instname += ['v' + instname[_o] for _o in range(ISTORED, ILOADUB + 1)]
 instname += ['getsp', 'setsp']
 instname += ['bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16']
 instname += ['frint', 'fnearbyint']
+instname += ['umulh']
 
 
 def _vol(op, tq):
@@ -283,8 +286,8 @@ _typeid = 0
 def _reset():
     global _blockid, _globalid, _typeid, curfunc
     curfunc = None
-    for c in TY._complex.values():  # cimo: the complex types outlive a compile; their QBE type names don't
-        c.value = None
+    for c in list(TY._complex.values()) + [TY.typeint128, TY.typeuint128]:  # cimo: these types outlive a
+        c.value = None                                                      # compile; their QBE names don't
     _blockid = 0
     _globalid = 0
     _typeid = 0
@@ -471,6 +474,8 @@ def convert(f, dst, src, l):
     r = None
     if src is dst:
         return l
+    if dst is not TY.typevoid and (TY.isi128(dst) or TY.isi128(src) or dst.iscomplex or src.iscomplex):
+        return _convertvalue(f, dst, src, l)  # cimo: ?: arms and other values converted here
     if src.kind == TYPEPOINTER or _isnullptr(src):
         src = TY.typeulong
     if dst.kind == TYPEPOINTER or _isnullptr(dst):
@@ -1090,7 +1095,7 @@ def funcbranch(f, e, bt, bf):
         op = e.op
         if op == TEQL or op == TNEQ:
             r = EV.eval(r)
-            if r.kind == EXPRCONST and r.type.prop & PROPINT and r.u == 0:
+            if r.kind == EXPRCONST and r.type.prop & PROPINT and r.u == 0 and l.type.prop & PROPSCALAR:
                 if e.op == TEQL:
                     bt, bf = bf, bt
                 funcbranch(f, l, bt, bf)
@@ -1516,6 +1521,174 @@ def _cxconvert(f, dst, src, e):
     return convert(f, dst, src.base, re)  # to a real type: the real part
 
 
+# cimo: __int128 values. As a complex value, the address of its two halves (low, then high: little-endian), so
+# memory, copies, calls and returns are a struct's; arithmetic is lowered to 64-bit operations on the halves,
+# division and the float conversions are runtime calls (runtime/builtins.c).
+
+def _i128parts(f, e):
+    """(low, high) halves of integer e (an __int128, or another integer type extended to 128 bits)."""
+    t = e.type
+    if TY.isi128(t) and e.kind == EXPRCONST:
+        return mkintconst(e.u & M64), mkintconst((e.u >> 64) & M64)
+    if TY.isi128(t):
+        a = funcexpr(f, e)
+        return (funcinst(f, ILOADL, 'l', a, None),
+                funcinst(f, ILOADL, 'l', funcinst(f, IADD, ptrclass, a, mkintconst(8)), None))
+    return _i128extend(f, t, funcexpr(f, e))
+
+
+def _i128extend(f, t, v):
+    if t.kind == TYPEPOINTER:
+        t = TY.typeulong
+    lo = convert(f, TY.typelong if t.issigned else TY.typeulong, t, v)
+    hi = funcinst(f, ISAR, 'l', lo, mkintconst(63)) if t.issigned else mkintconst(0)
+    return lo, hi
+
+
+def _i128make(f, lo, hi):
+    a = _cxslot(f, TY.typeint128)
+    funcinst(f, ISTOREL, 0, lo, a)
+    funcinst(f, ISTOREL, 0, hi, funcinst(f, IADD, ptrclass, a, mkintconst(8)))
+    return a
+
+
+def _umulh(f, a, b):
+    """The high 64 bits of the unsigned product a * b: umulh on arm64, else from 32-bit halves."""
+    if TG.targ.name.startswith('aarch64'):
+        return funcinst(f, IUMULH, 'l', a, b)
+    m32 = mkintconst(0xffffffff)
+    s32 = mkintconst(32)
+    a0, a1 = funcinst(f, IAND, 'l', a, m32), funcinst(f, ISHR, 'l', a, s32)
+    b0, b1 = funcinst(f, IAND, 'l', b, m32), funcinst(f, ISHR, 'l', b, s32)
+    p00, p01 = funcinst(f, IMUL, 'l', a0, b0), funcinst(f, IMUL, 'l', a0, b1)
+    p10, p11 = funcinst(f, IMUL, 'l', a1, b0), funcinst(f, IMUL, 'l', a1, b1)
+    mid = funcinst(f, IADD, 'l', funcinst(f, IADD, 'l', funcinst(f, ISHR, 'l', p00, s32),
+                                          funcinst(f, IAND, 'l', p01, m32)), funcinst(f, IAND, 'l', p10, m32))
+    hi = funcinst(f, IADD, 'l', p11, funcinst(f, ISHR, 'l', p01, s32))
+    hi = funcinst(f, IADD, 'l', hi, funcinst(f, ISHR, 'l', p10, s32))
+    return funcinst(f, IADD, 'l', hi, funcinst(f, ISHR, 'l', mid, s32))
+
+
+def _i128shift(f, op, signed, lo, hi, n):
+    """lo:hi shifted by n (0 to 127; a constant or a w value)."""
+    if n.kind == VALUE_INTCONST:
+        k = n.i & 127
+        if k == 0:
+            return lo, hi
+        if op == ISHL:
+            if k >= 64:
+                return mkintconst(0), funcinst(f, ISHL, 'l', lo, mkintconst(k - 64))
+            return (funcinst(f, ISHL, 'l', lo, mkintconst(k)),
+                    funcinst(f, IOR, 'l', funcinst(f, ISHL, 'l', hi, mkintconst(k)),
+                             funcinst(f, ISHR, 'l', lo, mkintconst(64 - k))))
+        sh = ISAR if signed else ISHR
+        if k >= 64:
+            return (funcinst(f, sh, 'l', hi, mkintconst(k - 64)),
+                    funcinst(f, ISAR, 'l', hi, mkintconst(63)) if signed else mkintconst(0))
+        return (funcinst(f, IOR, 'l', funcinst(f, ISHR, 'l', lo, mkintconst(k)),
+                         funcinst(f, ISHL, 'l', hi, mkintconst(64 - k))),
+                funcinst(f, sh, 'l', hi, mkintconst(k)))
+    r = _cxslot(f, TY.typeint128)
+    kind = 0 if op == ISHL else 2 if signed else 1
+    _cxcall(f, '__cimo_i128shift', 'l', [(mkintconst(kind), 'w'), (lo, 'l'), (hi, 'l'), (n, 'w'), (r, ptrclass)])
+    return (funcinst(f, ILOADL, 'l', r, None),
+            funcinst(f, ILOADL, 'l', funcinst(f, IADD, ptrclass, r, mkintconst(8)), None))
+
+
+def _i128binary(f, e):
+    t = e.type
+    op = e.op
+    signed = t.issigned
+    a0, a1 = _i128parts(f, e.l)
+    if op == TSHL or op == TSHR:
+        n = convert(f, TY.typeint, e.r.type, funcexpr(f, e.r)) if not TY.isi128(e.r.type) else _i128parts(f, e.r)[0]
+        if not TY.isi128(e.r.type) and n.kind != VALUE_INTCONST:
+            pass
+        lo, hi = _i128shift(f, ISHL if op == TSHL else ISHR, signed, a0, a1, n)
+        return _i128make(f, lo, hi)
+    b0, b1 = _i128parts(f, e.r)
+    if op == TADD:
+        lo = funcinst(f, IADD, 'l', a0, b0)
+        carry = funcinst(f, IEXTUW, 'l', funcinst(f, ICULTL, 'w', lo, a0), None)
+        hi = funcinst(f, IADD, 'l', funcinst(f, IADD, 'l', a1, b1), carry)
+    elif op == TSUB:
+        lo = funcinst(f, ISUB, 'l', a0, b0)
+        borrow = funcinst(f, IEXTUW, 'l', funcinst(f, ICULTL, 'w', a0, b0), None)
+        hi = funcinst(f, ISUB, 'l', funcinst(f, ISUB, 'l', a1, b1), borrow)
+    elif op == TMUL:
+        lo = funcinst(f, IMUL, 'l', a0, b0)
+        hi = _umulh(f, a0, b0)
+        hi = funcinst(f, IADD, 'l', hi, funcinst(f, IMUL, 'l', a0, b1))
+        hi = funcinst(f, IADD, 'l', hi, funcinst(f, IMUL, 'l', a1, b0))
+    elif op in (TBAND, TBOR, TXOR):
+        o = {TBAND: IAND, TBOR: IOR, TXOR: IXOR}[op]
+        lo, hi = funcinst(f, o, 'l', a0, b0), funcinst(f, o, 'l', a1, b1)
+    elif op in (TDIV, TMOD):
+        r = _cxslot(f, TY.typeint128)
+        kind = (1 if op == TMOD else 0) | (2 if signed else 0)
+        _cxcall(f, '__cimo_i128div', 'l', [(mkintconst(kind), 'w'), (a0, 'l'), (a1, 'l'), (b0, 'l'), (b1, 'l'),
+                                           (r, ptrclass)])
+        return r
+    else:
+        U.fatal("internal error: __int128 operator %d", op)
+    return _i128make(f, lo, hi)
+
+
+def _i128compare(f, e):
+    t = e.l.type if TY.isi128(e.l.type) else e.r.type
+    a0, a1 = _i128parts(f, e.l)
+    b0, b1 = _i128parts(f, e.r)
+    op = e.op
+    if op == TEQL or op == TNEQ:
+        o, j = (ICEQL, IAND) if op == TEQL else (ICNEL, IOR)
+        return funcinst(f, j, 'w', funcinst(f, o, 'w', a0, b0), funcinst(f, o, 'w', a1, b1))
+    # the high halves decide (signed or not), the low halves (unsigned) when those are equal
+    s = t.issigned
+    if op == TLESS or op == TGREATER:
+        hi = {TLESS: ICSLTL if s else ICULTL, TGREATER: ICSGTL if s else ICUGTL}[op]
+        lo = ICULTL if op == TLESS else ICUGTL
+    else:
+        hi = {TLEQ: ICSLTL if s else ICULTL, TGEQ: ICSGTL if s else ICUGTL}[op]
+        lo = ICULEL if op == TLEQ else ICUGEL
+    eqh = funcinst(f, ICEQL, 'w', a1, b1)
+    return funcinst(f, IOR, 'w', funcinst(f, hi, 'w', a1, b1),
+                    funcinst(f, IAND, 'w', eqh, funcinst(f, lo, 'w', a0, b0)))
+
+
+def _i128convert(f, dst, src, e):
+    """A conversion to or from __int128 (e: the operand)."""
+    if TY.isi128(dst):
+        if src.prop & PROPFLOAT:
+            r = _cxslot(f, dst)
+            v = convert(f, TY.typedouble, src, funcexpr(f, e))
+            _cxcall(f, '__cimo_i128fromd', 'l', [(mkintconst(1 if dst.issigned else 0), 'w'), (v, 'd'), (r, ptrclass)])
+            return r
+        lo, hi = _i128parts(f, e)
+        return _i128make(f, lo, hi)
+    lo, hi = _i128parts(f, e)
+    if dst.kind == TYPEBOOL:
+        return funcinst(f, ICNEL, 'w', funcinst(f, IOR, 'l', lo, hi), mkintconst(0))
+    if dst.prop & PROPFLOAT:
+        r = _cxslot(f, TY.typedouble)
+        name = '__cimo_i128tof' if dst.size == 4 else '__cimo_i128tod'
+        _cxcall(f, name, 'l', [(mkintconst(1 if src.issigned else 0), 'w'), (lo, 'l'), (hi, 'l'), (r, ptrclass)])
+        return funcinst(f, ILOADS if dst.size == 4 else ILOADD, 's' if dst.size == 4 else 'd', r, None)
+    if dst.kind == TYPEPOINTER:
+        return lo
+    return convert(f, dst, TY.typeulong, lo)  # the low bits
+
+
+def _convertvalue(f, dst, src, l):
+    """cimo: convert() of an __int128 or complex value l (an address) or to one: through a stand-in expression
+    (EXPRTEMP) whose value is l."""
+    if TY.isi128(dst) and TY.isi128(src):
+        return l
+    e = Expr(EXPRTEMP, src, None)
+    e.temp = l
+    if dst.iscomplex or src.iscomplex:
+        return _cxconvert(f, dst, src, e)
+    return _i128convert(f, dst, src, e)
+
 def funcexpr(f, e):
     if U.diagnostics:
         DG.checktype(e.type)
@@ -1530,6 +1703,8 @@ def funcexpr(f, e):
         U.fatal("unimplemented declaration kind %d", d.kind)
     elif k == EXPRCONST:
         t = e.type
+        if TY.isi128(t):  # cimo
+            return _i128make(f, *_i128parts(f, e))
         if t.prop & PROPINT or t.kind == TYPEPOINTER or _isnullptr(t):
             return mkintconst(e.u)
         assert t.prop & PROPFLOAT
@@ -1547,6 +1722,21 @@ def funcexpr(f, e):
         f.end.next = e.ct
         f.end = e.cf
         return e.temp
+    elif k == EXPRINCDEC and TY.isi128(e.type):  # cimo
+        lval = funclval(f, e.base)
+        a = lval.addr
+        a0 = funcinst(f, ILOADL, 'l', a, None)
+        a1 = funcinst(f, ILOADL, 'l', funcinst(f, IADD, ptrclass, a, mkintconst(8)), None)
+        old = _i128make(f, a0, a1) if e.post else None
+        if e.op == TINC:
+            lo = funcinst(f, IADD, 'l', a0, mkintconst(1))
+            hi = funcinst(f, IADD, 'l', a1, funcinst(f, IEXTUW, 'l', funcinst(f, ICEQL, 'w', lo, mkintconst(0)), None))
+        else:
+            lo = funcinst(f, ISUB, 'l', a0, mkintconst(1))
+            hi = funcinst(f, ISUB, 'l', a1, funcinst(f, IEXTUW, 'l', funcinst(f, ICEQL, 'w', a0, mkintconst(0)), None))
+        funcinst(f, ISTOREL, 0, lo, a)
+        funcinst(f, ISTOREL, 0, hi, funcinst(f, IADD, ptrclass, a, mkintconst(8)))
+        return old if e.post else a
     elif k == EXPRINCDEC:
         lval = funclval(f, e.base)
         l = funcload(f, e.base.type, lval, e.base.qual)
@@ -1614,6 +1804,11 @@ def funcexpr(f, e):
         if op == TMUL:
             r = funcexpr(f, e.base)
             return funcload(f, e.type, LValue(r), e.qual)
+        if TY.isi128(e.type) and op == TSUB:  # cimo: 0 - x
+            a0, a1 = _i128parts(f, e.base)
+            lo = funcinst(f, INEG, 'l', a0, None)
+            borrow = funcinst(f, IEXTUW, 'l', funcinst(f, ICNEL, 'w', a0, mkintconst(0)), None)
+            return _i128make(f, lo, funcinst(f, ISUB, 'l', funcinst(f, INEG, 'l', a1, None), borrow))
         if e.type.iscomplex:  # cimo: -z negates both parts, ~z (GNU) the imaginary one
             re, im = _cxparts(f, e.base)
             k = qbetype(e.type.base).base
@@ -1632,6 +1827,10 @@ def funcexpr(f, e):
             funcexpr(f, e.toeval)
         if (e.type.iscomplex or e.base.type.iscomplex) and e.type is not TY.typevoid:
             return _cxconvert(f, e.type, e.base.type, e.base)
+        if (TY.isi128(e.type) or TY.isi128(e.base.type)) and e.type is not TY.typevoid:
+            if TY.isi128(e.type) and TY.isi128(e.base.type):
+                return funcexpr(f, e.base)  # the same bits
+            return _i128convert(f, e.type, e.base.type, e.base)
         l = funcexpr(f, e.base)
         return convert(f, e.type, e.base.type, l)
     elif k == EXPRCPLX:
@@ -1656,6 +1855,10 @@ def funcexpr(f, e):
             funclabel(f, b2)
 
             return b2.phi_res
+        if e.op in (TEQL, TNEQ, TLESS, TGREATER, TLEQ, TGEQ) and (TY.isi128(e.l.type) or TY.isi128(e.r.type)):
+            return _i128compare(f, e)
+        if TY.isi128(e.type):
+            return _i128binary(f, e)
         if e.type.iscomplex:
             return _cxbinary(f, e)
         if (e.op == TEQL or e.op == TNEQ) and (e.l.type.iscomplex or e.r.type.iscomplex):
@@ -2323,6 +2526,13 @@ def emitdata(d, init, literal=False):
     cur = init
     while cur:
         cur.expr = EV.eval(cur.expr)
+        if cur.expr.kind == EXPRCONST and TY.isi128(cur.expr.type):  # cimo: an __int128 constant is two longs
+            c = cur.expr
+            lo, hi = Expr(EXPRCONST, TY.typeulong, None), Expr(EXPRCONST, TY.typeulong, None)
+            lo.u, hi.u = c.u & M64, (c.u >> 64) & M64
+            nxt = Init(cur.start + 8, cur.end, BITS0, hi)
+            nxt.next = cur.next
+            cur.end, cur.expr, cur.next = cur.start + 8, lo, nxt
         if cur.expr.kind == EXPRCPLX:  # cimo: a complex constant is its two parts
             n = cur.expr.type.base.size
             im = Init(cur.start + n, cur.end, BITS0, cur.expr.r)

@@ -112,6 +112,8 @@ def typerank(t):
         return 0x402
     if k == TYPEBITINT:
         return t.width << 4
+    if t.width == 128:  # cimo: __int128
+        return 0x803
     U.fatal("internal error; unhandled integer type")
     return -1
 
@@ -209,6 +211,9 @@ def realtype(t):
 def typecommonreal(t1, w1, t2, w2):
     if t1.iscomplex or t2.iscomplex:  # cimo: complex if either is, over the common real type (C11 6.3.1.8)
         return mkcomplex(typecommonreal(realtype(t1), w1, realtype(t2), w2))
+    if (isi128(t1) or isi128(t2)) and not (t1.prop & PROPFLOAT or t2.prop & PROPFLOAT):
+        # cimo: __int128 outranks every other integer type: unsigned if the __int128 operand is
+        return typeuint128 if any(isi128(x) and not x.issigned for x in (t1, t2)) else typeint128
     assert t1.prop & PROPREAL and t2.prop & PROPREAL
     if t1 is typeldouble or t2 is typeldouble:
         return typeldouble
@@ -273,8 +278,28 @@ def typemember(t, name, offset):
     return None
 
 
+def isi128(t):
+    """cimo: __int128 or unsigned __int128."""
+    return t.width == 128 and t.kind == TYPESTRUCT
+
+
+def _mki128(signed):
+    """cimo: (unsigned) __int128, laid out (and passed) as a struct of two longs, the low one first; an integer
+    type, not scalar (the frontend lowers its operations, qbe._i128*)."""
+    t = Type(kind=TYPESTRUCT, size=16, align=16, issigned=signed, width=128, prop=PROPINT | PROPARITH | PROPREAL)
+    t.tag = '__int128' if signed else '__uint128'
+    lo, hi = Member(), Member()
+    lo.name, lo.type, lo.offset = ' lo', typeulong, 0
+    hi.name, hi.type, hi.offset = ' hi', typelong if signed else typeulong, 8
+    lo.next = hi
+    t.members = lo
+    return t
+
+
 def typehasint(t, i, sign):
     assert t.prop & PROPINT
+    if isi128(t):
+        return True
     if sign and i >= 0x8000000000000000:
         return t.issigned and i >= ((M64 << ((t.size << 3) - 1)) & M64)
     return i <= M64 >> (((8 - t.size) << 3) + t.issigned)
@@ -285,3 +310,6 @@ from .cc import EXPRCONST  # noqa: E402
 
 typecfloat = mkcomplex(typefloat)
 typecdouble = mkcomplex(typedouble)
+
+typeint128 = _mki128(True)
+typeuint128 = _mki128(False)

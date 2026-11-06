@@ -140,6 +140,8 @@ def stmt(f, s):
 
         if not (e.type.prop & PROPINT):
             error(tok.loc, "controlling expression of switch statement must have integer type")
+        if TY.isi128(e.type):
+            error(tok.loc, "switch on an __int128 value is not supported")
         e = E.exprpromote(e)
 
         swtch = SwitchCases()

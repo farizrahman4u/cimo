@@ -155,8 +155,12 @@ int __cimo_fcmp(int, double, double);
 int __cimo_overflow(int, unsigned long long, int, unsigned long long, int, void *,
                     unsigned long, int);
 #define __cimo_signed(x) ((__typeof__(x))-1 < 0)
-#define __cimo_ovf(op, a, b, r, rs, rsg) __cimo_overflow(op, (unsigned long long)(a), \
-	__cimo_signed(a), (unsigned long long)(b), __cimo_signed(b), r, rs, rsg)
+int __cimo_overflow128(int, unsigned __int128, int, unsigned __int128, int, void *, unsigned long, int);
+#define __cimo_ovf(op, a, b, r, rs, rsg) (sizeof(a) > 8 || sizeof(b) > 8 || (rs) > 64 \
+	? __cimo_overflow128(op, (unsigned __int128)(a), __cimo_signed(a), (unsigned __int128)(b), \
+	                     __cimo_signed(b), r, rs, rsg) \
+	: __cimo_overflow(op, (unsigned long long)(a), __cimo_signed(a), (unsigned long long)(b), \
+	                  __cimo_signed(b), r, rs, rsg))
 #define __builtin_add_overflow(a, b, r) __cimo_ovf(0, a, b, r, __cimo_widthof(*(r)), __cimo_signed(*(r)))
 #define __builtin_sub_overflow(a, b, r) __cimo_ovf(1, a, b, r, __cimo_widthof(*(r)), __cimo_signed(*(r)))
 #define __builtin_mul_overflow(a, b, r) __cimo_ovf(2, a, b, r, __cimo_widthof(*(r)), __cimo_signed(*(r)))

@@ -67,7 +67,7 @@ def cast(expr):
         m = 1 << (t.width - 1)
         expr.u &= m | (m - 1)
         if t.issigned:
-            expr.u = ((expr.u ^ m) - m) & M64
+            expr.u = ((expr.u ^ m) - m) & (M64 if t.width <= 64 else m | (m - 1))  # cimo: __int128's 128 bits
 
 
 def unary(expr, op, l):
@@ -250,9 +250,122 @@ def _cxeval(expr):
     return expr
 
 
+_M128 = (1 << 128) - 1
+
+
+def _ival(e):
+    """cimo: the value of integer or floating constant e as a Python int or float."""
+    t = e.type
+    if t.prop & PROPFLOAT:
+        return e.f
+    if TY.isi128(t):
+        u = e.u & _M128
+        return u - (1 << 128) if t.issigned and u >> 127 else u
+    return e.i if t.issigned else e.u
+
+
+def _i128const(t, v):
+    e = Expr(EXPRCONST, t, None)
+    e.u = v & _M128
+    return e
+
+
+def _i128eval(expr):
+    """cimo: constant folding with __int128 operands or results (Python ints, wrapping at 128 bits)."""
+    t = expr.type
+    k = expr.kind
+    if k == EXPRCAST:
+        expr.base = eval(expr.base)
+        b = expr.base
+        if b.kind != EXPRCONST or not (b.type.prop & (PROPINT | PROPFLOAT)):
+            return expr
+        v = _ival(b)
+        if TY.isi128(t):
+            if isinstance(v, float):
+                if v != v or abs(v) >= 2.0 ** 128:
+                    return expr
+                v = int(v)
+            return _i128const(t, v)
+        if t.kind == TYPEBOOL:
+            return _intconst(int(v != 0))
+        c = Expr(EXPRCONST, t, None)
+        if t.prop & PROPFLOAT:
+            m = abs(v)
+            if t.size == 4 and m >> 53:  # rounded once, as in the cast below
+                e = m.bit_length() - 26
+                m = (m >> e | (1 if m & ((1 << e) - 1) else 0)) << e
+            c.f = float(-m if v < 0 else m)
+        elif t.prop & PROPINT:
+            c.u = v & M64
+        else:
+            return expr
+        cast(c)
+        return c
+    if k == EXPRUNARY:
+        expr.base = eval(expr.base)
+        if expr.base.kind != EXPRCONST or expr.op != TSUB:
+            return expr
+        return _i128const(t, -_ival(expr.base))
+    if k == EXPRBINARY:
+        expr.l = eval(expr.l)
+        expr.r = eval(expr.r)
+        l, r = expr.l, expr.r
+        if l.kind != EXPRCONST or r.kind != EXPRCONST:
+            return expr
+        a, b = _ival(l), _ival(r)
+        op = expr.op
+        if op in (TLESS, TGREATER, TLEQ, TGEQ, TEQL, TNEQ):
+            res = {TLESS: a < b, TGREATER: a > b, TLEQ: a <= b, TGEQ: a >= b, TEQL: a == b, TNEQ: a != b}[op]
+            return _intconst(int(res))
+        if op == TADD:
+            v = a + b
+        elif op == TSUB:
+            v = a - b
+        elif op == TMUL:
+            v = a * b
+        elif op in (TDIV, TMOD):
+            if b == 0:
+                return expr
+            q = abs(a) // abs(b)
+            q = q if (a < 0) == (b < 0) else -q
+            v = q if op == TDIV else a - q * b
+        elif op == TBAND:
+            v = a & b
+        elif op == TBOR:
+            v = a | b
+        elif op == TXOR:
+            v = a ^ b
+        elif op == TSHL:
+            if not 0 <= b < 128:
+                return expr
+            v = a << b
+        elif op == TSHR:
+            if not 0 <= b < 128:
+                return expr
+            v = a >> b
+        else:
+            return expr
+        return _i128const(t, v)
+    return expr
+
+
+def _isi128expr(expr):
+    t = expr.type
+    k = expr.kind
+    if t is not None and TY.isi128(t):
+        return k in (EXPRCAST, EXPRUNARY, EXPRBINARY)
+    if k == EXPRCAST:
+        return TY.isi128(expr.base.type)
+    if k == EXPRBINARY:
+        return TY.isi128(expr.l.type) or TY.isi128(expr.r.type)
+    return False
+
+
 def eval(expr):
     t = expr.type
     k = expr.kind
+    if _isi128expr(expr):
+        return _i128eval(expr)
     if (t is not None and t.iscomplex) or k == EXPRCPLX or (
             k in (EXPRCAST, EXPRBINARY) and (getattr(expr.base, 'type', None) is not None and expr.base.type.iscomplex
                                              or k == EXPRBINARY and (expr.l.type.iscomplex or expr.r.type.iscomplex))):

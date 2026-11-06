@@ -57,10 +57,8 @@ _GNUIDENTS = {
 
 INLINEASM = "inline assembly is not supported"
 
-# __int128 and its typedefs: 16-byte opaque types, so that system headers that merely
-# declare them (glibc's signal.h: struct fpsimd_context) still compile
-typeint128 = Type(kind=TYPESTRUCT, size=16, align=16, tag='__int128')
-typeuint128 = Type(kind=TYPESTRUCT, size=16, align=16, tag='unsigned __int128')
+# __int128 and its typedefs: the frontend lowers their operations to 64-bit halves (qbe._i128*)
+from .type import typeint128, typeuint128  # noqa: E402
 
 
 aliases = {}  # extra keyword aliases, token kind -> token kind (see setup)
@@ -166,8 +164,6 @@ def unsupported(t):
     if k == TYPEARRAY:
         return unsupported(t.base)
     if k == TYPESTRUCT or k == TYPEUNION:
-        if t is typeint128 or t is typeuint128:
-            return "type '%s' is not supported" % t.tag
         if t.incomplete:
             return None
         r = _cache.get(id(t), 0)

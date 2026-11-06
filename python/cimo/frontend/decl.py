@@ -849,6 +849,8 @@ def addmember(b, mt, name, align, width):
     else:  # bit-field
         if not (mt.type.prop & PROPINT):
             error(tok.loc, "bit-field '%s' has invalid type", name)
+        if TY.isi128(mt.type):
+            error(tok.loc, "bit-field '%s' of type __int128 is not supported", name)
         if align:
             error(tok.loc, "alignment specified for bit-field '%s'", name)
         if b.pack:

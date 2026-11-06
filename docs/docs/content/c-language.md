@@ -46,6 +46,8 @@ Each of these is a compile error that names the problem:
 | `int` | 4 |
 | `long`, `long long`, pointers, `size_t` | 8 |
 | `float` / `double` | 4 / 8 |
+| `__int128`, `unsigned __int128` | 16 |
+| `float _Complex` / `double _Complex` | 8 / 16 |
 
 These are the same on every target, including WebAssembly, where cimo keeps `long` and pointers 64-bit.
 

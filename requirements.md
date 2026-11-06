@@ -1439,16 +1439,15 @@ for Linux and macOS (strategies under "Platform loading findings").
     `aligned` after a declarator applies to the object/member, and on a typedef makes an
     over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's
     `#define __attribute__(x)` (made for non-GNU compilers), so attributes are never dropped.
-  - Declaring `long double` (16-byte), `__int128` (an opaque 16-byte type) or thread-locals is
-    fine (glibc's headers do); defining or using them is an error. `_Float16`, `__fp16`,
+  - Declaring `long double` (16-byte) or thread-locals is fine (glibc's headers do); defining or
+    using them is an error. `_Float16`, `__fp16`,
     `__bf16`, `_Float128` etc. are rejected outright; an undeclared identifier followed by a
     declarator is "unknown type name".
   - Accepted GNU extensions (2026-11-06): statement expressions (the body is emitted at parse time
     into blocks of its own and spliced in where the expression's code goes, so it runs in evaluation
     order: `a && ({...})`, a `for` loop's third expression), case ranges (one unsigned compare each,
     before the case tree), range designators (element `a`'s initializers copied to `a+1..b` once
-    complete), `__label__`, `mode(QI/HI/SI/DI/word/byte/pointer/SF/DF)` (`TI`: the opaque
-    `__int128`), `aligned` on scalar typedefs (a compatible variant, `Type.origin`) and before a
+    complete), `__label__`, `mode(QI/HI/SI/DI/word/byte/pointer/SF/DF/TI)`, `aligned` on scalar typedefs (a compatible variant, `Type.origin`) and before a
     declaration's storage class, `packed` on one struct member; `returns_twice` is ignored.
   - Rejected GNU extensions: `&&label`/`goto *`, nested functions, `__auto_type`, `__builtin_choose_expr` and other
     undeclared `__builtin_`/`__atomic_`/`__sync_` names, imaginary constants, empty structs,
@@ -1479,6 +1478,16 @@ for Linux and macOS (strategies under "Platform loading findings").
     initializers (`1.0 + 2.0*I`). GNU `__real__`/`__imag__` (lvalues), `~` (conjugate), imaginary
     constants (`2.0i`), `__builtin_complex`. `<complex.h>` is cimo's; the functions are musl's
     `src/complex` (double and float). The runtime is now compiled in cimo's own mode (diagnostics on).
+  - **`__int128`** (2026-11-06): `__int128`/`unsigned __int128` (`__int128_t`, `__uint128_t`, `mode(TI)`)
+    are integer types laid out as a struct of two longs, low first (`TY.isi128`): memory, calls and
+    returns are a struct's (x86-64 SysV and arm64 take it in a register pair; AAPCS64's even pair for
+    `__int128` arguments isn't kept on Linux, so calls to gcc-compiled code with such an argument may
+    disagree). The frontend lowers operations to 64-bit halves (`qbe._i128*`): add/sub with a carry,
+    multiplication with `umulh` on arm64 (32-bit halves elsewhere), comparisons high half first,
+    constant shifts inline; division, variable shifts and float conversions are runtime calls
+    (`builtins.c`, correctly rounded). Constants fold in 128 bits (`eval._i128eval`); the overflow
+    builtins take `__int128` operands and results (`__cimo_overflow128`). Not supported: `__int128`
+    bit-fields, `switch` on one.
 
 **M4: middle stage.** Automate the transforms `scratch/qbe_eval/gen_opt.py` applies by hand, plus
 explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing and the loop-layout fix.
