@@ -99,3 +99,11 @@ double jam4_alias(ARGS) { int m = n % 13; for (int q = 0; q < m; q++) { float a 
 /* a vector iteration reading what it stored */
 double vfwd_r(RARGS) { for (int j = 0; j < n; j++) { fa[j] = fb[j] * 2.0f; fb[j] = fa[j] + 1.0f; fa[j] = fa[j] * fb[j]; } return 0; }
 double vfwd_alias(ARGS) { for (int j = 0; j < n; j++) { fa[j] = fb[j] * 2.0f; fb[j] = fa[j] + 1.0f; fa[j] = fa[j] * fb[j]; } return 0; }
+/* tiling of k in an i, k, j nest: sizes past one block (16), and nests it must leave alone */
+double tile_r(RARGS) { int m = n % 20; const float *a = fb, *b = fb + m * m; for (int i = 0; i < m; i++) for (int q = 0; q < m; q++) { float s = a[i * m + q]; for (int j = 0; j < m; j++) fa[i * m + j] += s * b[q * m + j]; } return 0; }
+double tile_long(RARGS) { long m = n % 20; for (long i = 0; i < m; i++) for (long q = 1; q < m + k % 3; q++) { double s = da[i * m + q % m] * 0.5; for (long j = 0; j < m; j++) fa[i * m + j] += (float)s * fb[q * m + j]; } return 0; }
+double tile_2d(RARGS) { float (*c)[16] = (float (*)[16])fa; int m = n % 17; for (int i = 0; i < m; i++) for (long q = 0; q < n; q++) for (int j = 0; j < 16; j++) c[i][j] += fb[q % 40 * 16 + j] * (float)q; return 0; }
+double tile_alias(ARGS) { int m = n % 13; for (long i = 0; i < m; i++) for (long q = 0; q < m; q++) for (long j = 0; j < m; j++) fa[i * m + j] += fb[q * m + j]; return 0; }
+double tile_kstore(RARGS) { long m = n % 20; for (long i = 0; i < m; i++) for (long q = 0; q < m; q++) for (long j = 0; j < m; j++) fa[i * m + q] += fb[q * m + j]; return 0; }
+double tile_rowshort(RARGS) { long m = n % 20; for (long i = 0; i < m; i++) for (long q = 0; q < m; q++) for (long j = 0; j < m + 1; j++) fa[i * m + j] += fb[q * m + j]; return 0; }
+double tile_uwrap(RARGS) { long m = n % 9; for (long i = 0; i < m; i++) for (unsigned q = 4294967295u - 40u; q < 4294967295u - (unsigned)(k & 3); q++) for (long j = 0; j < m; j++) fa[i * m + j] += fb[(q - (4294967295u - 40u)) * 2 + j]; return 0; }

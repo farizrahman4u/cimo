@@ -6,6 +6,7 @@ cimo is an optimizing compiler. On loops it can analyze it runs close to gcc and
 
 - promotes locals and parameters to registers
 - unrolls loops and unroll-and-jams loop nests
+- tiles matrix-multiply-shaped nests (`i`, `k`, `j`), so a block of rows stays in cache across the outer loop
 - strength-reduces array indexing into pointers that step forward
 - replaces repeated loads with registers (scalar replacement)
 - keeps a struct's fields (`p->x`) in registers through a loop when nothing else in it can touch them: no other pointer, or `restrict`

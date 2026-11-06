@@ -226,6 +226,8 @@ in Python.
   in `max` follow numpy's scalar rule, and the pairwise order can't be reassociated.
 - Store-to-load across iterations: `LoopLoadElimination`, GCC `predcom`. scramjit does the one-store case
   itself (`ema` 3.09 to 2.39 ns, where the same loop as hand C through cimo stays at 3.06).
+- ~~Tiling~~ **Done** for i, k, j nests (`middle/tile.py`: blocks of 16 values of k outside i; gemm). Open: other
+  shapes, a block size from the row's bytes, tiling j.
 - `LoopInterchange`/GCC `linterchange`, `LoopDistribute`/GCC `loop_distribution`, `LoopFuse`, `LoopFlatten`,
   `LoopVersioningLICM`/GCC `loop_versioning`, `IRCE`/GCC `loop_split`, `LoopSink`.
 - Vectorization is its own item below (`LoopVectorize`, `SLPVectorizer`, `VectorCombine`).

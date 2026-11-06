@@ -6,7 +6,7 @@ from ..backend import defs as D
 from ..backend.parse import printfn
 import cimo.middle as M
 from ..backend.defs import rval
-from . import ir, loops, memdep, inner, jam, ifconv, unswitch, stride, earlyexit
+from . import ir, loops, memdep, inner, jam, ifconv, unswitch, stride, earlyexit, tile
 
 
 def _restrict_names(fn):
@@ -142,10 +142,13 @@ def optimize(fn):
     done = set()
     innermost = lambda lp: not lp.children
     nest2 = lambda lp: len(lp.children) == 1 and not lp.children[0].children
+    nest3 = lambda lp: len(lp.children) == 1 and nest2(lp.children[0])
     unswitch._count.pop(fn.name, None)
     stride._count.pop(fn.name, None)
     stride._versioned.pop(fn.name, None)
-    changed = _phase(fn, rnames, innermost, lambda fn, lp, rts: stride.transform(fn, lp), set())
+    tdone = set()
+    changed = _phase(fn, rnames, nest3, lambda fn, lp, rts: tile.transform(fn, lp, rts, tdone), tdone)
+    changed |= _phase(fn, rnames, innermost, lambda fn, lp, rts: stride.transform(fn, lp), set())
     changed |= _phase(fn, rnames, innermost, lambda fn, lp, rts: unswitch.transform(fn, lp), set())
     changed |= _phase(fn, rnames, innermost,
                       lambda fn, lp, rts: inner.transform(fn, lp, rts, done, 'full'), set())
