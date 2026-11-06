@@ -360,6 +360,7 @@ def lower_call(func, block, call_idx, pextra_alloc):
     # stack slots.
     arg_stack_slots = newtmp("abi.args", Kl, func)
     slot_offset = SHADOW_SPACE_SIZE
+    bigcopies = []
     for k in range(earliest_arg_instr, call_idx):
         instr = ins[k]
         arg = arg_classes[k - earliest_arg_instr]
@@ -394,8 +395,12 @@ def lower_call(func, block, call_idx, pextra_alloc):
             arg_copy = ExtraAlloc(Ins(Oalloc8, Kl, copy_ref, getcon(arg.size, func)),
                                   pextra_alloc[0])
             pextra_alloc[0] = arg_copy
-            emit(Oblit1, 0, R, INT(arg.size), R)
-            emit(Oblit0, 0, R, instr.arg[1], copy_ref)
+            from .. import ext as _ext
+            if _ext.bigcopy is not None and arg.size >= _ext.bigcopy:
+                bigcopies.append((copy_ref, instr.arg[1], arg.size))  # memcpy before the arguments, below
+            else:
+                emit(Oblit1, 0, R, INT(arg.size), R)
+                emit(Oblit0, 0, R, instr.arg[1], copy_ref)
 
             # Now load the pointer into the correct register or stack slot.
             if st == APS_CopyAndPointerInRegister:
@@ -422,8 +427,24 @@ def lower_call(func, block, call_idx, pextra_alloc):
         # When there's no usage for temporaries, emit it separately (not storing
         # into a reference) so that it doesn't get removed later for being useless.
         emit(Osalloc, Kl, R, getcon(SHADOW_SPACE_SIZE, func), R)
+    for dst, src, size in bigcopies:  # cimo: before the call's own stack and registers
+        _memcpycall(func, dst, src, size)
 
     return instr_past_args
+
+
+def _memcpycall(func, dst, src, size):
+    """cimo: memcpy(dst, src, size) as a lowered call with its shadow space (emitted backwards): an unrolled blit
+    of a big struct passed or returned by value took minutes (gcc's pr23135: 128 KB, 8 calls)."""
+    from ..arm64.abi import _memcpy
+    func.leaf = 0
+    emit(Osalloc, Kl, R, getcon(-SHADOW_SPACE_SIZE, func), R)
+    emit(Ocopy, Kl, R, TMP(RAX), R)  # spill and rega expect a copy after a call
+    emit(Ocall, 0, R, _memcpy(func), CALL(1 | 1 << 4 | 1 << 5 | 1 << 6))  # rax; rcx, rdx, r8
+    emit(Ocopy, Kl, TMP(R8), getcon(size, func), R)
+    emit(Ocopy, Kl, TMP(RDX), src, R)
+    emit(Ocopy, Kl, TMP(RCX), dst, R)
+    emit(Osalloc, Kl, R, getcon(SHADOW_SPACE_SIZE, func), R)
 
 
 def lower_block_return(func, block):
@@ -444,8 +465,12 @@ def lower_block_return(func, block):
         if type_is_by_copy(type):
             assert rtype(func.retr) == RTmp
             emit(Ocopy, Kl, TMP(RAX), func.retr, R)
-            emit(Oblit1, 0, R, INT(type.size), R)
-            emit(Oblit0, 0, R, ret_arg, func.retr)
+            from .. import ext as _ext
+            if _ext.bigcopy is not None and type.size >= _ext.bigcopy:
+                _memcpycall(func, func.retr, ret_arg, type.size)
+            else:
+                emit(Oblit1, 0, R, INT(type.size), R)
+                emit(Oblit0, 0, R, ret_arg, func.retr)
         else:
             emit(Oload, Kl, TMP(RAX), ret_arg, R)
         u.rax_returned = True

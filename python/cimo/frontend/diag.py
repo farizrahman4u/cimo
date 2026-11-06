@@ -43,9 +43,11 @@ _ATTRMSG = {
 }
 
 # type names cimo rejects outright
-_BADTYPES = frozenset('''_Float16 __fp16 __bf16 _Float32 _Float32x _Float64 _Float64x
-    _Float128 _Float128x __float128 __float80 __ibm128 _Decimal32 _Decimal64 _Decimal128
+_BADTYPES = frozenset('''_Float128 _Float128x __float128 __float80 __ibm128 _Decimal32 _Decimal64 _Decimal128
     _Accum _Fract _Sat'''.split())
+# the ISO/IEC TS 18661-3 (C23) interchange types cimo has, and GNU's half-precision ones
+_FLOATN = {'_Float16': 'typehalf', '__fp16': 'typehalf', '__bf16': 'typebf16', '_Float32': 'typefloat',
+           '_Float64': 'typedouble', '_Float32x': 'typedouble', '_Float64x': 'typeldouble'}
 
 # identifiers of GNU extensions, reported where they would be "undeclared"
 _GNUIDENTS = {
@@ -124,6 +126,9 @@ def typespec(name, typed):
         return typeint128
     if name == '__uint128_t':
         return typeuint128
+    if name in _FLOATN:
+        from . import type as TY
+        return getattr(TY, _FLOATN[name])
     if name in _BADTYPES:
         error(tok.loc, "type '%s' is not supported", name)
     msg = _GNUIDENTS.get(name)

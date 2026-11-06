@@ -181,3 +181,39 @@ def test_the_machine_is_this_process_on_windows():
     if sys.platform != 'win32':
         pytest.skip('Windows')
     assert ('AMD64' in sys.version) == loader._X86 and ('ARM64' in sys.version) == loader._ARM64
+
+
+def _asm86(src, target='amd64_sysv'):
+    old = driver._x86
+    driver._x86 = lambda t=None: frozenset()
+    try:
+        pp = driver._preprocess(src, 'x.c', (), False, (), target=target)
+        ssa, params = driver._ir(pp, 'x.c')
+        return driver._qbe(ssa, params, target=target)
+    finally:
+        driver._x86 = old
+
+
+def test_jnz_does_not_test_a_64_bit_value_s_flags():
+    # gcc pr94412: a lane loaded as w from the 64-bit `or` that stored both lanes; jnz tests 32 bits, so the
+    # `or`'s flags (of 64) can't stand in for the test
+    text = _asm86('typedef unsigned V __attribute__((vector_size(8)));\n'
+                  'void bar(V *v, V *w) { *w = -18 / -*v; }\n'
+                  'int f(void) { V b = {3, 0x7fffffff}, d; bar(&b, &d); if (d[0] != 0) return 1; return 0; }\n')
+    body = text[text.index('f:'):]
+    assert not re.search(r'\torq [^\n]*\n(\tmov[^\n]*\n)*\tj(nz|z) ', body), body
+    assembler_amd64.assemble(text)
+
+
+@pytest.mark.parametrize('target', ['amd64_sysv', 'amd64_windows'])
+def test_big_struct_by_value_copies_with_memcpy(target):
+    # gcc pr23135: a 128 KB struct passed by value 8 times was unrolled into 9.6 MB of moves (2 minutes)
+    src = ('typedef struct { char c[131072]; } big;\n'
+           'void verify(int a, int b, big x);\n'
+           'big g(big *p) { verify(1, 2, *p); verify(3, 4, *p); return *p; }\n')
+    import time
+    t0 = time.perf_counter()
+    text = _asm86(src, target)
+    assert time.perf_counter() - t0 < 20
+    assert text.count('memcpy') >= 3 and len(text) < 20000, len(text)
+    assembler_amd64.assemble(text)

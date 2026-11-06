@@ -56,6 +56,11 @@ port literally; don't "improve" anything.
 Bugs of the reference are fixed in the port, marked `fix over C QBE` in the code (C QBE's
 output for these is broken, so no comparison test depends on it):
 
+- `amd64.isel` (`seljmp`, `selsel`): a `jnz` (or select) on a value whose definition set the flags reused
+  them even when that instruction was 64-bit: `jnz` tests the low 32 bits, so a w lane loaded (and forwarded)
+  from the l `or` that stored two lanes was tested whole (gcc pr94412). Only w instructions' flags are reused.
+- `amd64` ABIs: a struct passed or returned by value of `ext.bigcopy` bytes or more is copied by a call to
+  `memcpy` (as on arm64), not an unrolled blit: 128 KB by value, 8 calls, was 9.6 MB of moves (pr23135).
 - `fold.opfold`: a float operation on a symbol's address (`swtof $P`, after a load forwarded the
   stored address: gcc.dg/torture pr65077) stopped compilation with "invalid address operand"; it
   is left unfolded, as an integer operation on one is.

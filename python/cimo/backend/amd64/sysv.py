@@ -117,6 +117,23 @@ def retr(reg, aret):
     return ca
 
 
+def _bigcopy(size):
+    from .. import ext as _ext
+    return _ext.bigcopy is not None and size >= _ext.bigcopy
+
+
+def _memcpycall(fn, dst, src, size):
+    """cimo: memcpy(dst, src, size) as a lowered call (emitted backwards), where no argument register is set yet:
+    an unrolled blit of a big struct passed or returned by value took minutes (gcc's pr23135: 128 KB, 8 calls)."""
+    from ..arm64.abi import _memcpy
+    fn.leaf = 0
+    emit(Ocopy, Kl, R, TMP(RAX), R)  # spill and rega expect a copy after a call
+    emit(Ocall, 0, R, _memcpy(fn), CALL(3 << 4 | 1))
+    emit(Ocopy, Kl, TMP(RDX), getcon(size, fn), R)
+    emit(Ocopy, Kl, TMP(RSI), src, R)
+    emit(Ocopy, Kl, TMP(RDI), dst, R)
+
+
 def selret(b, fn):
     j = b.jmp.type
 
@@ -132,8 +149,11 @@ def selret(b, fn):
         if aret.inmem:
             assert rtype(fn.retr) == RTmp
             emit(Ocopy, Kl, TMP(RAX), fn.retr, R)
-            emit(Oblit1, 0, R, INT(aret.type.size), R)
-            emit(Oblit0, 0, R, r0, fn.retr)
+            if _bigcopy(aret.type.size):
+                _memcpycall(fn, fn.retr, r0, aret.type.size)
+            else:
+                emit(Oblit1, 0, R, INT(aret.type.size), R)
+                emit(Oblit0, 0, R, r0, fn.retr)
             ca = 1
         else:
             reg = [R, R]
@@ -396,8 +416,11 @@ def selcall(fn, ins, i0, i1, rap):
         if i.op == Oargc:
             if a.align == 4:
                 off += off & 15
-            emit(Oblit1, 0, R, INT(a.type.size), R)
-            emit(Oblit0, 0, R, i.arg[1], r1)
+            if _bigcopy(a.type.size):  # no argument register is set yet
+                _memcpycall(fn, r1, i.arg[1], a.type.size)
+            else:
+                emit(Oblit1, 0, R, INT(a.type.size), R)
+                emit(Oblit0, 0, R, i.arg[1], r1)
         else:
             emit(Ostorel, 0, R, i.arg[0], r1)
         emit(Oadd, Kl, r1, r, getcon(off, fn))

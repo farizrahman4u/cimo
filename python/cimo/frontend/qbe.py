@@ -398,7 +398,7 @@ def qbetype(t):
     if sz == 1:
         return _sb if t.issigned else _ub
     if sz == 2:
-        return _sh if t.issigned else _uh
+        return _uh if t.prop & PROPFLOAT else _sh if t.issigned else _uh  # cimo: a half's bits
     if sz == 4:
         return _s if t.prop & PROPFLOAT else _w
     if sz == 8:
@@ -470,12 +470,28 @@ def _isnullptr(t):
     return U.diagnostics and t.kind == TYPENULLPTR
 
 
+def _halfcall(f, name, cls, v, vcls):
+    """cimo: a call of a runtime conversion between float and _Float16 or __bf16 bits."""
+    fn = Value(VALUE_GLOBAL | VALUE_EXTERN)
+    fn.name = name
+    fn.id = 0
+    r = funcinst(f, ICALL, cls, fn, None)
+    funcinst(f, IARG, vcls, v, None)
+    return r
+
+
 def convert(f, dst, src, l):
     r = None
     if src is dst:
         return l
     if dst is not TY.typevoid and (TY.isi128(dst) or TY.isi128(src) or dst.iscomplex or src.iscomplex):
         return _convertvalue(f, dst, src, l)  # cimo: ?: arms and other values converted here
+    if TY.ishalf(src) and dst is not TY.typevoid:  # cimo: through float (a runtime call)
+        l = _halfcall(f, '__cimo_bf2f' if src.kind == TY.TYPEBF16 else '__cimo_h2f', 's', l, 'w')
+        return convert(f, dst, TY.typefloat, l)
+    if TY.ishalf(dst):
+        l = convert(f, TY.typefloat, src, l)
+        return _halfcall(f, '__cimo_f2bf' if dst.kind == TY.TYPEBF16 else '__cimo_f2h', 'w', l, 's')
     if src.kind == TYPEPOINTER or _isnullptr(src):
         src = TY.typeulong
     if dst.kind == TYPEPOINTER or _isnullptr(dst):
@@ -1668,6 +1684,8 @@ def _i128convert(f, dst, src, e):
     lo, hi = _i128parts(f, e)
     if dst.kind == TYPEBOOL:
         return funcinst(f, ICNEL, 'w', funcinst(f, IOR, 'l', lo, hi), mkintconst(0))
+    if TY.ishalf(dst):  # through float
+        return convert(f, dst, TY.typefloat, _i128convert(f, TY.typefloat, src, e))
     if dst.prop & PROPFLOAT:
         r = _cxslot(f, TY.typedouble)
         name = '__cimo_i128tof' if dst.size == 4 else '__cimo_i128tod'
@@ -1826,6 +1844,8 @@ def funcexpr(f, e):
         t = e.type
         if TY.isi128(t):  # cimo
             return _i128make(f, *_i128parts(f, e))
+        if TY.ishalf(t):  # cimo: its 16 bits
+            return mkintconst(EV.halfbits(t, e.f))
         if t.prop & PROPINT or t.kind == TYPEPOINTER or _isnullptr(t):
             return mkintconst(e.u)
         assert t.prop & PROPFLOAT
@@ -1843,6 +1863,13 @@ def funcexpr(f, e):
         f.end.next = e.ct
         f.end = e.cf
         return e.temp
+    elif k == EXPRINCDEC and TY.ishalf(e.type):  # cimo: through float
+        lval = funclval(f, e.base)
+        l = funcload(f, e.type, lval, e.base.qual)
+        x = convert(f, TY.typefloat, e.type, l)
+        x = funcinst(f, IADD if e.op == TINC else ISUB, 's', x, mkfltconst(VALUE_FLTCONST, 1.0))
+        v = funcstore(f, e.type, e.qual, lval, convert(f, e.type, TY.typefloat, x))
+        return l if e.post else v
     elif k == EXPRINCDEC and TY.isi128(e.type):  # cimo
         lval = funclval(f, e.base)
         a = lval.addr
@@ -2615,7 +2642,9 @@ def dataitem(expr, size):
         w(" + ")
         dataitem(expr.r, 0)
     elif k == EXPRCONST:
-        if expr.type.prop & PROPFLOAT:
+        if TY.ishalf(expr.type):  # cimo: its 16 bits
+            w(str(EV.halfbits(expr.type, expr.f)))
+        elif expr.type.prop & PROPFLOAT:
             w("%s_%s" % ('s' if expr.type.size == 4 else 'd', fmtg17(expr.f)))
         else:
             w(str(expr.u))

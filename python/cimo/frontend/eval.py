@@ -58,11 +58,36 @@ def _fdiv(a, b):
         return math.copysign(math.inf, a) * math.copysign(1.0, b)
 
 
+_f16 = struct.Struct('<e')
+
+
+def halfbits(t, x):
+    """cimo: the 16 bits of x rounded (to nearest, ties to even) to _Float16 or __bf16 (t)."""
+    if t.kind == TY.TYPEHALF:
+        try:
+            return int.from_bytes(_f16.pack(x), 'little')
+        except OverflowError:
+            return 0xfc00 if x < 0 else 0x7c00
+    u = int.from_bytes(_f32.pack(f32(x)), 'little')
+    if (u & 0x7fffffff) > 0x7f800000:
+        return (u >> 16) | 0x40  # a quiet NaN
+    return ((u + 0x7fff + ((u >> 16) & 1)) >> 16) & 0xffff
+
+
+def halfvalue(t, bits):
+    """cimo: the value of _Float16 or __bf16 (t) bits."""
+    if t.kind == TY.TYPEHALF:
+        return _f16.unpack(bits.to_bytes(2, 'little'))[0]
+    return _f32.unpack((bits << 16).to_bytes(4, 'little'))[0]
+
+
 def cast(expr):
     t = expr.type
     if t.prop & PROPFLOAT:
         if t.size == 4:
             expr.f = f32(expr.f)
+        elif t.size == 2:  # cimo: _Float16, __bf16
+            expr.f = halfvalue(t, halfbits(t, expr.f))
     elif t.prop & PROPINT:
         m = 1 << (t.width - 1)
         expr.u &= m | (m - 1)

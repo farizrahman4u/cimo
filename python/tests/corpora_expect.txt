@@ -224,18 +224,13 @@ gcc-torture/gofast.c                                  unsupported  undeclared id
 gcc-torture/ieee/20010226-1.c                         unsupported  long double is not supported
 gcc-torture/ieee/20011123-1.c                         unsupported  long double is not supported
 gcc-torture/ieee/920810-1.c                           unsupported  no type in parameter declaration
-gcc-torture/ieee/bfloat16-builtin-issignaling-1.c     unsupported  built-in function '__builtin_nansf16b' is not supported
 gcc-torture/ieee/builtin-issignaling-1.c              unsupported  long double is not supported
-gcc-torture/ieee/builtin-nan-1.c                      unsupported  __builtin_nanf currently only supports empty string literals
 gcc-torture/ieee/cdivchkld.c                          unsupported  long double is not supported
 gcc-torture/ieee/copysign1.c                          unsupported  long double is not supported
 gcc-torture/ieee/copysign2.c                          unsupported  long double is not supported
 gcc-torture/ieee/float128-builtin-issignaling-1.c     unsupported  built-in function '__builtin_nansf128' is not supported
 gcc-torture/ieee/float128x-builtin-issignaling-1.c    unsupported  built-in function '__builtin_nansf128x' is not supported
-gcc-torture/ieee/float16-builtin-issignaling-1.c      unsupported  built-in function '__builtin_nansf16' is not supported
-gcc-torture/ieee/float32-builtin-issignaling-1.c      unsupported  built-in function '__builtin_nansf32' is not supported
-gcc-torture/ieee/float32x-builtin-issignaling-1.c     unsupported  built-in function '__builtin_nansf32x' is not supported
-gcc-torture/ieee/float64-builtin-issignaling-1.c      unsupported  built-in function '__builtin_nansf64' is not supported
+gcc-torture/ieee/float32x-builtin-issignaling-1.c     unsupported  built-in function '__builtin_inff32x' is not supported
 gcc-torture/ieee/float64x-builtin-issignaling-1.c     unsupported  built-in function '__builtin_nansf64x' is not supported
 gcc-torture/ieee/fp-cmp-1.c                           unsupported  signal.h: No such file or directory
 gcc-torture/ieee/fp-cmp-2.c                           unsupported  signal.h: No such file or directory
@@ -407,8 +402,8 @@ gcc-vect/vect-pr127601.c                              unsupported  sys/mman.h: N
 gcc-vect/vect-tail-nomask-1.c                         unsupported  undefined symbol 'posix_memalign': cimo's runtime does not provide it
 gcc-dg-torture/20090618-1.c                           unsupported  built-in function '__builtin_mempcpy' is not supported
 gcc-dg-torture/20110718-1.c                           skip         gcc's bit-field types: ~ of an unsigned long :33 field computed in 33 bits (C: in unsigned long)
-gcc-dg-torture/bfloat16-builtin.c                     unsupported  type '__bf16' is not supported
-gcc-dg-torture/bfloat16-complex.c                     unsupported  type '__bf16' is not supported
+gcc-dg-torture/bfloat16-builtin.c                     unsupported  cproc-qbe: not a address expr
+gcc-dg-torture/bfloat16-complex.c                     unsupported  unknown machine mode 'BC'
 gcc-dg-torture/bitint-100.c                           unsupported  built-in function '__atomic_add_fetch' is not supported
 gcc-dg-torture/bitint-106.c                           unsupported  invalid unsigned _BitInt width 400
 gcc-dg-torture/bitint-107.c                           unsupported  invalid unsigned _BitInt width 133
@@ -426,7 +421,6 @@ gcc-dg-torture/builtin-iseqsig-2.c                    unsupported  fenv.h: No su
 gcc-dg-torture/builtin-iseqsig-3.c                    unsupported  fenv.h: No such file or directory
 gcc-dg-torture/builtin-issignaling-2.c                unsupported  built-in function '__builtin_nansd32' is not supported
 gcc-dg-torture/builtin-math-7.c                       unsupported  _Complex of a type other than float, double or long double is not supported
-gcc-dg-torture/builtin-sprintf.c                      unsupported  __builtin_nanf currently only supports empty string literals
 gcc-dg-torture/cmp-of-cmp-fenv-1.c                    unsupported  fenv.h: No such file or directory
 gcc-dg-torture/cmp-of-cmp-fenv-2.c                    unsupported  fenv.h: No such file or directory
 gcc-dg-torture/convert-dfp-2.c                        unsupported  expected declaration or function definition
@@ -442,7 +436,6 @@ gcc-dg-torture/float128-mul-underflow.c               unsupported  fenv.h: No su
 gcc-dg-torture/float128-nan.c                         unsupported  fenv.h: No such file or directory
 gcc-dg-torture/float128-truncdf-underflow.c           unsupported  fenv.h: No such file or directory
 gcc-dg-torture/float128-truncsf-underflow.c           unsupported  fenv.h: No such file or directory
-gcc-dg-torture/floatn-convert.c                       unsupported  type '_Float32' is not supported
 gcc-dg-torture/fp-double-convert-float-1.c            unsupported  fenv.h: No such file or directory
 gcc-dg-torture/fp-int-convert-float128-ieee-timode.c  unsupported  type '_Float128' is not supported
 gcc-dg-torture/fp-int-convert-float128-ieee.c         unsupported  type '_Float128' is not supported
@@ -452,16 +445,8 @@ gcc-dg-torture/fp-int-convert-float128-timode.c       unsupported  type '__float
 gcc-dg-torture/fp-int-convert-float128.c              unsupported  type '__float128' is not supported
 gcc-dg-torture/fp-int-convert-float128x-timode.c      unsupported  type '_Float128x' is not supported
 gcc-dg-torture/fp-int-convert-float128x.c             unsupported  type '_Float128x' is not supported
-gcc-dg-torture/fp-int-convert-float16-timode.c        unsupported  type '_Float16' is not supported
-gcc-dg-torture/fp-int-convert-float16.c               unsupported  type '_Float16' is not supported
-gcc-dg-torture/fp-int-convert-float32-timode.c        unsupported  type '_Float32' is not supported
-gcc-dg-torture/fp-int-convert-float32.c               unsupported  type '_Float32' is not supported
-gcc-dg-torture/fp-int-convert-float32x-timode.c       unsupported  type '_Float32x' is not supported
-gcc-dg-torture/fp-int-convert-float32x.c              unsupported  type '_Float32x' is not supported
-gcc-dg-torture/fp-int-convert-float64-timode.c        unsupported  type '_Float64' is not supported
-gcc-dg-torture/fp-int-convert-float64.c               unsupported  type '_Float64' is not supported
-gcc-dg-torture/fp-int-convert-float64x-timode.c       unsupported  type '_Float64x' is not supported
-gcc-dg-torture/fp-int-convert-float64x.c              unsupported  type '_Float64x' is not supported
+gcc-dg-torture/fp-int-convert-float64x-timode.c       unsupported  long double is not supported
+gcc-dg-torture/fp-int-convert-float64x.c              unsupported  long double is not supported
 gcc-dg-torture/fp-int-convert-float80-timode.c        unsupported  type '__float80' is not supported
 gcc-dg-torture/fp-int-convert-float80.c               unsupported  type '__float80' is not supported
 gcc-dg-torture/fp-int-convert-long-double.c           unsupported  long double is not supported
@@ -512,7 +497,6 @@ gcc-dg-torture/pr121661-1.c                           unsupported  _Complex of a
 gcc-dg-torture/pr122188.c                             unsupported  built-in function '__builtin_ctzg' is not supported
 gcc-dg-torture/pr122835.c                             unsupported  attribute 'cleanup' is not supported
 gcc-dg-torture/pr125653.c                             unsupported  labels as values ('&&label', a GNU extension) are not supported
-gcc-dg-torture/pr126549.c                             unsupported  type '_Float16' is not supported
 gcc-dg-torture/pr126566.c                             unsupported  labels as values ('&&label', a GNU extension) are not supported
 gcc-dg-torture/pr126650.c                             unsupported  attribute 'scalar_storage_order' is not supported
 gcc-dg-torture/pr19683-1.c                            unsupported  inline assembly is not supported

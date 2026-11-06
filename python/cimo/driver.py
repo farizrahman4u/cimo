@@ -143,8 +143,28 @@ int __builtin_tolower(int) __cimo_lib(tolower);
 int __builtin_isinff(float);
 double __builtin_nans(const char *); float __builtin_nansf(const char *);
 int __cimo_issignalingf(float); int __cimo_issignaling(double);
-#define __builtin_issignaling(x) _Generic((x), float: __cimo_issignalingf, \
-	default: __cimo_issignaling)(x)
+#ifndef __CIMO_STOCK_CPROC /* tests/extcompile.py: cproc's own mode has no _Float16 or __int128 */
+int __cimo_issignalingh(_Float16); int __cimo_issignalingbf(__bf16);
+#define __builtin_issignaling(x) _Generic((x), float: __cimo_issignalingf, _Float16: __cimo_issignalingh, \
+	__bf16: __cimo_issignalingbf, default: __cimo_issignaling)(x)
+#else
+#define __builtin_issignaling(x) _Generic((x), float: __cimo_issignalingf, default: __cimo_issignaling)(x)
+#endif
+#define __builtin_nansf32(s) __builtin_nansf(s)
+#define __builtin_nansf64(s) __builtin_nans(s)
+#define __builtin_nansf32x(s) __builtin_nans(s)
+#define __builtin_nanf32x(s) __builtin_nan(s)
+#define __builtin_nansf16(s) (((union { unsigned short __u; _Float16 __h; }){ 0x7d00 }).__h)
+#define __builtin_nansf16b(s) (((union { unsigned short __u; __bf16 __h; }){ 0x7fa0 }).__h)
+#define __builtin_nanf16(s) ((_Float16)__builtin_nanf(s))
+#define __builtin_nanf32(s) __builtin_nanf(s)
+#define __builtin_nanf64(s) __builtin_nan(s)
+#define __builtin_inff16() ((_Float16)__builtin_inff())
+#define __builtin_inff32() __builtin_inff()
+#define __builtin_inff64() __builtin_inf()
+#define __builtin_huge_valf16() ((_Float16)__builtin_inff())
+#define __builtin_huge_valf32() __builtin_inff()
+#define __builtin_huge_valf64() __builtin_inf()
 int __cimo_fcmp(int, double, double);
 #define __builtin_isunordered(x, y) __cimo_fcmp(0, x, y)
 #define __builtin_isgreater(x, y) __cimo_fcmp(1, x, y)
@@ -155,7 +175,9 @@ int __cimo_fcmp(int, double, double);
 int __cimo_overflow(int, unsigned long long, int, unsigned long long, int, void *,
                     unsigned long, int);
 #define __cimo_signed(x) ((__typeof__(x))-1 < 0)
+#ifndef __CIMO_STOCK_CPROC
 int __cimo_overflow128(int, unsigned __int128, int, unsigned __int128, int, void *, unsigned long, int);
+#endif
 #define __cimo_ovf(op, a, b, r, rs, rsg) (sizeof(a) > 8 || sizeof(b) > 8 || (rs) > 64 \
 	? __cimo_overflow128(op, (unsigned __int128)(a), __cimo_signed(a), (unsigned __int128)(b), \
 	                     __cimo_signed(b), r, rs, rsg) \
@@ -393,6 +415,7 @@ def _frontend(pp, filename, target=None, **kw):
     """Preprocessed C to (QBE IR text, parameter info for the middle end). target: as _qbe."""
     from .frontend import compile as cproc_compile
     from .frontend import qbe as _fq
+    kw.setdefault('diagnostics', True)  # cimo's mode (the prelude needs it); cproc's own is frontend.compile's
     kw.setdefault('volatile', True)
     kw.setdefault('vlafree', True)
     kw.setdefault('bitops', True)

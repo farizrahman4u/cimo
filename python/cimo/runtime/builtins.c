@@ -362,3 +362,74 @@ int __cimo_overflow128(int op, unsigned __int128 a, int as, unsigned __int128 b,
 	}
 	return hi || lo > max;
 }
+
+/* cimo: _Float16 and __bf16 from and to float (the frontend computes them in float): round to nearest,
+   ties to even, with subnormals, infinities and NaNs. */
+float __cimo_h2f(unsigned h)
+{
+	unsigned s = (h & 0x8000) << 16, e = (h >> 10) & 0x1f, m = h & 0x3ff;
+	union { uint32_t i; float f; } u;
+	if (e == 31)
+		u.i = s | 0x7f800000 | m << 13;
+	else if (e)
+		u.i = s | (e + 112) << 23 | m << 13;
+	else if (m) {  /* subnormal: normalize */
+		e = 113;
+		while (!(m & 0x400)) { m <<= 1; e--; }
+		u.i = s | e << 23 | (m & 0x3ff) << 13;
+	} else
+		u.i = s;
+	return u.f;
+}
+
+unsigned __cimo_f2h(float x)
+{
+	union { float f; uint32_t i; } u = { x };
+	uint32_t s = (u.i >> 16) & 0x8000, a = u.i & 0x7fffffff;
+	if (a >= 0x7f800000)  /* infinity, NaN (kept quiet) */
+		return s | 0x7c00 | (a > 0x7f800000 ? 0x200 | (a >> 13 & 0x3ff) : 0);
+	if (a >= 0x477ff000)  /* rounds to 65520 or more: infinity */
+		return s | 0x7c00;
+	if (a >= 0x38800000) {  /* normal half */
+		uint32_t r = a - (112 << 23);
+		r += 0xfff + ((r >> 13) & 1);
+		return s | r >> 13;
+	}
+	if (a < 0x33000000)  /* below half the smallest subnormal: zero */
+		return s;
+	/* subnormal: shift the significand (with its hidden bit) into place, rounding to even */
+	uint32_t e = a >> 23, m = (a & 0x7fffff) | 0x800000;
+	int sh = 126 - e;  /* 14 to 24 */
+	uint32_t r = m >> sh, rem = m & ((1u << sh) - 1), half = 1u << (sh - 1);
+	if (rem > half || (rem == half && (r & 1)))
+		r++;
+	return s | r;
+}
+
+float __cimo_bf2f(unsigned h)
+{
+	union { uint32_t i; float f; } u = { (uint32_t)(h & 0xffff) << 16 };
+	return u.f;
+}
+
+unsigned __cimo_f2bf(float x)
+{
+	union { float f; uint32_t i; } u = { x };
+	if ((u.i & 0x7fffffff) > 0x7f800000)
+		return (u.i >> 16) | 0x40;
+	return (u.i + 0x7fff + ((u.i >> 16) & 1)) >> 16;
+}
+
+int __cimo_issignalingh(_Float16 x)
+{
+	union { _Float16 h; unsigned short u; } v = { x };
+	unsigned short u = v.u;
+	return (u & 0x7c00) == 0x7c00 && (u & 0x3ff) && !(u & 0x200);
+}
+
+int __cimo_issignalingbf(__bf16 x)
+{
+	union { __bf16 h; unsigned short u; } v = { x };
+	unsigned short u = v.u;
+	return (u & 0x7f80) == 0x7f80 && (u & 0x7f) && !(u & 0x40);
+}

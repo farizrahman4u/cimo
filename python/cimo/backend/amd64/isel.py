@@ -669,6 +669,8 @@ def selsel(fn, b, i, tn):
     assert rtype(r) == RTmp
     t = fn.tmp[rval(r)]
     fi = flagi(ins, 0, isel0, fn)
+    if fi is not None and ins[fi].to == r and iscmp(ins[fi].op) is None and ins[fi].cls != Kw:
+        fi = None  # fix over C QBE: as in seljmp, a 64-bit instruction's flags are not the condition's
     if (fi is None or ins[fi].to != r) and t.nuse == 1:
         # cimo: the integer comparison earlier in the block, something that sets the flags (an add) since: compared
         # again here, its operands being temporaries that still hold what they held (edit_distance's v <= cur, whose
@@ -756,6 +758,10 @@ def seljmp(b, fn):
     ins = b.ins
     fi = flagi(ins, 0, b.nins, fn)
     kc = iscmp(ins[fi].op) if fi is not None and ins[fi].to == r else None
+    if fi is not None and kc is None and ins[fi].cls != Kw:
+        # fix over C QBE: jnz tests the low 32 bits; a 64-bit instruction's flags are of all 64 (pr94412: a
+        # lane of a vector, loaded as w from the l `or` that stored both lanes, tested whole)
+        fi = None
     if fi is None or ins[fi].to != r:
         selcmp([r, CON_Z], Kw, 0, fn)
         b.jmp.type = Jjf + Cine

@@ -207,7 +207,7 @@ def scalarcond(e):
     neither scalar nor complex."""
     if e.type.prop & PROPSCALAR:
         return e
-    if e.type.iscomplex or TY.isi128(e.type):
+    if e.type.iscomplex or TY.isi128(e.type) or TY.ishalf(e.type):
         return mkbinaryexpr(tok.loc, TNEQ, e, mkconstexpr(TY.typeint, 0))
     return None
 
@@ -853,6 +853,9 @@ def primaryexpr(s):
                 e.type = TY.typefloat
             elif (end[0] == 'l' or end[0] == 'L') and len(end) == 1:
                 e.type = TY.typeldouble
+            elif U.diagnostics and end in _FLOATSUFFIX:  # cimo: C23's f16, f32, f64, f32x, f64x; GNU's bf16
+                e.type = getattr(TY, _FLOATSUFFIX[end])
+                EV.cast(e)
             else:
                 if U.diagnostics:
                     DG.imaginary(end)
@@ -964,7 +967,8 @@ def builtinfunc(s, kind):
         e.f = float('inf')
     elif kind == BUILTINNANF:
         e = assignexpr(s)
-        if not e.decayed or e.base.kind != EXPRSTRING or e.base.ssize > 1:
+        if not e.decayed or e.base.kind != EXPRSTRING or (e.base.ssize > 1 and not U.diagnostics):
+            # cimo: a payload string ("0x1p3", "42") is accepted and ignored: a quiet NaN either way
             error(tok.loc, "__builtin_nanf currently only supports empty string literals")
         e = Expr(EXPRCONST, TY.typefloat, None)
         # TODO: use NAN here when we can handle musl's math.h
@@ -1166,6 +1170,8 @@ def postfixexpr(s, r):
 
 def _unaryrest(op, e):
     """cimo: unary + - ~ of a non-vector operand, as cproc's branches below."""
+    if TY.ishalf(e.type):  # computed in float
+        e = exprconvert(e, TY.typefloat)
     if op == TADD:
         if not (e.type.prop & PROPARITH):
             error(tok.loc, "operand of unary '+' operator must have arithmetic type")
@@ -1189,6 +1195,12 @@ def _unaryrest(op, e):
     e = exprpromote(e)
     return mkbinaryexpr(tok.loc, TXOR, e, mkconstexpr(e.type, (1 << 128) - 1 if TY.isi128(e.type) else M64))
 
+
+_FLOATSUFFIX = {}
+for _s, _t in (('f16', 'typehalf'), ('bf16', 'typebf16'), ('f32', 'typefloat'), ('f64', 'typedouble'),
+               ('f32x', 'typedouble'), ('f64x', 'typeldouble')):
+    _FLOATSUFFIX[_s] = _FLOATSUFFIX[_s.upper()] = _t
+del _s, _t
 
 _CXPARTS = {'__real__': False, '__real': False, '__imag__': True, '__imag': True}
 

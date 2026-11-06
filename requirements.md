@@ -1448,8 +1448,7 @@ for Linux and macOS (strategies under "Platform loading findings").
     over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's
     `#define __attribute__(x)` (made for non-GNU compilers), so attributes are never dropped.
   - Declaring `long double` (16-byte) or thread-locals is fine (glibc's headers do); defining or
-    using them is an error. `_Float16`, `__fp16`,
-    `__bf16`, `_Float128` etc. are rejected outright; an undeclared identifier followed by a
+    using them is an error. `_Float128`, `__float80`, decimal and fixed-point types are rejected outright; an undeclared identifier followed by a
     declarator is "unknown type name".
   - Accepted GNU extensions (2026-11-06): statement expressions (the body is emitted at parse time
     into blocks of its own and spliced in where the expression's code goes, so it runs in evaluation
@@ -1496,6 +1495,15 @@ for Linux and macOS (strategies under "Platform loading findings").
     (`builtins.c`, correctly rounded). Constants fold in 128 bits (`eval._i128eval`); the overflow
     builtins take `__int128` operands and results (`__cimo_overflow128`). Not supported: `__int128`
     bit-fields, `switch` on one.
+  - **Half precision** (2026-11-06): `_Float16` (and `__fp16`) and `__bf16` are stored as their 16 bits
+    (QBE class of `unsigned short`) and computed in float, as gcc does without half arithmetic: the usual
+    arithmetic conversions make `float`, unary operators promote, and a value rounds back to nearest even
+    on assignment, cast, call and return (runtime `__cimo_f2h`/`__cimo_h2f`/`__cimo_f2bf`/`__cimo_bf2f`;
+    one float operation rounded to half equals the half operation). Variadic arguments go as double.
+    Constants: `f16`, `bf16`, `f32`, `f64`, `f32x`, `f64x` suffixes, folded in half (`eval.halfbits`).
+    `_Float32` is float, `_Float64`/`_Float32x` double; `<float.h>` has the `FLTn_` macros. Calls pass
+    them in integer registers (gcc: FP registers), so a half parameter of host-library code disagrees.
+    Open: hardware conversions (arm64 `fcvt`, x86 F16C) instead of calls; signaling-NaN constants.
 
 **M4: middle stage.** Automate the transforms `scratch/qbe_eval/gen_opt.py` applies by hand, plus
 explicit `fma` emission, and add backend `fmadd` selection, `ldp`/`stp` pairing and the loop-layout fix.

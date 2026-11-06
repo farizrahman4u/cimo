@@ -1,6 +1,6 @@
 """Port of type.c."""
 
-from .cc import (Member, Type, M64, M32, TYPEVOID, TYPEBOOL, TYPECHAR, TYPESHORT, TYPEINT,
+from .cc import (TYPEHALF, TYPEBF16, Member, Type, M64, M32, TYPEVOID, TYPEBOOL, TYPECHAR, TYPESHORT, TYPEINT,
                  TYPEENUM, TYPELONG, TYPELLONG, TYPEFLOAT, TYPEDOUBLE, TYPELDOUBLE, TYPEPOINTER,
                  TYPEARRAY, TYPEFUNC, TYPESTRUCT, TYPEUNION, TYPENULLPTR, TYPEBITINT, PROPCHAR,
                  PROPINT, PROPREAL, PROPARITH, PROPSCALAR, PROPFLOAT, PROPVM, QUALNONE)
@@ -40,6 +40,14 @@ typeullong = INTTYPE(TYPELLONG, 8, False, 0)
 typefloat = FLTTYPE(TYPEFLOAT, 4)
 typedouble = FLTTYPE(TYPEDOUBLE, 8)
 typeldouble = FLTTYPE(TYPELDOUBLE, 16)
+# cimo: _Float16 and __bf16: stored as their 16 bits, computed in float (as gcc does without half-precision
+# arithmetic: an operation's float result rounds to half exactly as a half operation would); qbe converts
+typehalf = FLTTYPE(TYPEHALF, 2)
+typebf16 = FLTTYPE(TYPEBF16, 2)
+
+
+def ishalf(t):
+    return t.kind == TYPEHALF or t.kind == TYPEBF16
 typecfloat = None  # cimo: float _Complex and double _Complex (set below, mkcomplex)
 typecdouble = None
 
@@ -170,7 +178,7 @@ def typecomposite(t1, t2):
 
 def typepromote(t, width):
     """width is unsigned: -1 is M32."""
-    if t is typefloat:
+    if t is typefloat or ishalf(t):  # cimo: a variadic _Float16 or __bf16 goes as a double, as gcc's
         return typedouble
     if t.kind == TYPEBITINT:
         return t
@@ -220,6 +228,8 @@ def typecommonreal(t1, w1, t2, w2):
     if t1 is typedouble or t2 is typedouble:
         return typedouble
     if t1 is typefloat or t2 is typefloat:
+        return typefloat
+    if ishalf(t1) or ishalf(t2):  # cimo: evaluated in float
         return typefloat
     t1 = typepromote(t1, w1)
     t2 = typepromote(t2, w2)

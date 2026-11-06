@@ -16,7 +16,7 @@ SYM = '_' if TARGET == 'arm64_apple' else ''  # its symbol prefix, for finding l
 
 
 def ir(src, fma=False, filename='t.c'):
-    pp = preprocess(driver._PRELUDE + '#line 1\n' + src, filename, target=TARGET)
+    pp = preprocess(driver._PRELUDE + '#line 1\n' + src, filename, target=TARGET, defines={'__CIMO_STOCK_CPROC': '1'})
     return frontend.compile(pp, filename, target=driver._FRONTEND[TARGET], fma=fma)
 
 
