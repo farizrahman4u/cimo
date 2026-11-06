@@ -404,7 +404,17 @@ _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0
          # %r =q qld3bh %addr, k, byte k of each 3 (rgb pixels, channel k); qstbh %v, %addr, each lane's low byte
          ('qldbh', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qld3bh', ((Ke, Ke, Ke, Ke, Ke, Km), (Ke, Ke, Ke, Ke, Ke, Kw)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
-         ('qstbh', ((Kq,) * 6, (Km,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)]
+         ('qstbh', ((Kq,) * 6, (Km,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         # arm64's own: qld3x %addr, ld3 of 8 pixels into v28-v30; %r =q qwide3 k, channel k zero-extended to 16 bits;
+         # %r =q qwmul3 %c, k, channel k times the bytes of %c (umull); qwmla0 %acc, %r =q qwmla3 %c, k: + %acc (umlal)
+         ('qld3x', ((Km,) * 6, (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qwide3', ((Ke, Ke, Ke, Ke, Ke, Kw), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qwmul3', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Kw)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qwmla0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qwmla3', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Kw)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         # qshrn0 %v, then qstshrn %addr, s: each 16-bit lane of %v shifted right by s, its low byte stored (shrn)
+         ('qshrn0', ((Kq,) * 6, (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qstshrn', ((Km,) * 6, (Kw,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)]
 # cimo: x86-64's read-modify-write, made by amd64 isel from a load, an operation and a store to one address: xaddm %v, %a
 # is add %v to the word or long at %a, of the instruction's class
 _OPS += [('x%sm' % n, ((Kw, Kl, Ke, Ke, Ke, Ke), (Km, Km, Ke, Ke, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
@@ -455,9 +465,9 @@ def INRANGE(x, l, u):
 
 def isstore(o): return Ostoreb <= o <= Ostored
 def isload(o): return Oloadsb <= o <= Oload
-def isvload(o): return Ovloadsb <= o <= Ovload or o in (Oqload, Oqldbh, Oqld3bh)  # vector memory: as careful as volatile, for now
-def isvstore(o): return Ovstoreb <= o <= Ovstored or o in (Oqstore, Oqstbh)
-def isqop(o): return Oqaddb <= o <= Oqstbh
+def isvload(o): return Ovloadsb <= o <= Ovload or o in (Oqload, Oqldbh, Oqld3bh, Oqld3x)  # vector memory: as careful as volatile, for now
+def isvstore(o): return Ovstoreb <= o <= Ovstored or o in (Oqstore, Oqstbh, Oqstshrn)
+def isqop(o): return Oqaddb <= o <= Oqstshrn
 
 
 def unvolatile(fn, sink=None):

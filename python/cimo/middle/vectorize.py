@@ -549,12 +549,12 @@ def interleave(fast):
     """How many vectors the loop does an iteration: more than one only for a loop that collects reductions whose
     order C doesn't fix and stores nothing, so each copy keeps its own accumulators (a chain of compares and selects,
     or of adds, is latency-bound in one), and stores never come closer than _distance allowed for."""
-    stores = any(_storeclass(i) is not None for b in fast.lp.blocks for i in ir.ins(b))
+    stores = any(ir.isstore(i.op) for b in fast.lp.blocks for i in ir.ins(b))
     if stores and not fast.vreds:
         # a loop that stores, as gemm's c[j] += a * b[j]: two vectors an iteration, fewer of the loop's own instructions;
         # four when an iteration is a long chain of dependent float operations (conv3x3's nine fmas in C's order,
         # jacobi2d's four adds), so more of them are in flight than the core's window would otherwise hold
-        return 4 if _chain(fast) >= 4 else 2
+        return 4 if _chain(fast) >= 4 and D.T.name.startswith('arm64') else 2  # x86-64's windows are larger
     if not fast.vreds or any(r.ordered for r in fast.vreds):
         return 1
     if stores:
@@ -595,14 +595,36 @@ _NARROWOPS = {D.Oadd: 'qaddh', D.Osub: 'qsubh', D.Omul: 'qmulh', D.Oshl: 'qshlh'
 
 
 def _narrow_body(fast, em, state, copy):
-    """body() for a loop over bytes (_narrow): 16-bit lanes; a pixel's three loads together (one ld3 on arm64)."""
+    """body() for a loop over bytes (_narrow): 16-bit lanes; a pixel's three loads together. On arm64, with one pixel
+    group, one ld3 into v28-v30 serves them and a channel times a byte constant is umull, or umlal into what it's
+    added to (gcc's widening multiply-accumulate): rgb2gray's three weights are three instructions."""
     fn = fast.fn
     A = fast.A
     k0 = copy * fast.vf
     env = {}
     pixels = {}
+    pending = {}  # tmp -> ('ch', k): channel k of the ld3; ('mul', c, k): channel k times c, not made yet
+    arm = D.T.name.startswith('arm64') and len(fast.vnarrow) == 1
+    uses = {}
+    for i in fast.cloned:
+        for a in i.arg:
+            if ir.istmp(a):
+                uses[rval(a)] = uses.get(rval(a), 0) + 1
+
+    def dupb(c):
+        if ('dupb', c) not in fast.memo:
+            fast.memo[('dupb', c)] = fast.fp.raw(D.Oqdupb, Kq, fast.fp.con(c))
+        return fast.memo[('dupb', c)]
 
     def vec(a):
+        if ir.istmp(a) and rval(a) in pending:
+            p = pending.pop(rval(a))
+            if p[0] == 'ch':
+                env[rval(a)] = em.raw(D.Oqwide3, Kq, em.con(p[1]))
+            elif p[0] == 'shr':
+                env[rval(a)] = em.raw(D.Oqshrh, Kq, vec(p[1]), em.con(p[2]))
+            else:
+                env[rval(a)] = em.raw(D.Oqwmul3, Kq, dupb(p[1]), em.con(p[2]))
         if ir.istmp(a) and rval(a) in env:
             return env[rval(a)]
         c = ir.conval(fn, a)
@@ -610,6 +632,11 @@ def _narrow_body(fast, em, state, copy):
         if key not in fast.memo:
             fast.memo[key] = fast.fp.raw(D.Oqduph, Kq, fast.fp.con(c & 0xffff))
         return fast.memo[key]
+
+    def channel(a):
+        """k when a is an ld3 channel nothing else reads, else None."""
+        p = pending.get(rval(a)) if ir.istmp(a) else None
+        return p[1] if p is not None and p[0] == 'ch' and uses.get(rval(a)) == 1 else None
 
     for i in fast.cloned:
         if i.op in (D.Onop, D.Odbgloc):
@@ -622,14 +649,54 @@ def _narrow_body(fast, em, state, copy):
                 c0 = min(offs)
                 if key not in pixels:
                     base = fast.opmap(offs[c0].arg[0], k0, env, state, None)
-                    pixels[key] = {c: em.raw(D.Oqld3bh, Kq, base, em.con(c - c0)) for c in sorted(offs)}
-                env[rval(i.to)] = pixels[key][f.L.c]
+                    if arm:
+                        em.ins(Ins(D.Oqld3x, Kq, R, base, R))
+                        pixels[key] = None
+                    else:
+                        pixels[key] = {c: em.raw(D.Oqld3bh, Kq, base, em.con(c - c0)) for c in sorted(offs)}
+                if arm:
+                    pending[rval(i.to)] = ('ch', f.L.c - c0)
+                else:
+                    env[rval(i.to)] = pixels[key][f.L.c]
             else:
                 env[rval(i.to)] = em.raw(D.Oqldbh, Kq, fast.opmap(i.arg[0], k0, env, state, None))
             continue
         if i.op == D.Ostoreb:
+            p = pending.get(rval(i.arg[0])) if ir.istmp(i.arg[0]) else None
+            if p is not None and p[0] == 'shr':  # shrn: the shift and the narrowing in one
+                pending.pop(rval(i.arg[0]))
+                v = vec(p[1])
+                em.ins(Ins(D.Oqshrn0, Kq, R, v, R))
+                em.ins(Ins(D.Oqstshrn, Kq, R, fast.opmap(i.arg[1], k0, env, state, None), em.con(p[2])))
+                continue
             em.ins(Ins(D.Oqstbh, Kq, R, vec(i.arg[0]), fast.opmap(i.arg[1], k0, env, state, None)))
             continue
+        if arm and i.op in (D.Oshr, D.Osar) and uses.get(rval(i.to)) == 1 and \
+                1 <= (ir.conval(fn, i.arg[1]) or 0) <= 8 and ir.istmp(i.arg[0]):
+            pending[rval(i.to)] = ('shr', i.arg[0], ir.conval(fn, i.arg[1]))
+            continue
+        if arm and i.op == D.Omul:
+            for x, y in ((i.arg[0], i.arg[1]), (i.arg[1], i.arg[0])):
+                k, c = channel(x), ir.conval(fn, y)
+                if k is not None and c is not None and 0 <= c <= 255:
+                    pending.pop(rval(x))
+                    pending[rval(i.to)] = ('mul', c, k)
+                    break
+            if rval(i.to) in pending:
+                continue
+        if arm and i.op == D.Oadd:
+            done = False
+            for x, y in ((i.arg[0], i.arg[1]), (i.arg[1], i.arg[0])):
+                p = pending.get(rval(x)) if ir.istmp(x) else None
+                if p is not None and p[0] == 'mul' and uses.get(rval(x)) == 1:
+                    acc = vec(y)
+                    pending.pop(rval(x))
+                    em.ins(Ins(D.Oqwmla0, Kq, R, acc, R))
+                    env[rval(i.to)] = em.raw(D.Oqwmla3, Kq, dupb(p[1]), em.con(p[2]))
+                    done = True
+                    break
+            if done:
+                continue
         op = getattr(D, 'O' + _NARROWOPS[i.op])
         if i.op in (D.Oshl, D.Oshr, D.Osar):
             env[rval(i.to)] = em.raw(op, Kq, vec(i.arg[0]), i.arg[1])

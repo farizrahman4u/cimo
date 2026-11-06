@@ -801,6 +801,15 @@ def _i_bytes(a, mn, ops):
             raise AssemblerError('ld3 takes [Xn]')
         n = _reg(b[1:-1].strip(), 'x', sp=True, zr=False)[1]
         return 0x0c404000 | n << 5 | t[0]
+    if mn in ('umull', 'umlal'):  # Vd.8H, Vn.8B, Vm.8B
+        if len(ops) != 3:
+            raise AssemblerError('%s needs 3 operands' % mn)
+        d = _VREG8H.match(ops[0].strip().lower())
+        n, m = _VREG8B.match(ops[1].strip().lower()), _VREG8B.match(ops[2].strip().lower())
+        if not d or not n or not m:
+            raise AssemblerError('unsupported operands for %s' % mn)
+        return (0x2e20c000 if mn == 'umull' else 0x2e208000) | int(m.group(1)) << 16 | int(n.group(1)) << 5 | \
+            int(d.group(1))
     if mn == 'ushll':
         if len(ops) != 3 or _imm(ops[2], True) != 0:
             raise AssemblerError('ushll takes Vd.8h, Vn.8b, #0')
@@ -808,6 +817,14 @@ def _i_bytes(a, mn, ops):
         if not d or not n:
             raise AssemblerError('unsupported operands for ushll')
         return 0x2f08a400 | int(n.group(1)) << 5 | int(d.group(1))
+    if mn == 'shrn':  # Vd.8B, Vn.8H, #s
+        if len(ops) != 3:
+            raise AssemblerError('shrn needs 3 operands')
+        d, n = _VREG8B.match(ops[0].strip().lower()), _VREG8H.match(ops[1].strip().lower())
+        s = _imm(ops[2], True)
+        if not d or not n or not 1 <= s <= 8:
+            raise AssemblerError('unsupported operands for shrn')
+        return 0x0f008400 | (16 - s) << 16 | int(n.group(1)) << 5 | int(d.group(1))
     if len(ops) != 2:  # xtn
         raise AssemblerError('xtn needs 2 operands')
     d, n = _VREG8B.match(ops[0].strip().lower()), _VREG8H.match(ops[1].strip().lower())
@@ -1321,7 +1338,7 @@ _INSNS = {
     'frintm': _i_fneg, 'frintz': _i_fneg, 'frinta': _i_fneg, 'frintx': _i_fneg,
     'frinti': _i_fneg,
     'clz': _i_dp1, 'rbit': _i_dp1, 'rev16': _i_dp1, 'rev': _i_dp1, 'cnt': _i_simd,
-    'addv': _i_simd, 'ushll': _i_bytes, 'xtn': _i_bytes, 'ld3': _i_bytes,
+    'addv': _i_simd, 'ushll': _i_bytes, 'xtn': _i_bytes, 'ld3': _i_bytes, 'umlal': _i_bytes, 'shrn': _i_bytes,
     'fmadd': _i_fp4, 'fmsub': _i_fp4, 'fnmadd': _i_fp4, 'fnmsub': _i_fp4,
     'fmov': _i_fmov, 'fcvt': _i_fcvt, 'fcvtzs': _i_fcvtz, 'fcvtzu': _i_fcvtz,
     'scvtf': _i_cvtf, 'ucvtf': _i_cvtf, 'fcmp': _i_fcmp, 'fcmpe': _i_fcmp,
@@ -1554,6 +1571,8 @@ class _Asm:
                 f = insns.get(mn)
                 if f is _i_bytes:
                     pass
+                elif mn in ('umull', 'umlal') and ops and ops[0].strip().lower().startswith('v'):
+                    f = _i_bytes
                 elif _isneon(ops):
                     f = lambda a, mn, ops: _neon(mn, ops)
                 elif mn in ('umov', 'dup') and ops:

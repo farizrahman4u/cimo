@@ -20,7 +20,7 @@ arm64_rclob = [
     -1
 ]
 
-RGLOB = BIT(FP) | BIT(SP) | BIT(IP1) | BIT(R18) | BIT(V29) | BIT(V30)  # v29-v31: ld3's (v31 emit's scratch)
+RGLOB = BIT(FP) | BIT(SP) | BIT(IP1) | BIT(R18) | BIT(V28) | BIT(V29) | BIT(V30)  # ld3's (v31: emit's scratch)
 
 
 def arm64_memargs(op):
@@ -55,7 +55,7 @@ def _common(**kw):
         nfpr=NFPR,
         rqavoid=sum(BIT(V0 + n) for n in range(8, 16)),  # a call keeps only the low 64 bits of v8 to v15
         rglob=RGLOB,
-        nrglob=6,
+        nrglob=7,
         rsave=arm64_rsave,
         nrsave=[NGPS, NFPS],
         retregs=lambda r, p: _abi().arm64_retregs(r, p),

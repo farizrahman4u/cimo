@@ -542,6 +542,28 @@ def _qins(i, e):
             e.ld3 = a
         f.write("\tushll\tv%d.8h, v%d.8b, #0\n" % (rval(i.to) - V0, 29 + e.fn.con[rval(i.arg[1])].i))
         return True
+    if op == D.Oqld3x:  # 8 pixels' channels into v28, v29, v30 (kept from the allocator)
+        f.write("\tld3\t{v28.8b, v29.8b, v30.8b}, %s\n" % _qaddr(i.arg[0], e))
+        return True
+    if op == D.Oqwide3:  # channel k zero-extended
+        f.write("\tushll\tv%d.8h, v%d.8b, #0\n" % (rval(i.to) - V0, 28 + e.fn.con[rval(i.arg[0])].i))
+        return True
+    if op in (D.Oqwmul3, D.Oqwmla3):  # channel k times the bytes of a (umull), plus the destination (umlal)
+        d, c, k = rval(i.to) - V0, rval(i.arg[0]) - V0, 28 + e.fn.con[rval(i.arg[1])].i
+        if op == D.Oqwmul3:
+            f.write("\tumull\tv%d.8h, v%d.8b, v%d.8b\n" % (d, k, c))
+        elif req(i.to, e.qthird):
+            f.write("\tumlal\tv%d.8h, v%d.8b, v%d.8b\n" % (d, k, c))
+        elif rval(i.to) == rval(i.arg[0]):
+            f.write("\tmov\tv31.16b, %s\n\tumlal\tv31.8h, v%d.8b, v%d.8b\n\tmov\t%s, v31.16b\n"
+                    % (_qv(e.qthird), k, c, _qv(i.to)))
+        else:
+            f.write("\tmov\t%s, %s\n\tumlal\tv%d.8h, v%d.8b, v%d.8b\n" % (_qv(i.to), _qv(e.qthird), d, k, c))
+        return True
+    if op == D.Oqstshrn:  # the lanes of the qshrn0 before, shifted right and narrowed to bytes, stored
+        f.write("\tshrn\tv31.8b, %s, #%d\n\tstr\td31, %s\n" % (_qv(e.qthird, '8h'), e.fn.con[rval(i.arg[1])].i,
+                                                          _qaddr(i.arg[0], e)))
+        return True
     if op == D.Oqstbh:  # the low byte of each of 8 lanes
         f.write("\txtn\tv31.8b, v%d.8h\n\tstr\td31, %s\n" % (rval(i.arg[0]) - V0, _qaddr(i.arg[1], e)))
         return True
@@ -554,7 +576,7 @@ def _qins(i, e):
     if not D.isqop(op):
         return False
     name = optab[op].name
-    if name in ('qsel0', 'qfma0'):
+    if name in ('qsel0', 'qfma0', 'qwmla0', 'qshrn0'):
         return True  # with the next one
     if name in ('qand', 'qor', 'qxor'):
         f.write("\t%s\t%s, %s, %s\n" % ({'qand': 'and', 'qor': 'orr', 'qxor': 'eor'}[name], _qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
@@ -646,7 +668,7 @@ def emitins(i, e):
     T = D.T
     op = i.op
     if i.cls == D.Kq or D.isqop(op):
-        if op == D.Oqsel0 or op == D.Oqfma0:
+        if op in (D.Oqsel0, D.Oqfma0, D.Oqwmla0, D.Oqshrn0):
             e.qthird = i.arg[0]
         if _qins(i, e):
             return

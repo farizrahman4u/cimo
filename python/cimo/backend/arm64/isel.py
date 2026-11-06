@@ -1093,25 +1093,32 @@ def sel(i, fn):
         emit(Oload, k, i.to, r, R)
         emit(Ocopy, Kl, r, CON(_newfpcon(_stashbits(bits, 8 if KWIDE(k) else 4), fn)), R)
         return
-    if i.op in (D.Oqfma0, D.Oqsel0):  # cimo (ext.vector): fmla and bsl keep their third operand in the destination
+    if i.op in (D.Oqfma0, D.Oqsel0, D.Oqwmla0):  # cimo (ext.vector): fmla, bsl, umlal keep their third operand in the destination
         d = _qdest[0]
         assert d != R, 'qfma0/qsel0 without its qfma1/qsel1 right after'
         _qdest[0] = R  # one pair at a time: a stale destination must never reach another pair
         emit(i.op, D.Kq, R, d, R)
         emit(Ocopy, D.Kq, d, i.arg[0], R)
         return
-    if i.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1):
+    if i.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1, D.Oqwmla3):
         _qdest[0] = i.to
     if D.isqop(i.op):  # cimo (ext.vector): registers, and an address with a constant offset folded in ([x, #16])
         if i.op == D.Oqload:
             foldaddr(i.arg, 0, 16, fn)
         elif i.op == D.Oqstore:
             foldaddr(i.arg, 1, 16, fn)
+        elif i.op == D.Oqldbh:  # ldr d, str d: 8 bytes
+            foldaddr(i.arg, 0, 8, fn)
+        elif i.op == D.Oqstbh:
+            foldaddr(i.arg, 1, 8, fn)
+        elif i.op == D.Oqstshrn:
+            foldaddr(i.arg, 0, 8, fn)
         emiti(i)
         iarg = D.insb[D.curi].arg
         for n in (0, 1):
             if iarg[n] != R and argcls(i, n) != D.Kx and not (i.op >= D.Oqshlb and i.op <= D.Oqsarl and n == 1) \
-                    and not (i.op >= D.Oqgetb and i.op <= D.Oqgetd and n == 1) and not (i.op == D.Oqld3bh and n == 1):
+                    and not (i.op >= D.Oqgetb and i.op <= D.Oqgetd and n == 1) and not (i.op == D.Oqld3bh and n == 1) \
+                    and not (i.op in (D.Oqwmul3, D.Oqwmla3, D.Oqstshrn) and n == 1) and not (i.op == D.Oqwide3 and n == 0):
                 fixarg(iarg, n, argcls(i, n), 0, fn)
         return
     if INRANGE(i.op, Oalloc, Oalloc1):
@@ -1484,8 +1491,8 @@ def qacrosscalls(fn):
             isslotop = x.op == D.Oqload and x.arg[0] in slots.values() or x.op == D.Oqstore and x.arg[1] in slots.values()
             if not isslotop:
                 # the reloads for a qfma1 or qsel1 go before its qfma0 or qsel0: the two stay side by side
-                first = new.pop() if x.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1) and new and \
-                    new[-1].op in (D.Oqfma0, D.Oqsel0) else None
+                first = new.pop() if x.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1, D.Oqwmla3) and new and \
+                    new[-1].op in (D.Oqfma0, D.Oqsel0, D.Oqwmla0) else None
                 for n in (0, 1):
                     a = x.arg[n]
                     if rtype(a) == RTmp and rval(a) in slots:

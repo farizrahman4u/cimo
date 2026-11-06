@@ -659,6 +659,17 @@ def selsel(fn, b, i, tn):
     assert rtype(r) == RTmp
     t = fn.tmp[rval(r)]
     fi = flagi(ins, 0, isel0, fn)
+    if (fi is None or ins[fi].to != r) and t.nuse == 1:
+        # cimo: the integer comparison earlier in the block, something that sets the flags (an add) since: compared
+        # again here, its operands being temporaries that still hold what they held (edit_distance's v <= cur, whose
+        # cur + 1 the scheduler put in between: setle, movzbl, test, cmov otherwise)
+        for n in range(isel0 - 1, -1, -1):
+            x = ins[n]
+            if x.to == r:
+                kc = iscmp(x.op)
+                if kc is not None and kc[1] < NCmpI:
+                    fi = n
+                break
     cr = [R, R]
     gencmp = gencpy = swap = 0
     k = Kw

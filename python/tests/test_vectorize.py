@@ -852,7 +852,7 @@ def test_bytes_in_16_bit_lanes(monkeypatch):
     one ld3; x86-64 with AVX picks them apart with vpshufb; a store keeps each lane's low byte."""
     if hosts.ARM64:
         b = _body(driver._build(RGB)[0], ('_' if driver.TARGET == 'arm64_apple' else '') + 'rgb2gray')
-        assert b.count('\tld3\t') == 1 and '\txtn\t' in b, b
+        assert b.count('\tld3\t') >= 1 and '\tumlal\t' in b, b
     b = _body(_x86with(RGB, _FEATURES, monkeypatch), 'rgb2gray')
     assert b.count('vpshufb') >= 7 and 'vpermq' in b, b
 
