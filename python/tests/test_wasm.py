@@ -234,6 +234,20 @@ with contextlib.redirect_stdout(f):
     u.fill(4087)  # and one split by a full buffer
     u.byte(10)
 assert f.getvalue() == 'é' + 'a' * 4087 + 'é\n', repr(f.getvalue()[:8] + f.getvalue()[-8:])
+h = cimo.compile(r"""
+#include <stdlib.h>
+int big(int w) { void *p = w == 0 ? malloc((1UL << 32) + 16) : w == 1 ? calloc(1, 1UL << 43) : malloc(0x7fff0001UL);
+                 return p == 0; }
+long mk(int n) { long *p = malloc(n * sizeof *p); for (int i = 0; i < n; i++) p[i] = i; return (long)p; }
+long rd(long p, int i) { return ((long *)p)[i]; }
+""")
+for w in range(3):  # more than wasm32 can have: NULL, not a small block or a trap (2026-11-07)
+    assert h.big(w) == 1, w
+q = h.mk(1000)
+assert h.rd(q, 999) == 999 and h.heap_bytes() > 0
+h.free(q)
+h.reset_heap()
+assert h.rd(h.mk(10), 9) == 9
 print('PYODIDE OK')
 ''')
     r = subprocess.run(['node', os.path.join(HERE, 'wasm', 'pyodide_run.mjs'), str(script)],
@@ -249,3 +263,21 @@ def test_site_demos_in_pyodide():
     r = subprocess.run(['node', os.path.join(HERE, 'wasm', 'site_demos.mjs')],
                        capture_output=True, universal_newlines=True, timeout=900)
     assert r.returncode == 0 and 'SITE DEMOS OK' in r.stdout, r.stdout[-3000:] + r.stderr[-1000:]
+
+
+def test_large_malloc_is_null(host):
+    """More than wasm32 can have is NULL from malloc and calloc (a 4 GiB request wrapped to a small block before, and
+    one just under 2 GiB reached the host as a negative size), and the heap still works after."""
+    build(host, r'''
+#include <stdlib.h>
+int big(int which) {
+    void *p = which == 0 ? malloc((1UL << 32) + 16) : which == 1 ? calloc(1, 1UL << 43) : which == 2 ? malloc(0x7fff0001UL)
+              : realloc(malloc(16), 1UL << 40);
+    return p == 0;
+}
+long small(void) { long *p = malloc(100 * sizeof *p); for (int i = 0; i < 100; i++) p[i] = i; long s = 0;
+    for (int i = 0; i < 100; i++) s += p[i]; free(p); return s; }
+''')
+    for which in range(4):
+        assert host.call('big', 'w', which)[0] == 1, which
+    assert host.call('small', '')[0] == 4950

@@ -7,7 +7,7 @@
 //   {"write": ptr, "b64": data} / {"read": ptr, "n": n} -> {"ok": true} / {"b64": data}
 import readline from 'node:readline';
 
-const memory = new WebAssembly.Memory({ initial: 4096 });  // 256 MB
+const memory = new WebAssembly.Memory({ initial: 4096, maximum: 8192 });  // 256 MB, at most 512
 const table = new WebAssembly.Table({ initial: 1, element: 'anyfunc' });
 const STACK_TOP = 1 << 20;            // C stack: 64 KB .. 1 MB, grows down
 const sp = new WebAssembly.Global({ value: 'i32', mutable: true }, STACK_TOP);
@@ -37,7 +37,14 @@ function load(bytes) {
     __memory_base: new WebAssembly.Global({ value: 'i32' }, memBase),
     __table_base: new WebAssembly.Global({ value: 'i32' }, tableBase),
     __cimo_js_write: (p, n) => { out += Buffer.from(u8().subarray(p, p + n)).toString('latin1'); },
-    __cimo_js_grow: (n, kind) => alloc(n),
+    __cimo_js_grow: (n, kind) => {  // 0 (malloc's NULL) past the memory, as Pyodide's host does
+      if (n <= 0) return 0;
+      const p = alloc(n);
+      if (brk > memory.buffer.byteLength) {
+        try { memory.grow(Math.ceil((brk - memory.buffer.byteLength) / 65536)); } catch (e) { brk = p; return 0; }
+      }
+      return p;
+    },
     __cimo_js_release: p => {},
     __cimo_js_fail: (code, expr, file, line, func) => {
       throw new Fail(JSON.stringify({ code, expr: cstr(expr), file: cstr(file), line, func: cstr(func) }));

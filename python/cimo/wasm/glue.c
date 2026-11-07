@@ -74,6 +74,10 @@ __cimo_wasm_write(const char *buf, size_t len)
 void *
 __cimo_wasm_grow(void *heap, unsigned long bytes, int kind)
 {
+	/* wasm32: more than fits a signed 32-bit size can't be had (4 GiB would wrap to a small block, and the host
+	   reads the argument as an i32), so malloc returns NULL as C asks */
+	if (bytes > 0x7fff0000UL)
+		return 0;
 	return (void *)(unsigned long)__cimo_js_grow(bytes, kind);
 }
 

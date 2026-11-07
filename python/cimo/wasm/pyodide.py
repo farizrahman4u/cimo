@@ -41,6 +41,8 @@ def _jsobj(d):
     return to_js(d, dict_converter=js.Object.fromEntries)
 
 
+_CTX_HEAP = 3072  # the heap's offset in the context (cimo.execution.CTX_HEAP, runtime/heap.c)
+
 class _Fail(Exception):
     pass
 
@@ -106,9 +108,15 @@ class WasmModule(Introspection):
             sys.stdout.write(text)
 
     def _grow(self, nbytes, kind):
-        b = ctypes.create_string_buffer(nbytes + 16)
+        """A block of nbytes for the heap, or 0 (malloc's NULL) when Python can't have it."""
+        try:
+            if nbytes <= 0:
+                return 0
+            b = ctypes.create_string_buffer(nbytes + 16)
+        except (MemoryError, OverflowError, ValueError):
+            return 0
         p = (ctypes.addressof(b) + 15) & -16
-        self._chunks[p] = b
+        self._chunks[p] = (b, kind)
         return p
 
     def _release(self, p):
@@ -145,6 +153,27 @@ class WasmModule(Introspection):
             kind, msg = 'error', 'kernel error %d%s' % (code, at)
         raise KernelError('%s (calling %s)' % (msg, kernel), kind, kernel, func, expr, file,
                           line if code == E_ASSERT else None, status) from None
+
+    def _runtime(self, name, ret, params):
+        """A runtime function of the module called as a kernel is (its pointers are i64: a BigInt from JavaScript)."""
+        if getattr(self.exports, name, None) is None:
+            raise RuntimeError('module has no heap')
+        return WasmKernel(self, name, ret, params)
+
+    def free(self, ptr):
+        """free() a pointer that a kernel returned from malloc/calloc/realloc/aligned_alloc (Module.free)."""
+        self._runtime('free', None, ['p'])(ptr)
+
+    def reset_heap(self):
+        """Free every heap block at once (Module.reset_heap); no kernel of the module may be running."""
+        ctx = self._runtime('__cimo_ctx', 'p', [])()
+        self._runtime('__cimo_heap_reset', None, ['p'])(ctx + _CTX_HEAP)
+        for p in [p for p, (_, kind) in self._chunks.items() if kind == 1]:  # large blocks go, chunks stay
+            del self._chunks[p]
+
+    def heap_bytes(self):
+        """Bytes of memory held for the module's heap (Module.heap_bytes)."""
+        return sum(len(b) for b, _ in self._chunks.values())
 
     def __getattr__(self, name):
         try:

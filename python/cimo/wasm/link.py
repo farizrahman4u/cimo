@@ -22,7 +22,7 @@ G_SP, G_MEM, G_TAB = 0, 1, 2
 HOOKS = {'__cimo_hook_write': '__cimo_wasm_write', '__cimo_hook_grow': '__cimo_wasm_grow',
          '__cimo_hook_release': '__cimo_wasm_release'}
 # functions Python calls, exported when present
-HELPERS = ('__cimo_flush', '__cimo_heap_reset', '__cimo_ctx')
+HELPERS = ('__cimo_flush', '__cimo_heap_reset', '__cimo_ctx', 'free')  # free: Module.free
 
 
 class LinkError(Exception):

@@ -501,7 +501,11 @@ inbound rules needed.
   loop) is a compile error.
 - **Data model: LP64 on wasm32.** The frontend still targets aarch64, so `long` and pointers are
   64-bit in the IR and wrapped to i32 at each memory access. `long` is 64-bit in Pyodide too,
-  unlike Emscripten: pass `int64`/numpy buffers, not `ctypes.c_long` (32-bit there).
+  unlike Emscripten: pass `int64`/numpy buffers, not `ctypes.c_long` (32-bit there). So a heap request can exceed what
+  wasm32 has: `__cimo_wasm_grow` returns NULL past 0x7fff0000 bytes (2026-11-07; a 4 GiB request wrapped to a small block
+  before, and one just under 2 GiB reached Python as a negative size), and Python's grow returns NULL when it can't have
+  the block. `module.free`, `reset_heap` and `heap_bytes` work in Pyodide too (`free` exported; the runtime's functions
+  called as kernels, their pointers being i64).
 - **ABI (cimo's own):** wasm params in order; struct returns through a hidden first pointer;
   struct args by pointer to a caller copy; varargs in 8-byte slots of a caller buffer passed as
   a last i64 (`va_list` holds the next slot's address). C stack below Emscripten's
