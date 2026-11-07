@@ -73,6 +73,8 @@ def retvt(fname):
         return [], False
     if k == _parse.Kc:
         return [], True
+    if _parse.retp.get(fname):  # a pointer: i32, as Emscripten's code returns it
+        return [I32], False
     return [VT[Kw if k >= _parse.Ksb else k]], False
 
 
@@ -189,8 +191,12 @@ class _Gen:
             self.sret = len(params)
             params.append(I64)
         start = fn.start
+        self.ptrpars = []  # (parameter index, temporary): pointers come in as i32, widened at entry
         for i in start.ins[:start.nins]:
-            if i.op == D.Opar:
+            if i.op == D.Opar and i.contract and i.cls == Kl:
+                self.ptrpars.append((len(params), rval(i.to)))
+                params.append(I32)
+            elif i.op == D.Opar:
                 self.loc[rval(i.to)] = len(params)
                 params.append(VT[i.cls])
             elif i.op == D.Oparc:
@@ -217,6 +223,10 @@ class _Gen:
             for n in names:
                 self.loc[n] = idx
                 idx += 1
+        for pi, t in self.ptrpars:  # the temporary is an i64 local: i64.extend_i32_u
+            self.lget(pi)
+            self.op(0xAD)
+            self.lset(self.loc[t])
         self.layout_frame()
         if self.frame:
             self.gget(G_SP)
@@ -406,6 +416,8 @@ class _Gen:
             k = (Kw, Kl, Ks, Kd, Kw, Kw, Kw, Kw)[j.type - D.Jretw]
             if self.results:
                 self.push(j.arg, k)
+                if k == Kl and self.results[0] == I32:  # a pointer: i32.wrap_i64
+                    self.op(0xA7)
         if j.type == D.Jret0 and self.results:  # `return;` in a function declared non-void
             self.zero(self.results[0])
         self.epilogue()
@@ -685,6 +697,10 @@ class _Gen:
                 self.i32c(off)
                 self.op(0x6A, 0xAD)
                 ptypes.append(I64)
+            elif a.op == D.Oarg and a.cls == Kl and a.contract:  # a pointer: i32.wrap_i64
+                self.push(a.arg[0], Kl)
+                self.op(0xA7)
+                ptypes.append(I32)
             else:
                 k = a.cls if a.op == D.Oarg else Kw
                 self.push(a.arg[0], k)
@@ -694,7 +710,8 @@ class _Gen:
             self.i32c(area['va'])
             self.op(0x6A, 0xAD)
             ptypes.append(I64)
-        results = [] if (i.to == R or 'sret' in area) else [VT[i.cls]]
+        ptrres = i.contract and i.cls == Kl and i.to != R and 'sret' not in area
+        results = [] if (i.to == R or 'sret' in area) else [I32 if ptrres else VT[i.cls]]
         key = sigkey(ptypes, results)
         callee = i.arg[0]
         if rtype(callee) == RCon and fn.con[rval(callee)].type == CAddr and \
@@ -716,6 +733,8 @@ class _Gen:
                 self.op(0x6A, 0xAD)
                 self.setto(i)
         elif i.to != R:
+            if ptrres:  # i64.extend_i32_u
+                self.op(0xAD)
             self.setto(i)
 
     def mem_store_va(self, a, off):

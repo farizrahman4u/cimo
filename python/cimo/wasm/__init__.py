@@ -37,7 +37,7 @@ def compile_object(src, filename='<string>', include_dirs=(), defines=(), runtim
     from ..frontend import FrontendError
     try:
         ssa, params = d._frontend(pp, filename, 'arm64', fma=False, builtins=True,
-                                  diagnostics=True, prune=True, vastruct='slots', bitops=False)
+                                  diagnostics=True, prune=True, vastruct='slots', bitops=False, wasmptr=True)
     except FrontendError as e:
         raise d.CompileError(str(e)) from None
     return d._qbe_wasm(ssa, params), ssa, params

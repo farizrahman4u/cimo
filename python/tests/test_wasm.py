@@ -47,7 +47,8 @@ def _no_fma():
 def build(host, src):
     mod, sigs = W.build(src)
     host.load(mod)
-    return dict(line.split(' ', 1) for line in sigs.splitlines())
+    host.sigs = dict(line.split(' ', 1) for line in sigs.splitlines())
+    return host.sigs
 
 
 def test_kernels(host):
@@ -167,8 +168,9 @@ def test_runtime_programs_match_native(host, t):
     path = os.path.join(RT, t + '.c')
     with open(path) as f:
         src = f.read()
-    mod, _ = W.build(src, path)
+    mod, sigs = W.build(src, path)
     host.load(mod)
+    host.sigs = dict(line.split(' ', 1) for line in sigs.splitlines())
     cap = 8 << 20
     p = host.alloc(cap)
     n, _ = host.call('run', 'l,l', p, cap)
@@ -248,6 +250,15 @@ assert h.rd(q, 999) == 999 and h.heap_bytes() > 0
 h.free(q)
 h.reset_heap()
 assert h.rd(h.mk(10), 9) == 9
+libm = ctypes.CDLL(None)  # Pyodide's own frexp, called by address: its pointer parameter is an i32 (2026-11-07)
+fx = cimo.compile(r"""
+typedef double (*F)(double, int *);
+double call(long f, double x) { int e; double m = ((F)f)(x, &e); return m * 1000 + e; }
+static double mine(double x, int *e) { *e = 7; return x / 2; }
+double own(double x) { volatile F g = mine; int e; return g(x, &e) * 10 + e; }
+""")
+assert fx.call(ctypes.cast(libm.frexp, ctypes.c_void_p).value, 12.0) == 754.0
+assert fx.own(4.0) == 27.0
 print('PYODIDE OK')
 ''')
     r = subprocess.run(['node', os.path.join(HERE, 'wasm', 'pyodide_run.mjs'), str(script)],

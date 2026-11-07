@@ -506,7 +506,9 @@ inbound rules needed.
   before, and one just under 2 GiB reached Python as a negative size), and Python's grow returns NULL when it can't have
   the block. `module.free`, `reset_heap` and `heap_bytes` work in Pyodide too (`free` exported; the runtime's functions
   called as kernels, their pointers being i64).
-- **ABI (cimo's own):** wasm params in order; struct returns through a hidden first pointer;
+- **ABI (cimo's own):** wasm params in order; pointer parameters, arguments and results are i32 at the boundary, as
+  Emscripten's code passes them (2026-11-07: the frontend's class `p`, `wasmptr=`; i64 inside), so a kernel can call a
+  host function by address (Pyodide's `frexp(double, int *)` trapped on the signature); struct returns through a hidden first pointer;
   struct args by pointer to a caller copy; varargs in 8-byte slots of a caller buffer passed as
   a last i64 (`va_list` holds the next slot's address). C stack below Emscripten's
   `__stack_pointer`; Python restores it after a kernel error.

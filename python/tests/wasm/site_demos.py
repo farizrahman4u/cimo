@@ -4,9 +4,9 @@ import math
 
 from pyodide.code import run_js
 
-# calls f as the page does, the arguments at the indexes in ptrs as BigInt (wasm i64), in JavaScript: a BigInt made in
-# Python comes back as an int
-call = run_js('(f, ptrs, ...a) => f(...a.map((x, i) => ptrs.includes(i) ? BigInt(x) : x))')
+# calls f as the page does, in JavaScript: the arguments at the indexes in ptrs are pointers, i32 Numbers (as Emscripten's
+# code passes them)
+call = run_js('(f, ptrs, ...a) => f(...a.map((x, i) => ptrs.includes(i) ? Number(x) : x))')
 
 # the attractor banner (docs/demo.js): build() every preset, then seed() and step() as the page calls them
 ns = {}

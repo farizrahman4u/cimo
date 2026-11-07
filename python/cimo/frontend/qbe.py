@@ -249,6 +249,9 @@ vecops = frozenset()
 vecabi = False
 # cimo extension: _Float16 and __bf16 parameters, arguments and results in FP registers, as gcc passes them (compile(halfabi=True))
 halfabi = False
+# cimo extension: pointer parameters, arguments and results as class p (compile(wasmptr=True)), which the WebAssembly
+# backend passes as i32 as Emscripten's code does, so a kernel can call a host function by address (Pyodide's frexp)
+wasmptr = False
 
 
 def _vol(op, tq):
@@ -440,6 +443,8 @@ def abiclass(t):
     its size; elsewhere, and for everything else, as cproc: the base class."""
     if halfabi and TY.ishalf(t):  # cimo: its bits in the low 16 of an FP register, where gcc passes it
         return 's'
+    if wasmptr and (t.kind == TYPEPOINTER or _isnullptr(t)):  # cimo: an i32 at a WebAssembly function's boundary
+        return 'p'
     qt = qbetype(t)
     if qt.data in ('b', 'h') and TG.targ.name == 'aarch64-apple':
         return ('s' if t.issigned else 'u') + qt.data
@@ -2462,7 +2467,8 @@ def funcexpr(f, e):
         t = e.type
         emittype(t)
         hret = halfabi and TY.ishalf(t)
-        v = funcinst(f, ICALL, 's' if hret else qbetype(t).base, funcexpr(f, e.base), t.value)
+        v = funcinst(f, ICALL, 's' if hret else 'p' if wasmptr and t.kind == TYPEPOINTER else qbetype(t).base,
+                     funcexpr(f, e.base), t.value)
         arg = e.args
         i = 0
         while arg:
@@ -3170,7 +3176,8 @@ def emitfunc(f, glob):
         w("export\n")
     w("function ")
     if f.type.base is not TY.typevoid:
-        emitclass('s' if halfabi and TY.ishalf(f.type.base) else qbetype(f.type.base).base, f.type.base.value)
+        emitclass('s' if halfabi and TY.ishalf(f.type.base) else 'p' if wasmptr and f.type.base.kind == TYPEPOINTER
+                  else qbetype(f.type.base).base, f.type.base.value)
         w(' ')
     emitname(f.decl.value)
     w('(')

@@ -901,9 +901,10 @@ class Lnk:
 class Fn:
     __slots__ = ('start', 'tmp', 'con', 'mem', 'ntmp', 'ncon', 'nmem', 'nblk', 'retty',
                  'retr', 'rpo', 'reg', 'slot', 'salign', 'vararg', 'dynalloc', 'leaf',
-                 'name', 'lnk', 'concache', 'hasvolatile')
+                 'name', 'lnk', 'concache', 'hasvolatile', 'retp')
 
     def __init__(self):
+        self.retp = False  # cimo: returns a pointer (class p: wasm32's i32 at the boundary)
         self.start = None
         self.tmp = []
         self.con = []

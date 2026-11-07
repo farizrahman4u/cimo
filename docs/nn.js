@@ -394,7 +394,7 @@ def nn_build(graph_json):
     if (query) infer(false);
   }
 
-  function call(f, ...args) {  // pointer arguments (BigInt) are marked by the caller
+  function call(f, ...args) {  // pointer arguments are i32 addresses (Number), as Emscripten passes them
     const sp = net.getsp();
     try { return f(...args); } catch (e) { net.setsp(sp); throw e; }
   }
@@ -404,7 +404,7 @@ def nn_build(graph_json):
     const A = net.addr;
     heap().fill(0, A.M >> 2, (A.M >> 2) + Math.max(1, net.nparams));
     heap().fill(0, A.V >> 2, (A.V >> 2) + Math.max(1, net.nparams));
-    call(net.init, seed, BigInt(A.P));
+    call(net.init, seed, Number(A.P));
     step = 0; t = 0; losses = [];
     running = true;
     loop();
@@ -477,7 +477,7 @@ def nn_build(graph_json):
   }
   function drawThumbs() {
     const A = net.addr, h = heap(), n = TH * TH;
-    call(net.acts_fn, n, BigInt(A.TX), BigInt(A.P), BigInt(A.WS), BigInt(A.AO));
+    call(net.acts_fn, n, Number(A.TX), Number(A.P), Number(A.WS), Number(A.AO));
     for (const a of net.acts) {
       const cv = thumbs[a.id];
       if (!cv) continue;
@@ -523,12 +523,12 @@ def nn_build(graph_json):
     if (!net || !query) return;
     const A = net.addr, h = heap();
     h[A.QX >> 2] = query[0]; h[(A.QX >> 2) + 1] = query[1];
-    call(net.predict, 1, BigInt(A.QX), BigInt(A.P), BigInt(A.WS), BigInt(A.QO));
+    call(net.predict, 1, Number(A.QX), Number(A.P), Number(A.WS), Number(A.QO));
     const p = h[A.QO >> 2], c = p > .5 ? C1 : C0, a = Math.min(1, Math.abs(p - .5) * 2);
     ui.resBox.style.background = `rgb(${c.map(v => Math.round(255 + (v - 255) * (.25 + .75 * a))).join(',')})`;
     ui.resT.innerHTML = `${p > .5 ? 'amber' : 'blue'} class, <b>${(100 * Math.max(p, 1 - p)).toFixed(1)}%</b> <span style="color:var(--ink4)">(p = ${p.toFixed(3)})</span>`;
     ui.res.hidden = false;
-    call(net.acts_fn, 1, BigInt(A.QX), BigInt(A.P), BigInt(A.WS), BigInt(A.QA));
+    call(net.acts_fn, 1, Number(A.QX), Number(A.P), Number(A.WS), Number(A.QA));
     for (const n of net.acts) {  // each node's activations for this point, as colored cells
       const el = board.querySelector(`.nn-node[data-id="${n.id}"] .nn-vals`);
       if (!el) continue;
@@ -617,13 +617,13 @@ def nn_build(graph_json):
     const A = net.addr;
     try {
       const k = Math.min(PER_FRAME, STEPS - step);
-      const loss = call(net.train, k, N, BigInt(A.X), BigInt(A.Y), BigInt(A.P), BigInt(A.M), BigInt(A.V), BigInt(A.WS), +ui.lr.value, t);
+      const loss = call(net.train, k, N, Number(A.X), Number(A.Y), Number(A.P), Number(A.M), Number(A.V), Number(A.WS), +ui.lr.value, t);
       step += k; t += k; losses.push(loss);
-      call(net.predict, G * G, BigInt(A.GX), BigInt(A.P), BigInt(A.WS), BigInt(A.GO));
+      call(net.predict, G * G, Number(A.GX), Number(A.P), Number(A.WS), Number(A.GO));
       drawBoundary(heap().subarray(A.GO >> 2, (A.GO >> 2) + G * G));
       if (frameN++ % 3 === 0 || step >= STEPS) {
         drawThumbs();
-        call(net.predict, N, BigInt(A.X), BigInt(A.P), BigInt(A.WS), BigInt(A.PX));
+        call(net.predict, N, Number(A.X), Number(A.P), Number(A.WS), Number(A.PX));
         const px = heap().subarray(A.PX >> 2, (A.PX >> 2) + N);
         let ok = 0;
         points.forEach((p, i) => { if ((px[i] > .5) === (p[2] === 1)) ok++; });

@@ -68,7 +68,7 @@ The call releases the GIL and costs about 0.2 to 0.6 µs from Python (on Sapphir
 | Attribute | |
 |---|---|
 | `kernel.address` | the function's address, as an `int` (native builds); a kernel of another module can call it, and its errors raise from that call |
-| `kernel.function` | the WebAssembly export, callable from JavaScript (Pyodide) |
+| `kernel.function` | the WebAssembly export, callable from JavaScript (Pyodide): a `long` argument is a BigInt, a pointer a Number (an i32 address) |
 | `kernel.__name__` | the C name |
 | `kernel.module` | its module |
 

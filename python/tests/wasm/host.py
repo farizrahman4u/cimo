@@ -42,6 +42,10 @@ class Host:
     def call(self, name, sig, *args):
         """sig: the parameter classes ('w,l,d'); returns (value, stdout) or raises."""
         types = [k for k in sig.split(',') if k]
+        params = getattr(self, 'sigs', {}).get(name)
+        if params is not None:  # pointers ('p' in the module's signature) are i32s: a Number, not a BigInt
+            kinds = params.split(' ', 1)[1].split(',') if ' ' in params else []
+            types = ['p' if k < len(kinds) and kinds[k] == 'p' else t for k, t in enumerate(types)]
         def enc(a):
             if isinstance(a, float):
                 return {'inf': 'Infinity', '-inf': '-Infinity', 'nan': 'NaN'}.get(repr(a), repr(a))

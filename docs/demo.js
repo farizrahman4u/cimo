@@ -211,7 +211,7 @@ def build(src):
       if (compile(true)) seed();
       const warm = /[?&]warm=(\d+)/.exec(location.search);  // (for screenshots)
       for (let f = 0; warm && f < +warm[1]; f++) {
-        kernel.step(N, T, head, BigInt(py.globals.get('RING')));
+        kernel.step(N, T, head, Number(py.globals.get('RING')));
         head = (head + 1) % T;
       }
       if (warm) { resetIndex(); fullUpload = true; }
@@ -493,7 +493,7 @@ def build(src):
   function seed() {
     if (!kernel) return;
     const sp = kernel.getsp();
-    try { kernel.seed(N, T, BigInt(py.globals.get('RING'))); } catch (e) { kernel.setsp(sp); }
+    try { kernel.seed(N, T, Number(py.globals.get('RING'))); } catch (e) { kernel.setsp(sp); }
     head = 0;
     resetIndex();
     fullUpload = true;
@@ -556,7 +556,7 @@ def build(src):
       const sp = kernel.getsp();
       let respawned = 0;
       try {
-        respawned = kernel.step(N, T, head, BigInt(py.globals.get('RING')));
+        respawned = kernel.step(N, T, head, Number(py.globals.get('RING')));
       } catch (e) {
         kernel.setsp(sp);
         paused = true;

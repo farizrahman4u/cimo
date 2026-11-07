@@ -43,6 +43,7 @@ Tbits = Ntok + 4  # cimo extension: the bit builtins, keywords when ext.math is 
 Tqc = Ntok + 7  # cimo extension: the class letter
 _KQTEXT = 99  # what parsecls says for it: Kq's number means something else among the size classes here
 Tq = Ntok + 6  # cimo extension: class q and its instructions, keywords when ext.vector is on
+Tp = Ntok + 9  # cimo extension: class p, a pointer (an l everywhere; i32 at a WebAssembly function's boundary)
 Tvector = Ntok + 8  # cimo extension: "type :v = align 16 vector { s 4 }", a GNU vector type (ext.vector)
 _QNAMES = {optab[o].name: o for o in list(range(D.Oqaddb, D.Oqstore + 1)) + [D.Oqload16, D.Oqstore16] if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
@@ -77,6 +78,7 @@ _fltre = re.compile(rb'[ \t\n\v\f\r]*([+-]?(?:0[xX](?:[0-9a-fA-F]+\.?[0-9a-fA-F]
 # cimo: declared return class of each function parsed (K0 for none, Kc for aggregates),
 # for targets whose function types need it even when no ret is reached (wasm)
 retcls = {}
+retp = {}  # cimo: functions returning class p (a pointer: wasm32's i32)
 
 def _tofloat(s):
     s = s.decode('latin-1')
@@ -237,6 +239,8 @@ def lex():
     if t is None:
         if S.tokval_str == 'vector' and _ext.vector:
             return Tvector
+        if S.tokval_str == 'p':
+            return Tp
         if S.tokval_str in ('fma', 'fmac') and _ext.fma:
             S.fmac = S.tokval_str == 'fmac'
             return Tfma
@@ -373,6 +377,9 @@ def parsecls():
     if t == Ttyp:
         return Kc, findtyp(S.ntyp)
     m = {Tsb: Ksb, Tub: Kub, Tsh: Ksh, Tuh: Kuh, Tw: Kw, Tl: Kl, Ts: Ks, Td: Kd}
+    S.lastp = t == Tp
+    if t == Tp:
+        return Kl, None
     if t in m:
         return m[t], None
     if t == Tqc:
@@ -436,10 +443,9 @@ def parserefl(arg):
                 else:
                     _put(Ins(D.Oparsb + (k - Ksb), Kw, r, R))
             else:
-                if arg:
-                    _put(Ins(D.Oarg, k, R, r))
-                else:
-                    _put(Ins(D.Opar, k, r, R))
+                x = Ins(D.Oarg, k, R, r) if arg else Ins(D.Opar, k, r, R)
+                x.contract = S.lastp  # class p: a pointer (wasm32's i32 at the boundary)
+                _put(x)
         # Next:
         if peek() == Trparen:
             break
@@ -485,6 +491,7 @@ def parseline(ps):
         r = tmpref()
         expect(Teq)
         k, ty = parsecls()
+        S.insp = S.lastp
         op = next_()
     elif t == Trbrace:
         return PEnd
@@ -589,7 +596,9 @@ def parseline(ps):
             arg[1] = TYPE(ty)
         if k >= Ksb:
             k = Kw
-        return _ins(op, k, r, arg)
+        p = _ins(op, k, r, arg)
+        D.insb[D.curi - 1].contract = r != R and S.insp  # a pointer result
+        return p
     if op == Tloadw:
         op = D.Oloadsw
     if Tloadl <= op <= Tloadd:
@@ -828,6 +837,7 @@ def parsefn(lnk):
     curf.retty = Kx
     if peek() != Tglo:
         S.rcls, ty = parsecls()
+        curf.retp = S.lastp
         if ty is not None:
             curf.retty = ty
     else:
@@ -836,6 +846,7 @@ def parsefn(lnk):
         err("function name expected")
     curf.name = S.tokval_str
     retcls[curf.name] = S.rcls  # cimo: the wasm backend types functions by it
+    retp[curf.name] = curf.retp
     curf.vararg = parserefl(0)
     if nextnl() != Tlbrace:
         err("function body must start with {")

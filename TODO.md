@@ -334,12 +334,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 - **Say whether a compile came from the cache** (requested by scramjit, 2026-11-01): a public attribute on the
   module, or a compile time. `scramjit preflight --run` wants to show `disk` instead of a time, and can't tell.
   **When done, note it in scramjit's `TODO.md`.**
-- **WebAssembly: a call through a function pointer that takes a pointer traps** (found by scramjit, 2026-11-01).
-  Calling Pyodide's libm `frexp` by address, cast to `double (*)(double, int *)`, gives "null function or
-  function signature mismatch"; doubles and ints are fine (`ldexp`, `sin`). cimo's wasm pointers don't match
-  the main module's `i32`. It affects any kernel calling into a host library by pointer, or a callback taking
-  one. scramjit worked around it by computing `frexp` from the float's bits. **When done, note it in
-  scramjit's `TODO.md`.**
+- ~~**WebAssembly: a call through a function pointer that takes a pointer traps**~~ (found by scramjit) **Done 2026-11-07:**
+  pointers are i32 at a wasm function's boundary, as Emscripten's code passes them. A host `long` parameter still differs
+  (Emscripten's is 32-bit, cimo's 64).
 - ~~**A call by address into another module crashes once the callee uses `malloc`**~~ (found by scramjit) **Done
   2026-11-07:** contexts made on demand, errors moved to the innermost entry frame (`tests/test_cross_module.py`).
 - **`#pragma STDC FP_CONTRACT`** (requested by scramjit, 2026-11-02): contraction on or off per function or

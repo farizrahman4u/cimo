@@ -33,7 +33,7 @@ def _wrap():
     global _wrapper
     if _wrapper is None:
         from pyodide.code import run_js
-        _wrapper = run_js("(f, t) => (...a) => f(...a.map((x, i) => t[i] === 'l' || t[i] === 'p' ? BigInt(x) : x))")
+        _wrapper = run_js("(f, t) => (...a) => f(...a.map((x, i) => t[i] === 'l' ? BigInt(x) : x))")  # a pointer ('p') is an i32
     return _wrapper
 
 
