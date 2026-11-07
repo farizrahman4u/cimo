@@ -67,3 +67,33 @@ def test_shifts_by_a_variable_inline():
         a = hi << 64 | lo
         sa = a - (1 << 128) if a >> 127 else a
         assert [r[0] | r[1] << 64, r[2] | r[3] << 64, r[4] | r[5] << 64] == [(a << s) & mask, a >> s, (sa >> s) & mask], s
+
+
+def test_no_slot_at_a_call_boundary():
+    """A struct or __int128 passed and returned by value is used from its registers (backend abislot): the ABI's slot
+    stores and loads are forwarded and go. A slot the body writes to keeps them (and its value)."""
+    import ctypes
+    from cimo import driver
+    src = ('typedef unsigned __int128 u128;\nstruct P { long x, y; };\n'
+           'u128 add(u128 a, u128 b) { return a + b; }\nlong sum(struct P p) { return p.x + p.y; }\n'
+           'long bump(struct P p) { p.x += 5; return p.x * p.y; }\n'
+           '__attribute__((noinline)) static struct P mk(long a) { struct P p = { a, a * 2 }; return p; }\n'
+           'long use(long a) { struct P p = mk(a); return p.x - p.y; }\n'
+           'unsigned long hi(unsigned long a) { u128 x = add(a, ~0UL); return (unsigned long)(x >> 64); }\n')
+    text = driver._qbe(*driver._ir(driver._preprocess(src, 'x.c'), 'x.c'))
+    for fn in ('add', 'sum'):
+        body = text[text.index('\n%s:' % fn):]
+        body = body[:body.index('end function')]
+        assert 'ldr' not in body and 'str' not in body, (fn, body)
+    m = cimo.compile(src + 'long t(void) { struct P p = { 3, 4 }; return sum(p) * 1000 + bump(p) * 10 + (p.x == 3); }\n')
+    assert m.t() == 7 * 1000 + 32 * 10 + 1 and m.use(10) == -10 and m.hi(5) == 1
+
+
+def test_slot_stores_that_overlap():
+    """A struct result's slot then written in part (a bit-field, a byte): the 8-byte value forwarded from the ABI's
+    store must not hide the byte store over it. A sanity check: the shape that failed is gcc's pr108498-1.c (corpora)."""
+    src = ('struct T { unsigned char b0 : 1, b1 : 1; char c[7]; };\n'
+           '__attribute__((noinline)) static struct T mk(void) { struct T t = { 1, 0, { 5 } }; return t; }\n'
+           '__attribute__((noinline)) static int rd(struct T t) { return t.b0 + 2 * t.b1 + 4 * t.c[1] + 100 * t.c[0]; }\n'
+           'int f(void) { struct T t = mk(); t.b1 = 1; t.c[1] = 3; return rd(t); }\n')
+    assert cimo.compile(src).f() == 1 + 2 + 12 + 500

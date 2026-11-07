@@ -316,3 +316,45 @@ def test_shuffle_with_a_variable_mask(ty, monkeypatch):
         q.f(a, b, m, r1)
         lanes.f(a, b, m, r2)
         assert bytes(r1) == bytes(r2), (ty, list(m))
+
+
+@pytest.mark.parametrize('size', [32, 64])
+@pytest.mark.parametrize('ty', ['signed char', 'short', 'int', 'long', 'float', 'double'])
+def test_wide_shuffles(ty, size, monkeypatch):
+    """Shuffles of 32 and 64 bytes in 16-byte pieces: constant (including a result of another length) and variable."""
+    es = ctypes.sizeof(_CT[ty])
+    n = size // es
+    it = {1: 'signed char', 2: 'short', 4: 'int', 8: 'long'}[es]
+    rnd = random.Random(size + es)
+    consts = [[rnd.choice([-1] + list(range(2 * n))) for _ in range(n)] for _ in range(3)]
+    consts.append([2 * n - 1 - i for i in range(n)])
+    half = [rnd.randrange(2 * n) for _ in range(max(1, (16 // es)))]  # a 16-byte result from wide sources
+    src = ('typedef %s V __attribute__((vector_size(%d)));\ntypedef %s M __attribute__((vector_size(%d)));\n'
+           'typedef %s H __attribute__((vector_size(16)));\n'
+           'void f(const V *a, const V *b, const M *m, V *r, H *h) {\n' % (ty, size, it, size, ty) +
+           ''.join('  r[%d] = __builtin_shufflevector(a[0], b[0], %s);\n' % (k, ', '.join(map(str, c))) for k, c in enumerate(consts)) +
+           '  r[%d] = __builtin_shuffle(a[0], m[0]); r[%d] = __builtin_shuffle(a[0], b[0], m[0]);\n' % (len(consts), len(consts) + 1) +
+           '  h[0] = __builtin_shufflevector(a[0], b[0], %s); }\n' % ', '.join(map(str, half)))
+    assert 'qtbl' in driver._ir(driver._preprocess(src, 'x.c'), 'x.c')[0]
+    q = cimo.compile(src, cache=False)
+    monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
+    lanes = cimo.compile(src + '\nstatic int lane_by_lane;\n', cache=False)
+    nr = len(consts) + 2
+    for _ in range(10):
+        a = (_CT[ty] * n)(*_values(ty, n, rnd))
+        b = (_CT[ty] * n)(*_values(ty, n, rnd))
+        m = (_CT[it] * n)(*[rnd.choice([rnd.randrange(4 * n), -rnd.randrange(1, 99)]) for _ in range(n)])
+        outs = []
+        for mod in (q, lanes):
+            r = (ctypes.c_char * (size * nr))()
+            h = (ctypes.c_char * 16)()
+            mod.f(a, b, m, r, h)
+            outs.append((bytes(r), bytes(h)))
+        for k, c in enumerate(consts):  # unspecified (-1) lanes aside
+            for i, x in enumerate(c):
+                if x >= 0:
+                    o = size * k + es * i
+                    assert outs[0][0][o:o + es] == outs[1][0][o:o + es], (ty, size, c)
+        tail = size * len(consts)
+        assert outs[0][0][tail:] == outs[1][0][tail:], (ty, size, list(m))
+        assert outs[0][1] == outs[1][1], (ty, size, half)

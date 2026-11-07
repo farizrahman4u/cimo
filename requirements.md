@@ -1179,6 +1179,11 @@ like the package in any CPython 3.9+ with only the standard library: put it on `
   Tests that compare two builds of one source under a patched internal (`driver._vecq`, `middle.vectorizing`) must
   change the source too: the second compile otherwise gets the first's module from the cache (found 2026-11-07,
   `tests/test_vector_q.py` compared vector code with itself until then).
+- **Slots at call boundaries (2026-11-07, `backend/abislot.py`):** the ABI (abi1, after every memory pass) stores a
+  struct parameter's registers, and a call's struct result, to a slot the body loads; nothing forwarded them, since
+  alias analysis doesn't take the ABI's physical registers. A slot that doesn't escape, written once per offset by a
+  store dominating each load, now has those loads replaced by the stored values, and the stores and slot go: an
+  `__int128` add 35 instructions to 8, `struct { long x, y; }` summed in one `add`.
 - **Profiling (2026-11-01):** with `CIMO_PERFMAP=1` the loader appends each image's functions
   (start, size to the next symbol, name) to `/tmp/perf-<pid>.map`, perf's convention for JIT
   code (Linux). Off by default, since it writes to disk.
@@ -1476,7 +1481,9 @@ for Linux and macOS (strategies under "Platform loading findings").
     write, and SSA's undefined value has no q constant (gcc's vector-div-neg-pow2.c). x86-64 has none of these ops yet (`pshufb` is SSSE3, past the baseline). A slot only ever read and written whole by
     `qload`/`qstore` becomes a q temporary (`mem.promote`), so vector locals live in registers; initializer lists fill a
     slot of their own first. Lane by lane still: what q lacks (integer `/` and `%`, 64-bit `*`; on x86-64 shifts by a variable of 8- and 16-bit
-    lanes and `>>` of signed 64-bit ones), shuffles wider than 16 bytes. `__builtin_shuffle` with a
+    lanes and `>>` of signed 64-bit ones), `__builtin_shufflevector` and `__builtin_shuffle` of any of
+    these sizes in 16-byte pieces (`_qpieces`): each piece of the result the OR of a `tbl` of each source piece it reads.
+    `__builtin_shuffle` with a
     variable mask (2026-11-07, `_qvarshuffle`): each index modulo the lanes, times the lane's size, spread over its bytes
     (a constant `tbl`), plus the byte's place; bit 4, b's half, turned into bit 7, which `tbl` and `vpshufb` both read as 0,
     so `tbl(a, f(i)) | tbl(b, f(i ^ 16))`. 16-byte vectors with AVX2's 32-byte q (2026-11-07, `vecops` 'q16'): one q value,

@@ -57,7 +57,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    - GNU vector types as class-`q` values: operators, copies, `v[constant]`, and vector locals in registers **done**
      (2026-11-07, `tests/test_vector_q.py`; "GNU vector types" in `requirements.md`). `convertvector` and one-q `shufflevector` (`tbl`) on arm64 **done**.
      One-instruction shuffles on arm64 **done**. x86-64 AVX2 shuffles of 16 bytes and variable shifts **done**. x86-64 AVX2 `convertvector` **done**. `shuffle` with a variable mask, lane writes and variable shifts **done**. Lane by lane by design: integer
-     division and 64-bit `*` (no instruction on either; gcc does the same). Open: shuffles wider than 16 bytes, x86-64
+     division and 64-bit `*` (no instruction on either; gcc does the same). Shuffles of any width **done**. Open: x86-64
      unsigned 32-bit and 64-bit int to or from float conversions (AVX-512's). Vectors in calls as gcc passes them **done** on every target. Measure a hand-vectorized `Q8_0`
      dot and a 4x4 matrix kernel on mains power (not yet measured).
    - Half conversions without calls: arm64 `fcvt` and `__bf16` inline everywhere **done** (2026-11-07,
@@ -65,8 +65,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
      (`ldr d` + `fcvtl`, `fcvtn` + `str d`; `test_vectorize.py`). x86-64 F16C conversions (`cimo.cpu`) and half arrays in
      the vectorizer (`vcvtph2ps`/`vcvtps2ph` with memory: 8 halves a ymm) **done**. Half and bf16 arguments in FP registers **done**.
    - `__int128`: passed as gcc does (even pair on arm64, two registers on SysV; `tests/test_abi.py`), halves in registers
-     within a function (sroa), `umulh`, variable shifts inline **done** (2026-11-07). Open: `adds`/`adc` for the carry
-     (today `cmp` and `csinc`, one more instruction), and the struct copies at call boundaries every small struct pays.
+     within a function (sroa), `umulh`, variable shifts inline **done** (2026-11-07). Struct and `__int128` values at call boundaries in registers **done**
+     (`backend/abislot.py`: an `__int128` add 35 instructions to 8). Open: `adds`/`adc` for the carry (today `cmp` and `csinc`).
    - `_Complex` stays two scalars (what gcc does too); multiply and divide inline under `CX_LIMITED_RANGE` **done** (2026-11-07).
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.

@@ -2188,30 +2188,39 @@ def _qconvert(f, a, st, t, res):
 
 
 def _qvarshuffle(f, a, b, m, st, mel, res):
-    """__builtin_shuffle(a[, b], mask) of 16-byte vectors as byte tables (tbl, vpshufb): each lane's index taken modulo
-    the lanes, times the lane's size, spread over its bytes; bit 4 (b's half) turned into bit 7, which makes both
-    instructions give 0, so one table picks from a and the other from b. False if it can't."""
-    if not vecq or not ('shuffle' in vecops and st.size == vecq or 'shuffle16' in vecops and vecq == 32 and st.size == 16):
-        return False
+    """__builtin_shuffle(a[, b], mask) in 16-byte pieces: each lane's index taken modulo the lanes, times the lane's size,
+    spread over its bytes (the byte index into a and b side by side); for each source piece, the byte index less the
+    piece's start, with bit 7 set where it falls outside the piece (tbl and vpshufb both give 0 there); the OR of the
+    tbl of every piece. False if it can't."""
+    ls = _qpieces(st.size)
     es, n = st.base.size, st.vlanes
-    if mel.size != es:
+    if ls is None or mel.size != es:
         return False
-    ld, stq = _qls(16)
+    ld, stq = ls
     x = 'bhwl'[es.bit_length() - 1]
     lanes = 2 * n if b is not None else n
-    idx = _qop(f, 'qand', _qop(f, ld, m), _qop(f, 'qdup' + x, mkintconst(lanes - 1)))
-    if es > 1:  # lane i's index * es in each of its bytes, plus the byte's place
-        idx = _qop(f, 'qshl' + x, idx, mkintconst(es.bit_length() - 1))
-        spread = bytes(i - i % es for i in range(16))
-        idx = _qop(f, 'qaddb', _qop(f, 'qtbl', idx, _qop(f, ld, _qbytes(spread))), _qop(f, ld, _qbytes(bytes(i % es for i in range(16)))))
-    if b is None:
-        v = _qop(f, 'qtbl', _qop(f, ld, a), idx)
-    else:
-        bit4 = _qop(f, 'qdupb', mkintconst(16))
-        pick = (lambda z: _qop(f, 'qor', z, _qop(f, 'qshlb', _qop(f, 'qand', z, bit4), mkintconst(3))))
-        v = _qop(f, 'qor', _qop(f, 'qtbl', _qop(f, ld, a), pick(idx)),
-                 _qop(f, 'qtbl', _qop(f, ld, b), pick(_qop(f, 'qxor', idx, bit4))))
-    _qop(f, stq, v, res, res=False)
+    nsrc = (2 if b is not None else 1) * (st.size // 16)
+    off = (lambda p, k: funcinst(f, IADD, ptrclass, p, mkintconst(16 * k)) if k else p)
+    srcs = [_qop(f, ld, off(v, k)) for v in ((a, b) if b is not None else (a,)) for k in range(st.size // 16)]
+    lanemask = _qop(f, 'qdup' + x, mkintconst(lanes - 1))
+    spread = sixteen = top = None
+    if es > 1:
+        spread = (_qop(f, ld, _qbytes(bytes(i - i % es for i in range(16)))), _qop(f, ld, _qbytes(bytes(i % es for i in range(16)))))
+    for r in range(st.size // 16):
+        idx = _qop(f, 'qand', _qop(f, ld, off(m, r)), lanemask)
+        if es > 1:  # lane i's byte index (index * es) in each of its bytes, plus the byte's place
+            idx = _qop(f, 'qshl' + x, idx, mkintconst(es.bit_length() - 1))
+            idx = _qop(f, 'qaddb', _qop(f, 'qtbl', idx, spread[0]), spread[1])
+        v = None
+        for p, piece in enumerate(srcs):
+            z = _qop(f, 'qsubb', idx, _qop(f, 'qdupb', mkintconst(16 * p))) if p else idx
+            if nsrc > 1:  # outside 0..15: bit 7
+                if sixteen is None:
+                    sixteen, top = _qop(f, 'qdupb', mkintconst(15)), _qop(f, 'qdupb', mkintconst(0x80))
+                z = _qop(f, 'qor', z, _qop(f, 'qand', _qop(f, 'qcugtb', z, sixteen), top))
+            t = _qop(f, 'qtbl', piece, z)
+            v = t if v is None else _qop(f, 'qor', v, t)
+        _qop(f, stq, v, off(res, r), res=False)
     return True
 
 
@@ -2255,32 +2264,50 @@ def _qperm(f, a, b, es, n, idx):
     return None
 
 
+def _qpieces(*sizes):
+    """Whether vectors of these sizes can be shuffled in 16-byte pieces (vecops 'shuffle': arm64 tbl on q values;
+    'shuffle16': x86-64 AVX2's vpshufb on 16 bytes in both halves of a ymm), and the pieces' load and store."""
+    if not vecq or not ('shuffle' in vecops and vecq == 16 or 'shuffle16' in vecops and vecq == 32):
+        return None
+    if any(n % 16 or n > 64 for n in sizes):
+        return None
+    return ('qload', 'qstore') if vecq == 16 else ('qload16', 'qstore16')
+
+
 def _qshuffle(f, a, b, st, t, idx, res):
-    """__builtin_shufflevector of two vectors of one q value into one (vecops 'shuffle': arm64 tbl): a byte table for
-    each source, 0xff (tbl's 0) where the byte comes from the other; False if it can't."""
-    if not vecq or not ('shuffle' in vecops and st.size == t.size == vecq or
-                        'shuffle16' in vecops and vecq == 32 and st.size == t.size == 16):
-        return False  # shuffle16: x86-64 AVX2's vpshufb, within each 16-byte half
+    """__builtin_shufflevector of 16-byte pieces: each piece of the result is the OR of a tbl (vpshufb) of each piece of
+    a and b it takes bytes from, by a constant table, 0xff (0) where a byte comes from another; False if it can't."""
+    ls = _qpieces(st.size, t.size)
+    if ls is None:
+        return False
+    ld, stq = ls
     es, n = st.base.size, st.vlanes
-    ld, stq = _qls(16 if 'shuffle16' in vecops else vecq)
-    one = _qperm(f, a, b, es, n, idx) if 'shuffle' in vecops else None
-    if one is not None:
-        _qop(f, 'qstore', one, res, res=False)
-        return True
-    ia, ib = bytearray(b'\xff' * st.size), bytearray(b'\xff' * st.size)
+    if st.size == t.size == 16 and 'shuffle' in vecops:  # one instruction when there is one
+        one = _qperm(f, a, b, es, n, idx)
+        if one is not None:
+            _qop(f, stq, one, res, res=False)
+            return True
+    src = []  # byte k of a then b: (source address, piece)
+    want = [None] * t.size  # result byte -> (source, piece, byte in it)
     for i, k in enumerate(idx):
         if k >= 0:
+            v, kk = (a, k) if k < n else (b, k - n)
             for j in range(es):
-                (ia if k < n else ib)[i * es + j] = (k % n) * es + j
-    out = []
-    for src, tab in ((a, ia), (b, ib)):
-        if any(x != 0xff for x in tab):
-            out.append(_qop(f, 'qtbl', _qop(f, ld, src), _qop(f, ld, _qbytes(tab))))
-    if not out:
-        v = _qop(f, 'qdupw', mkintconst(0))
-    else:
-        v = out[0] if len(out) == 1 else _qop(f, 'qor', out[0], out[1])
-    _qop(f, stq, v, res, res=False)
+                byte = kk * es + j
+                want[i * es + j] = (0 if v is a else 1, byte // 16, byte % 16)
+    pieces = {}
+    off = (lambda p, k: funcinst(f, IADD, ptrclass, p, mkintconst(16 * k)) if k else p)
+    for r in range(t.size // 16):
+        out = []
+        for key in sorted({w[:2] for w in want[16 * r:16 * r + 16] if w is not None}):
+            tab = bytes(w[2] if w is not None and w[:2] == key else 0xff for w in want[16 * r:16 * r + 16])
+            if key not in pieces:
+                pieces[key] = _qop(f, ld, off(a if key[0] == 0 else b, key[1]))
+            out.append(_qop(f, 'qtbl', pieces[key], _qop(f, ld, _qbytes(tab))))
+        v = _qop(f, 'qdupw', mkintconst(0)) if not out else out[0]
+        for x in out[1:]:
+            v = _qop(f, 'qor', v, x)
+        _qop(f, stq, v, off(res, r), res=False)
     return True
 
 

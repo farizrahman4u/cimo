@@ -28,6 +28,19 @@ class _Lazy:
         return getattr(importlib.import_module('.' + self.name, __package__), a)
 
 
+
+def _aggregates(fn):
+    """Whether fn takes, returns or calls with a struct by value (the ABI then goes through slots)."""
+    if fn.retty >= 0:
+        return True
+    b = fn.start
+    while b:
+        for i in b.ins[:b.nins]:
+            if i.op in (D.Oparc, D.Oargc) or (i.op == D.Ocall and i.arg[1] != D.R):
+                return True
+        b = b.link
+    return False
+
 class _Driver:
     def __init__(self, outf, dbg):
         self.outf = outf
@@ -237,10 +250,18 @@ class _Driver:
             from .amd64 import fmachain
             if fmachain.split(fn):
                 ssa.filluse(fn)
+        aggregates = _aggregates(fn)
         T.abi1(fn)
         simpl.simpl(fn)
         cfg.fillcfg(fn)
         ssa.filluse(fn)
+        if aggregates:
+            # cimo: the ABI stores a struct parameter's (or call result's) registers to a slot the body then loads:
+            # the loads become the registers' values, and the stores and the slot go (abislot.py)
+            from . import abislot
+            if abislot.forward(fn):
+                cfg.fillcfg(fn)
+                ssa.filluse(fn)
         # cimo: volatile accesses are plain ones from here on (ext.volatile)
         D.unvolatile(fn, D.TMP(_IP1) if T.name.startswith('arm64') else
                      'use' if T.name.startswith('amd64') else None)

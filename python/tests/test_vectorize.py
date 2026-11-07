@@ -903,7 +903,7 @@ def test_float16_arrays(name):
     an in-order float sum, which _worth may leave scalar."""
     src, kinds = HALVES[name]
     if name != 'dot':
-        assert re.search(r'\tfcvt[ln]\t|\tvcvtp[hs]2p[sh] [(%]', driver._build(src)[0]), name
+        assert re.search(r'\tfcvt[ln]\t|\tvcvtph2ps [(%]|\tvcvtps2ph \$4, %[xy]mm\d+, [-0-9(]', driver._build(src)[0]), name
     on, off = both(src)
     r = random.Random(name)
     for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 17, 64, 65):
