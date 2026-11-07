@@ -64,10 +64,17 @@ void *__cimo_cas(void **p, void *expect, void *desired);
 void *(*__cimo_hook_grow)(void *heap, unsigned long bytes, int kind);
 void (*__cimo_hook_release)(void *p);
 
+/* in the glue (cimo/execution.py): Python's callback that makes the calling thread's context for this module,
+   for a thread that never called into it from Python (a call by address from another module, a thread a kernel
+   started) */
+extern void *(*__cimo_hook_ctx)(void);
+
 static struct heap *
 myheap(void)
 {
 	char *c = __cimo_ctx();
+	if (!c && __cimo_hook_ctx)
+		c = __cimo_hook_ctx();
 	return c ? (struct heap *)(c + CTX_HEAP) : 0;
 }
 

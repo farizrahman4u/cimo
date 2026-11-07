@@ -29,6 +29,9 @@ __cimo_ctx(void)
 	return ctx;
 }
 
+/* runtime/heap.c's callback for a thread with no context: wasm has one context, always there */
+void *(*__cimo_hook_ctx)(void);
+
 void *
 __cimo_cas(void **p, void *expect, void *desired)
 {

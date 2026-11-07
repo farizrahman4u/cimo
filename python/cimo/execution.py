@@ -19,7 +19,9 @@ Design (requirements.md, "Execution model"):
 - How kernel code finds its context: a per-module hash table keyed by the OS thread's
   thread-pointer register (`tpidr_el0` on Linux, `tpidrro_el0` on macOS, both readable
   from user mode and unique per live thread; on Windows x18, which always holds the
-  thread's TEB), filled by Python the first time a thread calls into the module. Rejected
+  thread's TEB), filled by Python the first time a thread calls into the module, or when its `malloc` runs on a
+  thread with none (`__cimo_hook_ctx`: code called by address from another module). An error there has no frame
+  in this module and goes on to cimo.fault, which moves it to the innermost entry frame on the stack. Rejected
   alternatives: x18 as a free register (reserved on macOS and Windows); TLS (the loader would need TLS relocations and a TLS block per module); a
   hidden argument (changes every function's ABI and the frontend). The lookup costs about 20
   instructions and runs once per kernel call, `malloc` and `free`; never in loops otherwise.
@@ -52,6 +54,7 @@ import bisect
 import ctypes
 import sys
 import threading
+import weakref
 
 from . import fault as _fault
 from . import loader as _jit
@@ -177,6 +180,13 @@ def glue(names, apple=False, windows=False, target=None):
     def fn(name):
         return '\t.globl\t%s%s\n\t.p2align\t2\n%s%s:\n' % (p, name, p, name)
 
+    orphan = p + '__cimo_orphan'
+
+    def orphan_x9(label):  # x9 = the orphan context when it is 0
+        return ('\tcbnz\tx9, %s%s\n\tadrp\tx9, %s\n\tadd\tx9, x9, %s\n%s%s:\n'
+                % (L, label, orphan + ('@PAGE' if apple else ''),
+                   orphan + '@PAGEOFF' if apple else '#:lo12:' + orphan, L, label))
+
     def frame():  # x11 = ctx + FRAMES + depth * FRAMESZ, x10 = depth (x9 = ctx)
         return ('\tldr\tx10, [x9, #%d]\n\tmov\tx11, #%d\n\tmadd\tx11, x10, x11, x9\n'
                 '\tadd\tx11, x11, #%d\n' % (DEPTH, FRAMESZ, FRAMES))
@@ -208,20 +218,20 @@ def glue(names, apple=False, windows=False, target=None):
     o += ['\tldp\t%s, %s, [x11, #%d]\n' % r for r in _DSAVE]
     o.append('\tldr\tw12, [x11, #%d]\n\tmsr\tfpcr, x12\n' % FPCR)
     o.append('%sret0:\n\tmov\tx0, #0\n\tmov\tx1, #0\n\tfmov\td0, x0\n\tfmov\td1, x0\n\tret\n'
-             '%snoframe:\n\tbrk\t#0xc1\n' % (L, L))
+             '%snoframe:\n' % (L, L) + fn('__cimo_noframe') + '\t.word\t0x000000c1\n')  # udf #0xc1
     # __cimo_fault: where cimo.fault's handler resumes a faulting kernel, with x9 = ctx
     o.append(fn('__cimo_fault') + '\tb\t%sunwind\n' % L)
     # __cimo_fail(code, msg, file, line, func): called by abort()/__assert_fail (C, with a
     # frame, so [x29, #8] is the address in their caller)
-    o.append(fn('__cimo_fail') + find())
-    o.append('\tcmp\tx9, #0\n\tb.eq\t%snoframe\n\tstr\tx0, [x9]\n\tstp\tx1, x2, [x9, #%d]\n'
+    o.append(fn('__cimo_fail') + find() + orphan_x9('failctx'))
+    o.append('\tstr\tx0, [x9]\n\tstp\tx1, x2, [x9, #%d]\n'
              '\tstp\tx3, x4, [x9, #%d]\n\tldr\tx10, [x29, #8]\n\tstr\tx10, [x9, #%d]\n'
-             '\tb\t%sunwind\n' % (L, MSG, LINE, PC, L))
+             '\tb\t%sunwind\n' % (MSG, LINE, PC, L))
     # __builtin_trap / __cimo_trap: pc = the call site
     for name in ('__builtin_trap', '__cimo_trap'):
         o.append(fn(name))
-    o.append(find() + '\tcmp\tx9, #0\n\tb.eq\t%snoframe\n\tmov\tx10, #%d\n\tstr\tx10, [x9]\n'
-             '\tstr\tx30, [x9, #%d]\n\tb\t%sunwind\n' % (L, E_TRAP, PC, L))
+    o.append(find() + orphan_x9('trapctx') + '\tmov\tx10, #%d\n\tstr\tx10, [x9]\n'
+             '\tstr\tx30, [x9, #%d]\n\tb\t%sunwind\n' % (E_TRAP, PC, L))
     # __cimo_stkchk: called first thing in the prologue of functions that can recurse;
     # preserves the argument registers (x0-x8, v0-v7)
     o.append(fn('__cimo_stkchk') + find())
@@ -250,7 +260,16 @@ def glue(names, apple=False, windows=False, target=None):
                  % (p, name, '@PAGE' if apple else '',
                     p + name + '@PAGEOFF' if apple else '#:lo12:' + name, p))
     o.append('\t.data\n\t.p2align\t3\n\t.globl\t%s\n%s:\n\t.quad\t0\n' % (tab, tab))
+    o.append(_DATA % {'p': p})
     return ''.join(o)
+
+
+# A context for errors on a thread with none in this module (code called by address from another module, or a thread
+# a kernel started): no frames, so the error goes on to cimo.fault, which moves it to the innermost entry frame of any
+# module on the stack. One per module, not per thread: only an error in such code, at the same moment on two threads,
+# can mix their messages. And the callback that makes a thread's context for malloc (runtime/heap.c).
+_DATA = ('\t.globl\t%(p)s__cimo_hook_ctx\n%(p)s__cimo_hook_ctx:\n\t.quad\t0\n'
+         '\t.globl\t%(p)s__cimo_orphan\n%(p)s__cimo_orphan:\n\t.zero\t128\n')
 
 
 _RDSSP_R10 = '\t.byte\t0xf3, 0x49, 0x0f, 0x1e, 0xca\n'  # rdsspq %r10
@@ -347,14 +366,14 @@ def _glue_amd64(names, windows):
              '.Lcimo_nossp:\n')
     o.append('\tmovq\t%d(%%r10), %%rsp\n\tmovq\t%d(%%r10), %%r10\n\tpushq\t%%r10\n' % (RSP, RET))
     o.append('.Lcimo_ret0:\n\txorl\t%eax, %eax\n\txorl\t%edx, %edx\n\tpxor\t%xmm0, %xmm0\n'
-             '\tpxor\t%xmm1, %xmm1\n\tret\n.Lcimo_noframe:\n\tud2\n')
+             '\tpxor\t%xmm1, %xmm1\n\tret\n.Lcimo_noframe:\n' + fn('__cimo_noframe') + '\tud2\n')
     # __cimo_fault: where cimo.fault's handler resumes a faulting kernel, with r11 = ctx
     o.append(fn('__cimo_fault') + '\tjmp\t.Lcimo_unwind\n')
     # __cimo_fail(code, msg, file, line, func): called by abort()/__assert_fail (C, with an rbp
     # frame, so 8(%rbp) is the address in their caller)
     a = ['rcx', 'rdx', 'r8', 'r9'] if windows else ['rdi', 'rsi', 'rdx', 'rcx', 'r8']
     o.append(fn('__cimo_fail') + '\tcallq\t__cimo_find\n\ttestq\t%r11, %r11\n'
-             '\tjz\t.Lcimo_noframe\n')
+             '\tjnz\t.Lcimo_failctx\n\tleaq\t__cimo_orphan(%rip), %r11\n.Lcimo_failctx:\n')
     o.append('\tmovslq\t%%%s, %%r10\n\tmovq\t%%r10, (%%r11)\n' % _w32(a[0]))
     o.append('\tmovq\t%%%s, %d(%%r11)\n\tmovq\t%%%s, %d(%%r11)\n' % (a[1], MSG, a[2], FILE))
     o.append('\tmovslq\t%%%s, %%r10\n\tmovq\t%%r10, %d(%%r11)\n' % (_w32(a[3]), LINE))
@@ -363,7 +382,8 @@ def _glue_amd64(names, windows):
     o.append('\tmovq\t8(%%rbp), %%r10\n\tmovq\t%%r10, %d(%%r11)\n\tjmp\t.Lcimo_unwind\n' % PC)
     # __builtin_trap / __cimo_trap: pc = the call site
     o.append(fn('__builtin_trap') + fn('__cimo_trap'))
-    o.append('\tcallq\t__cimo_find\n\ttestq\t%%r11, %%r11\n\tjz\t.Lcimo_noframe\n'
+    o.append('\tcallq\t__cimo_find\n\ttestq\t%%r11, %%r11\n\tjnz\t.Lcimo_trapctx\n'
+             '\tleaq\t__cimo_orphan(%%rip), %%r11\n.Lcimo_trapctx:\n'
              '\tmovq\t$%d, (%%r11)\n\tmovq\t(%%rsp), %%r10\n\tmovq\t%%r10, %d(%%r11)\n'
              '\tjmp\t.Lcimo_unwind\n' % (E_TRAP, PC))
     # __cimo_stkchk: called first thing in the prologue of functions that can recurse;
@@ -385,6 +405,7 @@ def _glue_amd64(names, windows):
         o.append(fn('__cimo_entry_' + name))
         o.append('\tleaq\t%s(%%rip), %%r11\n\tjmp\t__cimo_enter\n' % name)
     o.append('\t.data\n\t.p2align\t3\n\t.globl\t__cimo_ctxtab\n__cimo_ctxtab:\n\t.quad\t0\n')
+    o.append(_DATA % {'p': ''})
     return ''.join(o)
 
 
@@ -536,6 +557,7 @@ class _Ctx(ctypes.Structure):
 
 _GROW = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64, ctypes.c_int)
 _RELEASE = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
+_NEWCTX = ctypes.CFUNCTYPE(ctypes.c_void_p)
 _PAGE = _jit.PAGE
 
 
@@ -570,6 +592,9 @@ def _stack_bottom():
         return None
 
 
+_STATES: "weakref.WeakSet[State]" = weakref.WeakSet()  # every live module's State: errors name functions in any of them
+
+
 class State:
     """A module's execution state: per-thread contexts, the context table, the heap's
     regions. Kept alive by the module and its kernels; unmaps everything when collected."""
@@ -582,6 +607,7 @@ class State:
         self._tidf = ctypes.CFUNCTYPE(ctypes.c_uint64)(image.address('__cimo_tid'))
         self._barrier = ctypes.CFUNCTYPE(None)(image.address('__cimo_barrier'))
         self._lock = threading.Lock()
+        _STATES.add(self)
         self._tls = threading.local()
         self._ctxs = {}  # tid -> _Ctx
         self._maps = []  # (addr, size): contexts, tables and heap chunks
@@ -594,8 +620,10 @@ class State:
         # heap hooks (runtime/heap.c); absent if the module was built without the runtime
         self._grow_cb = _GROW(self._grow)
         self._release_cb = _RELEASE(self._release)
+        self._ctx_cb = _NEWCTX(self._newctx)
         for name, cb in (('__cimo_hook_grow', self._grow_cb),
-                         ('__cimo_hook_release', self._release_cb)):
+                         ('__cimo_hook_release', self._release_cb),
+                         ('__cimo_hook_ctx', self._ctx_cb)):
             if pre + name in sym:
                 ctypes.c_void_p.from_address(sym[pre + name]).value = \
                     ctypes.cast(cb, ctypes.c_void_p).value
@@ -636,6 +664,13 @@ class State:
         # stdout buffer's length word CTX_OUT // 8
         self._tls.words = memoryview((ctypes.c_char * CTX_SIZE).from_address(ctypes.addressof(c))).cast('B').cast('q')
         return c
+
+    def _newctx(self):
+        """The calling thread's context, for native code on a thread with none in this module (runtime/heap.c)."""
+        try:
+            return 0 if self._closed else ctypes.addressof(self.ctx())
+        except BaseException:  # noqa: BLE001 (a callback can't raise: malloc returns NULL)
+            return 0
 
     def _map(self, size):
         a = _jit._map(size, _jit.PROT_READ | _jit.PROT_WRITE)
@@ -716,7 +751,11 @@ class State:
                           addr if fault == _fault.F_MEMORY else None)
 
     def _symbol(self, pc):
-        """Name of the function containing code address pc."""
+        """Name of the function containing code address pc: in this module, or in another one whose code this
+        module's kernel called by address."""
+        for st in list(_STATES):
+            if st is not self and st.image._maps and st.image._maps[0][0] <= pc < st.image._maps[0][0] + st.image.code_size:
+                return st._symbol(pc)
         if self._syms is None:
             pre = self.image.prefix
             items = sorted((a, n[len(pre):] if n.startswith(pre) else n)

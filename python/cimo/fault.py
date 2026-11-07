@@ -41,7 +41,7 @@ _APPLE = sys.platform == 'darwin'
 _SIGNALS = (11, 10 if _APPLE else 7, 8, 4)  # SIGSEGV, SIGBUS, SIGFPE, SIGILL
 _ALTSTACK = 128 << 10  # the kernel's signal frame alone is tens of KB with SME
 _GUARANTEE = 64 << 10  # Windows, what the kernel's exception dispatch and the handler may use
-_SLOT = 32
+_SLOT = 40
 
 # The register file inside what the OS passes to a handler: Linux's ucontext, macOS's mcontext
 # and Windows' CONTEXT all lay out arm64 alike from x0 - 8; x86-64 differs between Linux's gregs
@@ -54,7 +54,7 @@ struct ctx {
     u64 err; void *msg, *file; u64 line; void *func; u64 pc; long depth; u64 limit, tid;
     u64 fault, addr;
 };
-struct mod { u64 lo, hi; struct ctx *(*ctx)(void); u64 resume; };
+struct mod { u64 lo, hi; struct ctx *(*ctx)(void); u64 resume, noframe; };
 struct tab { u64 n, pad; struct mod mods[1]; };
 
 struct tab * volatile __cimo_fault_tab;
@@ -92,12 +92,33 @@ static struct mod *find(u64 pc)
     return 0;
 }
 
+/* The thread's innermost entry frame in any module: the one entered last, so with the lowest saved sp at or above
+   sp. Code called by address from another module runs with no frame of its own module (or under an outer one,
+   when a Python callback came in between): the error belongs to the call that is running it. */
+static struct ctx *innermost(u64 sp, struct mod **mm)
+{
+    struct tab *t = __cimo_fault_tab;
+    struct ctx *best = 0, *c;
+    u64 i, e, low = ~(u64)0;
+    for (i = 0; i < t->n; i++) {
+        if (!t->mods[i].hi)
+            continue;
+        c = t->mods[i].ctx();
+        if (!c || c->depth <= 0)
+            continue;
+        e = ENTRY_SP(c);
+        if (e >= sp && e < low)
+            low = e, best = c, *mm = &t->mods[i];
+    }
+    return best;
+}
+
 /* 1 if the fault was a kernel's: the registers r now resume in its module's unwind */
 static int handle(int fault, u64 addr, char *r)
 {
     u64 pc = REG(r, R_PC), sp = REG(r, R_SP);
-    struct mod *m = find(pc);
-    struct ctx *c;
+    struct mod *m = find(pc), *at;
+    struct ctx *c, *from = 0;
     if (!m && fault == 1 && addr == pc) {  /* called a bad pointer: blame the caller */
 #ifdef R_LR
         pc = REG(r, R_LR) - 1;
@@ -108,18 +129,31 @@ static int handle(int fault, u64 addr, char *r)
     }
     if (!m)
         return 0;
-    c = m->ctx();
-    if (!c || c->depth <= 0)
-        return 0;
-    /* the end of the stack: a fault just below sp, or sp itself out of the stack, below its
-       limit or wrapped past the bottom of the address space (macOS and Windows stacks are low) */
-    c->err = fault == 4 || (fault == 1 && ((addr < c->limit && addr + 65536 >= sp)
-                                           || sp < c->limit || sp > ENTRY_SP(c))) ? 4 : 7;
-    c->fault = fault;
-    c->addr = addr;
-    c->pc = pc;
+    if (fault == 3 && pc == m->noframe)  /* abort(), assert, a trap or the stack check, with no frame in m */
+        from = (struct ctx *)REG(r, R_CTX);
+    at = m;
+    c = innermost(sp, &at);
+    if (!c) {  /* sp out of the stack altogether: the pc's module, as long as it is inside a call */
+        at = m;
+        c = m->ctx();
+        if (!c || c->depth <= 0)
+            return 0;
+    }
+    if (from) {
+        c->err = from->err, c->msg = from->msg, c->file = from->file, c->line = from->line;
+        c->func = from->func, c->pc = from->pc, c->fault = 0, c->addr = 0;
+        from->err = 0;
+    } else {
+        /* the end of the stack: a fault just below sp, or sp itself out of the stack, below its
+           limit or wrapped past the bottom of the address space (macOS and Windows stacks are low) */
+        c->err = fault == 4 || (fault == 1 && ((addr < c->limit && addr + 65536 >= sp)
+                                               || sp < c->limit || sp > ENTRY_SP(c))) ? 4 : 7;
+        c->fault = fault;
+        c->addr = addr;
+        c->pc = pc;
+    }
     REG(r, R_CTX) = (u64)c;
-    REG(r, R_PC) = m->resume;
+    REG(r, R_PC) = at->resume;
     return 1;
 }
 
@@ -412,6 +446,7 @@ def register(image):
         code = image._maps[0][0]
         u64(a + 16).value = image.address('__cimo_ctx')
         u64(a + 24).value = image.address('__cimo_fault')
+        u64(a + 32).value = image.address('__cimo_noframe')
         u64(a).value = code
         m._state._barrier()
         u64(a + 8).value = code + image.code_size

@@ -57,6 +57,21 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 5. **SIMD.** Auto-vectorizer **running on arm64 and x86-64** (`middle/vectorize.py`; see "Vector code" in `requirements.md`). Open, in
    order: reductions through a chain (`s += x * x + 3`), outer-loop vectorization (`nbody_acc`, gcc 1.3x ahead), byte and short lanes with widening and narrowing (scramjit's `image[i] + k` on `uint8`: 0.24 ns per element, `int32` 0.12), interleaved access (`rgb2gray`),
    downward steps; then GNU vector types as class-`q` instructions (accepted since 2026-11-06, computed lane by lane), wasm, SLP; AVX2 behind a check at load. ~~Conditions~~ **done** (comparison masks and selects, nested ones too; see "Vector code"). **Float conditions on x86-64:** `ifconv` makes selects of integers only there, since x86-64's scalar code has no float select; a float one (and/andn/or of a `cmpsd` mask, or a branch) would let the vectorizer take `relu` there too. Integer `max`/`min` through a condition **done**, with four accumulators and the unit-stride fast path (`middle/stride.py`): int64 max 0.87 to 0.28 ms on 1,000,000 elements (numpy 0.29), int32 min 0.86 to 0.14 ms (Snapdragon). **Next: the rest of the reductions with a condition (scramjit 2026-11-05, arm64, 1,000,000 elements, against numpy's own SIMD): `max` and `min` of `float64` 1.28 ms against 0.15, of `float32` 1.29 against 0.09, of `int64` 0.86 against 0.15, of `int32` 0.86 against 0.09; `argmax` 1.70 against 0.39; `any` and `all`, which also leave the loop early, 0.43 against 0.20 (`float32` 0.12). A `float` `max` must keep what scramjit's `max` does with NaN and signed zeros: per-lane maxima merged in lane order can pick another of two equal zeros than the scalar loop, which keeps the first. scramjit's float `max`/`min` also leave the loop at the first NaN (`i < n && r == r`), and `argmax` returns from inside it. Loops that exit early **done** for search loops (`middle/earlyexit.py`: `any`, `all`, find; scramjit's strided `any` 0.40 to 0.20 ms, numpy 0.19); open: early exits that also reduce (`argmax`, float `max` with its NaN exit).** An `if` whose arm loads (`x <= a ? y[i] * 2 : x`, `y[i]` read only there) isn't converted: speculating the load needs it proved safe.
+5b. **Types the IR has no class for: native code instead of lowering.** Class `q` (128 bits, 256 with AVX2) exists, but only
+   the auto-vectorizer emits it. The frontend lowers what it can't express in w/l/s/d: GNU vector types run lane by lane
+   through memory, `__int128` as pairs of 64-bit words (multiplication by `umulh`; division, shifts and conversions by
+   runtime calls), `_Float16`/`__bf16` as `unsigned short` with a runtime call per conversion, `_Complex` as two scalars.
+   The results are correct; the code is slow, and `__int128` and half arguments don't follow the platform calling
+   convention (gcc: register pairs, FP registers). In order:
+   - GNU vector types as class-`q` values: arithmetic, comparisons, `__builtin_shufflevector`/`convertvector`, element
+     access, loads and stores, and vectors as arguments and returns in vector registers (AAPCS64, SysV, Windows `__vectorcall`
+     isn't the default: by reference). Measure a hand-vectorized `Q8_0` dot and a 4x4 matrix kernel before and after.
+     Wider than the target (`vector_size(32)` without AVX2, 64): split into `q` halves.
+   - Half conversions in hardware (arm64 `fcvt`/`bfcvt` shifts, x86-64 F16C `vcvtph2ps` behind the `cimo.cpu` check), then
+     half loads widened in the vectorizer (Adoption #6). Half and bf16 arguments in FP registers, as gcc passes them.
+   - `__int128` in register pairs through the backend (`adds`/`adc`, `umulh`, shifts across the pair) and passed as gcc does
+     (an aligned even register pair on arm64; two registers on SysV).
+   - `_Complex` stays two scalars (what gcc does too); its multiply and divide inline where the C allows (`CX_LIMITED_RANGE`).
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.
 7. ~~**macOS (Apple silicon).**~~ **Done:** the suite, corpora and examples pass on an M-series
@@ -294,13 +309,8 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   the main module's `i32`. It affects any kernel calling into a host library by pointer, or a callback taking
   one. scramjit worked around it by computing `frexp` from the float's bits. **When done, note it in
   scramjit's `TODO.md`.**
-- **A call by address into another module crashes once the callee uses `malloc`** (found by scramjit,
-  2026-11-02; reproduced 2026-11-07, Linux x86-64). Module A's `long f(long)` calls `malloc`; module B's
-  `g(long (*fp)(long), long n)` calls `fp`; `b.g(a.f.address, 1000)` dumps core unless Python called into A on
-  this thread first. Cause: a module's per-thread context (`execution.py`, `__cimo_ctxtab`) is created by
-  Python on the thread's first call into that module, and `malloc`'s lookup finds none. Also open once that
-  works: an error or fault inside A unwinds to A's context, which has no entry frame for this call. Blocks
-  scramjit's C modules with state. **When done, note it in scramjit's `TODO.md`.**
+- ~~**A call by address into another module crashes once the callee uses `malloc`**~~ (found by scramjit) **Done
+  2026-11-07:** contexts made on demand, errors moved to the innermost entry frame (`tests/test_cross_module.py`).
 - **`#pragma STDC FP_CONTRACT`** (requested by scramjit, 2026-11-02): contraction on or off per function or
   block, as `FENV_ACCESS` is now, so a module can mix `fma=` code with exact math in one file. Today `fma=`
   applies to the whole compile. **When done, note it in scramjit's `TODO.md`.**

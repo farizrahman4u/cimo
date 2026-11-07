@@ -212,7 +212,15 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
   - **How kernel code finds its context:** a per-module hash table keyed by the thread-pointer
     register (`mrs tpidr_el0` on Linux; `tpidrro_el0` & ~7 on macOS, where `tpidr_el0` holds the
     CPU number; x18, the TEB, on Windows), filled by Python on a thread's first call. ~20 instructions per lookup (once
-    per call, `malloc`, `free`). Rejected: x18 as a register of cimo's own (reserved on
+    per call, `malloc`, `free`). A thread with no context in a module that runs its code anyway (a kernel of another
+    module calling it by `kernel.address`; a thread a kernel started) gets one from `malloc` through a Python callback
+    (`__cimo_hook_ctx`, 2026-11-07). Its errors have no frame there, so they go to `cimo.fault`'s handler (an `udf`/`ud2`
+    at `__cimo_noframe`; a module-wide `__cimo_orphan` context when the thread has none), which moves them to the
+    innermost entry frame of any module on the stack (lowest saved sp at or above sp): the caller's call raises,
+    naming the callee's function. Hardware faults take the same route. Open: a Python callback between two calls into
+    one module (A, then Python, then B, then A by address): an error in the inner A unwinds to the outer A's frame,
+    past B's and Python's; nothing on that path checks. Output from such code buffers in its module's context, which
+    is flushed only by a later call from Python into that module. Rejected: x18 as a register of cimo's own (reserved on
     macOS/Windows, clobbered by host code), TLS (loader support, a TLS block per
     module), a hidden argument (changes every function's ABI and the ported frontend). The table
     only grows; Python inserts under a lock and publishes a rebuilt table after a `dmb ish`.
@@ -257,7 +265,7 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
 
 ## Python interop API (to be designed)
 
-Built: a module says what it was made from (`module.source`, `module.options`, `module.signature(name)`, `module.mutable_data`, `kernel.module`), found by running the front end when asked, so the cache format stays as it is. scramjit puts a module's source in the same C file as what it generates, so a kernel calling `k.f(x)` inlines it. Calling across modules by `kernel.address` isn't an alternative: it crashes once the callee uses `malloc`, since the runtime expects its own module's context, and wasm kernels have no address.
+Built: a module says what it was made from (`module.source`, `module.options`, `module.signature(name)`, `module.mutable_data`, `kernel.module`), found by running the front end when asked, so the cache format stays as it is. scramjit puts a module's source in the same C file as what it generates, so a kernel calling `k.f(x)` inlines it. Calling across modules by `kernel.address` works natively since 2026-11-07 ("Execution model"); wasm kernels have no address.
 
 Ergonomic Python-side sugar is what makes this feel native rather than "ctypes with extra steps".
 The exact design is still open. Areas to cover:
