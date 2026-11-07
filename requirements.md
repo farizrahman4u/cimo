@@ -292,6 +292,9 @@ Also from scramjit's first measurements (its M0, 2026-11-01):
   CPython uses (glibc, arm64) for many inputs: `atan2` 18%, `hypot` 14%, `sin`/`cos` 3%,
   `exp`/`pow` under 0.1%, `sqrt`/`log` none. Worth documenting; an option to link the host's libm
   for math calls (native targets) would let generated code match CPython where that matters.
+- **Fast libm (2026-11-07):** bundled functions are to be as fast as glibc's, one at a time as kernels need them.
+  `hypot` is glibc's algorithm now (fma kernel where `__FP_FAST_FMA`, arm64; a correction step on x86-64 and wasm),
+  under 1 ulp, 1.47x faster than musl's on a `hypot` loop; its bits now differ from musl's in places.
 
 ## Optimization model
 

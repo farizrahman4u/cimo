@@ -299,7 +299,10 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   inner step, about 280,000 calls) takes 2.19 ms compiled by cimo with its own `hypot`, and 1.53 ms compiled by
   gcc -O2 with glibc 2.39's; with `sqrt(a*a + b*b)` instead, cimo 0.98 and gcc 1.12 ms, so the loop itself isn't it.
   glibc's is one `sqrt` of an fma and one correction step. Plain C semantics (errno, IEEE results); CPython-exact
-  variants stay in scramjit. When done, note it in scramjit's `TODO.md`.
+  variants stay in scramjit. When done, note it in scramjit's `TODO.md`. **`hypot` done** (2026-11-07): glibc's
+  algorithm (Borges 2019), the fma kernel on arm64 and the correction step elsewhere, under 1 ulp (checked against
+  exact results over all exponent ranges); a `hypot` loop 1.14 to 0.77 ms on the laptop, which puts it level with glibc
+  by scramjit's ratio (to re-measure on mains power). Still a call: the runtime doesn't inline into kernels yet.
 
 - ~~**The inliner sizes a function before cleaning it up, and grows small functions with their cold paths**~~
   **Done** (2026-11-07, found by scramjit): loads and stores of slots only ever loaded and stored, their constant

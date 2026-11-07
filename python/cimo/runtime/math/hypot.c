@@ -1,67 +1,61 @@
+/* cimo: glibc's algorithm (Borges, "An Improved Algorithm for hypot(a,b)", 2019): with a fused multiply-add,
+   one sqrt of an fma, written so that the sum of squares rounds once; without, a sqrt and one correction step.
+   Error under 1 ulp either way. Inputs are scaled only when a square could overflow or lose bits to underflow. */
 #include <math.h>
 #include <stdint.h>
-#include <float.h>
 
-#if FLT_EVAL_METHOD > 1U && LDBL_MANT_DIG == 64
-#define SPLIT (0x1p32 + 1)
-#else
-#define SPLIT (0x1p27 + 1)
-#endif
+#define SCALE 0x1p-600
+#define LARGE 0x1p511
+#define TINY 0x1p-511
+#define EPS 0x1p-54
 
-static void sq(double_t *hi, double_t *lo, double x)
+static inline double kernel(double ax, double ay)
 {
-	double_t xh, xl, xc;
-
-	xc = (double_t)x*SPLIT;
-	xh = x - xc + xc;
-	xl = x - xh;
-	*hi = (double_t)x*x;
-	*lo = xh*xh - *hi + 2*xh*xl + xl*xl;
+#if __FP_FAST_FMA
+	double t1 = ay + ay, t2 = ax - ay;
+	/* ax^2 + ay^2 = 2ay*ax + (ax - ay)^2: (ax - ay)^2 is exact enough when 2ay >= ax */
+	if (t1 >= ax)
+		return sqrt(fma(t1, ax, t2 * t2));
+	return sqrt(fma(ax, ax, ay * ay));
+#else
+	double h = sqrt(ax * ax + ay * ay), t1, t2;
+	if (h <= 2.0 * ay) {
+		double d = h - ay;
+		t1 = ax * (2.0 * d - ax);
+		t2 = (d - 2.0 * (ax - ay)) * d;
+	} else {
+		double d = h - ax;
+		t1 = 2.0 * d * (ax - 2.0 * ay);
+		t2 = (4.0 * d - ay) * ay + d * d;
+	}
+	return h - (t1 + t2) / (2.0 * h);
+#endif
 }
 
 double hypot(double x, double y)
 {
-	union {double f; uint64_t i;} ux = {x}, uy = {y}, ut;
-	int ex, ey;
-	double_t hx, lx, hy, ly, z;
-
-	/* arrange |x| >= |y| */
-	ux.i &= -1ULL>>1;
-	uy.i &= -1ULL>>1;
-	if (ux.i < uy.i) {
-		ut = ux;
-		ux = uy;
-		uy = ut;
-	}
-
-	/* special cases */
-	ex = ux.i>>52;
-	ey = uy.i>>52;
-	x = ux.f;
-	y = uy.f;
-	/* note: hypot(inf,nan) == inf */
-	if (ey == 0x7ff)
-		return y;
-	if (ex == 0x7ff || uy.i == 0)
-		return x;
-	/* note: hypot(x,y) ~= x + y*y/x/2 with inexact for small y/x */
-	/* 64 difference is enough for ld80 double_t */
-	if (ex - ey > 64)
+	union {double f; uint64_t i;} ux = {x}, uy = {y};
+	ux.i &= -1ULL >> 1;
+	uy.i &= -1ULL >> 1;
+	/* note: hypot(inf, nan) == inf */
+	if (ux.i >= 0x7ffULL << 52 || uy.i >= 0x7ffULL << 52) {
+		if (ux.i == 0x7ffULL << 52 || uy.i == 0x7ffULL << 52)
+			return INFINITY;
 		return x + y;
-
-	/* precise sqrt argument in nearest rounding mode without overflow */
-	/* xh*xh must not overflow and xl*xl must not underflow in sq */
-	z = 1;
-	if (ex > 0x3ff+510) {
-		z = 0x1p700;
-		x *= 0x1p-700;
-		y *= 0x1p-700;
-	} else if (ey < 0x3ff-450) {
-		z = 0x1p-700;
-		x *= 0x1p700;
-		y *= 0x1p700;
 	}
-	sq(&hx, &lx, x);
-	sq(&hy, &ly, y);
-	return z*sqrt(ly+lx+hy+hx);
+	double ax = ux.i < uy.i ? uy.f : ux.f;
+	double ay = ux.i < uy.i ? ux.f : uy.f;
+	if (ax > LARGE) {
+		if (ay <= ax * EPS)
+			return ax + ay;
+		return kernel(ax * SCALE, ay * SCALE) / SCALE;
+	}
+	if (ay < TINY) {
+		if (ax >= ay / EPS)
+			return ax + ay;
+		return kernel(ax / SCALE, ay / SCALE) * SCALE;
+	}
+	if (ay <= ax * EPS)
+		return ax + ay;
+	return kernel(ax, ay);
 }
