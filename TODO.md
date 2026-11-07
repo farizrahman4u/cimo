@@ -277,14 +277,11 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   large blocks kept (by size, with a byte cap) and handed out again, and maybe `MADV_HUGEPAGE` for big ones, as
   numpy asks for. When done, note it in scramjit's `TODO.md`.
 
-- **Kernel calls without ctypes** (found by scramjit, 2026-11-07, Snapdragon X laptop). After the faster
-  `Kernel.__call__` (2026-11-05), a call of a kernel taking two doubles and a long still costs 830 to 900 ns here;
-  scramjit's whole call of a compiled `a + b` is now 1,145 ns, of which its own dispatch is about 300. Numba's whole
-  call is 112 ns, Cython's 24, CPython's `a + b` 36, so for small functions the ctypes call is most of the gap.
-  Idea: since cimo compiles C and can link `python`, make each kernel's Python entry a C function with the CPython
-  `METH_FASTCALL` convention (arguments converted in C: `PyFloat_AsDouble`, `PyLong_AsLongLong`, a buffer's
-  address), compiled with the kernel and wrapped by `PyCFunction_New`, falling back to ctypes where the Python C API
-  isn't there (Pyodide?). Expect under 100 ns. When done, note it in scramjit's `TODO.md`.
+- ~~Kernel calls without ctypes~~ **Done** (2026-11-07, found by scramjit): a kernel's `__call__` is a builtin
+  whose code is a CPython `METH_FASTCALL` entry per signature (`driver._pyentry`, `runtime/pyentry.c`): floats, ints
+  and writable buffers convert in C, anything else takes the old Python path. A `double, double, long` call 661 to
+  92 ns on the laptop (requirements.md, "No ctypes on a call"). Open: the `Kernel` instance's `__call__` lookup is
+  17 ns of it (a bare builtin call is 75); entries as assembly per target would save their ~5 ms first compile.
 
 - ~~`#pragma omp simd reduction(+:s)` does nothing~~ **Done** (2026-11-07): `+`, `-`, `*` sums and products it
   names are unordered reductions with INTERLEAVE accumulators (1M-double dot 1.30 to 0.22 ms on the laptop, to

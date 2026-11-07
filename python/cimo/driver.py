@@ -14,6 +14,7 @@ loading it takes milliseconds.
 from __future__ import annotations
 
 import contextvars
+import functools
 import ctypes
 import hashlib
 import io
@@ -620,6 +621,78 @@ def _compile(pp, filename, host_headers):
     return text, sigs
 
 
+# the Python C API as a native kernel's METH_FASTCALL entry reaches it (runtime/pyentry.c): a table Python fills when
+# the module loads (_pyapi), so the cached assembly holds no address and the linker resolves nothing
+_PYAPI = ('#obtype', '#float', '#int', '#none', 'PyFloat_AsDouble', 'PyFloat_FromDouble',
+          'PyLong_AsLongLongAndOverflow', 'PyLong_FromLongLong', 'PyLong_FromUnsignedLongLong', 'PyErr_Occurred',
+          'PyErr_Clear', 'PyObject_GetBuffer', 'PyBuffer_Release', 'PyEval_SaveThread', 'PyEval_RestoreThread',
+          'PyObject_Vectorcall', 'Py_DecRef', 'Py_IncRef', 'PyLong_AsVoidPtr')
+_PYKINDS = {'d': 'd', 's': 's', 'p': 'p', 'w': 'i', 'l': 'i', 'sb': 'i', 'ub': 'i', 'sh': 'i', 'uh': 'i'}
+_pyasm_memory: dict = {}
+
+
+def _pyshape(ret, ks):
+    """The name part of the CPython entry a kernel of this signature uses, or None if it has none (structs, varargs)."""
+    if '...' in ks or ret.startswith(':') or any(k not in _PYKINDS for k in ks):
+        return None
+    return '%s_%s' % ('v' if ret == '-' else ret, '_'.join(ks))
+
+
+def _pyentry(shape):
+    """IR for `__cimo_pys_<shape>(self, args, nargs)`, METH_FASTCALL, for every kernel of one signature: self is the
+    address of the kernel's words (Kernel._fastcall), which hold its trampoline; the arguments convert and the result
+    is made in runtime/pyentry.c, which also releases the GIL around the call as ctypes does, and sends anything it
+    doesn't take to the kernel's Python call."""
+    ret, ks = shape.split('_', 1)
+    ks = ks.split('_') if ks else []
+    nb = ks.count('p')
+    o = ['export\nfunction l $__cimo_pys_%s(l %%self, l %%args, l %%nargs) {\n@start\n'
+         '\t%%sl =l alloc8 %d\n\t%%bf =l alloc8 %d\n\t%%ts =l alloc8 8\n\t%%kp =l alloc8 8\n'
+         '\t%%ctx =l call $__cimo_pyargs(l %%self, l %%args, l %%nargs, l %%sl, l %%bf, l %%ts, l %%kp)\n'
+         '\t%%c =w cnel %%ctx, 0\n\tjnz %%c, @call, @slow\n@call\n\t%%k =l loadl %%kp\n'
+         '\t%%fn =l add %%k, 32\n\t%%fn =l loadl %%fn\n' % (shape, 8 * max(len(ks), 1), 80 * max(nb, 1))]
+    args = []
+    for i, c in enumerate(ks):
+        cls, load = {'d': ('d', 'loadd'), 's': ('s', 'loads'), 'p': ('l', 'loadl'), 'l': ('l', 'loadl')}.get(
+            c, ('w', 'loadw'))
+        o.append('\t%%a%d =l add %%sl, %d\n\t%%v%d =%s %s %%a%d\n' % (i, 8 * i, i, cls, load, i))
+        args.append('%s %%v%d' % ('l' if c == 'p' else c, i))
+    rc = {'s': 's', 'd': 'd', 'w': 'w', 'W': 'w', 'l': 'l', 'L': 'l', 'p': 'l'}.get(ret)
+    o.append(('\t%%r =%s ' % rc if rc else '\t') + 'call %%fn(%s)\n\t%%t =l loadl %%ts\n' % ', '.join(args))
+    conv, fin = {'d': ('', 'd(d %r,'), 's': ('\t%x =d exts %r\n', 'd(d %x,'), 'w': ('\t%x =l extsw %r\n', 'l(l %x,'),
+                 'W': ('\t%x =l extuw %r\n', 'l(l %x,'), 'l': ('', 'l(l %r,'), 'p': ('', 'l(l %r,'),
+                 'L': ('', 'u(l %r,')}.get(ret, ('', 'v('))
+    o.append(conv + '\t%%res =l call $__cimo_pyfin%s l %%ctx, l %%k, l %%t, l %%bf)\n\tret %%res\n@slow\n'
+             '\t%%res =l call $__cimo_pyslow(l %%self, l %%args, l %%nargs)\n\tret %%res\n}\n' % fin)
+    return ''.join(o)
+
+
+_LOCAL = re.compile(r'(?<![\w.$])(\.L|L)([a-z]*\d+)\b')
+
+
+def _pyasm(sigs):
+    """Assembly of the CPython entries a module's kernels use, one per signature, kept in memory by the set of
+    signatures (a cached module's image already has them), so a module's own compile is as without them. Local
+    labels renamed apart from the module's."""
+    shapes = sorted({sh for sh in (_pyshape(*_sigsplit(l)) for l in sigs.splitlines()
+                                   if l and not l.startswith('#')) if sh})
+    if not shapes or _PYODIDE:
+        return ''
+    key = hashlib.sha256(_VERSION + _link.compiler_key().encode() + TARGET.encode() + b'pyentries'
+                         + ' '.join(shapes).encode()).hexdigest()[:24]
+    text = _pyasm_memory.get(key)
+    if text is None:
+        with _compile_lock:
+            text = _LOCAL.sub(r'\1py\2', _qbe(''.join(_pyentry(sh) for sh in shapes), {}))
+        _pyasm_memory[key] = text
+    return text
+
+
+def _sigsplit(line):
+    name, ret, params = line.split(' ')
+    return ret, params.split(',') if params else []
+
+
 def _sigs(ssa, params=None):
     """'name ret params' lines for the exported functions of IR text. params: the frontend's
     parameter info, which says whose w or l result is unsigned (ret W, L), and which parameters are
@@ -636,6 +709,44 @@ def _sigs(ssa, params=None):
     return '\n'.join('%s %s %s' % (m.group(2), (m.group(1) or '-').upper() if m.group(2) in unsigned
                                    else m.group(1) or '-', classes(m.group(2), m.group(3)))
                      for m in _SIG.finditer(ssa))
+
+
+class _PyMethodDef(ctypes.Structure):
+    _fields_ = [('ml_name', ctypes.c_char_p), ('ml_meth', ctypes.c_void_p), ('ml_flags', ctypes.c_int),
+                ('ml_doc', ctypes.c_char_p)]
+
+
+_PyCFunction_NewEx = None
+
+
+def _pyapi(image):
+    """Fill the module's table of the Python C API (_PYAPI) once; None where the kernels can't use it (not
+    CPython, a module without CPython entries, or an object layout not understood)."""
+    global _PyCFunction_NewEx
+    if getattr(image, '_pyapi', 0) != 0:
+        return image._pyapi
+    image._pyapi = None
+    papi = getattr(ctypes, 'pythonapi', None)
+    if papi is None or sys.implementation.name != 'cpython' or not hasattr(papi, 'PyObject_Vectorcall'):
+        return None
+    try:
+        table = (ctypes.c_uint64 * len(_PYAPI)).from_address(image.address('__cimo_pyapi'))
+    except _jit.LoadError:
+        return None
+    word = lambda a: ctypes.c_uint64.from_address(a).value
+    x = 1.5  # where an object's type is, and a float's value right after the header: free-threaded builds differ
+    off = next((o for o in range(8, 64, 8) if word(id(x) + o) == id(float)), None)
+    if off is None or ctypes.c_double.from_address(id(x) + off + 8).value != 1.5 or word(id(7) + off) != id(int):
+        return None
+    if _PyCFunction_NewEx is None:
+        f = papi.PyCFunction_NewEx
+        f.restype, f.argtypes = ctypes.py_object, [ctypes.c_void_p, ctypes.py_object, ctypes.py_object]
+        _PyCFunction_NewEx = f
+    for i, n in enumerate(_PYAPI):
+        table[i] = {'#obtype': off, '#float': id(float), '#int': id(int), '#none': id(None)}.get(n) or \
+            ctypes.cast(getattr(papi, n), ctypes.c_void_p).value
+    image._pyapi = table
+    return table
 
 
 def _address(x, keep):
@@ -747,7 +858,44 @@ class Kernel:
         env = {'f': self._f, 'tls': self._state._tls, 'state': self._state, 'name': self.__name__,
                'address': _address, 'long_': _long, 'flush': self._out._flush if self._out is not None else None}
         exec('\n'.join(lines), env)
-        self.__class__ = type('Kernel', (Kernel,), {'__call__': env['__call__'], '__slots__': ()})
+        call = env['__call__']
+        fast = self._fastcall(call)
+        self.__class__ = type('Kernel', (Kernel,), {'__call__': fast or call, '__slots__': ()})
+
+    def _fastcall(self, call):
+        """The kernel's CPython entry (_pyentry) as a builtin function, or None where there is none: the class's
+        __call__, so a call runs no Python code. Its self is the address of the kernel's words: `call` (its Python
+        call, for what the entry doesn't take), `post` (after a call that failed or wrote output: flushes and raises
+        as `call` would), the number of arguments and of pointers, the trampoline, then the kinds."""
+        shape = _pyshape(self._ret or '-', self._params)
+        api = _pyapi(self._image) if shape else None
+        if api is None:
+            return None
+        try:
+            entry = self._image.address('__cimo_pys_' + shape)
+        except _jit.LoadError:
+            return None
+        tls, state, name = self._state._tls, self._state, self.__name__
+        flush = self._out._flush if self._out is not None else None
+        out = _exe.CTX_OUT // 8
+
+        def post(r):
+            w = tls.words
+            if w[out] and flush is not None:
+                flush()
+            if w[0]:
+                state.error(tls.ctx, name)
+            return r
+        fallback = functools.partial(call, self)
+        kinds = ''.join(_PYKINDS[k] for k in self._params).encode() + b'\0'
+        words = (ctypes.c_uint64 * (5 + (len(kinds) + 7) // 8))()
+        words[0], words[1], words[2], words[3] = id(fallback), id(post), len(self._params), kinds.count(b'p')
+        words[4] = self._image.address('__cimo_entry_' + name)
+        ctypes.memmove(ctypes.addressof(words) + 40, kinds, len(kinds))
+        method = _PyMethodDef(name.encode(), entry, 0x80, None)  # METH_FASTCALL
+        f = _PyCFunction_NewEx(ctypes.addressof(method), ctypes.addressof(words), None)
+        self._keep = (fallback, post, words, method, f)  # what the words and the builtin point at
+        return f
 
     def __repr__(self) -> str:
         return '<cimo kernel %s>' % self.__name__
@@ -762,7 +910,7 @@ class Module(Introspection):
         names = [l.split(' ')[0] for l in sigs.splitlines() if l and not l.startswith('#')]
         libsyms = {}
         try:
-            obj = _link.assemble(text + _exe.glue(names, _APPLE, _WINDOWS, TARGET), TARGET)
+            obj = _link.assemble(text + _exe.glue(names, _APPLE, _WINDOWS, TARGET) + _pyasm(sigs), TARGET)
             obj, resolve = _link.link(obj, libs=link, libsyms=libsyms)
             image = _jit.Image(obj, resolve, snapshot=snapshot)
         except (_asm.AssemblerError, _jit.LoadError, _link.LinkError) as e:

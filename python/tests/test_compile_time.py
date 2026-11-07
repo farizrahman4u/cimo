@@ -56,7 +56,8 @@ def test_constants_get_homes_in_a_large_function(monkeypatch):
 
     def run(fn, floats):
         changed = real(fn, floats)
-        seen.append((fn.nblk >= remat.LARGE, changed))
+        if fn.name == 'f':  # not its CPython entry
+            seen.append((fn.nblk >= remat.LARGE, changed))
         return changed
     monkeypatch.setattr(remat, 'run', run)
     cimo.compile(loops(40), cache=False)

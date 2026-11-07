@@ -764,8 +764,9 @@ def test_runtime_is_compiled_on_demand(tmp_path, monkeypatch):
     monkeypatch.setattr(linker, 'progress', lambda e, **i: events.append((e, i)))
     m = cimo.compile('#include <string.h>\nlong f(const char *s) { return strlen(s); }')
     assert m.f(bytearray(b'abcd\0')) == 4
-    assert [i['name'] for e, i in events if e == 'file'] == ['string/strlen.c']
-    assert events[-1][0] == 'done' and events[-1][1]['files'] == 1
+    # and every module's kernels' CPython entries' helpers (driver._pyentries)
+    assert sorted(i['name'] for e, i in events if e == 'file') == ['pyentry.c', 'string/strlen.c']
+    assert events[-1][0] == 'done' and events[-1][1]['files'] == 2
     del events[:]
     m = cimo.compile('#include <string.h>\nlong g(const char *s) { return strlen(s) + 1; }')
     assert m.g(bytearray(b'ab\0')) == 3 and events == []

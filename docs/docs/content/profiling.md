@@ -17,7 +17,7 @@ per_call = min(timeit.repeat(lambda: k.blur(*src.shape, src, dst),
 
 - **Best of several:** the minimum is the most stable number; single runs vary by several percent, more on laptops on battery and in virtual machines.
 - **No warm-up needed for the code:** cimo compiles before the first call, so the first call runs the same machine code as the hundredth. The first call can still be slower because the arrays' memory is touched for the first time.
-- **Large enough work:** a call costs a few microseconds of Python and ctypes overhead. Time calls that do at least a millisecond of work, or pass more data per call.
+- **Large enough work:** a call costs about 0.1 µs when its arguments are floats, ints and writable buffers, more for other objects (numpy scalars, `bytes`), which take a slower path. Time calls that do at least a millisecond of work, or pass more data per call.
 
 ## Compile time and run time
 

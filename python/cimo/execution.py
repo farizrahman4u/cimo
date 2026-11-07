@@ -30,6 +30,8 @@ Design (requirements.md, "Execution model"):
 
       0 err   8 msg   16 file   24 line   32 func   40 pc   48 depth   56 stack limit   64 tid
       72 fault kind   80 fault address (these first 88 bytes also in cimo.fault's C)
+      120 nonzero while a live Python thread has registered the context (State.ctx): a kernel's CPython entry
+          (driver._pyentry) takes it then, and a thread reusing a finished one's key goes through Python first
       128 frames: MAXDEPTH x 176 bytes (x19-x28, x29, lr, sp, d8-d15, fpcr; x86-64 Linux: rbx,
           rbp, r12-r15, the return address, rsp, the shadow stack pointer, mxcsr, scratch)
       3072 the thread's heap (struct heap in runtime/heap.c, at most 1024 bytes)
@@ -72,6 +74,7 @@ ERR, MSG, FILE, LINE, FUNC, PC, DEPTH, LIMIT, TID, FAULT, ADDR = range(0, 88, 8)
 FRAMES, FRAMESZ, MAXDEPTH = 128, 176, 16
 CTX_HEAP = 3072
 CTX_OUT = 4096
+CTX_PY = 120
 STACK_MARGIN = 128 << 10
 
 E_ABORT, E_ASSERT, E_TRAP, E_STACK, E_DEPTH, E_EXIT, E_FAULT = 1, 2, 3, 4, 5, 6, 7
@@ -548,6 +551,20 @@ def stack_checked(ssa):
 # ---------------------------------------------------------------------------------------------
 # Python side
 
+class _Unmark:
+    """Clears a context's CTX_PY word when its thread's threading.local goes (the thread ended), unless the module
+    went first."""
+    __slots__ = ('state', 'words')
+
+    def __init__(self, state, words):
+        self.state = weakref.ref(state)
+        self.words = words
+
+    def __del__(self):
+        if self.state() is not None:
+            self.words[CTX_PY // 8] = 0
+
+
 class _Ctx(ctypes.Structure):
     _fields_ = [('err', ctypes.c_int64), ('msg', ctypes.c_void_p), ('file', ctypes.c_void_p),
                 ('line', ctypes.c_int64), ('func', ctypes.c_void_p), ('pc', ctypes.c_uint64),
@@ -663,6 +680,8 @@ class State:
         # the context as 64-bit words, for a kernel call's checks with no ctypes object made: err is word 0, the
         # stdout buffer's length word CTX_OUT // 8
         self._tls.words = memoryview((ctypes.c_char * CTX_SIZE).from_address(ctypes.addressof(c))).cast('B').cast('q')
+        self._tls.words[CTX_PY // 8] = 1
+        self._tls.unmark = _Unmark(self, self._tls.words)
         return c
 
     def _newctx(self):
