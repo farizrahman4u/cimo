@@ -93,7 +93,7 @@ def _opset(v):
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
             builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False, bigcopy=None, nowrap=False,
-            vecq=0):
+            vecq=0, vecops=()):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -133,8 +133,9 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     vastruct='aapcs' or 'slots' (cimo extension, off by default): va_arg of struct and union
     types, for Linux's va_list or a pointer to 8-byte slots (Apple, Windows, wasm).
 
-    vecq=N (cimo extension, off by default): GNU vector types of N or 2N bytes compute in the backend's class q
-    (N = its size: 16, or 32 on x86-64 with AVX2) instead of lane by lane.
+    vecq=N (cimo extension, off by default): GNU vector types of N, 2N or 4N bytes compute in the backend's class q
+    (N = its size: 16, or 32 on x86-64 with AVX2) instead of lane by lane. vecops: what else the target's q does
+    ('convert': __builtin_convertvector).
 
     prune=True (cimo extension, off by default): drop static functions and data that no
     exported definition references (prune.py).
@@ -154,6 +155,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.bitops = _opset(bitops)
         _qbe.bigcopy = bigcopy
         _qbe.vecq = vecq
+        _qbe.vecops = frozenset(vecops)
         U.diagnostics = bool(diagnostics)
         U.fenvaccess = U.fenvtouched = False
         if diagnostics:
@@ -177,6 +179,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.bitops = False
         _qbe.bigcopy = None
         _qbe.vecq = 0
+        _qbe.vecops = frozenset()
         U.diagnostics = False
         from . import cc as _cc
         _cc.exprhook = None

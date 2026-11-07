@@ -477,6 +477,20 @@ _QFP = {'qadd': 'fadd', 'qsub': 'fsub', 'qmul': 'fmul', 'qdiv': 'fdiv', 'qmin': 
         'qceq': 'fcmeq', 'qcgt': 'fcmgt', 'qcge': 'fcmge', 'qneg': 'fneg', 'qabs': 'fabs', 'qsqrt': 'fsqrt'}
 
 
+# name: (mnemonic, destination arrangement, source arrangement)
+_QCVT = {'qitofs': ('scvtf', '4s', '4s'), 'qitofd': ('scvtf', '2d', '2d'), 'quitofs': ('ucvtf', '4s', '4s'),
+         'quitofd': ('ucvtf', '2d', '2d'), 'qftois': ('fcvtzs', '4s', '4s'), 'qftoid': ('fcvtzs', '2d', '2d'),
+         'qftous': ('fcvtzu', '4s', '4s'), 'qftoud': ('fcvtzu', '2d', '2d'),
+         'qsxlb': ('sshll', '8h', '8b'), 'qsxlh': ('sshll', '4s', '4h'), 'qsxlw': ('sshll', '2d', '2s'),
+         'qsxhb': ('sshll2', '8h', '16b'), 'qsxhh': ('sshll2', '4s', '8h'), 'qsxhw': ('sshll2', '2d', '4s'),
+         'quxlb': ('ushll', '8h', '8b'), 'quxlh': ('ushll', '4s', '4h'), 'quxlw': ('ushll', '2d', '2s'),
+         'quxhb': ('ushll2', '8h', '16b'), 'quxhh': ('ushll2', '4s', '8h'), 'quxhw': ('ushll2', '2d', '4s'),
+         'qfcvtl': ('fcvtl', '2d', '2s'), 'qfcvth': ('fcvtl2', '2d', '4s')}
+# name: (mnemonic, (destination arrangements: low, high), source arrangement)
+_QNARROW = {'qnrwh': ('xtn', ('8b', '16b'), '8h'), 'qnrww': ('xtn', ('4h', '8h'), '4s'),
+            'qnrwl': ('xtn', ('2s', '4s'), '2d'), 'qfcvtn': ('fcvtn', ('2s', '4s'), '2d')}
+
+
 def _qv(r, lane='16b'):
     return 'v%d.%s' % (rval(r) - V0, lane)
 
@@ -588,6 +602,15 @@ def _qins(i, e):
         return True  # with the next one
     if name in ('qand', 'qor', 'qxor'):
         f.write("\t%s\t%s, %s, %s\n" % ({'qand': 'and', 'qor': 'orr', 'qxor': 'eor'}[name], _qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
+        return True
+    if name in _QCVT:  # conversions
+        mn, d, n = _QCVT[name]
+        f.write("\t%s\t%s, %s%s\n" % (mn, _qv(i.to, d), _qv(i.arg[0], n), ', #0' if 'shll' in mn else ''))
+        return True
+    if name in _QNARROW:  # two halves: the low lanes from arg0, then the high from arg1 (through v31: arg1 may be to)
+        mn, d, n = _QNARROW[name]
+        f.write("\t%s\tv31.%s, %s\n\t%s2\tv31.%s, %s\n\tmov\t%s, v31.16b\n"
+                % (mn, d[0], _qv(i.arg[0], n), mn, d[1], _qv(i.arg[1], n), _qv(i.to)))
         return True
     if name in ('qsaddl', 'qsaddh', 'quaddl', 'quaddh'):
         high = name[-1] == 'h'

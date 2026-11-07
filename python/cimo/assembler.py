@@ -842,6 +842,47 @@ def _i_bytes(a, mn, ops):
     return 0x0e212800 | int(n.group(1)) << 5 | int(d.group(1))
 
 
+_VARR = re.compile(r'^v([0-9]|[12][0-9]|3[01])\.(8b|16b|4h|8h|2s|4s|2d)$')
+# conversions between vector arrangements: (destination arrangement, source arrangement) -> base encoding (Q in it)
+_VCVT = {
+    'sshll': {('8h', '8b'): 0x0f08a400, ('4s', '4h'): 0x0f10a400, ('2d', '2s'): 0x0f20a400},
+    'sshll2': {('8h', '16b'): 0x4f08a400, ('4s', '8h'): 0x4f10a400, ('2d', '4s'): 0x4f20a400},
+    'ushll': {('8h', '8b'): 0x2f08a400, ('4s', '4h'): 0x2f10a400, ('2d', '2s'): 0x2f20a400},
+    'ushll2': {('8h', '16b'): 0x6f08a400, ('4s', '8h'): 0x6f10a400, ('2d', '4s'): 0x6f20a400},
+    'xtn': {('8b', '8h'): 0x0e212800, ('4h', '4s'): 0x0e612800, ('2s', '2d'): 0x0ea12800},
+    'xtn2': {('16b', '8h'): 0x4e212800, ('8h', '4s'): 0x4e612800, ('4s', '2d'): 0x4ea12800},
+    'scvtf': {('4s', '4s'): 0x4e21d800, ('2d', '2d'): 0x4e61d800},
+    'ucvtf': {('4s', '4s'): 0x6e21d800, ('2d', '2d'): 0x6e61d800},
+    'fcvtzs': {('4s', '4s'): 0x4ea1b800, ('2d', '2d'): 0x4ee1b800},
+    'fcvtzu': {('4s', '4s'): 0x6ea1b800, ('2d', '2d'): 0x6ee1b800},
+    'fcvtl': {('2d', '2s'): 0x0e617800}, 'fcvtl2': {('2d', '4s'): 0x4e617800},
+    'fcvtn': {('2s', '2d'): 0x0e616800}, 'fcvtn2': {('4s', '2d'): 0x4e616800},
+}
+
+
+def _i_vcvt(a, mn, ops):
+    """sshll/ushll(2) Vd, Vn, #0 (sxtl/uxtl), xtn(2), scvtf/ucvtf/fcvtzs/fcvtzu on vectors, fcvtl(2), fcvtn(2)."""
+    if mn in ('sshll', 'sshll2', 'ushll', 'ushll2'):
+        if len(ops) != 3 or _imm(ops[2], True) != 0:
+            raise AssemblerError('%s takes Vd, Vn, #0' % mn)
+    elif len(ops) != 2:
+        raise AssemblerError('%s needs 2 operands' % mn)
+    d, n = _VARR.match(ops[0].strip().lower()), _VARR.match(ops[1].strip().lower())
+    base = _VCVT[mn].get((d.group(2), n.group(2))) if d and n else None
+    if base is None:
+        raise AssemblerError('unsupported operands for %s' % mn)
+    return base | int(n.group(1)) << 5 | int(d.group(1))
+
+
+def _vector_or(scalar):
+    """The encoder for a mnemonic with a scalar and a vector form: vector operands go to _i_vcvt."""
+    def enc(a, mn, ops):
+        if ops and ops[0].strip().lower().startswith('v'):
+            return _i_vcvt(a, mn, ops)
+        return scalar(a, mn, ops)
+    return enc
+
+
 def _fpimm8(v):
     """abcdefgh such that v is (-1)^a * (16 + efgh) / 16 * 2^n, with n from bcd: 000 is 1, 011 is
     4, 100 is -3, 111 is 0; or None."""
@@ -1357,10 +1398,11 @@ _INSNS = {
     'frintm': _i_fneg, 'frintz': _i_fneg, 'frinta': _i_fneg, 'frintx': _i_fneg,
     'frinti': _i_fneg,
     'clz': _i_dp1, 'rbit': _i_dp1, 'rev16': _i_dp1, 'rev': _i_dp1, 'cnt': _i_simd,
-    'addv': _i_simd, 'ushll': _i_bytes, 'xtn': _i_bytes, 'ld3': _i_bytes, 'umlal': _i_bytes, 'shrn': _i_bytes, 'umull2': _i_bytes, 'umlal2': _i_bytes, 'ushll2': _i_bytes,
+    'addv': _i_simd, 'ushll': _i_vcvt, 'xtn': _i_vcvt, 'sshll': _i_vcvt, 'sshll2': _i_vcvt, 'xtn2': _i_vcvt,
+    'fcvtl': _i_vcvt, 'fcvtl2': _i_vcvt, 'fcvtn': _i_vcvt, 'fcvtn2': _i_vcvt, 'ld3': _i_bytes, 'umlal': _i_bytes, 'shrn': _i_bytes, 'umull2': _i_bytes, 'umlal2': _i_bytes, 'ushll2': _i_vcvt,
     'fmadd': _i_fp4, 'fmsub': _i_fp4, 'fnmadd': _i_fp4, 'fnmsub': _i_fp4,
-    'fmov': _i_fmov, 'fcvt': _i_fcvt, 'fcvtzs': _i_fcvtz, 'fcvtzu': _i_fcvtz,
-    'scvtf': _i_cvtf, 'ucvtf': _i_cvtf, 'fcmp': _i_fcmp, 'fcmpe': _i_fcmp,
+    'fmov': _i_fmov, 'fcvt': _i_fcvt, 'fcvtzs': _vector_or(_i_fcvtz), 'fcvtzu': _vector_or(_i_fcvtz),
+    'scvtf': _vector_or(_i_cvtf), 'ucvtf': _vector_or(_i_cvtf), 'fcmp': _i_fcmp, 'fcmpe': _i_fcmp,
     'ldp': _i_pair, 'stp': _i_pair,
     'b': _i_b, 'bl': _i_b, 'blr': _i_blr, 'br': _i_blr, 'ret': _i_ret,
     'brk': _i_brk, 'hint': _i_brk, 'nop': _i_nop, 'adrp': _i_adrp, 'mrs': _i_tls, 'msr': _i_tls,
@@ -1588,8 +1630,9 @@ class _Asm:
                     continue
                 ops = _split(rest)
                 f = insns.get(mn)
-                if f is _i_bytes:
-                    pass
+                if f is _i_bytes or mn in _VCVT:
+                    if mn in _VCVT and ops and ops[0].strip().lower().startswith('v'):
+                        f = _i_vcvt
                 elif mn in ('umull', 'umlal', 'umull2', 'umlal2') and ops and ops[0].strip().lower().startswith('v'):
                     f = _i_bytes
                 elif _isneon(ops):

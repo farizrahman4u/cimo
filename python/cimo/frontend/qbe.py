@@ -238,6 +238,8 @@ instname += [None]  # IQ: printed by emitinst itself
 # cimo extension: bytes in the backend's class q (16; 32 on x86-64 with AVX2), so GNU vector types of that size or twice
 # it compute in vector registers; 0 (stock cproc output, and wasm): lane by lane. Set by compile(vecq=)
 vecq = 0
+# cimo extension: what else class q does on the target (compile(vecops=)): 'convert', __builtin_convertvector
+vecops = frozenset()
 
 
 def _vol(op, tq):
@@ -1349,7 +1351,7 @@ def _libcall(f, e, name, d):
         c = _stripcast(e.args.next.next)
         if c.kind != EXPRCONST or not c.type.prop & PROPINT or not 0 <= c.u <= _INLINEMEM:
             return None
-        vec = vecq and c.u in (vecq, 2 * vecq) and any(
+        vec = vecq and c.u in (vecq, 2 * vecq, 4 * vecq) and any(
             x.type.kind == TYPEPOINTER and TY.isvec(x.type.base) and x.type.base.size == c.u
             for x in (_stripcast(e.args), _stripcast(e.args.next)))
         dst = funcexpr(f, e.args)
@@ -1797,7 +1799,7 @@ def _qget(f, v, i):
 
 
 def _qcopy(f, dst, src, size):
-    """size bytes (vecq or twice it) as q values: a vector object read and written only this way is a register."""
+    """size bytes (1, 2 or 4 times vecq) as q values: a vector object read and written only this way is a register."""
     for k in range(size // vecq):
         off = (lambda p: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
         _qop(f, 'qstore', _qop(f, 'qload', off(src)), off(dst), res=False)
@@ -1812,7 +1814,7 @@ def _qlane(el):
 
 def _qchunks(t):
     """How many q values a vector type is computed in (0: lane by lane)."""
-    if vecq and t.size in (vecq, 2 * vecq) and t.base.size in (1, 2, 4, 8):
+    if vecq and t.size in (vecq, 2 * vecq, 4 * vecq) and t.base.size in (1, 2, 4, 8):
         return t.size // vecq
     return 0
 
@@ -1941,12 +1943,68 @@ def _vcast(f, dst, src, e):
     return funcinst(f, qt.load, qt.base, v, None)
 
 
+def _qconvert(f, a, st, t, res):
+    """__builtin_convertvector in class q (vecops 'convert'), from the vector at a into res; False if it can't:
+    widening and narrowing by halves, then the conversion between int and float at one width."""
+    s, d = st.base, t.base
+    if 'convert' not in vecops or st.size % vecq or t.size % vecq or max(st.size, t.size) > 4 * vecq:
+        return False
+    sf, df = bool(s.prop & PROPFLOAT), bool(d.prop & PROPFLOAT)
+    if (sf and s.size not in (4, 8)) or (df and d.size not in (4, 8)) or (not sf and not df and s.size == d.size):
+        if not sf and not df:  # the same bits
+            _qcopy(f, res, a, t.size)
+            return True
+        return False
+    if not sf and df and s.size > d.size:
+        return False  # int64 to float through double rounds twice
+    off = (lambda p, k: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
+    vals = [_qop(f, 'qload', off(a, k)) for k in range(st.size // vecq)]
+    size = s.size
+
+    def widen(vals, size, fl, signed):
+        out = []
+        for v in vals:
+            if fl:
+                out += [_qop(f, 'qfcvtl', v), _qop(f, 'qfcvth', v)]
+            else:
+                x = 'bhw'[size.bit_length() - 1]
+                p = 'qsx' if signed else 'qux'
+                out += [_qop(f, p + 'l' + x, v), _qop(f, p + 'h' + x, v)]
+        return out
+
+    def narrow(vals, size, fl):
+        name = 'qfcvtn' if fl else 'qnrw' + 'bhwl'[size.bit_length() - 1]
+        return [_qop(f, name, vals[k], vals[k + 1]) for k in range(0, len(vals), 2)]
+
+    if sf == df:
+        while size < d.size:
+            vals, size = widen(vals, size, sf, s.issigned), size * 2
+        while size > d.size:
+            vals, size = narrow(vals, size, sf), size // 2
+    elif df:  # int to float: widened as an int (exact), converted at the float's width
+        while size < d.size:
+            vals, size = widen(vals, size, False, s.issigned), size * 2
+        vals = [_qop(f, ('qitof' if s.issigned else 'quitof') + _qlane(d), v) for v in vals]
+    else:  # float to int: widened as a float (exact) or converted then narrowed (in range, the same)
+        if size < d.size:
+            vals, size = widen(vals, size, True, False), size * 2
+        vals = [_qop(f, ('qftoi' if d.issigned else 'qftou') + _qlane(s if size == s.size else TY.typedouble), v)
+                for v in vals]
+        while size > d.size:
+            vals, size = narrow(vals, size, False), size // 2
+    for k, v in enumerate(vals):
+        _qop(f, 'qstore', v, off(res, k), res=False)
+    return True
+
+
 def _vbuiltin(f, e):
     t = e.type
     el = t.base
     a = funcexpr(f, e.l)
     st = e.l.type
     res = _cxslot(f, t)
+    if e.op == 'convert' and _qconvert(f, a, st, t, res):
+        return res
     if e.op == 'convert':
         for i in range(t.vlanes):
             _vput(f, res, el, i, convert(f, el, st.base, _vlane(f, a, st.base, i)))

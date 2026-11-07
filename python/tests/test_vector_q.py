@@ -59,9 +59,11 @@ _CT = {'signed char': ctypes.c_int8, 'unsigned char': ctypes.c_uint8, 'short': c
        'unsigned long': ctypes.c_uint64, 'float': ctypes.c_float, 'double': ctypes.c_double}
 
 
-@pytest.mark.parametrize('size', [16, 32])
+@pytest.mark.parametrize('size', [16, 32, 64])
 @pytest.mark.parametrize('ty', TYPES)
 def test_operators_match_lane_by_lane(ty, size, monkeypatch):
+    if size == 64 and ty not in ('signed char', 'unsigned', 'double'):
+        pytest.skip('four q values: a few element types are enough')
     src, nout, ncmp = _src(ty, size)
     q = cimo.compile(src, cache=False)
     monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
@@ -89,7 +91,7 @@ def test_every_q_operation_compiles(target, monkeypatch):
     monkeypatch.setattr(driver, '_x86', lambda tg=None: feats if (tg or driver.TARGET).startswith('amd64') else frozenset())
     monkeypatch.setattr(driver, 'TARGET', t)
     for ty in TYPES:
-        for size in (16, 32, 64, 0):
+        for size in [z for z in (16, 32, 64, 128) if driver._vecq(t) <= z <= 4 * driver._vecq(t)] + [0]:
             src = _src(ty, size)[0] if size else _lanesrc(ty)
             pp = driver._preprocess(src, 'x.c', target=t)
             ssa, params = driver._ir(pp, 'x.c')
@@ -130,3 +132,36 @@ def test_bytes_of_a_vector_after_a_vector_store():
            '  __builtin_memcpy(&b, (char *)&v + 8, 8); return a * 1000 + b; }\n')
     a = (ctypes.c_uint * 8)(0, 0, 1, 0, 0, 0, 2, 0)
     assert cimo.compile(src, cache=False).f(a) == 1002
+
+
+def _pairs():
+    out = []
+    size = {t: ctypes.sizeof(_CT[t]) for t in TYPES}
+    for s in TYPES:
+        for d in TYPES:
+            for n in (2, 4, 8, 16):
+                if n * size[s] in (16, 32, 64) and n * size[d] in (16, 32, 64):
+                    out.append((s, d, n))
+    return out
+
+
+@pytest.mark.parametrize('s, d, n', _pairs())
+def test_convertvector_matches_lane_by_lane(s, d, n, monkeypatch):
+    src = ('typedef %s S __attribute__((vector_size(%d)));\ntypedef %s D __attribute__((vector_size(%d)));\n'
+           'void f(const S *a, D *r) { *r = __builtin_convertvector(*a, D); }\n'
+           % (s, n * ctypes.sizeof(_CT[s]), d, n * ctypes.sizeof(_CT[d])))
+    q = cimo.compile(src, cache=False)
+    monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
+    lanes = cimo.compile(src, cache=False)
+    rnd = random.Random(n)
+    for _ in range(10):
+        if s in ('float', 'double'):  # in the destination's range: out of it is undefined
+            lo = 0 if d.startswith('unsigned') else -100
+            vals = [rnd.uniform(lo, 100) for _ in range(n)] if d not in ('float', 'double') else _values(s, n, rnd)
+        else:
+            vals = _values(s, n, rnd)
+        a = (_CT[s] * n)(*vals)
+        r1, r2 = (_CT[d] * n)(), (_CT[d] * n)()
+        q.f(a, r1)
+        lanes.f(a, r2)
+        assert bytes(r1) == bytes(r2), (s, d, n, vals, list(r1), list(r2))

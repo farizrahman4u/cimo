@@ -279,3 +279,26 @@ def test_widening_multiplications():
              'umaddl x5, w6, w7, x8', 'umsubl x5, w6, w7, x8']
     d = A.compare('\n'.join(lines) + '\n')
     assert not d, '\n'.join(d)
+
+
+# the vector conversions GNU vector types' __builtin_convertvector uses (encodings from the Arm ARM, checked once
+# against GNU as on Linux arm64)
+_VCVT_WORDS = [
+    ('sshll v1.8h, v2.8b, #0', 0x0f08a441), ('sshll2 v1.8h, v2.16b, #0', 0x4f08a441), ('sshll v1.4s, v2.4h, #0', 0x0f10a441),
+    ('sshll2 v1.4s, v2.8h, #0', 0x4f10a441), ('sshll v1.2d, v2.2s, #0', 0x0f20a441), ('sshll2 v1.2d, v2.4s, #0', 0x4f20a441),
+    ('ushll v1.4s, v2.4h, #0', 0x2f10a441), ('ushll2 v1.2d, v2.4s, #0', 0x6f20a441), ('xtn v1.8b, v2.8h', 0x0e212841),
+    ('xtn2 v1.16b, v2.8h', 0x4e212841), ('xtn v1.4h, v2.4s', 0x0e612841), ('xtn2 v1.8h, v2.4s', 0x4e612841),
+    ('xtn v1.2s, v2.2d', 0x0ea12841), ('xtn2 v1.4s, v2.2d', 0x4ea12841), ('scvtf v1.4s, v2.4s', 0x4e21d841),
+    ('scvtf v1.2d, v2.2d', 0x4e61d841), ('ucvtf v1.4s, v2.4s', 0x6e21d841), ('ucvtf v1.2d, v2.2d', 0x6e61d841),
+    ('fcvtzs v1.4s, v2.4s', 0x4ea1b841), ('fcvtzs v1.2d, v2.2d', 0x4ee1b841), ('fcvtzu v1.4s, v2.4s', 0x6ea1b841),
+    ('fcvtzu v1.2d, v2.2d', 0x6ee1b841), ('fcvtl v1.2d, v2.2s', 0x0e617841), ('fcvtl2 v1.2d, v2.4s', 0x4e617841),
+    ('fcvtn v1.2s, v2.2d', 0x0e616841), ('fcvtn2 v1.4s, v2.2d', 0x4e616841),
+    ('scvtf d0, x1', 0x9e620020), ('fcvtzs w0, s1', 0x1e380020),  # the scalar forms still
+]
+
+
+@pytest.mark.parametrize('text, word', _VCVT_WORDS)
+def test_vector_conversions(text, word):
+    o = assembler.assemble('\t.text\nf:\n\t%s\n' % text)
+    sec = next(s for s in o.sections if 'text' in s.name)
+    assert int.from_bytes(bytes(sec.data)[:4], 'little') == word
