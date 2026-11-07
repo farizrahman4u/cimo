@@ -193,8 +193,9 @@ if __name__ == '__main__':
     sys.exit(1 if bad else 0)
 
 
-# GNU vector types by value (AAPCS64: 8 and 16 bytes in one V register; more than 8 of them go on the stack), against
-# the reference compiler in both directions. arm64 only: x86-64 still passes them as structs of their lanes.
+# GNU vector types by value (AAPCS64: 8 and 16 bytes in one V register; x86-64 SysV: one xmm; more than 8 of them go
+# on the stack; Windows x64: by reference, a 16-byte one returned in xmm0), against the reference compiler in both
+# directions.
 VECTORS = r'''
 typedef unsigned long long u64;
 typedef float v4f __attribute__((vector_size(16)));
@@ -224,8 +225,7 @@ P u64 c2(v4h (*f)(v4h, v16b)) { v4h a = {1, 2, 3, 4}; v16b b = {0}; b[3] = 9; v4
 '''
 
 
-@pytest.mark.skipif(reference() is None or driver.TARGET not in ('arm64', 'arm64_apple', 'arm64_win'),
-                    reason='needs the reference compiler, on arm64')
+@pytest.mark.skipif(reference() is None, reason='needs the reference compiler')
 def test_vectors_by_value(tmp_path):
     cmd, ext = reference()
     pre = '#ifdef _MSC_VER\n#define P __declspec(dllexport)\n#else\n#define P\n#endif\n'

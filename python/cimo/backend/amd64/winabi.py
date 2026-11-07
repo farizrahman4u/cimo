@@ -187,6 +187,21 @@ def assign_register_or_stack(u, arg, is_float, by_copy):
     u.num_named_args_passed += 1
 
 
+def _vecret(type):
+    """cimo: a 16-byte GNU vector, which Windows x64 returns in xmm0 (__m128), though it passes it by reference."""
+    return bool(type.isvec) and type.size == 16
+
+
+def _qload(to, addr):
+    from .. import ext as _ext
+    emit(D.Oqload16 if _ext.qbytes() == 32 else Oload, D.Kq, to, addr, R)
+
+
+def _qstore(v, addr):
+    from .. import ext as _ext
+    emit(D.Oqstore16 if _ext.qbytes() == 32 else D.Oqstore, 0, R, v, addr)
+
+
 def type_is_by_copy(type):
     # Note that only these sizes are passed by register, even though e.g. a
     # 5 byte struct would "fit", it still is passed by copy-and-pointer.
@@ -275,7 +290,7 @@ def lower_call(func, block, call_idx, pextra_alloc):
     is_struct_return = False
     if il_has_struct_return:
         ret_type = D.typ[rval(call_instr.arg[1])]
-        is_struct_return = type_is_by_copy(ret_type)
+        is_struct_return = type_is_by_copy(ret_type) and not _vecret(ret_type)
         if is_struct_return:
             assign_register_or_stack(reg_usage, ret_arg_class, False, True)
         ret_arg_class.size = ret_type.size
@@ -315,7 +330,15 @@ def lower_call(func, block, call_idx, pextra_alloc):
         reg_usage.rax_returned = True
         emit(Ocopy, call_instr.cls, call_instr.to, TMP(RAX), R)
     else:
-        if il_has_struct_return:
+        if il_has_struct_return and _vecret(ret_type):  # xmm0 into a 16-byte slot
+            return_copy = ExtraAlloc(
+                Ins(D.Oalloc16, Kl, call_instr.to, getcon(16, func)), pextra_alloc[0])
+            pextra_alloc[0] = return_copy
+            copy = newtmp("abi.copy", D.Kq, func)
+            _qstore(copy, call_instr.to)
+            emit(Ocopy, D.Kq, copy, TMP(XMM0), R)
+            reg_usage.xmm0_returned = True
+        elif il_has_struct_return:
             # At the IL level a struct return was specified, but as far as the
             # calling convention is concerned it's not actually by pointer: store the
             # return value into an alloca, since subsequent IL treats it as a pointer.
@@ -460,7 +483,10 @@ def lower_block_return(func, block):
 
     u = RegisterUsage()
 
-    if jmp_type == Jretc:
+    if jmp_type == Jretc and _vecret(D.typ[func.retty]):
+        _qload(TMP(XMM0), ret_arg)
+        u.xmm0_returned = True
+    elif jmp_type == Jretc:
         type = D.typ[func.retty]
         if type_is_by_copy(type):
             assert rtype(func.retr) == RTmp
@@ -569,7 +595,7 @@ def lower_func_parameters(func):
     reg_counter = 0
     u = RegisterUsage()
     if func.retty >= 0:
-        by_copy = type_is_by_copy(D.typ[func.retty])
+        by_copy = type_is_by_copy(D.typ[func.retty]) and not _vecret(D.typ[func.retty])
         if by_copy:
             assign_register_or_stack(u, arg_ret, False, by_copy)
             ret_ref = newtmp("abi.ret", Kl, func)

@@ -63,7 +63,17 @@ def classify(a, t, s):
         s = s1
 
 
-def typclass(a, t):
+def typclass(a, t, novec=0):
+    """novec: a vector type as the composite of its lanes (variadic arguments: va_arg reads them so)."""
+    if t.isvec and not novec and t.size in (8, 16):
+        # cimo: a GNU vector of 8 or 16 bytes in one xmm (SSE, SSEUP), as gcc passes it
+        a.type = t
+        a.size = t.size
+        a.align = t.align
+        a.inmem = 0
+        a.cls[0] = Kd if t.size == 8 else D.Kq
+        a.cls[1] = Kx
+        return
     sz = t.size
     al = 1 << t.align
 
@@ -109,12 +119,29 @@ def retr(reg, aret):
     n = 0
     while n * 8 < aret.size:
         if aret.cls[n] != Kx:  # fix over C QBE: see _second
-            k = KBASE(aret.cls[n])
+            k = 1 if aret.cls[n] == D.Kq else KBASE(aret.cls[n])
             reg[n] = TMP(_retreg[k][nr[k]])
             nr[k] += 1
             ca += 1 << (2 * k)
         n += 1
     return ca
+
+
+def _load(k, to, addr, cls):
+    """to = the eightbyte (or a vector's 16 bytes, class q) at addr; cls: the load's class otherwise."""
+    if k == D.Kq:  # 16 bytes: with AVX2's 32-byte q, into both halves (qload16)
+        from .. import ext as _ext
+        emit(D.Oqload16 if _ext.qbytes() == 32 else Oload, D.Kq, to, addr, R)
+    else:
+        emit(Oload, cls, to, addr, R)
+
+
+def _store(k, v, addr):
+    if k == D.Kq:
+        from .. import ext as _ext
+        emit(D.Oqstore16 if _ext.qbytes() == 32 else D.Oqstore, 0, R, v, addr)
+    else:
+        emit(Ostorel, 0, R, v, addr)
 
 
 def _bigcopy(size):
@@ -162,7 +189,7 @@ def selret(b, fn):
                 r = newtmp("abi", Kl, fn)
                 emit(Oload, Kl, reg[1], r, R)
                 emit(Oadd, Kl, r, r0, getcon(8, fn))
-            emit(Oload, Kl, reg[0], r0, R)
+            _load(aret.cls[0], reg[0], r0, Kl)
     else:
         k = j - Jretw
         if KBASE(k) == 0:
@@ -206,7 +233,7 @@ def argsclass(ins, i0, i1, ac, op, aret, env):
             a.cls[0] = i.cls
         elif o == Oargc:
             n = rval(i.arg[0])
-            typclass(a, D.typ[n])
+            typclass(a, D.typ[n], varc)
             if a.inmem:
                 continue
             ni = ns = 0
@@ -354,7 +381,7 @@ def selcall(fn, ins, i0, i1, rap):
                 emit(Ostorel, 0, R, aret.ref[1], r)
                 emit(Oadd, Kl, r, ic.to, getcon(8, fn))
             aret.ref[0] = newtmp("abi", aret.cls[0], fn)
-            emit(Ostorel, 0, R, aret.ref[0], ic.to)
+            _store(aret.cls[0], aret.ref[0], ic.to)
             reg = [R, R]
             ca += retr(reg, aret)
             if _second(aret):
@@ -398,7 +425,7 @@ def selcall(fn, ins, i0, i1, rap):
                 r = newtmp("abi", Kl, fn)
                 emit(Oload, a.cls[1], r2, r, R)
                 emit(Oadd, Kl, r, i.arg[1], getcon(8, fn))
-            emit(Oload, a.cls[0], r1, i.arg[1], R)
+            _load(a.cls[0], r1, i.arg[1], a.cls[0])
         else:
             emit(Ocopy, i.cls, r1, i.arg[0], R)
 
@@ -454,8 +481,8 @@ def selpar(fn, i0, i1):
             a.ref[1] = newtmp("abi", Kl, fn)
             emit(Ostorel, 0, R, a.ref[1], r)
             emit(Oadd, Kl, r, i.to, getcon(8, fn))
-        a.ref[0] = newtmp("abi", Kl, fn)
-        emit(Ostorel, 0, R, a.ref[0], i.to)
+        a.ref[0] = newtmp("abi", D.Kq if a.cls[0] == D.Kq else Kl, fn)
+        _store(a.cls[0], a.ref[0], i.to)
         # specific to NAlign == 3
         al = a.align - 2 if a.align >= 2 else 0
         emit(Oalloc + al, Kl, i.to, getcon(a.size, fn), R)

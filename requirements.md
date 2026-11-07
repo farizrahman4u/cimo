@@ -1462,8 +1462,9 @@ for Linux and macOS (strategies under "Platform loading findings").
     (as structs of lanes): `v` itself is only ever accessed whole, so it stays a register. Calls on arm64 (2026-11-07,
     frontend `vecabi=`; the IR's `type :v = align 16 vector { s 4 }`): 8- and 16-byte vectors go in one V register as
     AAPCS64 says and gcc and clang do, named ones only (past `...` as the struct of their lanes, as `va_arg` reads them;
-    gcc would use V registers there too). x86-64 still passes them as structs: a 16-byte vector is one xmm there, and with
-    AVX2 class q is 32 bytes, so it needs a 128-bit class first. Shifts by a variable or a
+    gcc would use V registers there too). x86-64 SysV (2026-11-07): one xmm, class d or q (`sysv.typclass`), moved
+    with `qload16`/`qstore16` when q is AVX2's 32 bytes; Windows x64 passes them by reference as any struct over 8 bytes
+    and returns a 16-byte one in xmm0 (`winabi._vecret`), as MSVC and MinGW gcc do. Shifts by a variable or a
     vector on arm64 (`vecops` 'vshift'): `sshl`/`ushl` (`qsshlv`/`qushlv`), by the negated count for `>>`. `__builtin_convertvector` on arm64 (frontend
     `vecops=('convert',)`): integers widened by halves (`qsxl`/`qsxh`, `sshll`/`sshll2`), narrowed in pairs (`qnrw`, `xtn`/`xtn2`),
     floats likewise (`fcvtl`/`fcvtn`), then `scvtf`/`ucvtf`/`fcvtzs`/`fcvtzu` at one width; int64 to float stays lane by lane
@@ -1475,8 +1476,7 @@ for Linux and macOS (strategies under "Platform loading findings").
     write, and SSA's undefined value has no q constant (gcc's vector-div-neg-pow2.c). x86-64 has none of these ops yet (`pshufb` is SSSE3, past the baseline). A slot only ever read and written whole by
     `qload`/`qstore` becomes a q temporary (`mem.promote`), so vector locals live in registers; initializer lists fill a
     slot of their own first. Lane by lane still: what q lacks (integer `/` and `%`, 64-bit `*`; on x86-64 shifts by a variable of 8- and 16-bit
-    lanes and `>>` of signed 64-bit ones), `__builtin_shuffle`, shuffles wider than one q value, and calls on x86-64 (vectors as structs of lanes, not in
-    vector registers as gcc passes them). 16-byte vectors with AVX2's 32-byte q (2026-11-07, `vecops` 'q16'): one q value,
+    lanes and `>>` of signed 64-bit ones), `__builtin_shuffle`, shuffles wider than one q value. 16-byte vectors with AVX2's 32-byte q (2026-11-07, `vecops` 'q16'): one q value,
     loaded into both halves (`qload16`, `vbroadcasti128`: the upper lanes repeat the lower, so no extra FP exception) and
     stored from the lower (`qstore16`). With AVX2 also shifts by a variable (`vpsllv`/`vpsrlv`/`vpsravd`, by direction:
     `qshlv`, `qshrv`, `qsarvw`; `vecops` 'vshiftx') and 16-byte `__builtin_shufflevector` (`qtbl` as `vpshufb`, which works
