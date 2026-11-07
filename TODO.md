@@ -267,6 +267,15 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
+- **`#pragma omp simd reduction(+:s)` does nothing yet** (found by scramjit, 2026-11-07, Snapdragon X). The
+  preprocessor keeps the pragma and the spec ("Floating point") says it opts a loop into vectorized reductions, but
+  the frontend drops it: a dot product of 1M doubles takes 1.36 ms with or without it, same bits (the vectorizer's
+  in-order fold, `_ordered`). Numba with fastmath takes 0.34 ms (gcc -O3 -ffast-math is similar). Wanted: the named
+  float sums (and products, `fmin`/`fmax`) of the loop the pragma precedes become unordered reductions, with
+  `INTERLEAVE` accumulators as integer ones already get; nothing else about the loop's floating point changes (no
+  no-NaN or no-inf assumptions). scramjit will emit it for `reassociate=True`, a new opt-in separate from `parity`.
+  When done, note it in scramjit's `TODO.md`.
+
 - **A fast bundled libm, for scramjit's `parity=False`** (found by scramjit, 2026-11-07). scramjit's `parity=False`
   calls cimo's C library for `math` (its `parity=True` keeps the host's, as CPython does, and its own CPython-exact
   code). Agreed direction: cimo's functions as fast as glibc's or faster, which beats calling the host library because
