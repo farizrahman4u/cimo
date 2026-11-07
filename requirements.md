@@ -1475,12 +1475,16 @@ for Linux and macOS (strategies under "Platform loading findings").
     write, and SSA's undefined value has no q constant (gcc's vector-div-neg-pow2.c). x86-64 has none of these ops yet (`pshufb` is SSSE3, past the baseline). A slot only ever read and written whole by
     `qload`/`qstore` becomes a q temporary (`mem.promote`), so vector locals live in registers; initializer lists fill a
     slot of their own first. Lane by lane still: what q lacks (integer `/` and `%`, 64-bit `*`; on x86-64 shifts by a variable of 8- and 16-bit
-    lanes and `>>` of signed 64-bit ones), `__builtin_shuffle`, shuffles wider than one q value, `convertvector` on x86-64, and calls on x86-64 (vectors as structs of lanes, not in
+    lanes and `>>` of signed 64-bit ones), `__builtin_shuffle`, shuffles wider than one q value, and calls on x86-64 (vectors as structs of lanes, not in
     vector registers as gcc passes them). 16-byte vectors with AVX2's 32-byte q (2026-11-07, `vecops` 'q16'): one q value,
     loaded into both halves (`qload16`, `vbroadcasti128`: the upper lanes repeat the lower, so no extra FP exception) and
     stored from the lower (`qstore16`). With AVX2 also shifts by a variable (`vpsllv`/`vpsrlv`/`vpsravd`, by direction:
     `qshlv`, `qshrv`, `qsarvw`; `vecops` 'vshiftx') and 16-byte `__builtin_shufflevector` (`qtbl` as `vpshufb`, which works
-    within each half and gives 0 for an index with its top bit set, as `tbl` does past 15; 'shuffle16'). Not yet: `__int128` lanes, `ext_vector_type`.
+    within each half and gives 0 for an index with its top bit set, as `tbl` does past 15; 'shuffle16') and `__builtin_convertvector` ('convertx': `vpmovsx`/`vpmovzx`, through `xmm15` for a high half;
+    narrowing by clearing the high bits, `vpackuswb`/`vpackusdw` and `vpermq $0xd8`, or `vpshufd`/`vpermq`/`vinserti128` for
+    64 to 32 bits; `vcvtps2pd`, `vcvtpd2ps`; `vcvtdq2ps`, `vcvttps2dq`): unsigned 32-bit and 64-bit ints to or from
+    floats are AVX-512's, so lane by lane (int16 to double goes through float, exact). A 16-byte vector narrowed from
+    one q value lands in its lower half (the pair is the value twice). Not yet: `__int128` lanes, `ext_vector_type`.
     `aligned` after a declarator applies to the object/member, and on a typedef makes an
     over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's
     `#define __attribute__(x)` (made for non-GNU compilers), so attributes are never dropped.

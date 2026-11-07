@@ -443,3 +443,10 @@ def test_f16c_and_broadcast(text, want):
 _F16C += [('vpsllvd %ymm2, %ymm1, %ymm0', 'c4 e2 75 47 c2'), ('vpsllvq %ymm2, %ymm1, %ymm0', 'c4 e2 f5 47 c2'),
           ('vpsrlvd %ymm2, %ymm1, %ymm0', 'c4 e2 75 45 c2'), ('vpsrlvq %ymm2, %ymm1, %ymm0', 'c4 e2 f5 45 c2'),
           ('vpsravd %ymm2, %ymm1, %ymm0', 'c4 e2 75 46 c2')]
+_F16C += [('vpmovsxbw %xmm1, %ymm0', 'c4 e2 7d 20 c1'), ('vpmovsxwd %xmm1, %ymm0', 'c4 e2 7d 23 c1'),
+          ('vpmovsxdq %xmm1, %ymm0', 'c4 e2 7d 25 c1'), ('vpmovzxbw %xmm1, %ymm0', 'c4 e2 7d 30 c1'),
+          ('vpmovzxwd %xmm1, %ymm0', 'c4 e2 7d 33 c1'), ('vpmovzxdq %xmm1, %ymm0', 'c4 e2 7d 35 c1'),
+          ('vcvtps2pd %xmm1, %ymm0', 'c5 fc 5a c1'), ('vcvtpd2ps %ymm1, %xmm0', 'c5 fd 5a c1'),
+          ('vcvtdq2ps %ymm1, %ymm0', 'c5 fc 5b c1'), ('vcvttps2dq %ymm1, %ymm0', 'c5 fe 5b c1'),
+          ('vpackuswb %ymm2, %ymm1, %ymm0', 'c5 f5 67 c2'), ('vpackusdw %ymm2, %ymm1, %ymm0', 'c4 e2 75 2b c2'),
+          ('vpmovzxbw (%rax), %ymm0', 'c4 e2 7d 30 00'), ('vpmovsxbw %xmm15, %ymm8', 'c4 42 7d 20 c7')]

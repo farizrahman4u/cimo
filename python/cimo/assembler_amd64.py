@@ -1053,6 +1053,8 @@ def _avxwidths(mn, form, ops, op):
     """xmm and ymm operands that agree, as GNU as requires: one width, but where the instruction mixes them."""
     regs = [o for o in ops if o[0] in ('x', 'y')]
     kinds = {o[0] for o in regs}
+    if form in ('rmw', 'rmn'):  # widening and narrowing take mixed widths
+        return
     if form == 'mri' and op == 0x1d:  # vcvtps2ph: 4 or 8 floats into an %xmm or memory
         if ops[1][0] == 'y':
             raise AssemblerError('vcvtps2ph writes an %xmm or memory')
@@ -1105,6 +1107,14 @@ def _h_avx(a, ops, sz, arg):
         _nops(ops, 4)
         mask, src2, src1, dst = _vr(ops[0]), _vr(ops[1], True), _vr(ops[2]), _vr(ops[3])
         return _enc(a, bytes([op]), dst, src2, vex=(pp, mm, W, dst[0] == 'y', src1[2]), imm=(1, None, mask[2] << 4, None))
+    if form == 'rmw':  # widening: the destination's length
+        _nops(ops, 2)
+        src, dst = _vr(ops[0], True), _vr(ops[1])
+        return _enc(a, bytes([op]), dst, src, vex=(pp, mm, W, dst[0] == 'y', 0))
+    if form == 'rmn':  # narrowing: the source's length (vcvtpd2ps %ymm, %xmm)
+        _nops(ops, 2)
+        src, dst = _vr(ops[0], True), _vr(ops[1])
+        return _enc(a, bytes([op]), dst, src, vex=(pp, mm, W, src[0] == 'y', 0))
     if form in ('rm', 'rmi'):
         _nops(ops, 2)
         src, dst = _vr(ops[0], True), _vr(ops[1])
@@ -1322,9 +1332,15 @@ for _n, _o in (('vpmulld', 0x40), ('vpcmpeqq', 0x29), ('vpcmpgtq', 0x37), ('vpmi
                ('vpminuw', 0x3a), ('vpminud', 0x3b), ('vpmaxsb', 0x3c), ('vpmaxsd', 0x3d), ('vpmaxuw', 0x3e),
                ('vpmaxud', 0x3f)):
     _AVX.append((_n, _P66, 2, _o, 0, 'rvm'))
+# widening and narrowing (GNU vectors' __builtin_convertvector): rmw, an %xmm or memory into a wider register (the
+# destination's length); rmn, a %ymm into an %xmm (the source's length)
+_AVX += [('vpmovsxbw', _P66, 2, 0x20, 0, 'rmw'), ('vpmovsxwd', _P66, 2, 0x23, 0, 'rmw'), ('vpmovsxdq', _P66, 2, 0x25, 0, 'rmw'),
+         ('vpmovzxwd', _P66, 2, 0x33, 0, 'rmw'), ('vpmovzxdq', _P66, 2, 0x35, 0, 'rmw'), ('vcvtps2pd', _P0, 1, 0x5a, 0, 'rmw'),
+         ('vcvtpd2ps', _P66, 1, 0x5a, 0, 'rmn'), ('vcvtdq2ps', _P0, 1, 0x5b, 0, 'rm'), ('vcvttps2dq', _PF3, 1, 0x5b, 0, 'rm'),
+         ('vpackuswb', _P66, 1, 0x67, 0, 'rvm'), ('vpackusdw', _P66, 2, 0x2b, 0, 'rvm')]
 _AVX += [('vpsllvd', _P66, 2, 0x47, 0, 'rvm'), ('vpsllvq', _P66, 2, 0x47, 1, 'rvm'), ('vpsrlvd', _P66, 2, 0x45, 0, 'rvm'),
          ('vpsrlvq', _P66, 2, 0x45, 1, 'rvm'), ('vpsravd', _P66, 2, 0x46, 0, 'rvm')]  # AVX2 shifts by a vector
-_AVX += [('vpshufb', _P66, 2, 0x00, 0, 'rvm'), ('vpmovzxbw', _P66, 2, 0x30, 0, 'rm'),  # vectorize's loops over bytes
+_AVX += [('vpshufb', _P66, 2, 0x00, 0, 'rvm'), ('vpmovzxbw', _P66, 2, 0x30, 0, 'rmw'),  # vectorize's loops over bytes
          ('vbroadcastss', _P66, 2, 0x18, 0, 'rm'), ('vbroadcastsd', _P66, 2, 0x19, 0, 'rm'),
          ('vpbroadcastb', _P66, 2, 0x78, 0, 'rm'), ('vpbroadcastw', _P66, 2, 0x79, 0, 'rm'),
          ('vpbroadcastd', _P66, 2, 0x58, 0, 'rm'), ('vpbroadcastq', _P66, 2, 0x59, 0, 'rm'),

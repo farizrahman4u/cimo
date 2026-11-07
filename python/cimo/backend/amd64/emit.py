@@ -466,6 +466,48 @@ def _qy(r):
     return "%%ymm%d" % (rval(r) - XMM0)
 
 
+# __builtin_convertvector's ops (frontend vecops 'convertx'), AVX2 on 32 bytes: widen the low 16 bytes (or, through
+# ymm15, the high), narrow a pair into one (packed within each half, then vpermq puts the halves in order), convert
+_QYW = {'b': 'bw', 'h': 'wd', 'w': 'dq'}
+_QYCVT = frozenset(['q%s%s%s' % (s, h, x) for s in ('sx', 'ux') for h in 'lh' for x in 'bhw'] +
+                   ['qfcvtl', 'qfcvth', 'qfcvtn', 'qnrwh', 'qnrww', 'qnrwl', 'qitofs', 'qftois'])
+
+
+def _qx15(r):
+    return "%%xmm%d" % (rval(r) - XMM0)
+
+
+def _qycvt(f, name, to, a, b):
+    w = f.write
+    if name in ('qitofs', 'qftois'):
+        w("\t%s %s, %s\n" % ('vcvtdq2ps' if name == 'qitofs' else 'vcvttps2dq', _qy(a), _qy(to)))
+    elif name in ('qfcvtl', 'qfcvth'):
+        src = _qx15(a)
+        if name == 'qfcvth':
+            w("\tvextractf128 $1, %s, %%xmm15\n" % _qy(a))
+            src = '%xmm15'
+        w("\tvcvtps2pd %s, %s\n" % (src, _qy(to)))
+    elif name == 'qfcvtn':  # lo's 4 doubles, then hi's
+        w("\tvcvtpd2ps %s, %%xmm15\n\tvcvtpd2ps %s, %s\n\tvinsertf128 $1, %s, %%ymm15, %s\n"
+          % (_qy(a), _qy(b), _qx15(to), _qx15(to), _qy(to)))
+    elif name[:3] in ('qsx', 'qux'):
+        mn = ('vpmovsx' if name[1] == 's' else 'vpmovzx') + _QYW[name[-1]]
+        src = _qx15(a)
+        if name[3] == 'h':
+            w("\tvextracti128 $1, %s, %%xmm15\n" % _qy(a))
+            src = '%xmm15'
+        w("\t%s %s, %s\n" % (mn, src, _qy(to)))
+    elif name in ('qnrwh', 'qnrww'):  # the low byte or half of each lane, lo's then hi's
+        bits, sl, sr, pack = (8, 'vpsllw', 'vpsrlw', 'vpackuswb') if name == 'qnrwh' else (16, 'vpslld', 'vpsrld', 'vpackusdw')
+        w("\t%s $%d, %s, %%ymm15\n\t%s $%d, %%ymm15, %%ymm15\n" % (sl, bits, _qy(a), sr, bits))
+        w("\t%s $%d, %s, %s\n\t%s $%d, %s, %s\n" % (sl, bits, _qy(b), _qy(to), sr, bits, _qy(to), _qy(to)))
+        w("\t%s %s, %%ymm15, %s\n\tvpermq $0xd8, %s, %s\n" % (pack, _qy(to), _qy(to), _qy(to), _qy(to)))
+    else:  # qnrwl: the low dword of each qword
+        w("\tvpshufd $0x08, %s, %%ymm15\n\tvpermq $0x08, %%ymm15, %%ymm15\n" % _qy(a))
+        w("\tvpshufd $0x08, %s, %s\n\tvpermq $0x08, %s, %s\n" % (_qy(b), _qy(to), _qy(to), _qy(to)))
+        w("\tvinserti128 $1, %s, %%ymm15, %s\n" % (_qx15(to), _qy(to)))
+
+
 def _narrowmasks(k):
     """vpshufb masks for channel k of 8 pixels (24 bytes) as 16-bit lanes: from the 16 bytes at 0 and the 16 at 8;
     0x80 makes a zero byte, so the lanes come out zero-extended."""
@@ -626,7 +668,9 @@ def _qins_y(i, e):
     if name in ('qxfmams', 'qxfmamd'):
         _fma3(f, 'p' + name[-1], to, a, _memtext(b, e), e.qthird, y=True)
         return True
-    if name in _QY:
+    if name in _QYCVT:
+        _qycvt(f, name, to, a, b)
+    elif name in _QY:
         f.write("\t%s %s, %s, %s\n" % (_QY[name], _qy(b), _qy(a), _qy(to)))
     elif name in _QYSWAPPED:
         f.write("\t%s %s, %s, %s\n" % (_QYSWAPPED[name], _qy(a), _qy(b), _qy(to)))

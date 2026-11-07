@@ -2088,56 +2088,95 @@ def _vcast(f, dst, src, e):
 
 
 def _qconvert(f, a, st, t, res):
-    """__builtin_convertvector in class q (vecops 'convert'), from the vector at a into res; False if it can't:
-    widening and narrowing by halves, then the conversion between int and float at one width."""
+    """__builtin_convertvector in class q, from the vector at a into res; False if it can't: widening and narrowing by
+    halves, then the conversion between int and float at one width. vecops 'convert' (arm64): every op; 'convertx'
+    (x86-64 AVX2): no unsigned or 64-bit int to float or back (AVX-512's), and a 16-byte vector in a ymm's lower half."""
+    full = 'convert' in vecops
+    if not vecq or not (full or 'convertx' in vecops):
+        return False
     s, d = st.base, t.base
-    if not vecq or 'convert' not in vecops or st.size % vecq or t.size % vecq or max(st.size, t.size) > 4 * vecq:
+
+    def fits(n):
+        return n <= 4 * vecq and (n % vecq == 0 or n == 16 and vecq == 32 and 'q16' in vecops)
+
+    if not fits(st.size) or not fits(t.size):
         return False
     sf, df = bool(s.prop & PROPFLOAT), bool(d.prop & PROPFLOAT)
-    if (sf and s.size not in (4, 8)) or (df and d.size not in (4, 8)) or (not sf and not df and s.size == d.size):
-        if not sf and not df:  # the same bits
-            _qcopy(f, res, a, t.size)
-            return True
+    if (sf and s.size not in (4, 8)) or (df and d.size not in (4, 8)):
         return False
-    if not sf and df and s.size > d.size:
-        return False  # int64 to float through double rounds twice
-    off = (lambda p, k: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
-    vals = [_qop(f, 'qload', off(a, k)) for k in range(st.size // vecq)]
-    size = s.size
-
-    def widen(vals, size, fl, signed):
-        out = []
-        for v in vals:
-            if fl:
-                out += [_qop(f, 'qfcvtl', v), _qop(f, 'qfcvth', v)]
-            else:
-                x = 'bhw'[size.bit_length() - 1]
-                p = 'qsx' if signed else 'qux'
-                out += [_qop(f, p + 'l' + x, v), _qop(f, p + 'h' + x, v)]
-        return out
-
-    def narrow(vals, size, fl):
-        name = 'qfcvtn' if fl else 'qnrw' + 'bhwl'[size.bit_length() - 1]
-        return [_qop(f, name, vals[k], vals[k + 1]) for k in range(0, len(vals), 2)]
-
+    if not sf and not df and s.size == d.size:  # the same bits
+        _qcopy(f, res, a, t.size)
+        return True
+    has = (lambda name: full or not (name.startswith(('quitof', 'qftou')) or name in ('qitofd', 'qftoid')))
+    # the plan: (kind, ...) steps on (value, bytes) pairs
+    steps = []
+    size, fl, signed = s.size, sf, s.issigned
     if sf == df:
         while size < d.size:
-            vals, size = widen(vals, size, sf, s.issigned), size * 2
+            steps.append(('widen', size, fl, signed))
+            size *= 2
         while size > d.size:
-            vals, size = narrow(vals, size, sf), size // 2
+            steps.append(('narrow', size, fl))
+            size //= 2
     elif df:  # int to float: widened as an int (exact), converted at the float's width
-        while size < d.size:
-            vals, size = widen(vals, size, False, s.issigned), size * 2
-        vals = [_qop(f, ('qitof' if s.issigned else 'quitof') + _qlane(d), v) for v in vals]
-    else:  # float to int: widened as a float (exact) or converted then narrowed (in range, the same)
+        if size > d.size:
+            return False  # int64 to float through double rounds twice
+        to = d.size
+        if not has('qitofd') and d.size == 8 and size <= 2:
+            to = 4  # x86-64: through float, exact for 16-bit ints
+        if not full and (to != 4 or size == 4 and not signed):
+            return False
+        while size < to:
+            steps.append(('widen', size, False, signed))
+            size *= 2
+        name = ('qitof' if signed or size > s.size else 'quitof') + ('s' if to == 4 else 'd')
+        if not has(name):
+            return False
+        steps.append(('op', name))
+        if to < d.size:
+            steps.append(('widen', 4, True, False))
+    else:  # float to int: widened as a float (exact), or converted then narrowed (in range, the same)
         if size < d.size:
-            vals, size = widen(vals, size, True, False), size * 2
-        vals = [_qop(f, ('qftoi' if d.issigned else 'qftou') + _qlane(s if size == s.size else TY.typedouble), v)
-                for v in vals]
+            steps.append(('widen', size, True, False))
+            size *= 2
+        name = ('qftoi' if d.issigned or (d.size < size and size == 4) else 'qftou') + ('s' if size == 4 else 'd')
+        if not has(name):
+            return False
+        steps.append(('op', name))
         while size > d.size:
-            vals, size = narrow(vals, size, False), size // 2
-    for k, v in enumerate(vals):
-        _qop(f, 'qstore', v, off(res, k), res=False)
+            steps.append(('narrow', size, False))
+            size //= 2
+    ld16, st16 = _qls(16)
+    off = (lambda p, k: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
+    if st.size < vecq:
+        vals = [(_qop(f, ld16, a), 16)]
+    else:
+        vals = [(_qop(f, 'qload', off(a, k)), vecq) for k in range(st.size // vecq)]
+    for step in steps:
+        if step[0] == 'op':
+            vals = [(_qop(f, step[1], v), n) for v, n in vals]
+        elif step[0] == 'widen':
+            _, sz, isfl, sg = step
+            x = 'bhw'[sz.bit_length() - 1]
+            lo, hi = ('qfcvtl', 'qfcvth') if isfl else (('qsx' if sg else 'qux') + 'l' + x, ('qsx' if sg else 'qux') + 'h' + x)
+            out = []
+            for v, n in vals:
+                out.append((_qop(f, lo, v), min(2 * n, vecq)))
+                if n == vecq:
+                    out.append((_qop(f, hi, v), vecq))
+            vals = out
+        else:
+            _, sz, isfl = step
+            name = 'qfcvtn' if isfl else 'qnrw' + 'bhwl'[sz.bit_length() - 1]
+            if len(vals) == 1:  # one value into its lower half (the upper repeats it)
+                vals = [(_qop(f, name, vals[0][0], vals[0][0]), 16)]
+            else:
+                vals = [(_qop(f, name, vals[k][0], vals[k + 1][0]), vecq) for k in range(0, len(vals), 2)]
+    if t.size < vecq:
+        _qop(f, st16, vals[0][0], res, res=False)
+    else:
+        for k, (v, n) in enumerate(vals):
+            _qop(f, 'qstore', v, off(res, k), res=False)
     return True
 
 
@@ -2184,7 +2223,8 @@ def _qperm(f, a, b, es, n, idx):
 def _qshuffle(f, a, b, st, t, idx, res):
     """__builtin_shufflevector of two vectors of one q value into one (vecops 'shuffle': arm64 tbl): a byte table for
     each source, 0xff (tbl's 0) where the byte comes from the other; False if it can't."""
-    if not ('shuffle' in vecops and st.size == t.size == vecq or 'shuffle16' in vecops and st.size == t.size == 16):
+    if not vecq or not ('shuffle' in vecops and st.size == t.size == vecq or
+                        'shuffle16' in vecops and vecq == 32 and st.size == t.size == 16):
         return False  # shuffle16: x86-64 AVX2's vpshufb, within each 16-byte half
     es, n = st.base.size, st.vlanes
     ld, stq = _qls(16 if 'shuffle16' in vecops else vecq)

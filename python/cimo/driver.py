@@ -535,7 +535,7 @@ def _vecops(target=None):
     if not _is_amd64(target):
         return ('convert', 'shuffle', 'half', 'vshift')
     x86 = _x86(target)
-    return (('half',) if 'f16c' in x86 else ()) + (('q16', 'vshiftx', 'shuffle16') if 'avx2' in x86 else ())
+    return (('half',) if 'f16c' in x86 else ()) + (('q16', 'vshiftx', 'shuffle16', 'convertx') if 'avx2' in x86 else ())
 
 
 def _ir(pp, filename='<string>', host_headers=False):
