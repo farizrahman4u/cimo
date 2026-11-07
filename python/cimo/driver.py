@@ -894,9 +894,10 @@ class Kernel:
         words[4] = self._image.address('__cimo_entry_' + name)
         ctypes.memmove(ctypes.addressof(words) + 40, kinds, len(kinds))
         method = _PyMethodDef(name.encode(), entry, 0x80, None)  # METH_FASTCALL
-        f = _PyCFunction_NewEx(ctypes.addressof(method), ctypes.addressof(words), None)
-        self._keep = (fallback, post, words, method, f)  # what the words and the builtin point at
-        return f
+        # the builtin owns what it points at through its module reference, which its dealloc drops last (it reads
+        # the method's flags first): the kernel's class can outlive the kernel, holding the builtin
+        owner = (method, words, fallback, post)
+        return _PyCFunction_NewEx(ctypes.addressof(method), ctypes.addressof(words), owner)
 
     def __repr__(self) -> str:
         return '<cimo kernel %s>' % self.__name__

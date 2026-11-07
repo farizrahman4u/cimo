@@ -1003,7 +1003,9 @@ numpy scalars, `bytes`, read-only or empty buffers, ints over 64 bits, no contex
 results and errors are the ctypes path's. The Python C API is a table filled at load (`driver._pyapi`: the object
 header's size found by reading `id(1.5)`, so free-threaded builds work), so nothing resolves at link time. A thread
 reusing a dead thread's key goes through Python first: context word 120 (`CTX_PY`) is set by `State.ctx` and cleared
-by a finalizer in the thread's `threading.local`. A `double, double, long` call 661 to 92 ns on the Snapdragon X laptop
+by a finalizer in the thread's `threading.local`. The builtin owns its `PyMethodDef` and words through its `m_module`
+(its dealloc reads the method's flags before dropping that): owned by the kernel instead, the per-kernel class could
+outlive them, and free-threaded 3.13 (mimalloc reuses blocks at once) crashed in GC. A `double, double, long` call 661 to 92 ns on the Snapdragon X laptop
 (a bare builtin call there 39 ns; the GIL release is most of the rest). Each new set of signatures compiles once per
 process, about 5 ms.
 
