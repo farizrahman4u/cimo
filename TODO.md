@@ -267,6 +267,15 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
+- **Kernel calls without ctypes** (found by scramjit, 2026-11-07, Snapdragon X laptop). After the faster
+  `Kernel.__call__` (2026-11-05), a call of a kernel taking two doubles and a long still costs 830 to 900 ns here;
+  scramjit's whole call of a compiled `a + b` is now 1,145 ns, of which its own dispatch is about 300. Numba's whole
+  call is 112 ns, Cython's 24, CPython's `a + b` 36, so for small functions the ctypes call is most of the gap.
+  Idea: since cimo compiles C and can link `python`, make each kernel's Python entry a C function with the CPython
+  `METH_FASTCALL` convention (arguments converted in C: `PyFloat_AsDouble`, `PyLong_AsLongLong`, a buffer's
+  address), compiled with the kernel and wrapped by `PyCFunction_New`, falling back to ctypes where the Python C API
+  isn't there (Pyodide?). Expect under 100 ns. When done, note it in scramjit's `TODO.md`.
+
 - **`#pragma omp simd reduction(+:s)` does nothing yet** (found by scramjit, 2026-11-07, Snapdragon X). The
   preprocessor keeps the pragma and the spec ("Floating point") says it opts a loop into vectorized reductions, but
   the frontend drops it: a dot product of 1M doubles takes 1.36 ms with or without it, same bits (the vectorizer's
