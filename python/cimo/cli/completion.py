@@ -64,3 +64,12 @@ function __cimo_complete
 end
 complete -c cimo -f -a '(__cimo_complete)'
 '''
+
+
+SHELLS = {'bash': BASH, 'zsh': ZSH, 'fish': FISH}
+
+
+def script(shell, prog):
+    """The completion script for a program built on this package ('bash', 'zsh' or 'fish'); it calls
+    `prog __complete <words>`, which the program answers with parse.complete()."""
+    return SHELLS[shell].replace('cimo', prog)

@@ -65,3 +65,24 @@ $ cimo completion fish > ~/.config/fish/completions/cimo.fish
 ```
 
 Every command takes `--color auto|always|never`.
+
+## Building your own command line
+
+The parser, help, suggestions, colors and shell completion behind `cimo` are a small standard-library framework you can use for your own program's command line:
+
+```python
+from cimo.cli.parse import Command, parse, UsageError
+from cimo.cli.term import Terminal
+from cimo.cli import completion
+
+root = Command('tool', 'What the tool does')
+check = root.command('check', 'Check files', func=run_check)
+check.arg('paths', 'Files to check', nargs='*')
+check.opt('-q', '--quiet', flag=True, help='Less output')
+
+p = parse(root, sys.argv[1:])        # raises UsageError, with suggestions and a hint
+completion.script('bash', 'tool')    # a completion script that calls `tool __complete ...`
+```
+
+`Command(..., unknown_hint=f)` on the root adds a hint when a word isn't a command. `Terminal(stream, 'auto')` colors output when the stream is a terminal, and honors `NO_COLOR`, `FORCE_COLOR` and `CLICOLOR_FORCE`.
+

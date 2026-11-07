@@ -5,6 +5,9 @@ every level, "did you mean" suggestions and shell completion. Standard library o
     run = root.command('run', 'Compile a C program and run its main()', func=do_run)
     run.arg('file', 'C source file')
     run.opt('-I', '--include', metavar='dir', multiple=True, help='...')
+
+Public API (other programs, scramjit's included, build their command lines on it): Command, Opt, Arg,
+UsageError, parse, render_help, usage_line, complete; cimo.cli.term.Terminal; cimo.cli.completion.script.
 """
 
 import difflib
@@ -80,8 +83,12 @@ class Arg:
 
 
 class Command:
+    """A command: options, arguments and subcommands. unknown_hint (on the root): f(command, word) -> a hint
+    for a word that isn't a command, or None."""
+
     def __init__(self, name, summary, description=None, func=None, parent=None, hidden=False,
-                 aliases=(), examples=()):
+                 aliases=(), examples=(), unknown_hint=None):
+        self.unknown_hint = unknown_hint
         self.name, self.summary, self.description = name, summary, description
         self.func, self.parent, self.hidden = func, parent, hidden
         self.aliases, self.examples = tuple(aliases), list(examples)
@@ -190,7 +197,7 @@ def parse(root, argv):
                     raise UsageError(
                         "unknown command '%s'" % a, cmd,
                         _close(a, [c.name for c in cmd.visible_commands()]),
-                        hint=_file_hint(cmd, a))
+                        hint=cmd.root.unknown_hint and cmd.root.unknown_hint(cmd, a))
                 cmd = sub
                 for o in cmd.options:
                     values.setdefault(o.dest, list(o.default) if o.multiple else o.default)
@@ -291,12 +298,6 @@ def _bind(cmd, positionals, values):
             values[a.name], pos = pos, []
     if pos:
         raise UsageError("unexpected argument '%s'" % pos[0], cmd)
-
-
-def _file_hint(cmd, word):
-    if cmd.parent is None and word.endswith('.c') and 'run' in cmd.commands:
-        return "to run a C file: %s run %s" % (cmd.name, word)
-    return None
 
 
 # ---------------------------------------------------------------------------------------------

@@ -344,9 +344,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   2026-11-07:** contexts made on demand, errors moved to the innermost entry frame (`tests/test_cross_module.py`).
 - ~~`#pragma STDC FP_CONTRACT`~~ **Done** (2026-11-07, requested by scramjit): ON, OFF and DEFAULT (the compile's
   `fma=`), to the end of the block or the next pragma at file scope.
-- **Make the CLI framework public, or a small package** (requested by scramjit, 2026-11-01, low priority).
-  scramjit's command line copies `cli/term.py`, `cli/parse.py` and `cli/completion.py`, because they aren't
-  public API, so a fix to one needs copying by hand.
+- ~~Make the CLI framework public~~ **Done** (2026-11-07, requested by scramjit): `cimo.cli.parse`, `cimo.cli.term`,
+  `cimo.cli.completion.script(shell, prog)` are public, documented in the CLI page; scramjit's color and encoding
+  fixes folded in, the C-file hint a root parameter (`unknown_hint`).
 - ~~Ctrl-C can't stop a running kernel~~ **Done on Linux and macOS** (2026-11-07, found by scramjit): SIGINT in a
   kernel's own code unwinds it and runs Python's handler (`KeyboardInterrupt`). Open: Windows (Ctrl-C arrives on its
   own thread: suspend the main thread and redirect it, as the fault path does), and a kernel spending all its time in

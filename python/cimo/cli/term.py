@@ -82,8 +82,10 @@ class Terminal:
 
     def __init__(self, stream, mode='auto'):
         self.stream = stream
-        # --color=always colors even where Windows VT mode can't be enabled (a pipe)
-        self.color = _wants_color(stream, mode) and (_enable_windows_vt() or mode == 'always')
+        # asked for by name colors even where Windows VT mode can't be enabled (a pipe)
+        forced = mode == 'always' or (mode == 'auto' and not os.environ.get('NO_COLOR') and
+                                      (os.environ.get('FORCE_COLOR') or os.environ.get('CLICOLOR_FORCE', '0') != '0'))
+        self.color = _wants_color(stream, mode) and (_enable_windows_vt() or bool(forced))
         enc = getattr(stream, 'encoding', None) or 'ascii'
         try:
             '✓✗→•│─╭╰⠋'.encode(enc)
@@ -121,7 +123,11 @@ class Terminal:
         return max(40, min(100, shutil.get_terminal_size((88, 24)).columns))
 
     def write(self, text='', end='\n'):
-        self.stream.write(text + end)
+        try:
+            self.stream.write(text + end)
+        except UnicodeEncodeError:  # source lines and symbols on a terminal that can't show them
+            enc = getattr(self.stream, 'encoding', None) or 'ascii'
+            self.stream.write((text + end).encode(enc, 'replace').decode(enc))
 
     def flush(self):
         try:

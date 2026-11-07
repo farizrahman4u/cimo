@@ -19,9 +19,15 @@ def _pytype(k):
     return _PY.get(k, 'struct' if k.startswith(':') else k)
 
 
+def _file_hint(cmd, word):
+    if cmd.parent is None and word.endswith('.c') and 'run' in cmd.commands:
+        return "to run a C file: %s run %s" % (cmd.name, word)
+    return None
+
+
 def build_tree():
     import cimo
-    root = Command('cimo', 'cimo %s, a C compiler written in pure Python' % cimo.__version__,
+    root = Command('cimo', 'cimo %s, a C compiler written in pure Python' % cimo.__version__, unknown_hint=_file_hint,
                    description='Compiles C to machine code inside Python, with no toolchain, '
                                'and runs it. Use it from Python with `import cimo`, or from '
                                'here.')
@@ -519,13 +525,13 @@ def cmd_update_symbols(ctx):
 def cmd_completion(ctx):
     from . import completion
     shell = ctx.values['shell']
-    scripts = {'bash': completion.BASH, 'zsh': completion.ZSH, 'fish': completion.FISH}
+    scripts = completion.SHELLS
     if shell not in scripts:
         import difflib
         raise UsageError("unsupported shell '%s'" % shell, ctx.command,
                          difflib.get_close_matches(shell, list(scripts), n=1, cutoff=0.5),
                          hint='supported: bash, zsh, fish')
-    sys.stdout.write(scripts[shell])
+    sys.stdout.write(completion.script(shell, 'cimo'))
     return 0
 
 

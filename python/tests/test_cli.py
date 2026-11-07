@@ -299,3 +299,27 @@ def test_onefile_command(capsys, tmp_path):
     r = subprocess.run([sys.executable, '-I', '-S', str(out), '--version'], capture_output=True,
                        text=True, cwd=tmp_path)
     assert r.returncode == 0 and r.stdout.startswith('cimo ')
+
+
+def test_the_framework_is_usable_by_other_programs():
+    """cimo.cli's parser, terminal and completion scripts are public API (scramjit builds its command line on them)."""
+    import io
+    from cimo.cli.parse import Command, parse, UsageError, complete
+    from cimo.cli.term import Terminal
+    from cimo.cli import completion
+    root = Command('tool', 'A tool', unknown_hint=lambda cmd, w: 'try: tool check %s' % w if w.endswith('.py') else None)
+    check = root.command('check', 'Check files', func=lambda ctx: 0)
+    check.arg('paths', 'Files', nargs='*')
+    check.opt('-q', '--quiet', flag=True, help='Less output')
+    p = parse(root, ['check', '-q', 'a.py'])
+    assert p.command is check and p.values['quiet'] is True and p.values['paths'] == ['a.py']
+    with pytest.raises(UsageError) as e:
+        parse(root, ['x.py'])
+    assert e.value.hint == 'try: tool check x.py'
+    assert 'check' in complete(root, ['ch'])[0]
+    for shell in ('bash', 'zsh', 'fish'):
+        s = completion.script(shell, 'tool')
+        assert 'tool __complete' in s and 'cimo' not in s
+    out = io.StringIO()
+    Terminal(out, 'never').write('ok ✓')
+    assert out.getvalue() == 'ok ✓\n'
