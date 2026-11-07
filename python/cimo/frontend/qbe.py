@@ -203,6 +203,8 @@ IUMULH = 123
 # cimo: the floating-point environment (<fenv.h>, the runtime's fenv.c): the control and status registers read and
 # written (arm64 FPCR and FPSR; x86-64 MXCSR for both), the declared external functions of these names
 IRDFPCR, IRDFPSR, IWRFPCR, IWRFPSR = 124, 125, 126, 127
+# cimo: _Float16 bits to float and back in one instruction (vecops 'half': arm64 fcvt)
+IH2F, IF2H = 129, 130
 # cimo: an operation on the backend's class q (GNU vector types), its name in arg2: "%r =q qaddw %a, %b", "qstore %v, %p"
 IQ = 128
 _SETJMP = ('setjmp', '_setjmp')  # cimo: functions that return twice (emitfunc)
@@ -234,11 +236,13 @@ instname += ['frint', 'fnearbyint']
 instname += ['umulh']
 instname += ['rdfpcr', 'rdfpsr', 'wrfpcr', 'wrfpsr']
 instname += [None]  # IQ: printed by emitinst itself
+instname += ['h2f', 'f2h']
 
 # cimo extension: bytes in the backend's class q (16; 32 on x86-64 with AVX2), so GNU vector types of that size or twice
 # it compute in vector registers; 0 (stock cproc output, and wasm): lane by lane. Set by compile(vecq=)
 vecq = 0
-# cimo extension: what else class q does on the target (compile(vecops=)): 'convert', __builtin_convertvector
+# cimo extension: what else the target does in one instruction (compile(vecops=)): 'convert', __builtin_convertvector;
+# 'shuffle', __builtin_shufflevector; 'half', _Float16 to and from float
 vecops = frozenset()
 
 
@@ -496,18 +500,41 @@ def _halfcall(f, name, cls, v, vcls):
     return r
 
 
+def _f2bf(f, v):
+    """A float's bits rounded to __bf16 (nearest, ties to even; a NaN kept quiet), as runtime __cimo_f2bf."""
+    x = funcinst(f, ICAST, 'w', v, None)
+    nan = funcinst(f, ICUGTW, 'w', funcinst(f, IAND, 'w', x, mkintconst(0x7fffffff)), mkintconst(0x7f800000))
+    hi = funcinst(f, ISHR, 'w', x, mkintconst(16))
+    quiet = funcinst(f, IOR, 'w', hi, mkintconst(0x40))
+    odd = funcinst(f, IAND, 'w', hi, mkintconst(1))
+    rounded = funcinst(f, ISHR, 'w', funcinst(f, IADD, 'w', funcinst(f, IADD, 'w', x, mkintconst(0x7fff)), odd),
+                       mkintconst(16))
+    mask = funcinst(f, INEG, 'w', nan, None)  # -1 for a NaN, else 0
+    return funcinst(f, IOR, 'w', funcinst(f, IAND, 'w', quiet, mask),
+                    funcinst(f, IAND, 'w', rounded, funcinst(f, IXOR, 'w', mask, mkintconst(-1))))
+
+
 def convert(f, dst, src, l):
     r = None
     if src is dst:
         return l
     if dst is not TY.typevoid and (TY.isi128(dst) or TY.isi128(src) or dst.iscomplex or src.iscomplex):
         return _convertvalue(f, dst, src, l)  # cimo: ?: arms and other values converted here
-    if TY.ishalf(src) and dst is not TY.typevoid:  # cimo: through float (a runtime call)
-        l = _halfcall(f, '__cimo_bf2f' if src.kind == TY.TYPEBF16 else '__cimo_h2f', 's', l, 'w')
+    if TY.ishalf(src) and dst is not TY.typevoid:  # cimo: through float
+        if src.kind == TY.TYPEBF16:  # its bits are float's high half
+            l = funcinst(f, ICAST, 's', funcinst(f, ISHL, 'w', l, mkintconst(16)), None)
+        elif 'half' in vecops:
+            l = funcinst(f, IH2F, 's', l, None)
+        else:
+            l = _halfcall(f, '__cimo_h2f', 's', l, 'w')
         return convert(f, dst, TY.typefloat, l)
     if TY.ishalf(dst):
         l = convert(f, TY.typefloat, src, l)
-        return _halfcall(f, '__cimo_f2bf' if dst.kind == TY.TYPEBF16 else '__cimo_f2h', 'w', l, 's')
+        if dst.kind == TY.TYPEBF16:
+            return _f2bf(f, l)
+        if 'half' in vecops:
+            return funcinst(f, IF2H, 'w', l, None)
+        return _halfcall(f, '__cimo_f2h', 'w', l, 's')
     if src.kind == TYPEPOINTER or _isnullptr(src):
         src = TY.typeulong
     if dst.kind == TYPEPOINTER or _isnullptr(dst):
@@ -805,6 +832,9 @@ def funcjnz(f, v, t, l1, l2):
 
 def funcret(f, v):
     b = f.end
+    t = f.type.base
+    if v is not None and not b.jump_kind and TY.isvec(t) and _qchunks(t):
+        v = _qcopied(f, v, t)
     if not b.jump_kind:
         b.jump_kind = JUMP_RET
         b.jump_arg = v
@@ -1782,6 +1812,29 @@ def _qop(f, name, a, b=None, res=True, cls='q'):
     return inst.res if res else None
 
 
+def _qcopied(f, v, t):
+    """A copy of the vector at v, for a call or a return, which read it lane by lane (as a struct): v stays a register."""
+    tmp = _cxslot(f, t)
+    _qcopy(f, tmp, v, t.size)
+    return tmp
+
+
+def _qlaneable(e):
+    """e is v[i] of a vector computed in class q, not volatile."""
+    vl = getattr(e, 'vlane', None)
+    return vl is not None and _qchunks(vl[0].type) and not e.qual & QUALVOLATILE and not vl[0].qual & QUALVOLATILE
+
+
+def _qlaneaddr(f, base, vl):
+    """The address of lane vl[1] of a copy of the vector at base."""
+    es = vl[0].type.base.size
+    i = funcexpr(f, vl[1])
+    it = vl[1].type
+    if it.size < 8:
+        i = funcinst(f, IEXTSW if it.issigned or it.size < 4 else IEXTUW, 'l', i, None)
+    return funcinst(f, IADD, ptrclass, base, funcinst(f, IMUL, 'l', i, mkintconst(es)) if es > 1 else i)
+
+
 def _qget(f, v, i):
     """Lane i of vector expression v, read from its q value (so v can stay in a register)."""
     t = v.type
@@ -1848,14 +1901,39 @@ def _qfma(f, e, vt):
     return res
 
 
+def _qvshift(f, e, vt, la, ls, ra, rs):
+    """v << n and v >> n with n a variable or a vector: sshl/ushl by the counts, negated for a right shift."""
+    el = vt.base
+    x = _qlane(el)
+    name = ('qsshlv' if el.issigned else 'qushlv') + x
+    res = _cxslot(f, e.type)
+    off = (lambda p, k: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
+    if ra is None:
+        c = rs
+        if x == 'l' and qbetype(e.r.type).base == 'w':  # an l count from a w; a w from an l is its low half
+            c = funcinst(f, IEXTSW, 'l', c, None)
+        dup = _qop(f, 'qdup' + x, c)
+    for k in range(_qchunks(vt)):
+        a = _qop(f, 'qload', off(la, k)) if la is not None else _qop(f, 'qdup' + x, ls)
+        n = _qop(f, 'qload', off(ra, k)) if ra is not None else dup
+        if e.op == TSHR:
+            n = _qop(f, 'qneg' + x, n)
+        _qop(f, 'qstore', _qop(f, name, a, n), off(res, k), res=False)
+    return res
+
+
 def _qbinary(f, e, vt, la, ls, ra, rs):
     """e computed in class q, into a new slot; None if q has no such operation."""
     el = vt.base
     x = _qlane(el)
     fl = bool(el.prop & PROPFLOAT)
     op = e.op
+    if op in (TSHL, TSHR) and (ra is not None or rs.kind != VALUE_INTCONST):  # by a variable (vecops 'vshift')
+        if 'vshift' not in vecops or fl:
+            return None
+        return _qvshift(f, e, vt, la, ls, ra, rs)
     if op in (TSHL, TSHR):
-        if ra is not None or rs.kind != VALUE_INTCONST or not 0 <= rs.i < 8 * el.size:
+        if not 0 <= rs.i < 8 * el.size:
             return None
         name = 'qshl' if op == TSHL else 'qsar' if el.issigned else 'qshr'
         name += x
@@ -2034,12 +2112,48 @@ def _qbytes(data):
     return D.stringdecl(s).value
 
 
+def _qperm(f, a, b, es, n, idx):
+    """The shuffle as one arm64 permutation (zip, uzp, trn, ext, dup of a lane, or a copy), or None. -1 matches any."""
+    x = 'bhwl'[es.bit_length() - 1]
+    h = n // 2
+    pats = {'qzip1': [(i // 2) + (n if i % 2 else 0) for i in range(n)],
+            'qzip2': [h + (i // 2) + (n if i % 2 else 0) for i in range(n)],
+            'quzp1': [2 * i for i in range(n)], 'quzp2': [2 * i + 1 for i in range(n)],
+            'qtrn1': [(i & ~1) + (n if i % 2 else 0) for i in range(n)],
+            'qtrn2': [(i & ~1) + 1 + (n if i % 2 else 0) for i in range(n)]}
+
+    def fits(want, got):
+        return all(g < 0 or g == w for w, g in zip(want, got))
+
+    if not any(k >= 0 for k in idx):
+        return None
+    for swap in (False, True):  # the same patterns with b as the first source
+        s = [k if k < 0 else (k + n) % (2 * n) if swap else k for k in idx]
+        p, q = (b, a) if swap else (a, b)
+        if fits(range(n), s):
+            return _qop(f, 'qload', p)
+        for name, want in pats.items():
+            if fits(want, s):
+                return _qop(f, name + x, _qop(f, 'qload', p), _qop(f, 'qload', q))
+        for k in range(1, n):
+            if fits(range(k, k + n), s):
+                return _qop(f, 'qext%d' % (k * es), _qop(f, 'qload', p), _qop(f, 'qload', q))
+        known = [k for k in s if k >= 0]
+        if len(set(known)) == 1 and known[0] < n:
+            return _qop(f, 'qbcast' + x, _qop(f, 'qload', p), mkintconst(known[0]))
+    return None
+
+
 def _qshuffle(f, a, b, st, t, idx, res):
     """__builtin_shufflevector of two vectors of one q value into one (vecops 'shuffle': arm64 tbl): a byte table for
     each source, 0xff (tbl's 0) where the byte comes from the other; False if it can't."""
     if 'shuffle' not in vecops or st.size != vecq or t.size != vecq:
         return False
     es, n = st.base.size, st.vlanes
+    one = _qperm(f, a, b, es, n, idx)
+    if one is not None:
+        _qop(f, 'qstore', one, res, res=False)
+        return True
     ia, ib = bytearray(b'\xff' * vecq), bytearray(b'\xff' * vecq)
     for i, k in enumerate(idx):
         if k >= 0:
@@ -2197,7 +2311,8 @@ def funcexpr(f, e):
         arg = e.args
         while arg:
             emittype(arg.type)
-            argvals.append(funcexpr(f, arg))
+            v = funcexpr(f, arg)
+            argvals.append(_qcopied(f, v, arg.type) if TY.isvec(arg.type) and _qchunks(arg.type) else v)
             arg = arg.next
         t = e.type
         emittype(t)
@@ -2233,6 +2348,11 @@ def funcexpr(f, e):
             if vl is not None and vl[1].kind == EXPRCONST and _qchunks(vl[0].type) and not e.qual & QUALVOLATILE \
                     and 0 <= vl[1].u < vl[0].type.vlanes:  # cimo: v[constant] from v's register
                 return _qget(f, vl[0], vl[1].u)
+            if _qlaneable(e):  # cimo: v[i] from a copy, so v stays a register
+                vt = vl[0].type
+                tmp = _cxslot(f, vt)
+                _qcopy(f, tmp, funcexpr(f, vl[0]), vt.size)
+                return funcload(f, e.type, LValue(_qlaneaddr(f, tmp, vl)), e.qual)
             r = funcexpr(f, e.base)
             return funcload(f, e.type, LValue(r), e.qual)
         if TY.isvec(e.type):  # cimo
@@ -2355,6 +2475,14 @@ def funcexpr(f, e):
         r = funcexpr(f, e.r)
         if e.l.kind == EXPRTEMP:
             e.l.temp = r
+        elif _qlaneable(e.l):  # cimo: v[i] = x through a slot of its own, so v stays a register
+            vl = e.l.vlane
+            vt = vl[0].type
+            v = funcexpr(f, vl[0])
+            tmp = _cxslot(f, vt)
+            _qcopy(f, tmp, v, vt.size)
+            r = funcstore(f, e.l.type, e.l.qual, LValue(_qlaneaddr(f, tmp, vl)), r, e.r.qual)
+            _qcopy(f, v, tmp, vt.size)
         else:
             lval = funclval(f, e.l)
             r = funcstore(f, e.l.type, e.l.qual, lval, r, e.r.qual)

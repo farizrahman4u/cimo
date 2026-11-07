@@ -1123,6 +1123,7 @@ def sel(i, fn):
         for n in (0, 1):
             if iarg[n] != R and argcls(i, n) != D.Kx and not (i.op >= D.Oqshlb and i.op <= D.Oqsarl and n == 1) \
                     and not (i.op >= D.Oqgetb and i.op <= D.Oqgetd and n == 1) and not (i.op == D.Oqld3bh and n == 1) \
+                    and not (D.Oqbcastb <= i.op <= D.Oqbcastl and n == 1) \
                     and not (i.op in (D.Oqwmul3, D.Oqwmla3, D.Oqstshrn, D.Oqwmul3h, D.Oqwmla3h) and n == 1) \
                     and not (i.op in (D.Oqwide3, D.Oqwide3h) and n == 0):
                 fixarg(iarg, n, argcls(i, n), 0, fn)

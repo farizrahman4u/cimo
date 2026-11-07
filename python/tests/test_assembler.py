@@ -303,3 +303,14 @@ def test_vector_conversions(text, word):
     sec = next(s for s in o.sections if 'text' in s.name)
     assert int.from_bytes(bytes(sec.data)[:4], 'little') == word
 _VCVT_WORDS += [('tbl v1.16b, {v2.16b}, v3.16b', 0x4e030041), ('tbl v31.16b, {v30.16b}, v29.16b', 0x4e1d03df)]
+_VCVT_WORDS += [('fcvt s0, h31', 0x1ee243e0), ('fcvt h31, s2', 0x1e23c05f), ('fcvt d0, h31', 0x1ee2c3e0),
+                ('fcvt h31, d2', 0x1e63c05f), ('fcvt d1, s2', 0x1e22c041), ('fcvt s1, d2', 0x1e624041)]
+_VCVT_WORDS += [('sshl v1.16b, v2.16b, v3.16b', 0x4e234441), ('sshl v1.8h, v2.8h, v3.8h', 0x4e634441),
+                ('sshl v1.4s, v2.4s, v3.4s', 0x4ea34441), ('sshl v1.2d, v2.2d, v3.2d', 0x4ee34441),
+                ('ushl v1.16b, v2.16b, v3.16b', 0x6e234441), ('ushl v1.2d, v2.2d, v3.2d', 0x6ee34441)]
+_VCVT_WORDS += [('zip1 v1.16b, v2.16b, v3.16b', 0x4e033841), ('zip2 v1.8h, v2.8h, v3.8h', 0x4e437841),
+                ('uzp1 v1.4s, v2.4s, v3.4s', 0x4e831841), ('uzp2 v1.2d, v2.2d, v3.2d', 0x4ec35841),
+                ('trn1 v1.16b, v2.16b, v3.16b', 0x4e032841), ('trn2 v1.4s, v2.4s, v3.4s', 0x4e836841),
+                ('ext v1.16b, v2.16b, v3.16b, #4', 0x6e032041), ('ext v1.16b, v2.16b, v3.16b, #15', 0x6e037841),
+                ('dup v1.16b, v2.b[15]', 0x4e1f0441), ('dup v1.8h, v2.h[3]', 0x4e0e0441), ('dup v1.4s, v2.s[2]', 0x4e140441),
+                ('dup v1.2d, v2.d[1]', 0x4e180441)]

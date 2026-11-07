@@ -318,6 +318,10 @@ _OPS += [('getsp', ((Kx, Kx, Kx, Kx), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0,
 _OPS += [(_n, ((Kw, Kl, Ke, Ke), (Kx, Kx, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
          for _n in ('bclz', 'bctz', 'bpopcnt', 'bswap')]
 _OPS += [('bswap16', ((Kw, Ke, Ke, Ke), (Kx, Kx, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
+# _Float16 (ext.math, arm64 for now): "%f =s h2f %w", a half's bits (the low 16 of w) as a float, exact; "%w =w f2h %s",
+# a float rounded to a half in the current rounding mode, its bits zero-extended; pure
+_OPS += [('h2f', ((Ke, Ke, Kw, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ('f2h', ((Ks, Ke, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
 # the high half of a 64-bit product (ext.cse, division by a constant); pure
 _OPS += [(_n, ((Ke, Kl, Ke, Ke), (Ke, Kl, Ke, Ke)), 0, 0, 0, 1, 0, 0, 0, 0, 0, 0)
          for _n in ('smulh', 'umulh')]
@@ -383,6 +387,14 @@ _QOPS += [(n + x, _QS()) for n in ('qshl', 'qshr', 'qsar') for x in 'bhwl']
 _QOPS += [(n + x, _Q1()) for n in ('qitof', 'quitof', 'qftoi', 'qftou') for x in 'sd']
 _QOPS += [(n + x, _Q1()) for n in ('qsxl', 'qsxh', 'quxl', 'quxh') for x in 'bhw']
 _QOPS += [('qfcvtl', _Q1()), ('qfcvth', _Q1()), ('qfcvtn', _QQ())] + [('qnrw' + x, _QQ()) for x in 'hwl']
+# %r =q qsshlvw %v, %n: each lane shifted left by n's lane (signed: right where negative, arithmetic); qushlv, the
+# same with logical shifts right (arm64 sshl, ushl; GNU vectors shifted by a variable)
+_QOPS += [(n + x, _QQ()) for n in ('qsshlv', 'qushlv') for x in 'bhwl']
+# permutations (arm64; __builtin_shufflevector's one-instruction cases), the lane size in the name: qzip1w %a, %b
+# interleaves the low halves, qzip2 the high; quzp1/quzp2 the even or odd lanes of a then b; qtrn1/qtrn2 the even or odd
+# lanes of each pair; qext<k> %a, %b: bytes k to 15 of a then 0 to k - 1 of b; %r =q qbcastw %v, i: lane i everywhere
+_QOPS += [(n + x, _QQ()) for n in ('qzip1', 'qzip2', 'quzp1', 'quzp2', 'qtrn1', 'qtrn2') for x in 'bhwl']
+_QOPS += [('qext%d' % k, _QQ()) for k in range(1, 16)] + [('qbcast' + x, _QS()) for x in 'bhwl']
 # %r =q qtbl %v, %idx: byte k of r is byte idx[k] of v, or 0 where idx[k] > 15 (arm64 tbl; __builtin_shufflevector)
 _QOPS += [('qtbl', _QQ())]
 # %r =q qsaddl %a, %b: a's 2 x i64 + the sign-extended low 2 x i32 of b; h: the high ones; u: zero-extended

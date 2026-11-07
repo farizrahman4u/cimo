@@ -56,11 +56,12 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    convention (gcc: register pairs, FP registers). In order:
    - GNU vector types as class-`q` values: operators, copies, `v[constant]`, and vector locals in registers **done**
      (2026-11-07, `tests/test_vector_q.py`; "GNU vector types" in `requirements.md`). `convertvector` and one-q `shufflevector` (`tbl`) on arm64 **done**.
-     Open: one-instruction shuffles (`zip`/`uzp`/`ext`), `shuffle` with a variable mask, both on x86-64, `convertvector` on x86-64 (SSE2 unpack and shifts; AVX2 `vpmovsx`), writing a lane, integer division and 64-bit `*`, shifts
-     by a variable, 16-byte vectors with AVX2 (q is 32 bytes
+     One-instruction shuffles on arm64 **done**. Open: `shuffle` with a variable mask, shuffles on x86-64, `convertvector` on x86-64 (SSE2 unpack and shifts; AVX2 `vpmovsx`), integer division and 64-bit `*` (no instruction on either; lane by lane is what gcc does too), shifts by a variable
+     on x86-64 (lane writes and arm64 variable shifts **done**), 16-byte vectors with AVX2 (q is 32 bytes
      there), and vectors as arguments and returns in vector registers (AAPCS64, SysV). Measure a hand-vectorized `Q8_0`
      dot and a 4x4 matrix kernel on mains power (not yet measured).
-   - Half conversions in hardware (arm64 `fcvt`/`bfcvt` shifts, x86-64 F16C `vcvtph2ps` behind the `cimo.cpu` check), then
+   - Half conversions without calls: arm64 `fcvt` and `__bf16` inline everywhere **done** (2026-11-07,
+     `tests/test_half_hw.py`). Open: x86-64 F16C `vcvtph2ps`/`vcvtps2ph` behind the `cimo.cpu` check, then
      half loads widened in the vectorizer (Adoption #6). Half and bf16 arguments in FP registers, as gcc passes them.
    - `__int128` in register pairs through the backend (`adds`/`adc`, `umulh`, shifts across the pair) and passed as gcc does
      (an aligned even register pair on arm64; two registers on SysV).

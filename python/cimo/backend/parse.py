@@ -47,7 +47,7 @@ _QNAMES = {optab[o].name: o for o in range(D.Oqaddb, D.Oqstore + 1) if optab[o].
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
 _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
 _FPUOPS = ('rdfpcr', 'rdfpsr', 'wrfpcr', 'wrfpsr')  # cimo: the floating-point environment (ext.math)
-_BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16', 'umulh')  # umulh: arm64's, for the frontend's __int128
+_BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16', 'umulh', 'h2f', 'f2h')  # umulh: arm64's, for the frontend's __int128
 
 kwmap = {
     Tloadw: "loadw", Tloadl: "loadl", Tloads: "loads", Tloadd: "loadd",
@@ -663,6 +663,10 @@ def parseline(ps):
         if S.mathop == D.Oumulh:
             if i != 2 or k != Kl:
                 err("umulh needs two arguments and class l")
+            return _ins(S.mathop, k, r, arg)
+        if S.mathop in (D.Oh2f, D.Of2h):
+            if i != 1 or k != (Ks if S.mathop == D.Oh2f else Kw):
+                err("%s needs one argument and class %s", optab[S.mathop].name, 's' if S.mathop == D.Oh2f else 'w')
             return _ins(S.mathop, k, r, arg)
         if i != 1 or KBASE(k) != 0 or (S.mathop == D.Obswap16 and k != Kw):
             err("%s needs one argument and class w or l", optab[S.mathop].name)

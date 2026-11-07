@@ -1457,16 +1457,21 @@ for Linux and macOS (strategies under "Platform loading findings").
     **Class q (2026-11-07):** vectors of `vecq` bytes (16; 32 on x86-64 with AVX2), twice or four times that compute as q values
     (frontend `vecq=`, IR `%r =q qaddw ...`): `+ - * / & | ^`, comparisons, unary `-` and `~`, shifts by a constant,
     copies and `memcpy` to or from a vector, and `v[constant]` (`qget`). `a*b + c` and funcfma's other forms on
-    float vectors contract into `qfma1` as scalars do (`_qfma`). `__builtin_convertvector` on arm64 (frontend
+    float vectors contract into `qfma1` as scalars do (`_qfma`). Writing `v[i]`, and reading it with a variable `i`, go
+    through a slot of their own (one `qstore`, the lane, one `qload`), and so do vectors passed to and returned from calls
+    (as structs of lanes): `v` itself is only ever accessed whole, so it stays a register. Shifts by a variable or a
+    vector on arm64 (`vecops` 'vshift'): `sshl`/`ushl` (`qsshlv`/`qushlv`), by the negated count for `>>`. `__builtin_convertvector` on arm64 (frontend
     `vecops=('convert',)`): integers widened by halves (`qsxl`/`qsxh`, `sshll`/`sshll2`), narrowed in pairs (`qnrw`, `xtn`/`xtn2`),
     floats likewise (`fcvtl`/`fcvtn`), then `scvtf`/`ucvtf`/`fcvtzs`/`fcvtzu` at one width; int64 to float stays lane by lane
     (through double it would round twice). `__builtin_shufflevector` of one-q vectors on arm64 (`vecops` 'shuffle'): a
     constant byte table per source in read-only data, `tbl` (`qtbl`; out-of-range bytes give 0), two joined by `orr`.
-    Open there: `zip`/`uzp`/`ext`/`dup` for the shuffles that are one instruction, and the tables' `qload`s, pinned as
-    all of them are, stay inside loops. x86-64 has none of these ops yet (`pshufb` is SSSE3, past the baseline). A slot only ever read and written whole by
+    The shuffles that are one instruction are matched first (`-1` matching anything; either source first): a copy,
+    `zip1`/`zip2`, `uzp1`/`uzp2`, `trn1`/`trn2`, `ext #k`, `dup` of one lane. Open: the tables' `qload`s, pinned as all
+    of them are, stay inside loops. A promoted vector slot starts as `qdupw 0`: a lane set in a loop reads it before any
+    write, and SSA's undefined value has no q constant (gcc's vector-div-neg-pow2.c). x86-64 has none of these ops yet (`pshufb` is SSSE3, past the baseline). A slot only ever read and written whole by
     `qload`/`qstore` becomes a q temporary (`mem.promote`), so vector locals live in registers; initializer lists fill a
-    slot of their own first. Lane by lane still: what q lacks (integer `/` and `%`, 64-bit `*`, shifts by a variable),
-    `__builtin_shuffle`, shuffles wider than one q value, shuffles and `convertvector` on x86-64, writing `v[i]`, 16-byte vectors with AVX2, and calls (vectors go as structs of lanes, not
+    slot of their own first. Lane by lane still: what q lacks (integer `/` and `%`, 64-bit `*`; shifts by a variable on x86-64),
+    `__builtin_shuffle`, shuffles wider than one q value, shuffles and `convertvector` on x86-64, 16-byte vectors with AVX2, and calls (vectors go as structs of lanes, not
     in vector registers as gcc passes them). Not yet: `__int128` lanes, `ext_vector_type`.
     `aligned` after a declarator applies to the object/member, and on a typedef makes an
     over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's
@@ -1522,12 +1527,14 @@ for Linux and macOS (strategies under "Platform loading findings").
   - **Half precision** (2026-11-06): `_Float16` (and `__fp16`) and `__bf16` are stored as their 16 bits
     (QBE class of `unsigned short`) and computed in float, as gcc does without half arithmetic: the usual
     arithmetic conversions make `float`, unary operators promote, and a value rounds back to nearest even
-    on assignment, cast, call and return (runtime `__cimo_f2h`/`__cimo_h2f`/`__cimo_f2bf`/`__cimo_bf2f`;
-    one float operation rounded to half equals the half operation). Variadic arguments go as double.
+    on assignment, cast, call and return (one float operation rounded to half equals the half operation).
+    Conversions (2026-11-07): `__bf16` inline on every target (a shift; round to nearest even with a NaN kept quiet,
+    branch-free); `_Float16` on arm64 by `fcvt` through `h31` (backend `h2f`/`f2h`, frontend `vecops` 'half'; ARMv8.0,
+    rounding in the current mode, as C asks), elsewhere runtime `__cimo_f2h`/`__cimo_h2f` (nearest always). Variadic arguments go as double.
     Constants: `f16`, `bf16`, `f32`, `f64`, `f32x`, `f64x` suffixes, folded in half (`eval.halfbits`).
     `_Float32` is float, `_Float64`/`_Float32x` double; `<float.h>` has the `FLTn_` macros. Calls pass
     them in integer registers (gcc: FP registers), so a half parameter of host-library code disagrees.
-    Open: hardware conversions (arm64 `fcvt`, x86 F16C) instead of calls; signaling-NaN constants.
+    Open: x86-64 F16C instead of calls; signaling-NaN constants.
   - **Floating-point environment** (2026-11-06): `<fenv.h>` (runtime `fenv.c`) on the hardware's registers
     through four backend ops (`rdfpcr`, `rdfpsr`, `wrfpcr`, `wrfpsr`: arm64 FPCR/FPSR, x86-64 MXCSR for both;
     wasm reads 0, so `fesetround` reports anything but nearest as unsupported by reading back). Comparisons

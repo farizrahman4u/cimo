@@ -162,6 +162,9 @@ omap = [
     (D.Obctz, Ki, "rbit %=, %0\n\tclz %=, %="),
     (D.Obswap, Ki, "rev %=, %0"),
     (D.Obswap16, Kw, "rev16 %=, %0\n\tand %=, %=, #0xffff"),
+    # _Float16 through h31: fcvt between h and s is ARMv8.0 (moving a w into an h is FEAT_FP16, so through s31)
+    (D.Oh2f, Ks, "fmov %S?, %W0\n\tfcvt %=, h31"),
+    (D.Of2h, Kw, "fcvt h31, %S0\n\tfmov %=, %S?"),
     (D.Obpopcnt, Kw, "fmov %S?, %0\n\tcnt v31.8b, v31.8b\n\taddv b31, v31.8b\n\tfmov %=, %S?"),
     (D.Obpopcnt, Kl, "fmov %D?, %0\n\tcnt v31.8b, v31.8b\n\taddv b31, v31.8b\n\tfmov %W=, %S?"),
 ] + [(Oflag + _c, Ki, "cset %=, " + _s) for _c, _s, _ in _CMP] + [
@@ -471,12 +474,13 @@ def _table(i, e):
 
 
 _QLANE = {'b': '16b', 'h': '8h', 'w': '4s', 'l': '2d', 's': '4s', 'd': '2d'}
-_QINT = {'qadd': 'add', 'qsub': 'sub', 'qmul': 'mul', 'qmin': 'smin', 'qmax': 'smax', 'qumin': 'umin', 'qumax': 'umax',
+_QINT = {'qsshlv': 'sshl', 'qushlv': 'ushl', 'qadd': 'add', 'qsub': 'sub', 'qmul': 'mul', 'qmin': 'smin', 'qmax': 'smax', 'qumin': 'umin', 'qumax': 'umax',
          'qceq': 'cmeq', 'qcgt': 'cmgt', 'qcge': 'cmge', 'qcugt': 'cmhi', 'qcuge': 'cmhs', 'qneg': 'neg'}
 _QFP = {'qadd': 'fadd', 'qsub': 'fsub', 'qmul': 'fmul', 'qdiv': 'fdiv', 'qmin': 'fminnm', 'qmax': 'fmaxnm',
         'qceq': 'fcmeq', 'qcgt': 'fcmgt', 'qcge': 'fcmge', 'qneg': 'fneg', 'qabs': 'fabs', 'qsqrt': 'fsqrt'}
 
 
+_QPERM = {'qzip1': 'zip1', 'qzip2': 'zip2', 'quzp1': 'uzp1', 'quzp2': 'uzp2', 'qtrn1': 'trn1', 'qtrn2': 'trn2'}
 # name: (mnemonic, destination arrangement, source arrangement)
 _QCVT = {'qitofs': ('scvtf', '4s', '4s'), 'qitofd': ('scvtf', '2d', '2d'), 'quitofs': ('ucvtf', '4s', '4s'),
          'quitofd': ('ucvtf', '2d', '2d'), 'qftois': ('fcvtzs', '4s', '4s'), 'qftoid': ('fcvtzs', '2d', '2d'),
@@ -602,6 +606,18 @@ def _qins(i, e):
         return True  # with the next one
     if name in ('qand', 'qor', 'qxor'):
         f.write("\t%s\t%s, %s, %s\n" % ({'qand': 'and', 'qor': 'orr', 'qxor': 'eor'}[name], _qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
+        return True
+    if name[:5] in _QPERM and name[-1] in 'bhwl' and name[5:-1] == '':
+        l = _QLANE[name[-1]]
+        f.write("\t%s\t%s, %s, %s\n" % (_QPERM[name[:5]], _qv(i.to, l), _qv(i.arg[0], l), _qv(i.arg[1], l)))
+        return True
+    if name.startswith('qext'):
+        f.write("\text\t%s, %s, %s, #%s\n" % (_qv(i.to), _qv(i.arg[0]), _qv(i.arg[1]), name[4:]))
+        return True
+    if name.startswith('qbcast'):
+        x = name[-1]
+        f.write("\tdup\t%s, v%d.%s[%d]\n" % (_qv(i.to, _QLANE[x]), rval(i.arg[0]) - V0, 'bhsd'['bhwl'.index(x)],
+                                             e.fn.con[rval(i.arg[1])].i))
         return True
     if name == 'qtbl':
         f.write("\ttbl\t%s, {%s}, %s\n" % (_qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))

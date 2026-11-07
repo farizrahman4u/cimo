@@ -111,12 +111,15 @@ def promote(fn):
                             continue
             skip = True
             break
-        if skip or q and (k != D.Kq or _readbeforestore(fn, t, blocks)):  # q: no indeterminate vector made up
+        if skip or q and k != D.Kq:
             continue
         # get rid of the alloc and replace uses
         early = _readbeforestore(fn, t, blocks) if k != -1 and not q else False
         _nop(i)
         t.ndef -= 1
+        if q:  # a vector read before it is written (a lane set in a loop) is 0, never an undefined q constant
+            i.op, i.cls, i.to, i.arg[0] = D.Oqdupw, D.Kq, _to, CON_Z
+            t.ndef += 1
         if early:
             # fix over C QBE (an error): a read the only store doesn't dominate gets an indeterminate
             # value. Defined here as well, SSA construction joins the two

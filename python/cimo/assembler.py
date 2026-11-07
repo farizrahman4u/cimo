@@ -935,10 +935,11 @@ def _i_fmov(a, mn, ops):
 def _i_fcvt(a, mn, ops):
     if len(ops) != 2:
         raise AssemblerError('fcvt needs 2 operands')
-    rd, rn = _reg(ops[0], 'sd'), _reg(ops[1], 'sd')
+    rd, rn = _reg(ops[0], 'hsd'), _reg(ops[1], 'hsd')
     if rd[0] == rn[0]:
         raise AssemblerError('fcvt needs different precisions')
-    return (0x1e22c000 if rd[0] == 'd' else 0x1e624000) | rn[1] << 5 | rd[1]
+    t = {'s': 0, 'd': 1, 'h': 3}  # the source's type at 22, the destination's at 15
+    return 0x1e224000 | t[rn[0]] << 22 | t[rd[0]] << 15 | rn[1] << 5 | rd[1]
 
 
 def _i_fcvtz(a, mn, ops):  # fcvtzs/fcvtzu Rd, Fn
@@ -1064,7 +1065,9 @@ _NEON3 = {'add': (0x4e208400, 's'), 'sub': (0x6e208400, 's'), 'mul': (0x4e209c00
           'fadd': (0x4e20d400, 'f'), 'fsub': (0x4ea0d400, 'f'), 'fmul': (0x6e20dc00, 'f'), 'fdiv': (0x6e20fc00, 'f'),
           'fminnm': (0x4ea0c400, 'f'), 'fmaxnm': (0x4e20c400, 'f'), 'fmla': (0x4e20cc00, 'f'), 'fcmeq': (0x4e20e400, 'f'),
           'fcmge': (0x6e20e400, 'f'), 'fcmgt': (0x6ea0e400, 'f'), 'and': (0x4e201c00, ''), 'orr': (0x4ea01c00, ''),
-          'eor': (0x6e201c00, ''), 'bsl': (0x6e601c00, '')}
+          'eor': (0x6e201c00, ''), 'bsl': (0x6e601c00, ''), 'sshl': (0x4e204400, 's'), 'ushl': (0x6e204400, 's'),
+          'zip1': (0x4e003800, 's'), 'zip2': (0x4e007800, 's'), 'uzp1': (0x4e001800, 's'), 'uzp2': (0x4e005800, 's'),
+          'trn1': (0x4e002800, 's'), 'trn2': (0x4e006800, 's')}
 _NEON2 = {'neg': (0x6e20b800, 's'), 'fneg': (0x6ea0f800, 'f'), 'fabs': (0x4ea0f800, 'f'), 'fsqrt': (0x6ea1f800, 'f'),
           'mvn': (0x6e205800, '')}
 _NEONSH = {'shl': 0x4f005400, 'ushr': 0x6f000400, 'sshr': 0x4f000400}
@@ -1117,6 +1120,16 @@ def _neon(mn, ops):
         narrow = ('16b', '8h', '4s') if mn.endswith('2') else ('8b', '4h', '2s')
         m, _ = _v(ops[2], (narrow[size],), _VNARROW)
         return (_NEONW[mn] & ~0x00c00000) | size << 22 | m << 16 | n << 5 | d
+    if mn == 'ext':  # ext Vd.16b, Vn.16b, Vm.16b, #bytes
+        if len(ops) != 4:
+            raise AssemblerError('ext needs 4 operands')
+        d, _ = _v(ops[0], ('16b',))
+        n, _ = _v(ops[1], ('16b',))
+        m, _ = _v(ops[2], ('16b',))
+        k = _imm(ops[3], True)
+        if not 0 <= k <= 15:
+            raise AssemblerError('ext index out of range')
+        return 0x6e000000 | m << 16 | k << 11 | n << 5 | d
     if mn == 'dup':
         d, lane = _v(ops[0], _LANES)
         size = _LANES[lane]

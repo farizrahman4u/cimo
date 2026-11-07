@@ -173,7 +173,12 @@ def test_shufflevector_matches_lane_by_lane(ty, monkeypatch):
     n = 16 // ctypes.sizeof(_CT[ty])
     rnd = random.Random(n)
     shuffles = [[rnd.choice([-1] + list(range(2 * n))) for _ in range(n)] for _ in range(6)]
-    shuffles += [list(range(n)), list(range(n, 2 * n)), [n - 1 - i for i in range(n)], [-1] * n]
+    h = n // 2
+    shuffles += [list(range(n)), list(range(n, 2 * n)), [n - 1 - i for i in range(n)], [-1] * n,
+                 [(i // 2) + (n if i % 2 else 0) for i in range(n)], [h + (i // 2) + (n if i % 2 else 0) for i in range(n)],
+                 [2 * i for i in range(n)], [2 * i + 1 for i in range(n)], [(i & ~1) + (n if i % 2 else 0) for i in range(n)],
+                 [((i & ~1) + 1 + (0 if i % 2 else n)) for i in range(n)], [(i + 1) % (2 * n) for i in range(n)],
+                 [i + n - 1 for i in range(n)], [n + 1] * n, [1, -1] * h, [(i + n + 1) for i in range(n - 1)] + [0]]
     body = ''.join('  r[%d] = __builtin_shufflevector(a[0], b[0], %s);\n' % (k, ', '.join(map(str, s)))
                    for k, s in enumerate(shuffles))
     src = 'typedef %s V __attribute__((vector_size(16)));\nvoid f(const V *a, const V *b, V *r) {\n%s}\n' % (ty, body)
@@ -223,3 +228,53 @@ def _fma(x, y, z):
     a float x, y, z is the same as rounding once: 2 * 24 + 2 bits fit in a double's 53)."""
     from fractions import Fraction
     return float(Fraction(x) * Fraction(y) + Fraction(z))
+
+
+@pytest.mark.parametrize('ty', TYPES)
+def test_lane_writes_and_variable_lanes(ty, monkeypatch):
+    """v[i] = x and v[i] with a variable i, through a copy of the vector (which stays a register)."""
+    n = 16 // ctypes.sizeof(_CT[ty])
+    src = ('typedef %s V __attribute__((vector_size(16)));\n'
+           'void f(const V *a, V *r, int k, %s x) { V v = a[0]; v[0] = x; v[k] = v[k] + x; v[%d] = v[k];\n'
+           '  for (int i = 1; i < %d; i++) v[i] = v[i - 1] + v[i]; r[0] = v; r[1] = v + v; }\n') % (ty, ty, n - 1, n)
+    q = cimo.compile(src, cache=False, fma=False)
+    monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
+    lanes = cimo.compile(src + '\nstatic int lane_by_lane;\n', cache=False, fma=False)
+    rnd = random.Random(11)
+    for k in range(n):
+        a = (_CT[ty] * n)(*_values(ty, n, rnd))
+        x = _values(ty, 1, rnd)[0]
+        r1, r2 = (ctypes.c_char * 32)(), (ctypes.c_char * 32)()
+        q.f(a, r1, k, x)
+        lanes.f(a, r2, k, x)
+        assert bytes(r1) == bytes(r2), (ty, k)
+
+
+@pytest.mark.parametrize('ty', [t for t in TYPES if t not in ('float', 'double')])
+def test_shifts_by_a_variable(ty, monkeypatch):
+    bits = 8 * ctypes.sizeof(_CT[ty])
+    n = 16 // ctypes.sizeof(_CT[ty])
+    src = ('typedef %s V __attribute__((vector_size(16)));\n'
+           'void f(const V *a, const V *c, int s, long t, V *r) { r[0] = a[0] << s; r[1] = a[0] >> s; r[2] = a[0] << c[0];\n'
+           '  r[3] = a[0] >> c[0]; r[4] = a[0] >> t; r[5] = a[0] << t; }\n') % ty
+    q = cimo.compile(src, cache=False)
+    monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
+    lanes = cimo.compile(src + '\nstatic int lane_by_lane;\n', cache=False)
+    rnd = random.Random(bits)
+    for _ in range(20):
+        a = (_CT[ty] * n)(*_values(ty, n, rnd))
+        c = (_CT[ty] * n)(*[rnd.randrange(bits) for _ in range(n)])
+        s, t = rnd.randrange(bits), rnd.randrange(bits)
+        r1, r2 = (ctypes.c_char * 96)(), (ctypes.c_char * 96)()
+        q.f(a, c, s, t, r1)
+        lanes.f(a, c, s, t, r2)
+        assert bytes(r1) == bytes(r2), (ty, s, t, list(c))
+
+
+def test_a_vector_read_before_it_is_written():
+    """Lanes set in a loop, the vector then passed on: its register is read before the first write on the loop's
+    first way round (SSA's undefined value, which has no q constant; it is 0). gcc's vector-div-neg-pow2.c."""
+    src = ('typedef int V __attribute__((vector_size(16)));\n__attribute__((noipa)) static V g(V x) { return x + 1; }\n'
+           'int f(int n) { int s = 0; for (int j = 0; j < n; j++) { V x, q; for (int i = 0; i < 4; i++) x[i] = i + j;\n'
+           '  q = g(x); for (int i = 0; i < 4; i++) s += q[i]; } return s; }\n')
+    assert cimo.compile(src, cache=False).f(3) == sum(i + j + 1 for j in range(3) for i in range(4))
