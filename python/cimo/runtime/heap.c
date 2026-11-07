@@ -23,8 +23,11 @@
    on its owner's `deferred` list with one compare-and-swap; the owner takes the whole list
    (CAS to 0) when a class list is empty and sorts the blocks into its class lists. Push plus
    take-all has no ABA problem. Chunks come from Python (grow hook, 1 MB doubling to 64 MB) and
-   are kept across reset_heap() for reuse; blocks larger than MAXSMALL are mapped one by one
-   and unmapped on free. */
+   are kept across reset_heap() for reuse; blocks larger than MAXSMALL are mapped one by one.
+   The owning thread keeps up to NKEEP of its freed large blocks, KEEPMAX bytes in all, and hands
+   them out again (the smallest that fits, if it is no more than twice the request), as glibc's
+   malloc does once its mmap threshold rises: a loop that makes and drops a big array maps it once.
+   The rest are unmapped on free. reset_heap() forgets the kept ones (Python unmaps them). */
 
 #define CTX_HEAP 3072
 #define HEAP_BYTES 1024
@@ -35,6 +38,8 @@
 #define KIND_ALIGNED 3UL
 #define CHUNK0 (1UL << 20)
 #define CHUNKMAX (64UL << 20)
+#define NKEEP 8
+#define KEEPMAX (128UL << 20)
 
 typedef unsigned long size_t;
 
@@ -54,6 +59,8 @@ struct heap {
 	struct chunk *chunks; /* every chunk, oldest first */
 	struct chunk *cur;
 	unsigned long next; /* size of the next chunk to map */
+	struct hdr *keep[NKEEP]; /* freed large blocks, for reuse */
+	unsigned long kept;      /* their bytes */
 };
 
 _Static_assert(sizeof(struct heap) <= HEAP_BYTES, "struct heap must fit its context slot");
@@ -157,15 +164,36 @@ drain(struct heap *h)
 	}
 }
 
+/* the mapping's bytes */
+static unsigned long
+mapped(struct hdr *d)
+{
+	return (d->info & ~15UL) + sizeof(struct hdr);
+}
+
+/* *fresh: 1 for a new mapping (zero), 0 for a kept block */
 static void *
-large(struct heap *h, unsigned long n)
+large(struct heap *h, unsigned long n, int *fresh)
 {
 	struct hdr *d;
 	unsigned long total;
+	int i, best = -1;
 
 	if (n > (1UL << 62) || !__cimo_hook_grow)
 		return 0;
 	total = (n + sizeof(struct hdr) + 4095) & ~4095UL;
+	for (i = 0; i < NKEEP; i++)
+		if (h->keep[i] && mapped(h->keep[i]) >= total && mapped(h->keep[i]) / 2 <= total &&
+		    (best < 0 || mapped(h->keep[i]) < mapped(h->keep[best])))
+			best = i;
+	if (best >= 0) {
+		d = h->keep[best];
+		h->keep[best] = 0;
+		h->kept -= mapped(d);
+		*fresh = 0;
+		return d + 1;
+	}
+	*fresh = 1;
 	d = __cimo_hook_grow(h, total, 1);
 	if (!d)
 		return 0;
@@ -180,9 +208,10 @@ alloc(struct heap *h, unsigned long n)
 	struct hdr *d;
 	unsigned long c, sz;
 	void *p;
+	int fresh;
 
 	if (n > MAXSMALL)
-		return large(h, n);
+		return large(h, n, &fresh);
 	c = cls_of(n);
 	p = h->free[c];
 	if (!p && h->deferred) {
@@ -238,11 +267,31 @@ free(void *p)
 		return;
 	d = block(p, 0);
 	p = d + 1;
+	h = d->owner;
 	if ((d->info & 15) == KIND_LARGE) {
+		if (h == myheap() && mapped(d) <= KEEPMAX) {  /* kept for reuse, others unmapped to make room */
+			int i, slot = -1;
+			for (i = 0; i < NKEEP && slot < 0; i++)
+				if (!h->keep[i])
+					slot = i;
+			while (h->kept + mapped(d) > KEEPMAX || slot < 0) {
+				for (i = 0; i < NKEEP && !h->keep[i]; i++)
+					;
+				if (i == NKEEP)
+					break;
+				h->kept -= mapped(h->keep[i]);
+				__cimo_hook_release(h->keep[i]);
+				h->keep[i] = 0;
+				if (slot < 0)
+					slot = i;
+			}
+			h->keep[slot] = d;
+			h->kept += mapped(d);
+			return;
+		}
 		__cimo_hook_release(d);
 		return;
 	}
-	h = d->owner;
 	if (h == myheap()) {
 		*(void **)p = h->free[cls_of(d->info & ~15UL)];
 		h->free[cls_of(d->info & ~15UL)] = p;
@@ -269,12 +318,16 @@ zero(void *p, unsigned long n)
 void *
 calloc(size_t n, size_t m)
 {
+	struct heap *h = myheap();
 	void *p;
+	int fresh = 0;
 
 	if (m && n > ~0UL / m)
 		return 0;
-	p = malloc(n * m);
-	if (p && (block(p, 0)->info & 15) != KIND_LARGE) /* fresh mappings are zero */
+	if (!h)
+		return 0;
+	p = n * m > MAXSMALL ? large(h, n * m, &fresh) : alloc(h, n * m);
+	if (p && !fresh) /* fresh mappings are zero */
 		zero(p, n * m);
 	return p;
 }
@@ -338,4 +391,7 @@ __cimo_heap_reset(void *heap)
 	h->cur = 0;
 	h->bump = 0;
 	h->end = 0;
+	for (i = 0; i < NKEEP; i++)
+		h->keep[i] = 0;
+	h->kept = 0;
 }

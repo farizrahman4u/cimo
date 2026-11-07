@@ -187,7 +187,9 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
     lookup. 52 size classes up to 256 KB (16..128 by 16, then 4 per power of two), carved by
     bump pointer from per-thread chunks (`grow` hook: 1 MB doubling to 64 MB), freed blocks on
     per-class lists, reused only for their class (no coalescing). Above 256 KB a block is its
-    own mapping, unmapped on `free`. A cross-thread `free` pushes onto the owner's `deferred`
+    own mapping; the owning thread keeps up to 8 freed ones (128 MB in all) and hands one out again for a
+    request it fits within 2x, as glibc does once its mmap threshold rises (a 10-round `y = y*0.5 + 1` over
+    1M doubles 30.1 to 4.1 ms on the laptop); `calloc` zeroes a reused one; a cross-thread free unmaps. A cross-thread `free` pushes onto the owner's `deferred`
     list with one CAS; the owner takes the whole list (CAS to 0) when a class list runs dry, so
     push + take-all has no ABA problem. The CAS is an assembly helper (`__cimo_cas`, ldaxr/stlxr:
     ARMv8.0, no LSE detection needed) rather than a compiler builtin: it is only on the

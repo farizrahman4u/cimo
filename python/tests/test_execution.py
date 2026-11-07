@@ -391,6 +391,12 @@ long calloc_test(void)
 	return 0;
 }
 
+int reuse(long a, long b) { char *p = malloc(a); free(p); char *q = malloc(b); int same = p == q; free(q); return same; }
+long calloc_after(long n) { long *p = malloc(n); for (long i = 0; i < n / 8; i++) p[i] = -1; free(p);
+                            long *q = calloc(n / 8, 8), s = 0; for (long i = 0; i < n / 8; i++) s |= q[i]; free(q); return s; }
+long many_large(int k, long n) { char *v[64]; for (int i = 0; i < k; i++) { v[i] = malloc(n); v[i][n - 1] = 1; }
+                                 for (int i = 0; i < k; i++) free(v[i]); return 0; }
+long mk_large(long n) { char *p = malloc(n); p[0] = 1; return (long)p; }
 long large_cycle(long n) { for (long i = 0; i < n; i++) { char *p = malloc(1 << 20); p[0] = 1; p[(1 << 20) - 1] = 2; free(p); } return 0; }
 '''
 
@@ -447,8 +453,28 @@ def test_grow_and_large_release(hm):
     assert hm.heap_bytes() >= before + 4000000
     hm.reset_heap()
     b = hm.heap_bytes()
-    assert hm.large_cycle(50) == 0  # 1 MB blocks are mapped and unmapped one by one
+    assert hm.large_cycle(50) == 0  # one 1 MB block, kept when freed and handed out again
+    assert b < hm.heap_bytes() <= b + (1 << 20) + 4096
+    hm.reset_heap()  # forgets it: unmapped
     assert hm.heap_bytes() == b
+
+
+def test_large_blocks_are_reused(hm):
+    """A freed large block goes back out for a request it fits (no more than twice its size); calloc zeroes a reused
+    one; blocks freed from another thread are unmapped; at most 128 MB is kept."""
+    hm.reset_heap()
+    assert hm.reuse(1 << 20, 1 << 20) == 1 and hm.reuse(1 << 20, 3 << 18) == 1  # 1 MB, then 768 KB: the same block
+    assert hm.reuse(1 << 20, 300000) == 0  # under half of it: a new mapping
+    assert hm.calloc_after(1 << 21) == 0
+    b = hm.heap_bytes()
+    assert hm.many_large(40, 8 << 20) == 0  # 40 live 8 MB blocks freed at once: 128 MB kept, the rest unmapped
+    assert hm.heap_bytes() <= b + (128 << 20) + 16 * 4096
+    hm.reset_heap()
+    p = hm.mk_large(1 << 21)
+    t = threading.Thread(target=hm.free, args=(p,))
+    t.start()
+    t.join()
+    hm.reset_heap()
 
 
 def test_reset_reuses_chunks(hm):

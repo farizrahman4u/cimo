@@ -268,24 +268,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
-- **Large blocks: keep freed ones for reuse** (found by scramjit, 2026-11-07, Snapdragon X laptop, WSL). `heap.c`
-  maps every block over `MAXSMALL` (256 KB) on its own, through the Python grow hook, and unmaps it on free, so a
-  loop that makes and drops a big array pays for a new mapping and its page faults each time. scramjit's
-  `y = y * 0.5 + b` ten times (one new array each, freed by its sweep): at 1,000 and 10,000 doubles 7.0 and 41.8 µs
-  against numpy's 12.1 and 59.1, but at 100,000 2,637 against 840 and at 1,000,000 33.2 ms against 8.0, where
-  numpy's glibc malloc reuses the freed block (its mmap threshold rises after the first free). Wanted: a few freed
-  large blocks kept (by size, with a byte cap) and handed out again, and maybe `MADV_HUGEPAGE` for big ones, as
-  numpy asks for. When done, note it in scramjit's `TODO.md`.
-
-- ~~Kernel calls without ctypes~~ **Done** (2026-11-07, found by scramjit): a kernel's `__call__` is a builtin
-  whose code is a CPython `METH_FASTCALL` entry per signature (`driver._pyentry`, `runtime/pyentry.c`): floats, ints
-  and writable buffers convert in C, anything else takes the old Python path. A `double, double, long` call 661 to
-  92 ns on the laptop (requirements.md, "No ctypes on a call"). Open: the `Kernel` instance's `__call__` lookup is
-  17 ns of it (a bare builtin call is 75); entries as assembly per target would save their ~5 ms first compile.
-
-- ~~`#pragma omp simd reduction(+:s)` does nothing~~ **Done** (2026-11-07): `+`, `-`, `*` sums and products it
-  names are unordered reductions with INTERLEAVE accumulators (1M-double dot 1.30 to 0.22 ms on the laptop, to
-  re-measure on mains power); `fmin`/`fmax` reductions are unordered without it, on arm64 (calls on x86-64).
+- ~~Large blocks: keep freed ones for reuse~~ **Done** (2026-11-07, found by scramjit): up to 8 per thread, 128 MB,
+  reused within 2x of the request (`heap.c`); a 10-round loop over 1M doubles 30.1 to 4.1 ms on the laptop.
+  `MADV_HUGEPAGE` not tried.
 
 - **A fast bundled libm, for scramjit's `parity=False`** (found by scramjit, 2026-11-07). scramjit's `parity=False`
   calls cimo's C library for `math` (its `parity=True` keeps the host's, as CPython does, and its own CPython-exact
