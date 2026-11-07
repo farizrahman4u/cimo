@@ -454,12 +454,14 @@ def test_grow_and_large_release(hm):
     hm.reset_heap()
     b = hm.heap_bytes()
     assert hm.large_cycle(50) == 0  # one 1 MB block, kept when freed and handed out again
-    assert b < hm.heap_bytes() <= b + (1 << 20) + 4096
+    from cimo import loader
+    assert b < hm.heap_bytes() <= b + (1 << 20) + loader.PAGE  # the header's page: 16 KB on macOS
     hm.reset_heap()  # forgets it: unmapped
     assert hm.heap_bytes() == b
 
 
 def test_large_blocks_are_reused(hm):
+    from cimo import loader
     """A freed large block goes back out for a request it fits (no more than twice its size); calloc zeroes a reused
     one; blocks freed from another thread are unmapped; at most 128 MB is kept."""
     hm.reset_heap()
@@ -468,7 +470,7 @@ def test_large_blocks_are_reused(hm):
     assert hm.calloc_after(1 << 21) == 0
     b = hm.heap_bytes()
     assert hm.many_large(40, 8 << 20) == 0  # 40 live 8 MB blocks freed at once: 128 MB kept, the rest unmapped
-    assert hm.heap_bytes() <= b + (128 << 20) + 16 * 4096
+    assert hm.heap_bytes() <= b + (128 << 20) + 16 * loader.PAGE
     hm.reset_heap()
     p = hm.mk_large(1 << 21)
     t = threading.Thread(target=hm.free, args=(p,))
