@@ -267,11 +267,16 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
-- **The bundled `hypot` is 1.4x glibc's** (found by scramjit, 2026-11-07, Snapdragon X): a viewshed loop (96x96, one
-  `hypot` per inner step, about 280,000 calls) takes 2.19 ms compiled by cimo with its own `hypot`, and 1.53 ms
-  compiled by gcc -O2 with glibc 2.39's; with `sqrt(a*a + b*b)` instead, cimo 0.98 and gcc 1.12 ms, so the loop
-  itself isn't it. glibc's is one `sqrt` of an fma and one correction step. Either kind is fine for C (neither is
-  CPython's correctly rounded `math.hypot`; scramjit brings that one).
+- **A fast bundled libm, for scramjit's `parity=False`** (found by scramjit, 2026-11-07). scramjit's `parity=False`
+  calls cimo's C library for `math` (its `parity=True` keeps the host's, as CPython does, and its own CPython-exact
+  code). Agreed direction: cimo's functions as fast as glibc's or faster, which beats calling the host library because
+  they inline, keep their constants in registers and vectorize (a call to the host blocks all three), and give the
+  same results on every target, Pyodide and Windows included. One function at a time, as kernels need them, each timed
+  against glibc in a loop. First, `hypot` is 1.4x glibc's (Snapdragon X): a viewshed loop (96x96, one `hypot` per
+  inner step, about 280,000 calls) takes 2.19 ms compiled by cimo with its own `hypot`, and 1.53 ms compiled by
+  gcc -O2 with glibc 2.39's; with `sqrt(a*a + b*b)` instead, cimo 0.98 and gcc 1.12 ms, so the loop itself isn't it.
+  glibc's is one `sqrt` of an fma and one correction step. Plain C semantics (errno, IEEE results); CPython-exact
+  variants stay in scramjit. When done, note it in scramjit's `TODO.md`.
 
 - ~~**The inliner sizes a function before cleaning it up, and grows small functions with their cold paths**~~
   **Done** (2026-11-07, found by scramjit): loads and stores of slots only ever loaded and stored, their constant
