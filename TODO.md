@@ -273,7 +273,7 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   in-order fold, `_ordered`). Numba with fastmath takes 0.34 ms (gcc -O3 -ffast-math is similar). Wanted: the named
   float sums (and products, `fmin`/`fmax`) of the loop the pragma precedes become unordered reductions, with
   `INTERLEAVE` accumulators as integer ones already get; nothing else about the loop's floating point changes (no
-  no-NaN or no-inf assumptions). scramjit will emit it for `reassociate=True`, a new opt-in separate from `parity`.
+  no-NaN or no-inf assumptions). scramjit will emit it for `reassoc=True`, a new opt-in separate from `parity`.
   When done, note it in scramjit's `TODO.md`.
 
 - **A fast bundled libm, for scramjit's `parity=False`** (found by scramjit, 2026-11-07). scramjit's `parity=False`
