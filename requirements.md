@@ -1475,8 +1475,10 @@ for Linux and macOS (strategies under "Platform loading findings").
     write, and SSA's undefined value has no q constant (gcc's vector-div-neg-pow2.c). x86-64 has none of these ops yet (`pshufb` is SSSE3, past the baseline). A slot only ever read and written whole by
     `qload`/`qstore` becomes a q temporary (`mem.promote`), so vector locals live in registers; initializer lists fill a
     slot of their own first. Lane by lane still: what q lacks (integer `/` and `%`, 64-bit `*`; shifts by a variable on x86-64),
-    `__builtin_shuffle`, shuffles wider than one q value, shuffles and `convertvector` on x86-64, 16-byte vectors with AVX2, and calls (vectors go as structs of lanes, not
-    in vector registers as gcc passes them). Not yet: `__int128` lanes, `ext_vector_type`.
+    `__builtin_shuffle`, shuffles wider than one q value, shuffles and `convertvector` on x86-64, and calls on x86-64 (vectors as structs of lanes, not in
+    vector registers as gcc passes them). 16-byte vectors with AVX2's 32-byte q (2026-11-07, `vecops` 'q16'): one q value,
+    loaded into both halves (`qload16`, `vbroadcasti128`: the upper lanes repeat the lower, so no extra FP exception) and
+    stored from the lower (`qstore16`); element-wise operations, copies and constant lane reads only. Not yet: `__int128` lanes, `ext_vector_type`.
     `aligned` after a declarator applies to the object/member, and on a typedef makes an
     over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's
     `#define __attribute__(x)` (made for non-GNU compilers), so attributes are never dropped.

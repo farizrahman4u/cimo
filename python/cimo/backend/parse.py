@@ -44,7 +44,7 @@ Tqc = Ntok + 7  # cimo extension: the class letter
 _KQTEXT = 99  # what parsecls says for it: Kq's number means something else among the size classes here
 Tq = Ntok + 6  # cimo extension: class q and its instructions, keywords when ext.vector is on
 Tvector = Ntok + 8  # cimo extension: "type :v = align 16 vector { s 4 }", a GNU vector type (ext.vector)
-_QNAMES = {optab[o].name: o for o in range(D.Oqaddb, D.Oqstore + 1) if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
+_QNAMES = {optab[o].name: o for o in list(range(D.Oqaddb, D.Oqstore + 1)) + [D.Oqload16, D.Oqstore16] if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
 _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
 _FPUOPS = ('rdfpcr', 'rdfpsr', 'wrfpcr', 'wrfpsr')  # cimo: the floating-point environment (ext.math)
@@ -571,7 +571,7 @@ def parseline(ps):
         r = R
         k = Kl if S.mathop == D.Osetsp else Kw
         op = Tsp
-    elif t == Tq and S.mathop == D.Oqstore:
+    elif t == Tq and S.mathop in (D.Oqstore, D.Oqstore16):
         r = R
         k = _KQTEXT
         op = Tq

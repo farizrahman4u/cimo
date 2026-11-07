@@ -529,13 +529,22 @@ def _vecq(target=None):
     return 32 if _is_amd64(target) and 'avx2' in _x86(target) else 16
 
 
+def _vecops(target=None):
+    """What else the frontend may do in one instruction (frontend vecops): arm64 converts, shuffles, halves and shifts by a
+    variable; x86-64 halves with F16C, and with AVX2's 32-byte q computes 16-byte vectors in its lower half."""
+    if not _is_amd64(target):
+        return ('convert', 'shuffle', 'half', 'vshift')
+    x86 = _x86(target)
+    return (('half',) if 'f16c' in x86 else ()) + (('q16',) if 'avx2' in x86 else ())
+
+
 def _ir(pp, filename='<string>', host_headers=False):
     """Preprocessed text -> (QBE IR text, parameter info for the middle end)."""
     from .frontend import FrontendError
     try:
         return _frontend(pp, filename, fma=_contract(), nowrap=not _wraps(), builtins=True,
                          diagnostics=True, prune=True, vecq=_vecq(),
-                         vecops=(('half',) if 'f16c' in _x86() else ()) if _is_amd64() else ('convert', 'shuffle', 'half', 'vshift'),
+                         vecops=_vecops(),
                          vecabi=not _is_amd64(), halfabi=True)
     except FrontendError as e:
         raise CompileError(_hint(str(e), host_headers)) from None

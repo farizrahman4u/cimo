@@ -602,6 +602,12 @@ def _qins_y(i, e):
     if (op == Oload and i.cls == D.Kq) or op == D.Oqload:
         _emitf_y("vmovups %M0, %=", i, e)
         return True
+    if op == D.Oqload16:  # 16 bytes in both halves
+        _emitf_y("vbroadcasti128 %M0, %=", i, e)
+        return True
+    if op == D.Oqstore16:  # the lower half
+        emitf("vmovups %0, %M1", i, e)
+        return True
     if op == D.Oqstore:
         _emitf_y("vmovups %0, %M1", i, e)
         return True

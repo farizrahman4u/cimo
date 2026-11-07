@@ -418,6 +418,11 @@ _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0
          ('qsel1', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qload', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qstore', ((Kq,) * 6, (Km,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         # 16 bytes with AVX2's 32-byte q (x86-64; GNU vectors of 16 bytes): qload16 puts them in both halves
+         # (vbroadcasti128: the upper lanes repeat the lower, so they raise no exception the lower don't), qstore16 stores
+         # the lower half
+         ('qload16', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qstore16', ((Kq,) * 6, (Km,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          # x86-64's own (amd64 isel, with fma): qfma1 with its second operand loaded from memory, %r =q qxfmams %a, %addr
          ('qxfmams', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Km)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qxfmamd', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Km)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
@@ -509,8 +514,8 @@ def INRANGE(x, l, u):
 
 def isstore(o): return Ostoreb <= o <= Ostored
 def isload(o): return Oloadsb <= o <= Oload
-def isvload(o): return Ovloadsb <= o <= Ovload or o in (Oqload, Oqldbh, Oqld3bh, Oqld3x, Oqxwin, Oqld3x16, Oqldh)  # vector memory: as careful as volatile, for now
-def isvstore(o): return Ovstoreb <= o <= Ovstored or o in (Oqstore, Oqstbh, Oqstshrn, Oqsth)
+def isvload(o): return Ovloadsb <= o <= Ovload or o in (Oqload, Oqldbh, Oqld3bh, Oqld3x, Oqxwin, Oqld3x16, Oqldh, Oqload16)  # vector memory: as careful as volatile, for now
+def isvstore(o): return Ovstoreb <= o <= Ovstored or o in (Oqstore, Oqstbh, Oqstshrn, Oqsth, Oqstore16)
 def isqop(o): return Oqaddb <= o <= Oqwmla3h
 
 

@@ -30,7 +30,7 @@ def _insidx(b, i):
 
 
 def _st(op):
-    return isstore(op) or op == D.Oqstore
+    return isstore(op) or op in (D.Oqstore, D.Oqstore16)
 
 
 def _readbeforestore(fn, t, blocks):
@@ -89,10 +89,10 @@ def promote(fn):
                 skip = True
                 break
             l = u.u
-            if l.op == D.Oqload and k in (-1, D.Kq) and s in (-1, 16):
+            if l.op in (D.Oqload, D.Oqload16) and k in (-1, D.Kq) and s in (-1, 16):
                 q, s = True, 16
                 continue
-            if l.op == D.Oqstore and i.to == l.arg[1] and i.to != l.arg[0] and k in (-1, D.Kq) and s in (-1, 16):
+            if l.op in (D.Oqstore, D.Oqstore16) and i.to == l.arg[1] and i.to != l.arg[0] and k in (-1, D.Kq) and s in (-1, 16):
                 q, s, k = True, 16, D.Kq
                 continue
             if q:
@@ -131,7 +131,7 @@ def promote(fn):
         for u in t.use[:t.nuse]:
             l = u.u
             if q:
-                if l.op == D.Oqstore:
+                if l.op in (D.Oqstore, D.Oqstore16):
                     l.op, l.cls, l.to, l.arg[1] = Ocopy, D.Kq, l.arg[1], R
                     t.nuse -= 1
                     t.ndef += 1
@@ -341,11 +341,11 @@ def coalesce(fn):
                 x = BIT(storesz(i)) - 1
                 store(arg[1], x, ip, i, b, ii, fn, sl)
                 ip -= 1
-            if i.op == D.Oqload:  # cimo (ext.vector): GNU vector types read and write slots whole
+            if i.op in (D.Oqload, D.Oqload16):  # cimo (ext.vector): GNU vector types read and write slots whole
                 ip -= 1
-                load(arg[0], BIT(_qbytes()) - 1, ip, fn, sl)
-            if i.op == D.Oqstore:
-                store(arg[1], BIT(_qbytes()) - 1, ip, i, b, ii, fn, sl)
+                load(arg[0], BIT(16 if i.op == D.Oqload16 else _qbytes()) - 1, ip, fn, sl)
+            if i.op in (D.Oqstore, D.Oqstore16):
+                store(arg[1], BIT(16 if i.op == D.Oqstore16 else _qbytes()) - 1, ip, i, b, ii, fn, sl)
                 ip -= 1
             if i.op == Oblit0:
                 i1 = b.ins[ii + 1]

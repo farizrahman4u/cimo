@@ -57,8 +57,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    - GNU vector types as class-`q` values: operators, copies, `v[constant]`, and vector locals in registers **done**
      (2026-11-07, `tests/test_vector_q.py`; "GNU vector types" in `requirements.md`). `convertvector` and one-q `shufflevector` (`tbl`) on arm64 **done**.
      One-instruction shuffles on arm64 **done**. Open: `shuffle` with a variable mask, shuffles on x86-64, `convertvector` on x86-64 (SSE2 unpack and shifts; AVX2 `vpmovsx`), integer division and 64-bit `*` (no instruction on either; lane by lane is what gcc does too), shifts by a variable
-     on x86-64 (lane writes and arm64 variable shifts **done**), 16-byte vectors with AVX2 (q is 32 bytes
-     there), and vectors as arguments and returns in vector registers on x86-64 (SysV: one xmm; needs a 128-bit class with AVX2;
+     on x86-64 (lane writes and arm64 variable shifts **done**), and vectors as arguments and returns in vector registers on x86-64 (SysV: one xmm; needs a 128-bit class with AVX2;
      arm64 **done**). Measure a hand-vectorized `Q8_0`
      dot and a 4x4 matrix kernel on mains power (not yet measured).
    - Half conversions without calls: arm64 `fcvt` and `__bf16` inline everywhere **done** (2026-11-07,

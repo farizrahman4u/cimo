@@ -100,11 +100,11 @@ def test_every_q_operation_compiles(target, monkeypatch):
     monkeypatch.setattr(driver, '_x86', lambda tg=None: feats if (tg or driver.TARGET).startswith('amd64') else frozenset())
     monkeypatch.setattr(driver, 'TARGET', t)
     for ty in TYPES:
-        for size in [z for z in (16, 32, 64, 128) if driver._vecq(t) <= z <= 4 * driver._vecq(t)] + [0]:
+        for size in [z for z in (16, 32, 64, 128) if driver._vecq(t) <= z <= 4 * driver._vecq(t) or z == 16] + [0]:
             src = _src(ty, size)[0] if size else _lanesrc(ty)
             pp = driver._preprocess(src, 'x.c', target=t)
             ssa, params = driver._ir(pp, 'x.c')
-            if size and size == driver._vecq(t):
+            if size in (16, driver._vecq(t)):  # 16 bytes with AVX2: its lower half (qload16)
                 assert ' =q q' in ssa, (ty, size)
             driver._qbe(ssa, params, target=t)
 

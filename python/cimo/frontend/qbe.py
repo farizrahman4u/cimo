@@ -1392,7 +1392,7 @@ def _libcall(f, e, name, d):
         c = _stripcast(e.args.next.next)
         if c.kind != EXPRCONST or not c.type.prop & PROPINT or not 0 <= c.u <= _INLINEMEM:
             return None
-        vec = vecq and c.u in (vecq, 2 * vecq, 4 * vecq) and any(
+        vec = vecq and (c.u in (vecq, 2 * vecq, 4 * vecq) or c.u == 16 and vecq == 32 and 'q16' in vecops) and any(
             x.type.kind == TYPEPOINTER and TY.isvec(x.type.base) and x.type.base.size == c.u
             for x in (_stripcast(e.args), _stripcast(e.args.next)))
         dst = funcexpr(f, e.args)
@@ -1865,7 +1865,7 @@ def _qget(f, v, i):
     per = vecq // el.size
     a = funcexpr(f, v)
     k = i // per
-    q = _qop(f, 'qload', funcinst(f, IADD, ptrclass, a, mkintconst(k * vecq)) if k else a)
+    q = _qop(f, _qls(t.size)[0], funcinst(f, IADD, ptrclass, a, mkintconst(k * vecq)) if k else a)
     cls = qbetype(el).base
     x = _qlane(el)
     r = _qop(f, 'qget' + x, q, mkintconst(i % per), cls=cls)
@@ -1876,9 +1876,10 @@ def _qget(f, v, i):
 
 def _qcopy(f, dst, src, size):
     """size bytes (1, 2 or 4 times vecq) as q values: a vector object read and written only this way is a register."""
-    for k in range(size // vecq):
+    ld, st = _qls(size)
+    for k in range(max(1, size // vecq)):
         off = (lambda p: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
-        _qop(f, 'qstore', _qop(f, 'qload', off(src)), off(dst), res=False)
+        _qop(f, st, _qop(f, ld, off(src)), off(dst), res=False)
 
 
 def _qlane(el):
@@ -1889,10 +1890,18 @@ def _qlane(el):
 
 
 def _qchunks(t):
-    """How many q values a vector type is computed in (0: lane by lane)."""
+    """How many q values a vector type is computed in (0: lane by lane). A 16-byte vector with AVX2's 32-byte q is one
+    (vecops 'q16': loaded into both halves, its lower half stored; _qls)."""
     if vecq and t.size in (vecq, 2 * vecq, 4 * vecq) and t.base.size in (1, 2, 4, 8):
         return t.size // vecq
+    if vecq == 32 and t.size == 16 and 'q16' in vecops and t.base.size in (1, 2, 4, 8):
+        return 1
     return 0
+
+
+def _qls(size):
+    """The q load and store for size bytes of vector: qload16/qstore16 for 16 bytes with a 32-byte q."""
+    return ('qload16', 'qstore16') if size < vecq else ('qload', 'qstore')
 
 
 _QCMP = {TEQL: ('qceq', 0, 0), TNEQ: ('qceq', 0, 1), TGREATER: ('qcgt', 0, 0), TLESS: ('qcgt', 1, 0),
@@ -1914,13 +1923,13 @@ def _qfma(f, e, vt):
     off = (lambda p, k: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
     dup = {}
     for k in range(_qchunks(vt)):
-        a, b, z = [_qop(f, 'qload', off(p, k)) if p is not None else dup.setdefault(n, _qop(f, 'qdup' + x, s))
+        a, b, z = [_qop(f, _qls(vt.size)[0], off(p, k)) if p is not None else dup.setdefault(n, _qop(f, 'qdup' + x, s))
                    for n, (p, s) in enumerate(ops)]
         if negc:
             z = _qop(f, 'qneg' + x, z)
         if nega:
             a = _qop(f, 'qneg' + x, a)
-        _qop(f, 'qstore', _qop(f, ('qfma1' + x, z), a, b), off(res, k), res=False)
+        _qop(f, _qls(vt.size)[1], _qop(f, ('qfma1' + x, z), a, b), off(res, k), res=False)
     return res
 
 
@@ -1937,11 +1946,11 @@ def _qvshift(f, e, vt, la, ls, ra, rs):
             c = funcinst(f, IEXTSW, 'l', c, None)
         dup = _qop(f, 'qdup' + x, c)
     for k in range(_qchunks(vt)):
-        a = _qop(f, 'qload', off(la, k)) if la is not None else _qop(f, 'qdup' + x, ls)
-        n = _qop(f, 'qload', off(ra, k)) if ra is not None else dup
+        a = _qop(f, _qls(vt.size)[0], off(la, k)) if la is not None else _qop(f, 'qdup' + x, ls)
+        n = _qop(f, _qls(vt.size)[0], off(ra, k)) if ra is not None else dup
         if e.op == TSHR:
             n = _qop(f, 'qneg' + x, n)
-        _qop(f, 'qstore', _qop(f, name, a, n), off(res, k), res=False)
+        _qop(f, _qls(vt.size)[1], _qop(f, name, a, n), off(res, k), res=False)
     return res
 
 
@@ -1977,7 +1986,7 @@ def _qbinary(f, e, vt, la, ls, ra, rs):
 
     def operand(addr, scalar, k):
         if addr is not None:
-            return _qop(f, 'qload', funcinst(f, IADD, ptrclass, addr, mkintconst(k * vecq)) if k else addr)
+            return _qop(f, _qls(vt.size)[0], funcinst(f, IADD, ptrclass, addr, mkintconst(k * vecq)) if k else addr)
         return _qop(f, 'qdup' + x, scalar)
 
     dup = {}
@@ -1993,7 +2002,7 @@ def _qbinary(f, e, vt, la, ls, ra, rs):
                     v = _qop(f, 'qnot', v)
             else:
                 v = _qop(f, name, a, b)
-        _qop(f, 'qstore', v, funcinst(f, IADD, ptrclass, res, mkintconst(k * vecq)) if k else res, res=False)
+        _qop(f, _qls(vt.size)[1], v, funcinst(f, IADD, ptrclass, res, mkintconst(k * vecq)) if k else res, res=False)
     return res
 
 
@@ -2042,7 +2051,8 @@ def _vunary(f, e):
         name = 'qneg' + _qlane(el) if e.op == TSUB else 'qnot'
         for k in range(_qchunks(t)):
             off = (lambda p: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
-            _qop(f, 'qstore', _qop(f, name, _qop(f, 'qload', off(a))), off(res), res=False)
+            ld, st = _qls(t.size)
+            _qop(f, st, _qop(f, name, _qop(f, ld, off(a))), off(res), res=False)
         return res
     for i in range(t.vlanes):
         x = _vlane(f, a, el, i)
