@@ -358,6 +358,14 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   - `middle/ifconv.py` only converts loops with one exit and no call: measured, still right with
     `csel` (viewshed 8.17 against 14.38 ms). `backend/ifopt.py` has no such rule, and scramjit's
     flood_fill lost 2.47 to 2.72 ms from it: needs `SelectOptimize`'s model (Tier 2).
+  - **2026-11-07 (Snapdragon X, mains):** scramjit's `bench/gcc.py` now has gray_scott level, viewshed 0.64x of gcc
+    (cimo faster; `hypot`, inlining, CSE), hand flood_fill level; only scramjit's generated flood_fill is behind, 2.10 to
+    2.18 against 1.84 ms. Found and fixed on it: a select whose condition waits on an integer division is kept a branch
+    (`ifopt.slowcond`, `middle/ifconv`; the floor-division sign fix as an `if`, 2.47 to 2.00 ms, gcc 1.82), dead `cmp`s
+    dropped (`arm64/emit._deadcmp`), `divrem` again after loads merge (`p[i] / w` and `p[i] % w` shared one sdiv only
+    when the loads were already one). Left: gcc unswitches the loop on `w` (cimo's `unswitch` takes loops of at most 50
+    instructions with one way out; the generated loop has many `SJ_FAIL` exits), and computes the sign fix as
+    `cbz r; eor r, w; tbz` where cimo materializes booleans through branches.
   **When fixed, add a note to scramjit's `TODO.md`** so it can drop the workarounds listed there.
 
 - ~~**Inline small functions**~~ **Done** (`backend/inline.py`): helpers now run as fast as macros

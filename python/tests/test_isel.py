@@ -215,6 +215,31 @@ def test_a_loop_invariant_condition_keeps_its_branch():
     assert m.f(x, 3, 1) == 4 + 9 + 16 and m.f(x, 3, 0) == 1 + 4 + 9
 
 
+def test_a_condition_waiting_on_a_division_keeps_its_branch():
+    """In a loop, a select whose condition comes from a division would wait for it, and so would the address that
+    reads the select; a predicted branch doesn't (LLVM's SelectOptimize). Python's floor division's sign fix in
+    scramjit's flood_fill: 2.47 to 2.03 ms. So does a condition on an invariant compared next to its branch."""
+    src = """long f(const long *p, long n, long w, const unsigned char *g) { long s = 0;
+        for (long i = 0; i < n; i++) { long q = p[i] / w, r = p[i] % w; if (r < 0) q -= 1; s += g[q & 1023]; }
+        return s; }"""
+    b = body(src)
+    assert re.search(r'sdiv[^\n]*\n(?:[^\n]*\n){0,6}?\t(tbn?z|cbn?z|b\.\w+)\t', b), b
+    m = cimo.compile(src, cache=False)
+    p = array.array('q', [-7, 7, -1, 0, 1023])
+    g = bytes(range(256)) * 4
+    assert m.f(p, 5, 3, g) == sum(g[(x // 3) & 1023] for x in p)  # C rounds to zero; the fix makes Python's floor
+
+
+def test_dead_compares_go():
+    from cimo.backend.arm64.emit import _deadcmp
+    t = '\tcmp\tx0, #0\n\tadd\tx1, x1, #1\n\tcmp\tx2, #3\n\tcsel\tx3, x4, x5, lt\n'
+    assert _deadcmp(t) == '\tadd\tx1, x1, #1\n\tcmp\tx2, #3\n\tcsel\tx3, x4, x5, lt\n'
+    for keep in ('\tcmp\tx0, #0\n\tcset\tw1, eq\n\tcmp\tx2, #3\n',  # read in between
+                 '\tcmp\tx0, #0\n.L3:\n\tcmp\tx2, #3\n',  # a label: another way in
+                 '\tcmp\tx0, #0\n\tb.eq\t.L4\n\tcmp\tx2, #3\n'):
+        assert _deadcmp(keep) == keep
+
+
 @pytest.mark.parametrize('n', [0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17])
 def test_selects_in_unrolled_loops(n):
     """The loop passes copy a select around induction values they compute on demand."""

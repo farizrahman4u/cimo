@@ -1513,7 +1513,7 @@ def arm64_emitfn(fn, out):
     import io
     buf = io.StringIO()
     _emitfn(fn, buf)
-    out.write(_carry(buf.getvalue()))
+    out.write(_deadcmp(_carry(buf.getvalue())))
 
 
 _ADD = re.compile(r'\tadd\t(x\d+), (x\d+), (x\d+)$')
@@ -1578,6 +1578,40 @@ def _carry(text):
         lines[n] = '\tadc\t%s, %s, %s' % (s, cs, ds)
         lines[n - 1] = None
         lines[js] = None
+    return '\n'.join(x for x in lines if x is not None)
+
+
+# what reads the flags, and what only sets them (ccmp and the like do both: readers)
+_READS = frozenset('csel csinc csinv csneg cset csetm cinc cinv cneg ccmp ccmn fccmp fccmpe fcsel adc adcs sbc sbcs ngc '
+                   'ngcs'.split())
+_SETS = frozenset('cmp cmn tst adds subs ands bics fcmp fcmpe negs'.split())
+# what neither reads nor sets them, nor leaves the block
+_PLAIN = frozenset('add sub mul madd msub mov movk movz movn neg and orr eor bic orn eon lsl lsr asr ror sxtw sxtb sxth '
+                   'uxtw uxtb uxth sdiv udiv ldr ldrb ldrh ldrsw ldrsb ldrsh str strb strh ldp stp ldur stur adrp '
+                   'fmov fadd fsub fmul fdiv fsqrt fmadd fmsub fnmadd fnmsub fneg fabs scvtf ucvtf fcvtzs fcvtzu fcvt '
+                   'smulh umulh sbfx ubfx ubfiz sbfiz bfi bfxil extr clz rbit rev nop'.split())
+
+
+def _deadcmp(text):
+    """cimo: a cmp, cmn or tst whose flags another instruction sets again before anything reads them (two selects'
+    comparisons lowered one after the other, the first select gone): dropped. The scan stops at labels, branches,
+    calls and any instruction it doesn't know."""
+    if '\tcmp\t' not in text and '\tcmn\t' not in text and '\ttst\t' not in text:
+        return text
+    lines = text.split('\n')
+    for n, line in enumerate(lines):
+        if not line.startswith(('\tcmp\t', '\tcmn\t', '\ttst\t')):
+            continue
+        for k in range(n + 1, min(n + 24, len(lines))):
+            x = lines[k]
+            if x is None:
+                continue
+            mn = x.split('\t')[1] if x.startswith('\t') else ''
+            if mn in _SETS:
+                lines[n] = None
+                break
+            if mn not in _PLAIN:
+                break  # a reader, a label, a branch or something unknown
     return '\n'.join(x for x in lines if x is not None)
 
 

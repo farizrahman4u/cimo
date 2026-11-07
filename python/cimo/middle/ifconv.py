@@ -71,6 +71,26 @@ def _can_be_one_block(lp):
     return not any(i.op == D.Ocall for b in lp.blocks for i in ir.ins(b))
 
 
+_DIVS = (D.Odiv, D.Orem, D.Oudiv, D.Ourem)
+
+
+def _waits_on_division(lp, c):
+    """Whether c comes from a division in lp, a few instructions back: a select would wait for it, and what reads the
+    select after it (an address, a load), where a predicted branch lets them run ahead (backend.ifopt.slowcond)."""
+    defs = {i.to: i for b in lp.blocks for i in ir.ins(b) if ir.istmp(i.to)}
+    work, seen = [c], set()
+    while work and len(seen) < 12:
+        r = work.pop()
+        if r in seen or r not in defs:
+            continue
+        seen.add(r)
+        d = defs[r]
+        if d.op in _DIVS and d.cls in (Kw, Kl):
+            return True
+        work += [a for a in d.arg[:2] if ir.istmp(a)]
+    return False
+
+
 def convert_loop(fn, lp):
     """If-convert inside loop lp (needs fillcfg); returns True if something changed."""
     if not _can_be_one_block(lp):
@@ -83,6 +103,8 @@ def convert_loop(fn, lp):
         if not all(x in lp.blocks for x in (tb, fb, joinb)):
             continue
         if joinb.npred != 2 or joinb is lp.header or joinb.phi is None:
+            continue
+        if _ext.isel and _waits_on_division(lp, ifb.jmp.arg):
             continue
         if any(p.cls not in (Kw, Kl) for p in ir.phis(joinb)) and not _ext.isel:
             continue

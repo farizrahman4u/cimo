@@ -5,7 +5,7 @@ import sys
 from . import defs as D
 from .defs import R, RTmp, Ins, KBASE, Kw, Jjmp, Odbgloc, Onop, Osel0, Osel1, rtype, rval
 from . import ext as _ext
-from .util import addins, phiarg
+from .util import addins, phiarg, iscmp
 from .cfg import ifgraph, fillloop
 from .gcm import pinned
 
@@ -46,7 +46,38 @@ def predictable(fn, ifb):
     only costs (LLVM's EarlyIfConverter::shouldConvertIf)."""
     if not ifb.loop or rtype(ifb.jmp.arg) != RTmp:
         return False
-    return fn.rpo[fn.tmp[rval(ifb.jmp.arg)].bid].loop < ifb.loop
+    t = fn.tmp[rval(ifb.jmp.arg)]
+    if fn.rpo[t.bid].loop < ifb.loop:
+        return True
+    # gcm's sink copies a comparison next to its branch: one of values from before the loop is the same
+    d = t.def_
+    return d is not None and iscmp(d.op) is not None and all(
+        rtype(a) != RTmp or fn.rpo[fn.tmp[rval(a)].bid].loop < ifb.loop for a in d.arg[:2])
+
+
+_DIVS = (D.Odiv, D.Orem, D.Oudiv, D.Ourem)
+
+
+def slowcond(fn, ifb):
+    """cimo (ext.isel): in a loop, a condition that waits on a division (a few instructions back): a select
+    would wait too, and what reads it after it (an address, a load), where a predicted branch lets them
+    run ahead. LLVM's SelectOptimize makes such selects branches again. scramjit's flood_fill: Python's
+    floor division's sign fix (q -= r != 0 && (r < 0) != (w < 0)) as a select, 2.47 ms; as a branch, 2.03."""
+    if fn.rpo[ifb.id].loop <= 1 or rtype(ifb.jmp.arg) != RTmp:
+        return False
+    work, seen = [ifb.jmp.arg], set()
+    while work and len(seen) < 12:
+        r = work.pop()
+        if rtype(r) != RTmp or r in seen:
+            continue
+        seen.add(r)
+        d = fn.tmp[rval(r)].def_
+        if d is None:
+            continue
+        if d.op in _DIVS and KBASE(d.cls) == 0:  # integer: floats' selects are what viewshed needs
+            return True
+        work += [a for a in d.arg[:2] if rtype(a) == RTmp]
+    return False
 
 
 def okgraph(ifb, thenb, elseb, joinb):
@@ -117,7 +148,7 @@ def ifconvert(fn):
         g = ifgraph(ifb)
         if g:
             thenb, elseb, joinb = g
-            if okgraph(ifb, thenb, elseb, joinb) and not (_ext.isel and predictable(fn, ifb)):
+            if okgraph(ifb, thenb, elseb, joinb) and not (_ext.isel and (predictable(fn, ifb) or slowcond(fn, ifb))):
                 if D.debug['K']:
                     sys.stderr.write("    @%s -> @%s, @%s -> @%s\n"
                                      % (ifb.name, thenb.name, elseb.name, joinb.name))

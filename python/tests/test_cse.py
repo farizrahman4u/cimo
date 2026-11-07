@@ -36,6 +36,17 @@ def test_a_store_between_keeps_the_second_load():
     assert cimo.compile(src, cache=False).f(x, x, 0) == 6  # p and q are the same array
 
 
+def test_division_and_remainder_of_one_load_share_one_sdiv(monkeypatch):
+    """p[i] / w and p[i] % w: two loads until load elimination merges them, after the first look for a pair; divrem
+    looks again (one sdiv a loop iteration where there were two)."""
+    from cimo import driver as d
+    monkeypatch.setattr(d, 'MIDDLE', False)  # one copy of the loop
+    src = 'long f(const long *p, long n, long w) { long s = 0; for (long i = 0; i < n; i++) s += p[i] / w * 3 + p[i] % w; return s; }'
+    assert body(src, 'f').count('sdiv') == 1
+    m = cimo.compile(src + '\nint divrem_marker;', cache=False)
+    assert m.f(array.array('q', [-7, 7, 100, -1]), 4, 3) == sum(int(x / 3) * 3 + (x - int(x / 3) * 3) for x in (-7, 7, 100, -1))
+
+
 def test_division_and_remainder_share_one_sdiv():
     src = 'long f(long a, long b) { return a % b + a / b + a % b * (a / b); }'
     assert body(src, 'f').count('sdiv') == 1

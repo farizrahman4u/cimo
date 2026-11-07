@@ -215,6 +215,10 @@ class _Driver:
             if merged or threaded or moved or cse.nload(fn) != loads:
                 cfg.filldom(fn)
                 self._cleanup(fn, cfg, ssa, gvn, gcm)
+                if T.name.startswith('arm64') and cse.divrem(fn):  # loads merged since: p[i] / w and p[i] % w
+                    ssa.filluse(fn)
+                    cfg.filldom(fn)
+                    self._cleanup(fn, cfg, ssa, gvn, gcm)
         from .. import middle
         if middle.enabled:
             # cimo's loop passes (off by default: stock QBE output otherwise), then QBE's
