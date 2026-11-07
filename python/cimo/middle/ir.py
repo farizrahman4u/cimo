@@ -316,7 +316,8 @@ def _init_ops():
     s = set()
     for name in ('add sub neg mul and or xor sar shr shl extsb extub extsh extuh extsw extuw '
                  'exts truncd stosi stoui dtosi dtoui swtof uwtof sltof ultof cast copy '
-                 'fsqrt fabs fmin fmax ffloor fceil ftrunc fround frint fnearbyint smulh umulh').split():
+                 'fsqrt fabs fmin fmax ffloor fceil ftrunc fround frint fnearbyint smulh umulh '
+                 'bclz bctz bpopcnt bswap bswap16 h2f f2h').split():
         s.add(getattr(D, 'O' + name))
     for o in range(D.Ocmpw, D.Ocmpd1 + 1):
         s.add(o)

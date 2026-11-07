@@ -1690,11 +1690,23 @@ def _i128shift(f, op, signed, lo, hi, n):
         return (funcinst(f, IOR, 'l', funcinst(f, ISHR, 'l', lo, mkintconst(k)),
                          funcinst(f, ISHL, 'l', hi, mkintconst(64 - k))),
                 funcinst(f, sh, 'l', hi, mkintconst(k)))
-    r = _cxslot(f, TY.typeint128)
-    kind = 0 if op == ISHL else 2 if signed else 1
-    _cxcall(f, '__cimo_i128shift', 'l', [(mkintconst(kind), 'w'), (lo, 'l'), (hi, 'l'), (n, 'w'), (r, ptrclass)])
-    return (funcinst(f, ILOADL, 'l', r, None),
-            funcinst(f, ILOADL, 'l', funcinst(f, IADD, ptrclass, r, mkintconst(8)), None))
+    # by a variable, branch-free: both halves shifted by n mod 64 (as the IR's shifts take it), the bits crossing over
+    # by a double shift (n = 0 moves none), then the halves picked by bit 6 of n through a mask
+    big = funcinst(f, IAND, 'w', funcinst(f, ISHR, 'w', n, mkintconst(6)), mkintconst(1))
+    m = funcinst(f, INEG, 'l', funcinst(f, IEXTUW, 'l', big, None), None)  # all ones when n >= 64
+    nm = funcinst(f, IXOR, 'l', m, mkintconst(-1))
+    inv = funcinst(f, ISUB, 'w', mkintconst(63), n)
+    sel = (lambda a, b: funcinst(f, IOR, 'l', funcinst(f, IAND, 'l', a, m), funcinst(f, IAND, 'l', b, nm)))
+    if op == ISHL:
+        lo1 = funcinst(f, ISHL, 'l', lo, n)
+        cross = funcinst(f, ISHR, 'l', funcinst(f, ISHR, 'l', lo, mkintconst(1)), inv)
+        hi1 = funcinst(f, IOR, 'l', funcinst(f, ISHL, 'l', hi, n), cross)
+        return funcinst(f, IAND, 'l', lo1, nm), sel(lo1, hi1)
+    hi1 = funcinst(f, ISAR if signed else ISHR, 'l', hi, n)
+    cross = funcinst(f, ISHL, 'l', funcinst(f, ISHL, 'l', hi, mkintconst(1)), inv)
+    lo1 = funcinst(f, IOR, 'l', funcinst(f, ISHR, 'l', lo, n), cross)
+    top = funcinst(f, ISAR, 'l', hi, mkintconst(63)) if signed else mkintconst(0)
+    return sel(hi1, lo1), sel(top, hi1)
 
 
 def _i128binary(f, e):

@@ -45,3 +45,25 @@ def test_overflow_builtins_with_int128():
                      'int g(void) { long r; return __builtin_add_overflow((__int128)1 << 70, -((__int128)1 << 70), &r) + (int)r; }\n')
     assert m.f() == 10
     assert m.g() == 0
+
+
+def test_shifts_by_a_variable_inline():
+    """<<, >> (logical and arithmetic) by a variable 0 to 127, branch-free, no runtime call, on random values."""
+    import ctypes
+    import random
+    from cimo import driver
+    src = ('typedef unsigned __int128 u128; typedef __int128 i128;\n'
+           'void f(unsigned long lo, unsigned long hi, int s, unsigned long *r) { u128 a = (u128)hi << 64 | lo; i128 b = (i128)a;\n'
+           '  u128 x = a << s, y = a >> s; i128 z = b >> s; r[0] = x; r[1] = x >> 64; r[2] = y; r[3] = y >> 64; r[4] = z;\n'
+           '  r[5] = (u128)z >> 64; }\n')
+    assert '__cimo_i128shift' not in driver._ir(driver._preprocess(src, 'x.c'), 'x.c')[0]
+    m = cimo.compile(src)
+    rnd = random.Random(1)
+    mask = (1 << 128) - 1
+    for s in list(range(128)) * 4:
+        lo, hi = rnd.getrandbits(64), rnd.getrandbits(64) | (rnd.random() < 0.5) << 63
+        r = (ctypes.c_uint64 * 6)()
+        m.f(lo, hi, s, r)
+        a = hi << 64 | lo
+        sa = a - (1 << 128) if a >> 127 else a
+        assert [r[0] | r[1] << 64, r[2] | r[3] << 64, r[4] | r[5] << 64] == [(a << s) & mask, a >> s, (sa >> s) & mask], s

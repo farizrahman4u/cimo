@@ -62,10 +62,12 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
      arm64 **done**). Measure a hand-vectorized `Q8_0`
      dot and a 4x4 matrix kernel on mains power (not yet measured).
    - Half conversions without calls: arm64 `fcvt` and `__bf16` inline everywhere **done** (2026-11-07,
-     `tests/test_half_hw.py`). Open: x86-64 F16C `vcvtph2ps`/`vcvtps2ph` behind the `cimo.cpu` check, then
-     half loads widened in the vectorizer (Adoption #6). Half and bf16 arguments in FP registers **done**.
-   - `__int128` in register pairs through the backend (`adds`/`adc`, `umulh`, shifts across the pair) and passed as gcc does
-     (an aligned even register pair on arm64; two registers on SysV).
+     `tests/test_half_hw.py`). Half loads and stores in the vectorizer on arm64 **done**
+     (`ldr d` + `fcvtl`, `fcvtn` + `str d`; `test_vectorize.py`). Open: x86-64 F16C `vcvtph2ps`/`vcvtps2ph` behind the
+     `cimo.cpu` check, for both. Half and bf16 arguments in FP registers **done**.
+   - `__int128`: passed as gcc does (even pair on arm64, two registers on SysV; `tests/test_abi.py`), halves in registers
+     within a function (sroa), `umulh`, variable shifts inline **done** (2026-11-07). Open: `adds`/`adc` for the carry
+     (today `cmp` and `csinc`, one more instruction), and the struct copies at call boundaries every small struct pays.
    - `_Complex` stays two scalars (what gcc does too); its multiply and divide inline where the C allows (`CX_LIMITED_RANGE`).
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.

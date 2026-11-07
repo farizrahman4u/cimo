@@ -555,7 +555,7 @@ WSL2, mains, tok/s:
 
 ## Vector code (2026-11-02)
 
-Built on arm64 and x86-64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes. GNU vector types compute in class q where it has the operation (2026-11-07, below); wasm isn't vectorized. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
+Built on arm64 and x86-64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes, and `_Float16` arrays on arm64 as 4 float lanes (a `loaduh` only an `h2f` reads becomes `qldh`: `ldr d`, `fcvtl`; an `f2h` only a `storeh` reads, `qsth`: `fcvtn`, `str d`; 2026-11-07). The middle end copies the bit builtins and `h2f`/`f2h` now (`ir.PURE_SAFE`): a loop with one bailed out of every loop optimization before. GNU vector types compute in class q where it has the operation (2026-11-07, below); wasm isn't vectorized. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
 Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorization (`rgb2gray` up to 6.6x; `saxpy`, `jacobi2d`,
 `conv3x3` 3 to 4x).
 
@@ -1523,7 +1523,9 @@ for Linux and macOS (strategies under "Platform loading findings").
     returns are a struct's: x86-64 SysV and arm64 take it in a register pair (AAPCS64's even one, from the type's
     `align 16`), the stack 16-byte aligned, as gcc does (`tests/test_abi.py`, both directions). The frontend lowers operations to 64-bit halves (`qbe._i128*`): add/sub with a carry,
     multiplication with `umulh` on arm64 (32-bit halves elsewhere), comparisons high half first,
-    constant shifts inline; division, variable shifts and float conversions are runtime calls
+    shifts inline (by a variable branch-free since 2026-11-07: both halves by n mod 64, the crossing bits by a double
+    shift, the halves picked by bit 6 through a mask); division and float conversions are runtime calls (as gcc's
+    `__divti3`, `__floattidf`)
     (`builtins.c`, correctly rounded). Constants fold in 128 bits (`eval._i128eval`); the overflow
     builtins take `__int128` operands and results (`__cimo_overflow128`). Not supported: `__int128`
     bit-fields, `switch` on one.

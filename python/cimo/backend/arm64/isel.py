@@ -1114,8 +1114,10 @@ def sel(i, fn):
             foldaddr(i.arg, 1, 16, fn)
         elif i.op == D.Oqldbh:  # ldr d, str d: 8 bytes
             foldaddr(i.arg, 0, 8, fn)
-        elif i.op == D.Oqstbh:
+        elif i.op in (D.Oqstbh, D.Oqsth):
             foldaddr(i.arg, 1, 8, fn)
+        elif i.op == D.Oqldh:
+            foldaddr(i.arg, 0, 8, fn)
         elif i.op == D.Oqstshrn:
             foldaddr(i.arg, 0, 8, fn)
         emiti(i)

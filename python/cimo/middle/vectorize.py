@@ -75,6 +75,37 @@ def _compare(i):
     return c + (k,)
 
 
+def _halves(fast):
+    """_Float16 arrays: {id(loaduh): its h2f} for a half load whose only reader is a widening to float, and {id(storeh):
+    the f2h} for a half store of a narrowing that nothing else reads; and the ids of those h2f and f2h. A vector loop
+    loads and stores them 4 floats at a time (qldh, qsth)."""
+    uses = {}
+    defs = {}
+    for i in fast.cloned:
+        if ir.istmp(i.to):
+            defs[rval(i.to)] = i
+        for a in i.arg[:2]:
+            if ir.istmp(a):
+                uses.setdefault(rval(a), []).append(i)
+    for p in ir.phis(fast.sh.H):
+        for a in p.arg[:p.narg]:
+            if ir.istmp(a):
+                uses.setdefault(rval(a), []).append(None)
+    loads, stores, inner = {}, {}, set()
+    for i in fast.cloned:
+        if i.op == D.Oloaduh and ir.istmp(i.to):
+            u = uses.get(rval(i.to), [])
+            if len(u) == 1 and u[0] is not None and u[0].op == D.Oh2f:
+                loads[id(i)] = u[0]
+                inner.add(id(u[0]))
+        if i.op == D.Ostoreh and ir.istmp(i.arg[0]):
+            d = defs.get(rval(i.arg[0]))
+            if d is not None and d.op == D.Of2h and len(uses.get(rval(i.arg[0]), [])) == 1:
+                stores[id(i)] = d
+                inner.add(id(d))
+    return loads, stores, inner
+
+
 def _loadsize(i):
     if i.op == D.Oload and i.cls in _SIZE:
         return _SIZE[i.cls]
@@ -399,10 +430,23 @@ def plan(fast, rts):
     mem = []
     made = set()
     third = None
+    hloads, hstores, hinner = _halves(fast)
     masks = set()  # comparisons' results: read by sel0 only, which _operand sees to (they aren't in made)
     mask = None  # the sel0 before a sel1
     for n, i in enumerate(fast.cloned):
-        if i.op in (D.Onop, D.Odbgloc) or id(i) in skip:
+        if i.op in (D.Onop, D.Odbgloc) or id(i) in skip or id(i) in hinner:
+            continue
+        if id(i) in hloads or id(i) in hstores:  # 4 halves as 4 float lanes, stepping by 2 bytes
+            st = id(i) in hstores
+            if st and not _operand(fast, hstores[id(i)].arg[0], made):
+                return 0
+            f = A.form(i.arg[1 if st else 0], 64)
+            if f is None or not f.S.isconst() or f.S.c != 2 or A.avlevel(f) == 'X' or _ext.qbytes() != 16:
+                return 0
+            widths.add(4)
+            mem.append((i, f, n, st))
+            if not st:
+                made.add(rval(hloads[id(i)].to))
             continue
         c = _compare(i)
         if c is not None:
@@ -776,8 +820,21 @@ def body(fast, em, state, copy=0):
             skip.add(id(r.ext))
         if r.third is not None:
             skip.add(id(r.third))
+    hloads, hstores, hinner = _halves(fast)  # this Fast's instructions (plan() looked at a probe's)
     for i in fast.cloned:
-        if i.op in (D.Onop, D.Odbgloc) or id(i) in skip:
+        if i.op in (D.Onop, D.Odbgloc) or id(i) in skip or id(i) in hinner:
+            continue
+        if id(i) in hloads or id(i) in hstores:  # half arrays: kept out of avail (their vectors are floats)
+            st = id(i) in hstores
+            key = mkey(i.arg[1] if st else i.arg[0])
+            for x in [x for x in avail if overlaps(x, key) or x == key]:
+                del avail[x]
+            for p in [p for p in pending if overlaps(p, key) or p == key]:
+                del pending[p]
+            if st:
+                em.ins(Ins(D.Oqsth, Kq, R, vec(hstores[id(i)].arg[0], Ks), fast.opmap(i.arg[1], k0, env, state, None)))
+            else:
+                env[rval(hloads[id(i)].to)] = em.raw(D.Oqldh, Kq, fast.opmap(i.arg[0], k0, env, state, None))
             continue
         c = _compare(i)
         if c is not None:

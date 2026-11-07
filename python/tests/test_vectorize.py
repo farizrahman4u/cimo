@@ -885,3 +885,37 @@ def test_x86_fma_memory_operand_of_a_global_array(monkeypatch):
         assert 'vfmadd' in text
         assert not re.search(r'\(%rip, ', text), text
         assembler_amd64.assemble(text)
+
+
+HALVES = {
+    'map': ('void f(_Float16 *restrict y, const _Float16 *restrict x, long n) { for (long i = 0; i < n; i++) y[i] = x[i] * 1.5f + 1; }', 'xy'),
+    'mixed': ('void f(float *restrict y, const _Float16 *restrict x, long n) { for (long i = 0; i < n; i++) y[i] += x[i] * y[i]; }', 'Yx'),
+    'narrow': ('void f(_Float16 *restrict y, const float *restrict x, long n) { for (long i = 0; i < n; i++) y[i] = x[i] - 0.25f; }', 'yX'),
+    'dot': ('float f(const _Float16 *restrict x, const _Float16 *restrict y, long n) { float s = 0; for (long i = 0; i < n; i++) s += (float)x[i] * y[i]; return s; }', 'xy'),
+}
+
+
+@pytest.mark.skipif(hosts.AMD64, reason='_Float16 conversions are instructions on arm64 only')
+@pytest.mark.parametrize('name', sorted(HALVES))
+def test_float16_arrays(name):
+    """Loads of halves widened to 4 float lanes (ldr d, fcvtl) and stores of 4 floats rounded to halves (fcvtn, str d):
+    the same bits as the scalar loop. kinds: the arrays in parameter order, x/y halves, X/Y floats. The dot product is
+    an in-order float sum, which _worth may leave scalar."""
+    src, kinds = HALVES[name]
+    if name != 'dot':
+        assert re.search(r'\tfcvt[ln]\t', driver._build(src)[0]), name
+    on, off = both(src)
+    r = random.Random(name)
+    for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 17, 64, 65):
+        bufs = []
+        for k in kinds:
+            if k in 'xy':
+                vals = [struct.unpack('<H', struct.pack('<e', r.uniform(-60, 60)))[0] for _ in range(n + 8)]
+                bufs.append((ctypes.c_uint16 * (n + 8))(*vals))
+            else:
+                bufs.append((ctypes.c_float * (n + 8))(*[r.uniform(-60, 60) for _ in range(n + 8)]))
+        copies = [type(b).from_buffer_copy(b) for b in bufs]
+        a = on.f(*bufs, n)
+        b = off.f(*copies, n)
+        assert a == b or (a != a and b != b), (name, n)
+        assert [bytes(x) for x in bufs] == [bytes(x) for x in copies], (name, n)

@@ -3,6 +3,7 @@ and two, against the same code lane by lane (vecq=0); and every q operation the 
 native target."""
 
 import ctypes
+import math
 import random
 import struct
 
@@ -82,7 +83,14 @@ def test_operators_match_lane_by_lane(ty, size, monkeypatch):
             cmp = (ctypes.c_char * (max(ncmp, 1) * size))()
             m.f(a, b, out, cmp, s)
             outs.append((bytes(out), bytes(cmp)))
-        assert outs[0] == outs[1], (ty, size, list(a), list(b), s)
+        assert outs[0][1] == outs[1][1], (ty, size, list(a), list(b), s)  # comparison masks: every bit
+        if ty in ('float', 'double'):  # C leaves a NaN's sign and payload open (x86-64 picks by operand order)
+            ct2 = ctypes.c_float if ty == 'float' else ctypes.c_double
+            v1, v2 = [list((ct2 * (len(o[0]) // ctypes.sizeof(ct2))).from_buffer_copy(o[0])) for o in outs]
+            assert all(x == y and math.copysign(1, x) == math.copysign(1, y) or (x != x and y != y)
+                       for x, y in zip(v1, v2)), (ty, size, list(a), list(b), s)
+        else:
+            assert outs[0][0] == outs[1][0], (ty, size, list(a), list(b), s)
 
 
 @pytest.mark.parametrize('target', ['arm64', 'amd64_sysv', 'amd64_avx2'])
@@ -206,6 +214,8 @@ def test_vector_fma(ty):
     src = ('typedef %s V __attribute__((vector_size(16)));\n'
            'void f(const V *a, const V *b, const V *c, %s s, V *r) { r[0] = a[0] * b[0] + c[0]; r[1] = a[0] * b[0] - c[0];\n'
            '  r[2] = c[0] - a[0] * b[0]; r[3] = c[0] + s * a[0]; }\n') % (ty, ty)
+    if driver._vecq() != 16 or not driver._contract():
+        pytest.skip('16-byte vectors are lanes here (AVX2), or nothing contracts (no FMA)')
     pp = driver._preprocess(src, 'x.c')
     assert driver._ir(pp, 'x.c')[0].count('qfma1') == 4
     m = cimo.compile(src, cache=False, fma=True)

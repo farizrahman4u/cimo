@@ -590,6 +590,12 @@ def _qins(i, e):
         f.write("\tshrn\tv31.8b, %s, #%d\n\tstr\td31, %s\n" % (_qv(e.qthird, '8h'), e.fn.con[rval(i.arg[1])].i,
                                                           _qaddr(i.arg[0], e)))
         return True
+    if op == D.Oqldh:  # 4 halves to floats
+        f.write("\tldr\td31, %s\n\tfcvtl\t%s, v31.4h\n" % (_qaddr(i.arg[0], e), _qv(i.to, '4s')))
+        return True
+    if op == D.Oqsth:  # 4 floats to halves
+        f.write("\tfcvtn\tv31.4h, %s\n\tstr\td31, %s\n" % (_qv(i.arg[0], '4s'), _qaddr(i.arg[1], e)))
+        return True
     if op == D.Oqstbh:  # the low byte of each of 8 lanes
         f.write("\txtn\tv31.8b, v%d.8h\n\tstr\td31, %s\n" % (rval(i.arg[0]) - V0, _qaddr(i.arg[1], e)))
         return True
