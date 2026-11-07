@@ -904,7 +904,10 @@ class Kernel:
 
 class Module(Introspection):
     """Compiled C. Each non-static function is an attribute. Calling the module calls `main`,
-    or the only function if there is just one."""
+    or the only function if there is just one. `cached`: whether it came from the compile cache
+    (in memory or on disk) with nothing compiled."""
+
+    cached: bool = False
 
     def __init__(self, text, sigs, link=(), snapshot=False):
         """snapshot: keep the linked image for _image_bytes()."""
@@ -1053,7 +1056,10 @@ def _module1(src, filename, include_dirs, link, host_headers, defines):
                                'no host C library)')
         from . import wasm as _wasm
         from .wasm.pyodide import WasmModule
-        return WasmModule(*_wasm.build(src, filename, tuple(include_dirs), tuple(defines)))
+        mod, sigs, cached = _wasm._build(src, filename, tuple(include_dirs), tuple(defines))
+        m = WasmModule(mod, sigs)
+        m.cached = cached
+        return m
     _check_machine()
     pp = _preprocess(src, filename, tuple(include_dirs), host_headers, tuple(defines))
     key = _key(pp)
@@ -1074,6 +1080,9 @@ def _module1(src, filename, include_dirs, link, host_headers, defines):
                 _image_put(key, blob)
             else:
                 _cache_put(key, text, sigs)
+        m.cached = hit is not None
+    else:
+        m.cached = True
     for c in m._longs:
         warnings.warn("'%s' (from %s) is declared with long, which is 64-bit in cimo but "
                       "32-bit in Windows DLLs; declare it with int (or long long where the "

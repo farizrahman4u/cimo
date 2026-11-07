@@ -74,6 +74,8 @@ class WasmModule(Introspection):
     """A compiled module in Pyodide. Non-static functions are attributes (cimo.Module's
     interface); `exports` is the JavaScript object of the wasm exports."""
 
+    cached = False  # whether it came from the compile cache, with nothing compiled
+
     def __init__(self, mod, sigs):
         self._err = None
         self._decoder = codecs.getincrementaldecoder('utf-8')('replace')

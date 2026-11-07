@@ -132,6 +132,11 @@ _memory_cache = {}
 
 def build(src, filename='<string>', include_dirs=(), defines=()):
     """C source -> (module bytes, signatures text as cimo.driver._sigs gives)."""
+    return _build(src, filename, include_dirs, defines)[:2]
+
+
+def _build(src, filename='<string>', include_dirs=(), defines=()):
+    """build(), and whether it came from the cache."""
     d = _driver()
     pp = d._preprocess(src, filename, include_dirs, False, defines, 'arm64')
     from .. import linker as L
@@ -139,7 +144,7 @@ def build(src, filename='<string>', include_dirs=(), defines=()):
                          + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
     hit = _cache_get(key)
     if hit is not None:
-        return hit
+        return hit[0], hit[1], True
     obj, ssa, params = compile_object(src, filename, include_dirs, defines)
     sigs = d._sigs(ssa, params)
     names = [line.split(' ')[0] for line in sigs.splitlines()]
@@ -149,7 +154,7 @@ def build(src, filename='<string>', include_dirs=(), defines=()):
     except _link.LinkError as e:
         raise d.CompileError(str(e)) from None
     _cache_put(key, mod, sigs)
-    return mod, sigs
+    return mod, sigs, False
 
 
 def _cache_get(key):

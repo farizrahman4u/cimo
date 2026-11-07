@@ -42,6 +42,7 @@ What `compile` and `load` return. Every function in the source that isn't `stati
 | `module.free(ptr)` | `free()` a pointer a kernel returned from `malloc` and friends |
 | `module.reset_heap()` | free every block of the module's heap at once; no kernel of the module may be running |
 | `module.heap_bytes()` | bytes currently mapped for the module's heap |
+| `module.cached` | `True` if the module came from the compile cache with nothing compiled, `False` if this call compiled it |
 | `module.source` | the C text it was compiled from |
 | `module.options` | the arguments of `compile()` or `load()` that weren't the defaults |
 | `module.signature(name)` | a function's C types: `('double', ('const double *', 'int64_t'))`. Integers by size, a VLA as a pointer to its elements |

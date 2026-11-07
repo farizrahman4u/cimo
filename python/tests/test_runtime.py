@@ -1058,3 +1058,21 @@ def test_numpy_integer_to_a_long_parameter():
     a = np.array([7, 8], dtype=np.int64)
     assert m.first(a) == 7 and m.first(a.ctypes.data) == 7
     assert m.signature('first')[1] == ('const int64_t *',)
+
+
+def test_module_says_whether_it_came_from_the_cache(tmp_path, monkeypatch):
+    """module.cached: False when this call compiled it, True when the cache had it (scramjit shows `disk` then)."""
+    from cimo import driver
+    import cimo.wasm as W
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path))
+    monkeypatch.setattr(driver, '_memory_cache', {})
+    src = 'long f(long x) { return x * 41; }'
+    a = cimo.compile(src)
+    b = cimo.compile(src)
+    assert (a.cached, b.cached) == (False, True) and a.f(1) == b.f(1) == 41
+    monkeypatch.setattr(driver, '_memory_cache', {})
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path / 'none'))
+    assert cimo.compile(src, cache=False).cached is False  # nothing written: compiled again
+    monkeypatch.setattr(W, '_memory_cache', {})
+    wsrc = 'long g(long x) { return x * 43; }'
+    assert W._build(wsrc)[2] is False and W._build(wsrc)[2] is True

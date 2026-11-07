@@ -335,9 +335,8 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 - ~~**`k.f(np.int64(3))` to a 64-bit parameter passes the scalar's address**~~ **Fixed** (2026-11-05): signatures
   mark pointer parameters `p` (from the front end's C types), so an `l` parameter takes a numpy integer as its value, on
   native and in Pyodide. Noted in scramjit's `TODO.md`.
-- **Say whether a compile came from the cache** (requested by scramjit, 2026-11-01): a public attribute on the
-  module, or a compile time. `scramjit preflight --run` wants to show `disk` instead of a time, and can't tell.
-  **When done, note it in scramjit's `TODO.md`.**
+- ~~Say whether a compile came from the cache~~ **Done** (2026-11-07, requested by scramjit): `module.cached`, also
+  in Pyodide.
 - ~~**WebAssembly: a call through a function pointer that takes a pointer traps**~~ (found by scramjit) **Done 2026-11-07:**
   pointers are i32 at a wasm function's boundary, as Emscripten's code passes them. A host `long` parameter still differs
   (Emscripten's is 32-bit, cimo's 64).
