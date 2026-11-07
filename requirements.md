@@ -1459,7 +1459,11 @@ for Linux and macOS (strategies under "Platform loading findings").
     copies and `memcpy` to or from a vector, and `v[constant]` (`qget`). `a*b + c` and funcfma's other forms on
     float vectors contract into `qfma1` as scalars do (`_qfma`). Writing `v[i]`, and reading it with a variable `i`, go
     through a slot of their own (one `qstore`, the lane, one `qload`), and so do vectors passed to and returned from calls
-    (as structs of lanes): `v` itself is only ever accessed whole, so it stays a register. Shifts by a variable or a
+    (as structs of lanes): `v` itself is only ever accessed whole, so it stays a register. Calls on arm64 (2026-11-07,
+    frontend `vecabi=`; the IR's `type :v = align 16 vector { s 4 }`): 8- and 16-byte vectors go in one V register as
+    AAPCS64 says and gcc and clang do, named ones only (past `...` as the struct of their lanes, as `va_arg` reads them;
+    gcc would use V registers there too). x86-64 still passes them as structs: a 16-byte vector is one xmm there, and with
+    AVX2 class q is 32 bytes, so it needs a 128-bit class first. Shifts by a variable or a
     vector on arm64 (`vecops` 'vshift'): `sshl`/`ushl` (`qsshlv`/`qushlv`), by the negated count for `>>`. `__builtin_convertvector` on arm64 (frontend
     `vecops=('convert',)`): integers widened by halves (`qsxl`/`qsxh`, `sshll`/`sshll2`), narrowed in pairs (`qnrw`, `xtn`/`xtn2`),
     floats likewise (`fcvtl`/`fcvtn`), then `scvtf`/`ucvtf`/`fcvtzs`/`fcvtzu` at one width; int64 to float stays lane by lane
@@ -1516,9 +1520,8 @@ for Linux and macOS (strategies under "Platform loading findings").
     `src/complex` (double and float). The runtime is now compiled in cimo's own mode (diagnostics on).
   - **`__int128`** (2026-11-06): `__int128`/`unsigned __int128` (`__int128_t`, `__uint128_t`, `mode(TI)`)
     are integer types laid out as a struct of two longs, low first (`TY.isi128`): memory, calls and
-    returns are a struct's (x86-64 SysV and arm64 take it in a register pair; AAPCS64's even pair for
-    `__int128` arguments isn't kept on Linux, so calls to gcc-compiled code with such an argument may
-    disagree). The frontend lowers operations to 64-bit halves (`qbe._i128*`): add/sub with a carry,
+    returns are a struct's: x86-64 SysV and arm64 take it in a register pair (AAPCS64's even one, from the type's
+    `align 16`), the stack 16-byte aligned, as gcc does (`tests/test_abi.py`, both directions). The frontend lowers operations to 64-bit halves (`qbe._i128*`): add/sub with a carry,
     multiplication with `umulh` on arm64 (32-bit halves elsewhere), comparisons high half first,
     constant shifts inline; division, variable shifts and float conversions are runtime calls
     (`builtins.c`, correctly rounded). Constants fold in 128 bits (`eval._i128eval`); the overflow
@@ -1533,7 +1536,8 @@ for Linux and macOS (strategies under "Platform loading findings").
     rounding in the current mode, as C asks), elsewhere runtime `__cimo_f2h`/`__cimo_h2f` (nearest always). Variadic arguments go as double.
     Constants: `f16`, `bf16`, `f32`, `f64`, `f32x`, `f64x` suffixes, folded in half (`eval.halfbits`).
     `_Float32` is float, `_Float64`/`_Float32x` double; `<float.h>` has the `FLTn_` macros. Calls pass
-    them in integer registers (gcc: FP registers), so a half parameter of host-library code disagrees.
+    them in FP registers, as gcc does (2026-11-07, frontend `halfabi=`): the 16 bits are the low half of a class-s value
+    (`h0` on arm64, the low word of `xmm0` on x86-64), cleared above them on the way in (`tests/test_abi.py`).
     Open: x86-64 F16C instead of calls; signaling-NaN constants.
   - **Floating-point environment** (2026-11-06): `<fenv.h>` (runtime `fenv.c`) on the hardware's registers
     through four backend ops (`rdfpcr`, `rdfpsr`, `wrfpcr`, `wrfpsr`: arm64 FPCR/FPSR, x86-64 MXCSR for both;

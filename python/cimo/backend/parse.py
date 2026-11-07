@@ -43,6 +43,7 @@ Tbits = Ntok + 4  # cimo extension: the bit builtins, keywords when ext.math is 
 Tqc = Ntok + 7  # cimo extension: the class letter
 _KQTEXT = 99  # what parsecls says for it: Kq's number means something else among the size classes here
 Tq = Ntok + 6  # cimo extension: class q and its instructions, keywords when ext.vector is on
+Tvector = Ntok + 8  # cimo extension: "type :v = align 16 vector { s 4 }", a GNU vector type (ext.vector)
 _QNAMES = {optab[o].name: o for o in range(D.Oqaddb, D.Oqstore + 1) if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
 _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
@@ -234,6 +235,8 @@ def lex():
         return t
     t = _kwlookup.get(S.tokval_str)
     if t is None:
+        if S.tokval_str == 'vector' and _ext.vector:
+            return Tvector
         if S.tokval_str in ('fma', 'fmac') and _ext.fma:
             S.fmac = S.tokval_str == 'fmac'
             return Tfma
@@ -929,6 +932,7 @@ def parsetyp():
     D.typ.append(ty)
     S.ntyp += 1
     ty.isdark = 0
+    ty.isvec = 0
     ty.isunion = 0
     ty.align = -1
     ty.size = 0
@@ -948,6 +952,9 @@ def parsetyp():
             al += 1
         S.tokval_num = num
         ty.align = al
+        t = nextnl()
+    if t == Tvector:
+        ty.isvec = 1
         t = nextnl()
     if t != Tlbrace:
         err("type body must start with {")

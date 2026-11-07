@@ -244,6 +244,11 @@ vecq = 0
 # cimo extension: what else the target does in one instruction (compile(vecops=)): 'convert', __builtin_convertvector;
 # 'shuffle', __builtin_shufflevector; 'half', _Float16 to and from float
 vecops = frozenset()
+# cimo extension: GNU vector types of 8 and 16 bytes go to the backend as vector types (compile(vecabi=True)), which arm64's
+# calling convention passes in one V register, as gcc does
+vecabi = False
+# cimo extension: _Float16 and __bf16 parameters, arguments and results in FP registers, as gcc passes them (compile(halfabi=True))
+halfabi = False
 
 
 def _vol(op, tq):
@@ -433,6 +438,8 @@ def abiclass(t):
     stack arguments at their own size (a char takes 1 byte, not an 8-byte slot), so there a
     char or short goes as QBE's sub-word ABI class (sb, ub, sh, uh), which tells the backend
     its size; elsewhere, and for everything else, as cproc: the base class."""
+    if halfabi and TY.ishalf(t):  # cimo: its bits in the low 16 of an FP register, where gcc passes it
+        return 's'
     qt = qbetype(t)
     if qt.data in ('b', 'h') and TG.targ.name == 'aarch64-apple':
         return ('s' if t.issigned else 'u') + qt.data
@@ -771,7 +778,9 @@ def mkfunc(decl, name, t, s):
                 d.value = v
             else:
                 funcalloc(f, d)
-                funcstore(f, d.type, QUALNONE, LValue(d.value), v)
+                funcstore(f, d.type, QUALNONE, LValue(d.value),
+                          funcinst(f, IAND, 'w', funcinst(f, ICAST, 'w', v, None), mkintconst(0xffff))
+                          if halfabi and TY.ishalf(d.type) else v)
         d = d.next
 
     t = TY.mkarraytype(TY.typechar, QUALCONST, len(name) + 1)
@@ -835,6 +844,8 @@ def funcret(f, v):
     t = f.type.base
     if v is not None and not b.jump_kind and TY.isvec(t) and _qchunks(t):
         v = _qcopied(f, v, t)
+    elif v is not None and not b.jump_kind and halfabi and TY.ishalf(t):
+        v = funcinst(f, ICAST, 's', v, None)
     if not b.jump_kind:
         b.jump_kind = JUMP_RET
         b.jump_arg = v
@@ -2309,15 +2320,20 @@ def funcexpr(f, e):
                 return v
         argvals = []
         arg = e.args
+        ftype = e.base.type.base
         while arg:
             emittype(arg.type)
             v = funcexpr(f, arg)
-            argvals.append(_qcopied(f, v, arg.type) if TY.isvec(arg.type) and _qchunks(arg.type) else v)
+            if TY.isvec(arg.type) and _qchunks(arg.type):
+                v = _qcopied(f, v, arg.type)
+            elif halfabi and TY.ishalf(arg.type) and len(argvals) < ftype.nparam:
+                v = funcinst(f, ICAST, 's', v, None)
+            argvals.append(v)
             arg = arg.next
         t = e.type
         emittype(t)
-        v = funcinst(f, ICALL, qbetype(t).base, funcexpr(f, e.base), t.value)
-        ftype = e.base.type.base
+        hret = halfabi and TY.ishalf(t)
+        v = funcinst(f, ICALL, 's' if hret else qbetype(t).base, funcexpr(f, e.base), t.value)
         arg = e.args
         i = 0
         while arg:
@@ -2332,6 +2348,8 @@ def funcexpr(f, e):
             # cimo: Windows passes every argument of a variadic call its own way (floats in
             # x registers), so the backend needs the `...` even when nothing follows it
             funcinst(f, IVARARG, 0, None, None)
+        if hret:  # the low 16 bits (gcc leaves the rest undefined)
+            v = funcinst(f, IAND, 'w', funcinst(f, ICAST, 'w', v, None), mkintconst(0xffff))
         e = e.base
         if e.kind == EXPRUNARY and e.op == TBAND:
             e = e.base
@@ -2732,6 +2750,14 @@ def emittype(t):
     t.value.name = t.tag
     _typeid = (_typeid + 1) & 0xffffffff
     t.value.id = _typeid
+    if TY.isvec(t) and vecq and t.size in (8, 16) and vecabi:  # cimo: passed in a V register (AAPCS64)
+        el = t.base
+        x = ('s' if el.size == 4 else 'd') if el.prop & PROPFLOAT else 'bhwl'[el.size.bit_length() - 1]
+        w("type ")
+        emitname(t.value)
+        w(" = align %d vector { %s %d }\n" % (t.align, x, t.vlanes))
+        t.value.qalign = t.align
+        return
     m = t.members
     while m:
         sub = m.type
@@ -3015,7 +3041,7 @@ def emitfunc(f, glob):
         w("export\n")
     w("function ")
     if f.type.base is not TY.typevoid:
-        emitclass(qbetype(f.type.base).base, f.type.base.value)
+        emitclass('s' if halfabi and TY.ishalf(f.type.base) else qbetype(f.type.base).base, f.type.base.value)
         w(' ')
     emitname(f.decl.value)
     w('(')

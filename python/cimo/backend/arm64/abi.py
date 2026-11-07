@@ -102,9 +102,9 @@ def isfloatv(t, cls):
     return 1
 
 
-def typclass(c, t, gp, fp, nohfa=0):
+def typclass(c, t, gp, fp, nohfa=0, novec=0):
     """gp, fp are indices into gpreg, fpreg. nohfa: treat HFAs as other composites (Windows
-    variadic calls)."""
+    variadic calls). novec: a vector type as the composite of its lanes (variadic arguments: va_arg reads them so)."""
     sz = (t.size + 7) & -8
     c.t = t
     c.class_ = 0
@@ -127,6 +127,15 @@ def typclass(c, t, gp, fp, nohfa=0):
     c.ishfa &= int(not t.isdark and hfasz <= 4 and not nohfa)
     c.hfa_size = hfasz & 0xff
 
+    if t.isvec and not novec and not nohfa and t.size in (8, 16):
+        # cimo: a short vector (AAPCS64 5.4.2: 8 or 16 bytes) in one V register, as gcc and clang pass it
+        c.ishfa = 0
+        c.reg[0] = fpreg[fp]
+        c.cls[0] = D.Kq if t.size == 16 else Kd
+        c.nfp = 1
+        c.nreg = 1
+        c.size = t.size
+        return
     if sz == 0 and not t.isdark:
         # fix over C QBE (which passed a pointer): a zero-size composite (GNU C) takes no
         # register or stack space, as with gcc
@@ -168,7 +177,7 @@ def sttmps(tmp, ti, cls, nreg, mem, fn):
     for n in range(nreg):
         tmp[ti + n] = newtmp("abi", cls[n], fn)
         r = newtmp("abi", Kl, fn)
-        emit(store[cls[n]], 0, R, tmp[ti + n], r)
+        emit(D.Oqstore if cls[n] == D.Kq else store[cls[n]], 0, R, tmp[ti + n], r)
         emit(Oadd, Kl, r, mem, getcon(off, fn))
         off += 8 if KWIDE(cls[n]) else 4
 
@@ -227,6 +236,7 @@ def selret(b, fn):
 def argsclass(ins, i0, i1, carg, winva=0):
     """ins[i0:i1] classified into carg[0:i1-i0]. winva: Windows variadic rules."""
     va = 0
+    varpart = 0  # past the "...": vectors go as their lanes (cimo)
     envc = 0
     gp = 0
     fp = 0
@@ -278,7 +288,7 @@ def argsclass(ins, i0, i1, carg, winva=0):
                 continue
             c.class_ |= Cstk
         elif op in (Oparc, Oargc):
-            typclass(c, D.typ[rval(i.arg[0])], gp, fp, winva)
+            typclass(c, D.typ[rval(i.arg[0])], gp, fp, winva, varpart)
             if va:
                 # fix over C QBE: Apple passes every variadic argument on the stack, structs
                 # included (by value, HFAs too; a pointer to a copy over 16 bytes)
@@ -290,7 +300,7 @@ def argsclass(ins, i0, i1, carg, winva=0):
                 c.hole = gpreg[gp]
                 gp += 1
                 ngp -= 1
-                typclass(c, D.typ[rval(i.arg[0])], gp, fp, winva)
+                typclass(c, D.typ[rval(i.arg[0])], gp, fp, winva, varpart)
             if winva and 0 < ngp < c.ngp:
                 if op == Oparc:
                     err("a %d-byte struct parameter split between x7 and the stack in a "
@@ -321,6 +331,7 @@ def argsclass(ins, i0, i1, carg, winva=0):
             envc = 1
         elif op == Oargv:
             va = int(D.T.apple != 0)
+            varpart = 1
         else:
             die("unreachable")
 

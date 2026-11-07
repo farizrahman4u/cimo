@@ -929,10 +929,11 @@ class Field:
 
 class Typ:
     """fields: list (one per union member) of lists of NField+1 Field."""
-    __slots__ = ('name', 'isdark', 'isunion', 'align', 'size', 'nunion', 'fields')
+    __slots__ = ('name', 'isdark', 'isunion', 'align', 'size', 'nunion', 'fields', 'isvec')
 
     def __init__(self):
         self.name = None
+        self.isvec = 0  # cimo: a GNU vector type ("vector" after align): AAPCS64 passes 8 and 16 bytes in one V register
         self.isdark = 0
         self.isunion = 0
         self.align = 0

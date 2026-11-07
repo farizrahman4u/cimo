@@ -191,3 +191,122 @@ if __name__ == '__main__':
         print('f%d: %s: want %#x, got %#x' % (n, what, w, g))
     print('seed %d: %d signatures, %d mismatches' % (seed, count, len(bad)))
     sys.exit(1 if bad else 0)
+
+
+# GNU vector types by value (AAPCS64: 8 and 16 bytes in one V register; more than 8 of them go on the stack), against
+# the reference compiler in both directions. arm64 only: x86-64 still passes them as structs of their lanes.
+VECTORS = r'''
+typedef unsigned long long u64;
+typedef float v4f __attribute__((vector_size(16)));
+typedef double v2d __attribute__((vector_size(16)));
+typedef int v4i __attribute__((vector_size(16)));
+typedef signed char v16b __attribute__((vector_size(16)));
+typedef short v4h __attribute__((vector_size(8)));
+typedef float v2f __attribute__((vector_size(8)));
+struct hfa { float a, b; };
+#define H(v) h = (h ^ hv(&v, sizeof v)) * 0x100000001b3ULL
+static u64 hv(const void *p, int n) { u64 h = 1469598103934665603ULL; const unsigned char *c = p;
+  for (int i = 0; i < n; i++) h = (h ^ c[i]) * 0x100000001b3ULL; return h; }
+P v4f f0(v4f a, int k, v2d b, v4i c, double d, v16b e, v4h f, struct hfa g, v2f x) {
+  u64 h = 0; H(a); H(k); H(b); H(c); H(d); H(e); H(f); H(g); H(x); v4f r = { (float)(h & 0xffff), 2, 3, (float)(h >> 48) }; return r; }
+P v2d f1(v4f a0, v4f a1, v4f a2, v4f a3, v4f a4, v4f a5, v4f a6, v4f a7, v4f a8, double z, v2f a9, int k, v4i a10) {
+  u64 h = 0; H(a0); H(a1); H(a2); H(a3); H(a4); H(a5); H(a6); H(a7); H(a8); H(z); H(a9); H(k); H(a10);
+  v2d r = { (double)(h & 0xffffffff), (double)(h >> 32) }; return r; }
+P v4h f2(v4h a, v16b b) { u64 h = 0; H(a); H(b); v4h r = { (short)h, (short)(h >> 16), (short)(h >> 32), (short)(h >> 48) }; return r; }
+P u64 c0(v4f (*f)(v4f, int, v2d, v4i, double, v16b, v4h, struct hfa, v2f)) {
+  v4f a = {1.5f, -2, 3, 4}; v2d b = {5.25, -6}; v4i c = {7, -8, 9, 10}; v16b e = {1, 2, 3, 4, 5, 6, 7, 8, 9, -10, 11, 12, 13, 14, 15, 16};
+  v4h q = {17, -18, 19, 20}; struct hfa g = {21, 22}; v2f x = {23, 24};
+  v4f r = f(a, 99, b, c, 0.125, e, q, g, x); u64 h = 0; H(r); return h; }
+P u64 c1(v2d (*f)(v4f, v4f, v4f, v4f, v4f, v4f, v4f, v4f, v4f, double, v2f, int, v4i)) {
+  v4f a[9]; for (int i = 0; i < 9; i++) { v4f t = {i, i + 0.5f, -i, i * 3}; a[i] = t; } v2f a9 = {7, 8}; v4i a10 = {1, 2, 3, 4};
+  v2d r = f(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], 2.5, a9, 42, a10); u64 h = 0; H(r); return h; }
+P u64 c2(v4h (*f)(v4h, v16b)) { v4h a = {1, 2, 3, 4}; v16b b = {0}; b[3] = 9; v4h r = f(a, b); u64 h = 0; H(r); return h; }
+'''
+
+
+@pytest.mark.skipif(reference() is None or driver.TARGET not in ('arm64', 'arm64_apple', 'arm64_win'),
+                    reason='needs the reference compiler, on arm64')
+def test_vectors_by_value(tmp_path):
+    cmd, ext = reference()
+    pre = '#ifdef _MSC_VER\n#define P __declspec(dllexport)\n#else\n#define P\n#endif\n'
+    src = tmp_path / 'vref.c'
+    src.write_text(pre + VECTORS.replace('f0(', 'r_f0(').replace('f1(', 'r_f1(').replace('f2(', 'r_f2(')
+                   .replace('c0(', 'r_c0(').replace('c1(', 'r_c1(').replace('c2(', 'r_c2('))
+    lib = str(tmp_path / ('vref' + ext))
+    subprocess.check_call(cmd + ['-o', lib, str(src)])
+    ref = ctypes.CDLL(lib)
+    m = cimo.compile('#define P\n' + VECTORS + ''.join(
+        'u64 r_c%d(void *); u64 x%d(void) { return r_c%d((void *)f%d); }\n' % (n, n, n, n) for n in range(3)) + ''.join(
+        'extern char r_f%d[]; u64 y%d(void) { return c%d((void *)r_f%d); }\n' % (n, n, n, n) for n in range(3)), link=[lib])
+    for n in range(3):
+        rc = getattr(ref, 'r_c%d' % n)
+        rc.restype = ctypes.c_uint64
+        rc.argtypes = [ctypes.c_void_p]
+        want = rc(ctypes.cast(getattr(ref, 'r_f%d' % n), ctypes.c_void_p).value)
+        assert getattr(m, 'x%d' % n)() == want, ('reference calls cimo', n)  # r_c(f): the reference calls cimo's f
+        assert getattr(m, 'y%d' % n)() == want, ('cimo calls the reference', n)
+        assert getattr(m, 'c%d' % n)(getattr(m, 'f%d' % n).address) == want, ('cimo calls cimo', n)
+
+
+HALVES = r'''
+typedef unsigned long long u64;
+P _Float16 hf(_Float16 a, int k, __bf16 b, double d, _Float16 c) { return a * 2 + (float)b + (float)k + (float)(d * 0.5) + c; }
+P __bf16 hb(__bf16 a, _Float16 b) { return (float)a - (float)b; }
+P u64 hc(_Float16 (*f)(_Float16, int, __bf16, double, _Float16), __bf16 (*g)(__bf16, _Float16)) {
+  _Float16 r = f(1.5f16, 3, 2.25bf16, 7.0, -0.75f16); __bf16 s = g(10.0bf16, 0.5f16);
+  unsigned short u, v; __builtin_memcpy(&u, &r, 2); __builtin_memcpy(&v, &s, 2); return (u64)u << 16 | v; }
+'''
+
+
+@pytest.mark.skipif(reference() is None or sys.platform == 'win32', reason='needs gcc or Apple clang (Linux, macOS)')
+def test_halves_by_value(tmp_path):
+    """_Float16 and __bf16 in FP registers (h0 on arm64, the low word of xmm0 on x86-64), both directions."""
+    cmd, ext = reference()
+    pre = '#define P\n'
+    src = tmp_path / 'href.c'
+    src.write_text(pre + HALVES.replace('hf(', 'r_hf(').replace('hb(', 'r_hb(').replace('hc(', 'r_hc('))
+    lib = str(tmp_path / ('href' + ext))
+    try:
+        subprocess.check_call(cmd + ['-o', lib, str(src)], stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        pytest.skip('the reference compiler has no _Float16 or __bf16')
+    ref = ctypes.CDLL(lib)
+    m = cimo.compile(pre + HALVES + 'u64 r_hc(void *, void *); u64 x(void) { return r_hc((void *)hf, (void *)hb); }\n'
+                     'extern char r_hf[], r_hb[]; u64 y(void) { return hc((void *)r_hf, (void *)r_hb); }\n', link=[lib])
+    rc = ref.r_hc
+    rc.restype = ctypes.c_uint64
+    rc.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    want = rc(ctypes.cast(ref.r_hf, ctypes.c_void_p).value, ctypes.cast(ref.r_hb, ctypes.c_void_p).value)
+    assert m.x() == want, 'the reference calls cimo'
+    assert m.y() == want, 'cimo calls the reference'
+    assert m.hc(m.hf.address, m.hb.address) == want, 'cimo calls cimo'
+
+
+INT128 = r'''
+typedef unsigned long long u64;
+P __int128 qf(int a, __int128 b, int c, unsigned __int128 d, int e, int f, int g, __int128 h, __int128 i) {
+  return b * 3 + (__int128)d + a + c * 10 + e + f + g + (h >> 5) - i; }
+P u64 qc(__int128 (*f)(int, __int128, int, unsigned __int128, int, int, int, __int128, __int128)) {
+  __int128 r = f(1, ((__int128)7 << 70) + 5, 2, ((unsigned __int128)9 << 100) | 3, 4, 5, 6, (__int128)-1 << 80, 12345);
+  return (u64)r ^ (u64)(r >> 64) * 31; }
+'''
+
+
+@pytest.mark.skipif(reference() is None or sys.platform == 'win32', reason='needs gcc or Apple clang (Linux, macOS)')
+def test_int128_by_value(tmp_path):
+    """__int128 in a register pair (AAPCS64: an even one), on the stack 16-byte aligned, returned in two registers."""
+    cmd, ext = reference()
+    src = tmp_path / 'qref.c'
+    src.write_text('#define P\n' + INT128.replace('qf(', 'r_qf(').replace('qc(', 'r_qc('))
+    lib = str(tmp_path / ('qref' + ext))
+    subprocess.check_call(cmd + ['-o', lib, str(src)])
+    ref = ctypes.CDLL(lib)
+    m = cimo.compile('#define P\n' + INT128 + 'u64 r_qc(void *); u64 x(void) { return r_qc((void *)qf); }\n'
+                     'extern char r_qf[]; u64 y(void) { return qc((void *)r_qf); }\n', link=[lib])
+    rc = ref.r_qc
+    rc.restype = ctypes.c_uint64
+    rc.argtypes = [ctypes.c_void_p]
+    want = rc(ctypes.cast(ref.r_qf, ctypes.c_void_p).value)
+    assert m.x() == want, 'the reference calls cimo'
+    assert m.y() == want, 'cimo calls the reference'
+    assert m.qc(m.qf.address) == want, 'cimo calls cimo'

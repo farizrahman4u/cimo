@@ -93,7 +93,7 @@ def _opset(v):
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
             builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False, bigcopy=None, nowrap=False,
-            vecq=0, vecops=()):
+            vecq=0, vecops=(), vecabi=False, halfabi=False):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -156,6 +156,8 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.bigcopy = bigcopy
         _qbe.vecq = vecq
         _qbe.vecops = frozenset(vecops)
+        _qbe.vecabi = bool(vecabi)
+        _qbe.halfabi = bool(halfabi)
         U.diagnostics = bool(diagnostics)
         U.fenvaccess = U.fenvtouched = False
         if diagnostics:
@@ -180,6 +182,8 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.bigcopy = None
         _qbe.vecq = 0
         _qbe.vecops = frozenset()
+        _qbe.vecabi = False
+        _qbe.halfabi = False
         U.diagnostics = False
         from . import cc as _cc
         _cc.exprhook = None
