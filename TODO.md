@@ -63,8 +63,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
      dot and a 4x4 matrix kernel on mains power (not yet measured).
    - Half conversions without calls: arm64 `fcvt` and `__bf16` inline everywhere **done** (2026-11-07,
      `tests/test_half_hw.py`). Half loads and stores in the vectorizer on arm64 **done**
-     (`ldr d` + `fcvtl`, `fcvtn` + `str d`; `test_vectorize.py`). Open: x86-64 F16C `vcvtph2ps`/`vcvtps2ph` behind the
-     `cimo.cpu` check, for both. Half and bf16 arguments in FP registers **done**.
+     (`ldr d` + `fcvtl`, `fcvtn` + `str d`; `test_vectorize.py`). x86-64 F16C conversions (`cimo.cpu`) **done**; open there:
+     half arrays in the vectorizer (8 halves to a ymm: `vcvtph2ps` from memory). Half and bf16 arguments in FP registers **done**.
    - `__int128`: passed as gcc does (even pair on arm64, two registers on SysV; `tests/test_abi.py`), halves in registers
      within a function (sroa), `umulh`, variable shifts inline **done** (2026-11-07). Open: `adds`/`adc` for the carry
      (today `cmp` and `csinc`, one more instruction), and the struct copies at call boundaries every small struct pays.
@@ -267,6 +267,15 @@ in Python.
 devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long double`.
 
 ## Performance
+
+- **The inliner sizes a function before cleaning it up, and grows small functions with their cold paths** (found by
+  scramjit, 2026-11-07). scramjit's `sj_hypot2` (CPython's exact `math.hypot` for two values; about 45 arm64
+  instructions once compiled, its rare cases in a separate `noinline` function) stays a call below `CIMO_INLINE=300`,
+  against the default 40. A `static` function called once is inlined at any size, even into a small function that is
+  hot: `sj_truediv` (a two-compare fast path, its long division called once) became too big to inline until the long
+  division was marked `noinline`. Effect on scramjit's viewshed (96x96, laptop): `noinline` on the cold paths 4.05 to
+  3.45 ms; `CIMO_INLINE=300`, which inlines `sj_hypot2` too, 3.07 ms. gcc and LLVM count after their early cleanup
+  (mem2reg, simplification) and weigh cold calls less. When done, note it in scramjit's `TODO.md`.
 
 - ~~**Keep struct fields in registers across a loop**~~ **Done** (2026-11-05): a field the loop reads and writes at an
   address fixed for the loop (`p->x`), with one size and class, that no other access can touch (other offsets of the
