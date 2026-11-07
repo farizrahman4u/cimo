@@ -1823,6 +1823,31 @@ _QCMP = {TEQL: ('qceq', 0, 0), TNEQ: ('qceq', 0, 1), TGREATER: ('qcgt', 0, 0), T
          TGEQ: ('qcge', 0, 0), TLEQ: ('qcge', 1, 0)}  # name, swapped, negated
 
 
+def _qfma(f, e, vt):
+    """a*b + c and the rest of funcfma's forms on float vectors, as qfma1 (contraction within one expression, as for
+    scalars); None if no operand is a product of this vector type."""
+    if _ismul(e.l, vt):
+        m, c, negc, nega = e.l, e.r, e.op == TSUB, False
+    elif _ismul(e.r, vt):
+        m, c, negc, nega = e.r, e.l, False, e.op == TSUB
+    else:
+        return None
+    x = _qlane(vt.base)
+    ops = [_voperand(f, m.l), _voperand(f, m.r), _voperand(f, c)]
+    res = _cxslot(f, vt)
+    off = (lambda p, k: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
+    dup = {}
+    for k in range(_qchunks(vt)):
+        a, b, z = [_qop(f, 'qload', off(p, k)) if p is not None else dup.setdefault(n, _qop(f, 'qdup' + x, s))
+                   for n, (p, s) in enumerate(ops)]
+        if negc:
+            z = _qop(f, 'qneg' + x, z)
+        if nega:
+            a = _qop(f, 'qneg' + x, a)
+        _qop(f, 'qstore', _qop(f, ('qfma1' + x, z), a, b), off(res, k), res=False)
+    return res
+
+
 def _qbinary(f, e, vt, la, ls, ra, rs):
     """e computed in class q, into a new slot; None if q has no such operation."""
     el = vt.base
@@ -1876,6 +1901,10 @@ def _vbinary(f, e):
     el = vt.base
     rt = e.type
     op = e.op
+    if contract and op in (TADD, TSUB) and el.prop & PROPFLOAT and _qchunks(vt) and rt is vt:
+        res = _qfma(f, e, vt)
+        if res is not None:
+            return res
     la, ls = _voperand(f, e.l)
     ra, rs = _voperand(f, e.r)
     rel = e.r.type.base if TY.isvec(e.r.type) else el
@@ -1947,7 +1976,7 @@ def _qconvert(f, a, st, t, res):
     """__builtin_convertvector in class q (vecops 'convert'), from the vector at a into res; False if it can't:
     widening and narrowing by halves, then the conversion between int and float at one width."""
     s, d = st.base, t.base
-    if 'convert' not in vecops or st.size % vecq or t.size % vecq or max(st.size, t.size) > 4 * vecq:
+    if not vecq or 'convert' not in vecops or st.size % vecq or t.size % vecq or max(st.size, t.size) > 4 * vecq:
         return False
     sf, df = bool(s.prop & PROPFLOAT), bool(d.prop & PROPFLOAT)
     if (sf and s.size not in (4, 8)) or (df and d.size not in (4, 8)) or (not sf and not df and s.size == d.size):
@@ -2692,12 +2721,16 @@ def emitinst(insts, i, n):
         if inst.res.kind:
             emitvalue(inst.res)
             w(" =%s " % inst.cls)
-        w(inst.arg2)
+        name, third = inst.arg2 if isinstance(inst.arg2, tuple) else (inst.arg2, None)
+        w(name)
         w(' ')
         emitvalue(inst.arg0)
         if inst.arg1:
             w(", ")
             emitvalue(inst.arg1)
+        if third is not None:  # qfma1's addend
+            w(", ")
+            emitvalue(third)
         w('\n')
         return i + 1
     assert inst.kind < len(instname)

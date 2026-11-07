@@ -1176,6 +1176,9 @@ like the package in any CPython 3.9+ with only the standard library: put it on `
 - **`cache=False`** (`compile`/`load`): fully in-memory. The caches are still read; nothing is
   written (no entries, directories or intermediate files) and what is built, runtime members
   included, stays in memory for the process. A context variable, so other threads still write.
+  Tests that compare two builds of one source under a patched internal (`driver._vecq`, `middle.vectorizing`) must
+  change the source too: the second compile otherwise gets the first's module from the cache (found 2026-11-07,
+  `tests/test_vector_q.py` compared vector code with itself until then).
 - **Profiling (2026-11-01):** with `CIMO_PERFMAP=1` the loader appends each image's functions
   (start, size to the next symbol, name) to `/tmp/perf-<pid>.map`, perf's convention for JIT
   code (Linux). Off by default, since it writes to disk.
@@ -1453,7 +1456,8 @@ for Linux and macOS (strategies under "Platform loading findings").
     `__builtin_shufflevector`, `__builtin_convertvector`. Also GNU casts to a union (`(union U)x`).
     **Class q (2026-11-07):** vectors of `vecq` bytes (16; 32 on x86-64 with AVX2), twice or four times that compute as q values
     (frontend `vecq=`, IR `%r =q qaddw ...`): `+ - * / & | ^`, comparisons, unary `-` and `~`, shifts by a constant,
-    copies and `memcpy` to or from a vector, and `v[constant]` (`qget`). `__builtin_convertvector` on arm64 (frontend
+    copies and `memcpy` to or from a vector, and `v[constant]` (`qget`). `a*b + c` and funcfma's other forms on
+    float vectors contract into `qfma1` as scalars do (`_qfma`). `__builtin_convertvector` on arm64 (frontend
     `vecops=('convert',)`): integers widened by halves (`qsxl`/`qsxh`, `sshll`/`sshll2`), narrowed in pairs (`qnrw`, `xtn`/`xtn2`),
     floats likewise (`fcvtl`/`fcvtn`), then `scvtf`/`ucvtf`/`fcvtzs`/`fcvtzu` at one width; int64 to float stays lane by lane
     (through double it would round twice). `__builtin_shufflevector` of one-q vectors on arm64 (`vecops` 'shuffle'): a

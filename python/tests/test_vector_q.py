@@ -4,6 +4,7 @@ native target."""
 
 import ctypes
 import random
+import struct
 
 import pytest
 
@@ -65,9 +66,9 @@ def test_operators_match_lane_by_lane(ty, size, monkeypatch):
     if size == 64 and ty not in ('signed char', 'unsigned', 'double'):
         pytest.skip('four q values: a few element types are enough')
     src, nout, ncmp = _src(ty, size)
-    q = cimo.compile(src, cache=False)
+    q = cimo.compile(src, cache=False, fma=False)  # the lanes don't contract a*b + c (test_vector_fma)
     monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
-    lanes = cimo.compile(src, cache=False)
+    lanes = cimo.compile(src + "\nstatic int lane_by_lane;\n", cache=False, fma=False)  # compiles are kept per source
     ct = _CT[ty]
     n = size // ctypes.sizeof(ct)
     rnd = random.Random(hash((ty, size)) & 0xffff)
@@ -114,7 +115,7 @@ def test_lane_reads_match(ty, monkeypatch):
     src = _lanesrc(ty)
     q = cimo.compile(src, cache=False)
     monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
-    lanes = cimo.compile(src, cache=False)
+    lanes = cimo.compile(src + "\nstatic int lane_by_lane;\n", cache=False)  # another source: compiles are kept per process
     ct = _CT[ty]
     rnd = random.Random(7)
     for _ in range(20):
@@ -152,7 +153,7 @@ def test_convertvector_matches_lane_by_lane(s, d, n, monkeypatch):
            % (s, n * ctypes.sizeof(_CT[s]), d, n * ctypes.sizeof(_CT[d])))
     q = cimo.compile(src, cache=False)
     monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
-    lanes = cimo.compile(src, cache=False)
+    lanes = cimo.compile(src + "\nstatic int lane_by_lane;\n", cache=False)  # another source: compiles are kept per process
     rnd = random.Random(n)
     for _ in range(10):
         if s in ('float', 'double'):  # in the destination's range: out of it is undefined
@@ -178,7 +179,7 @@ def test_shufflevector_matches_lane_by_lane(ty, monkeypatch):
     src = 'typedef %s V __attribute__((vector_size(16)));\nvoid f(const V *a, const V *b, V *r) {\n%s}\n' % (ty, body)
     q = cimo.compile(src, cache=False)
     monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
-    lanes = cimo.compile(src, cache=False)
+    lanes = cimo.compile(src + "\nstatic int lane_by_lane;\n", cache=False)  # another source: compiles are kept per process
     a = (_CT[ty] * n)(*_values(ty, n, rnd))
     b = (_CT[ty] * n)(*_values(ty, n, rnd))
     r1, r2 = (ctypes.c_char * (16 * len(shuffles)))(), (ctypes.c_char * (16 * len(shuffles)))()
@@ -190,3 +191,35 @@ def test_shufflevector_matches_lane_by_lane(ty, monkeypatch):
                 es = 16 // n
                 o = 16 * k + es * i
                 assert bytes(r1)[o:o + es] == bytes(r2)[o:o + es], (ty, shuffles[k])
+
+
+@pytest.mark.parametrize('ty', ['float', 'double'])
+def test_vector_fma(ty):
+    """a*b + c, a*b - c, c - a*b and with a scalar factor, contracted as for scalars: one rounding, as fma() lane by
+    lane gives."""
+    import math
+    src = ('typedef %s V __attribute__((vector_size(16)));\n'
+           'void f(const V *a, const V *b, const V *c, %s s, V *r) { r[0] = a[0] * b[0] + c[0]; r[1] = a[0] * b[0] - c[0];\n'
+           '  r[2] = c[0] - a[0] * b[0]; r[3] = c[0] + s * a[0]; }\n') % (ty, ty)
+    pp = driver._preprocess(src, 'x.c')
+    assert driver._ir(pp, 'x.c')[0].count('qfma1') == 4
+    m = cimo.compile(src, cache=False, fma=True)
+    ct = _CT[ty]
+    n = 16 // ctypes.sizeof(ct)
+    rnd = random.Random(3)
+    rd = (lambda x: struct.unpack('f', struct.pack('f', x))[0]) if ty == 'float' else (lambda x: x)
+    for _ in range(20):
+        a, b, c = ([rd(rnd.uniform(-100, 100)) for _ in range(n)] for _ in range(3))
+        s = rd(rnd.uniform(-3, 3))
+        r = (ct * (4 * n))()
+        m.f((ct * n)(*a), (ct * n)(*b), (ct * n)(*c), s, r)
+        for i in range(n):
+            want = [_fma(a[i], b[i], c[i]), _fma(a[i], b[i], -c[i]), _fma(-a[i], b[i], c[i]), _fma(s, a[i], c[i])]
+            assert [r[k * n + i] for k in range(4)] == [rd(w) for w in want], (ty, i)
+
+
+def _fma(x, y, z):
+    """x*y + z rounded once (exact rationals, then to the nearest double; float results then round again, which for
+    a float x, y, z is the same as rounding once: 2 * 24 + 2 bits fit in a double's 53)."""
+    from fractions import Fraction
+    return float(Fraction(x) * Fraction(y) + Fraction(z))
