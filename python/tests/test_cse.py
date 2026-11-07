@@ -356,7 +356,7 @@ def test_a_float_load_moved_up_a_loop_on_wasm():
     h = Host()
     try:
         h.load(W.build('float f(float *p, int n) { float s = 0; int i = 0; do { s += *p; i++; } while (i < n); return s; }')[0])
-        assert h.call('f', 'l,w', h.array('f', [1.5]), 3)[0] == 4.5
+        assert h.call('f', 'p,w', h.array('f', [1.5]), 3)[0] == 4.5
     finally:
         h.close()
 
