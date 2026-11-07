@@ -56,7 +56,8 @@
   // ---- Python side
   const PY = `
 import json, time, ctypes, struct
-import cimo, codegen, wat
+import cimo, codegen
+from cimo import wat
 import cimo.wasm as _cw
 F = ctypes.c_float
 N, G, TH = ${N}, ${G}, ${TH}
@@ -649,7 +650,7 @@ def nn_build(graph_json):
     try {
       py = await window.cimoRuntime.load(m => { ui.status.textContent = m; });
       ui.status.textContent = 'Loading the code generator…';
-      for (const f of ['codegen.py', 'wat.py'])
+      for (const f of ['codegen.py'])
         py.FS.writeFile('/home/pyodide/' + f, await (await fetch('nn/' + f, { cache: 'no-cache' })).text());
       ns = py.toPy({});  // its own namespace: the banner demo's Python shares globals
       await py.runPythonAsync(PY, { globals: ns });

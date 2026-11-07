@@ -256,6 +256,8 @@ assert h.rd(h.mk(10), 9) == 9
 e = h.cache_entry()  # into the cache again, as a page keeping its compiles between visits would (2026-11-07)
 cimo.add_cache_entry(e)
 assert e.startswith(b'cimo-cache') and cimo.compile(HSRC).cached
+from cimo import wat  # module.wasm and its text (2026-11-07)
+assert h.wasm[:4] == b'\0asm' and '(func $mk' in wat.disassemble(h.wasm, {'mk'})[0]
 libm = ctypes.CDLL(None)  # Pyodide's own frexp, called by address: its pointer parameter is an i32 (2026-11-07)
 fx = cimo.compile(r"""
 typedef double (*F)(double, int *);
@@ -298,3 +300,12 @@ long small(void) { long *p = malloc(100 * sizeof *p); for (int i = 0; i < 100; i
     for which in range(4):
         assert host.call('big', 'w', which)[0] == 1, which
     assert host.call('small', '')[0] == 4950
+
+
+def test_wat_disassembles_a_module():
+    """cimo.wat: the module's functions as WebAssembly text (the site's demos show it)."""
+    from cimo import wat
+    mod, _ = W.build('long twice(long x) { return 2 * x; }\ndouble half(double x) { return x / 2; }')
+    text, sections, others = wat.disassemble(mod, {'twice'})
+    assert '(func $twice' in text and 'i64.' in text and '(func $half' not in text
+    assert 'half' in others and any(n == 'code' for n, _ in sections)

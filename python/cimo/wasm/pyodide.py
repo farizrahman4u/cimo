@@ -82,6 +82,7 @@ class WasmModule(Introspection):
         return _entry(getattr(self, '_cachekey', None))
 
     def __init__(self, mod, sigs):
+        self.wasm = bytes(mod)  # the module's bytes (cimo.wat.disassemble prints them as text)
         self._err = None
         self._decoder = codecs.getincrementaldecoder('utf-8')('replace')
         self._chunks = {}

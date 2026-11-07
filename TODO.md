@@ -338,10 +338,8 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   the runtime.
 - ~~Public cache export and import~~ **Done** (2026-11-07, requested by scramjit): `module.cache_entry()` (bytes)
   and `cimo.add_cache_entry(data)`, native and Pyodide; used only by a compile of the same source and options.
-- **A public way to get a module's WebAssembly** (requested by scramjit): its site demo shows the
-  compiled kernel's disassembly and calls `cimo.wasm.build` for the bytes, as cimo's own demo does,
-  which isn't documented API. For example `module.wasm` (bytes, in Pyodide) and making
-  `docs/nn/wat.py` a supported `cimo.wat`. **When done, note it in scramjit's `TODO.md`.**
+- ~~A public way to get a module's WebAssembly~~ **Done** (2026-11-07, requested by scramjit): `module.wasm` in Pyodide,
+  `cimo.wat.disassemble` (was `docs/nn/wat.py`), `cimo.wasm.build(src)` documented.
 
 - **Slower than gcc -O3 on scramjit's kernels** (requested by scramjit, 2026-11-01; arm64 WSL,
   gcc 13.3 `-O3 -ffp-contract=off`, cimo with `CIMO_FMA=0`; reproduce with scramjit's
@@ -380,7 +378,7 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   0.997 to 1.005 at both sizes on Snapdragon X and Neoverse N1, V1, V2, at 62 directives in 1639 instructions.
 - ~~Inlining stops by position in a large function~~ **Done** (2026-11-07, from scramjit): `CALLER_LIMIT` is spent
   on the deepest loops first (`fillloop`'s weights; inlined blocks take the call's), and a callee no bigger than its call
-  and arguments inlines without counting. llama2 tok/s to measure on mains power (was 28, 89 with no limit).
+  and arguments inlines without counting. llama2 (`bench/llm.py`, stories15M, mains): 90.5 tok/s, was 28 (89 with no limit).
 - **FMA contraction slows reductions on arm64**: `s += a[i] * b[i]` runs 2.15 ns per element with `fmadd`,
   1.81 with `fmul` and `fadd` (`-ffp-contract` shows the same in gcc: `bench/llm.py`'s C at `-O3`, 63 tok/s
   with, 82 without), probably the latency on the sum (not measured on other cores). Contraction is on

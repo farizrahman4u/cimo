@@ -42,3 +42,8 @@ Everything runs in the page: no server compiles anything. The [demos on the home
 ## Calling kernels from JavaScript
 
 Each kernel object has `.function`, the raw WebAssembly export, for calling from JavaScript in a hot loop (for example once per animation frame) without going through Python. Pointer and `long` arguments are BigInts there.
+
+## The WebAssembly
+
+In Pyodide, `module.wasm` is the compiled module's bytes, and `cimo.wat.disassemble(module.wasm, {'f'})` returns the WebAssembly text of `f` (with the module's sections and the names of the functions left out). On other platforms, `cimo.wasm.build(src)` returns the same bytes and the signatures.
+

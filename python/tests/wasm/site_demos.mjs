@@ -31,7 +31,7 @@ const copy = (dir) => {
 if (process.env.CIMO_ONEFILE) py.FS.writeFile('/lib/cimo.py', readFileSync(process.env.CIMO_ONEFILE));
 else { py.FS.mkdirTree('/lib/cimo'); copy(pkg); }
 py.FS.mkdirTree('/home/pyodide');
-for (const f of ['codegen.py', 'wat.py'])  // as nn.js fetches them
+for (const f of ['codegen.py'])  // as nn.js fetches it (wat is cimo.wat)
   py.FS.writeFile('/home/pyodide/' + f, readFileSync(join(docs, 'nn', f)));
 py.runPython("import sys; sys.path.insert(0, '/lib'); sys.path.insert(0, '/home/pyodide')");
 
