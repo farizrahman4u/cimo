@@ -315,3 +315,4 @@ _VCVT_WORDS += [('zip1 v1.16b, v2.16b, v3.16b', 0x4e033841), ('zip2 v1.8h, v2.8h
                 ('dup v1.16b, v2.b[15]', 0x4e1f0441), ('dup v1.8h, v2.h[3]', 0x4e0e0441), ('dup v1.4s, v2.s[2]', 0x4e140441),
                 ('dup v1.2d, v2.d[1]', 0x4e180441)]
 _VCVT_WORDS += [('fcvtl v1.4s, v31.4h', 0x0e217be1), ('fcvtn v31.4h, v2.4s', 0x0e21685f)]
+_VCVT_WORDS += [('adc x1, x2, x3', 0x9a030041), ('adc x17, x0, x30', 0x9a1e0011)]

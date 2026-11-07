@@ -66,7 +66,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
      the vectorizer (`vcvtph2ps`/`vcvtps2ph` with memory: 8 halves a ymm) **done**. Half and bf16 arguments in FP registers **done**.
    - `__int128`: passed as gcc does (even pair on arm64, two registers on SysV; `tests/test_abi.py`), halves in registers
      within a function (sroa), `umulh`, variable shifts inline **done** (2026-11-07). Struct and `__int128` values at call boundaries in registers **done**
-     (`backend/abislot.py`: an `__int128` add 35 instructions to 8). Open: `adds`/`adc` for the carry (today `cmp` and `csinc`).
+     (`backend/abislot.py`: an `__int128` add 35 instructions to 8). An `__int128` add as `adds`/`adc` on arm64 **done**
+     (`arm64/emit._carry`). Open: the same in a multiply-accumulate (the low word made by `madd`, needing a scratch).
    - `_Complex` stays two scalars (what gcc does too); multiply and divide inline under `CX_LIMITED_RANGE` **done** (2026-11-07).
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.

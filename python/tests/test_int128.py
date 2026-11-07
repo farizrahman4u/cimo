@@ -97,3 +97,26 @@ def test_slot_stores_that_overlap():
            '__attribute__((noinline)) static int rd(struct T t) { return t.b0 + 2 * t.b1 + 4 * t.c[1] + 100 * t.c[0]; }\n'
            'int f(void) { struct T t = mk(); t.b1 = 1; t.c[1] = 3; return rd(t); }\n')
     assert cimo.compile(src).f() == 1 + 2 + 12 + 500
+
+
+def test_add_with_carry():
+    """An __int128 add is adds and adc on arm64 (emit._carry), carries out of the low word included."""
+    import random
+    from cimo import driver
+    src = ('typedef unsigned __int128 u128;\n__attribute__((noinline)) static u128 add(u128 a, u128 b) { return a + b; }\n'
+           'unsigned long f(unsigned long a, unsigned long b, unsigned long c, unsigned long d) {\n'
+           '  u128 r = add((u128)b << 64 | a, (u128)d << 64 | c); return (unsigned long)r ^ (unsigned long)(r >> 64) * 3; }\n')
+    if not driver._is_amd64():
+        text = driver._qbe(*driver._ir(driver._preprocess(src, 'x.c'), 'x.c'))
+        body = text[text.index('\nadd:'):]
+        body = body[:body.index('end function')]
+        assert '\tadds\t' in body and '\tadc\t' in body and 'csinc' not in body, body
+    m = cimo.compile(src)
+    rnd = random.Random(1)
+    mod = 1 << 64
+    for _ in range(300):
+        a, b, c, d = [rnd.getrandbits(64) for _ in range(4)]
+        if rnd.random() < 0.3:
+            a, c = mod - 1, rnd.getrandbits(3)
+        r = ((b << 64 | a) + (d << 64 | c)) % (1 << 128)
+        assert m.f(a, b, c, d) == (r % mod) ^ ((r >> 64) * 3) % mod

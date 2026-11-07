@@ -1541,7 +1541,8 @@ for Linux and macOS (strategies under "Platform loading findings").
     are integer types laid out as a struct of two longs, low first (`TY.isi128`): memory, calls and
     returns are a struct's: x86-64 SysV and arm64 take it in a register pair (AAPCS64's even one, from the type's
     `align 16`), the stack 16-byte aligned, as gcc does (`tests/test_abi.py`, both directions). The frontend lowers operations to 64-bit halves (`qbe._i128*`): add/sub with a carry,
-    multiplication with `umulh` on arm64 (32-bit halves elsewhere), comparisons high half first,
+    multiplication with `umulh` on arm64 (32-bit halves elsewhere; an add's carry becomes `adds`/`adc` on arm64 by a peephole
+    on the emitted function, `arm64/emit._carry`), comparisons high half first,
     shifts inline (by a variable branch-free since 2026-11-07: both halves by n mod 64, the crossing bits by a double
     shift, the halves picked by bit 6 through a mask); division and float conversions are runtime calls (as gcc's
     `__divti3`, `__floattidf`)

@@ -1,5 +1,7 @@
 """Port of QBE arm64/emit.c."""
 
+import re
+
 from .. import defs as D
 from ..defs import (R, RTmp, RCon, RSlot, RMem, CBits, CAddr, SGlo, SThr, SExt, SExtThr,
                     Kx, Kw, Kl, Ks, Kd, KWIDE, KBASE, M64, U32, NCmpI, NCmp, Ins, TMP,
@@ -1508,6 +1510,78 @@ _id0 = 0
 
 
 def arm64_emitfn(fn, out):
+    import io
+    buf = io.StringIO()
+    _emitfn(fn, buf)
+    out.write(_carry(buf.getvalue()))
+
+
+_ADD = re.compile(r'\tadd\t(x\d+), (x\d+), (x\d+)$')
+_CMP = re.compile(r'\tcmp\t(x\d+), (x\d+)$')
+_CSINC = re.compile(r'\tcsinc\t(x\d+), (x\d+), (x\d+), cs$')
+_FLAGS = frozenset('cmp cmn tst adds subs ands bics ccmp ccmn fcmp fcmpe fccmp fccmpe adcs sbcs negs bl blr br b ret cbz cbnz '
+                   'tbz tbnz'.split())
+_REG = re.compile(r'\b[xw](\d+)\b')
+
+
+def _carry(text):
+    """cimo: an add with carry across a pair of registers (__int128, 64-bit halves), as gcc writes it: the frontend's
+    carry, lo = a + b; s = c + d; cmp lo, a; csinc s, s, s, cs (s plus one when lo wrapped), becomes adds lo, a, b ...
+    adc s, c, d, when nothing between sets the flags or touches s, c, d, lo, a or b, and nothing jumps in or out."""
+    if '\tcsinc\t' not in text:
+        return text
+    lines = text.split('\n')
+    for n, line in enumerate(lines):
+        m = _CSINC.match(line)
+        if not m or not (m.group(1) == m.group(2) == m.group(3)) or n == 0:
+            continue
+        s = m.group(1)
+        c = _CMP.match(lines[n - 1])
+        if not c:
+            continue
+        lo, a = c.groups()
+        js = jl = None
+        for k in range(n - 2, max(n - 40, -1), -1):  # the adds that made s and lo, nearest first
+            x = lines[k]
+            if not x.startswith('\t') or x.split('\t')[1] in _FLAGS:
+                break
+            am = _ADD.match(x)
+            if am and js is None and am.group(1) == s:
+                js = k
+            elif am and jl is None and am.group(1) == lo and a in am.groups()[1:] and a != lo:  # a: unchanged
+                jl = k
+            if js is not None and jl is not None:
+                break
+        if js is None or jl is None:
+            continue
+        cs, ds = _ADD.match(lines[js]).groups()[1:]
+        la, lb = _ADD.match(lines[jl]).groups()[1:]
+        num = (lambda r: r[1:])
+        guard = {num(r) for r in (s, cs, ds, lo, la, lb)}
+        ok = True
+        for k in range(min(js, jl) + 1, n - 1):
+            if k in (js, jl):
+                continue
+            x = lines[k]
+            mn = x.split('\t')[1] if x.startswith('\t') else ''
+            if not mn or mn in _FLAGS or '!' in x or '], ' in x or mn.startswith(('st', 'ld')) and mn.endswith('p'):
+                ok = False  # flags, a block edge, a register written back or a pair
+                break
+            regs = _REG.findall(x)
+            dest = regs[:1] if not mn.startswith('st') else []
+            if k > js and num(s) in regs or set(dest) & guard:
+                ok = False
+                break
+        if not ok:
+            continue
+        lines[jl] = '\tadds\t%s, %s, %s' % (lo, la, lb)
+        lines[n] = '\tadc\t%s, %s, %s' % (s, cs, ds)
+        lines[n - 1] = None
+        lines[js] = None
+    return '\n'.join(x for x in lines if x is not None)
+
+
+def _emitfn(fn, out):
     global _id0
     T = D.T
     e = E(out, fn)

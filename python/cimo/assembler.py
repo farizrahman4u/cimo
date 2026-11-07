@@ -886,6 +886,14 @@ def _i_tbl(a, mn, ops):
     return 0x4e000000 | int(m.group(1)) << 16 | int(n.group(1)) << 5 | int(d.group(1))
 
 
+def _i_adc(a, mn, ops):
+    """adc Xd, Xn, Xm (the 64-bit form: __int128's carry)."""
+    if len(ops) != 3:
+        raise AssemblerError('adc needs 3 operands')
+    rd, rn, rm = (_reg(o, 'x') for o in ops)
+    return 0x9a000000 | rm[1] << 16 | rn[1] << 5 | rd[1]
+
+
 def _vector_or(scalar):
     """The encoder for a mnemonic with a scalar and a vector form: vector operands go to _i_vcvt."""
     def enc(a, mn, ops):
@@ -1404,7 +1412,7 @@ def _i_tls(a, mn, ops):
 
 
 _INSNS = {
-    'add': _i_addsub, 'adds': _i_addsub, 'sub': _i_addsub, 'subs': _i_addsub,
+    'adc': _i_adc, 'add': _i_addsub, 'adds': _i_addsub, 'sub': _i_addsub, 'subs': _i_addsub,
     'cmp': _i_cmp, 'cmn': _i_cmp, 'neg': _i_neg,
     'and': _i_logic, 'orr': _i_logic, 'eor': _i_logic, 'ands': _i_logic,
     'bic': _i_logic, 'orn': _i_logic, 'eon': _i_logic, 'ubfx': _i_bitfield, 'sbfx': _i_bitfield,
