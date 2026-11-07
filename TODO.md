@@ -56,8 +56,9 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    convention (gcc: register pairs, FP registers). In order:
    - GNU vector types as class-`q` values: operators, copies, `v[constant]`, and vector locals in registers **done**
      (2026-11-07, `tests/test_vector_q.py`; "GNU vector types" in `requirements.md`). `convertvector` and one-q `shufflevector` (`tbl`) on arm64 **done**.
-     One-instruction shuffles on arm64 **done**. x86-64 AVX2 shuffles of 16 bytes and variable shifts **done**. x86-64 AVX2 `convertvector` **done**. `shuffle` with a variable mask **done**. Open: integer division and 64-bit `*` (no instruction on either; lane by lane is what gcc does too) (lane writes and
-     variable shifts **done**). Vectors in calls as gcc passes them **done** on every target. Measure a hand-vectorized `Q8_0`
+     One-instruction shuffles on arm64 **done**. x86-64 AVX2 shuffles of 16 bytes and variable shifts **done**. x86-64 AVX2 `convertvector` **done**. `shuffle` with a variable mask, lane writes and variable shifts **done**. Lane by lane by design: integer
+     division and 64-bit `*` (no instruction on either; gcc does the same). Open: shuffles wider than 16 bytes, x86-64
+     unsigned 32-bit and 64-bit int to or from float conversions (AVX-512's). Vectors in calls as gcc passes them **done** on every target. Measure a hand-vectorized `Q8_0`
      dot and a 4x4 matrix kernel on mains power (not yet measured).
    - Half conversions without calls: arm64 `fcvt` and `__bf16` inline everywhere **done** (2026-11-07,
      `tests/test_half_hw.py`). Half loads and stores in the vectorizer on arm64 **done**
