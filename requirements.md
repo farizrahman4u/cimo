@@ -599,6 +599,8 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   entry frame with `E_INTERRUPT`; `State.error` then runs Python's handler (`signal.raise_signal`), and raises
   `KernelError('interrupt')` if it doesn't raise. Elsewhere SIGINT goes to Python's handler. No polling in loops. Windows
   delivers Ctrl-C on its own thread: not done.
+- **Inlining budget (2026-11-07):** a caller's `CALLER_LIMIT` goes to its call sites by loop weight, deepest first;
+  callees no bigger than the call with its arguments are free.
 - **Last values (2026-11-07):** a header phi whose latch value is from outside the loop and that nothing in the loop reads
   (`f = 1` as a flag) is set to that value by each vector iteration (`_last`), so it doesn't stop vectorizing.
 - **`#pragma omp simd reduction(op:s, ...)` (2026-11-07):** `+`, `-`, `*` on float variables. The frontend marks the

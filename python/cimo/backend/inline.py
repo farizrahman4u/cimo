@@ -394,11 +394,16 @@ def expand(fn, bodies, cap=None, once=None):
     them; they inline only there, never with a copy of that caller. cap: fn's own inline limit
     when fn is small enough to be inlined itself; a once body that would take fn past it stays a
     call, so that a cold path doesn't keep a hot function out of its callers (sj_truediv and its
-    long division)."""
+    long division).
+
+    CALLER_LIMIT is spent on the deepest loops first (LLVM weighs call sites by block frequency), and
+    a callee no bigger than its call with its arguments always inlines, without counting: it shrinks
+    the caller (scramjit's llama2 forward pass, one function calling one-instruction helpers in its
+    matrix loops, ran out of budget in source order: 28 tok/s against 89)."""
     from .util import intern
     once = once or {}
     me = intern(fn.name)
-    if not bodies:
+    if not bodies or not _hascalls(fn, bodies):
         return 0
     size = _count(fn)
     small = None
@@ -406,31 +411,65 @@ def expand(fn, bodies, cap=None, once=None):
         small = cost(fn)
         if small > cap:
             small = None
-    n = 0
+    was = {}
     b = fn.start
     while b:
-        j = 0
-        while j < len(b.ins):
-            i = b.ins[j]
-            if i.op == D.Ocall:
-                s = _symname(fn, i.arg[0])
-                body = bodies.get(s) if s is not None else None
-                if body is not None and body.name != fn.name and size + body.size <= CALLER_LIMIT and \
-                        not (s in once and (once[s] != me or small is not None and small + body.size > cap)):
-                    k = _args(b, j, body)
-                    if k is not None:
-                        b = _expand1(fn, b, k, j, body)
-                        size += body.size
-                        if small is not None:
-                            small += body.size
-                        n += 1
-                        j = 0
-                        continue
-            j += 1
+        was[b] = b.loop
         b = b.link
+    cfg.fillcfg(fn)
+    cfg.fillloop(fn)
+    weight = {}
+    b = fn.start
+    while b:
+        weight[b] = b.loop
+        b.loop = was.get(b, 1)  # later passes fill it themselves, where they need it
+        b = b.link
+    n = 0
+    for w in sorted(set(weight.values()), reverse=True):
+        b = fn.start
+        while b:
+            if weight.get(b) != w:
+                b = b.link
+                continue
+            j = 0
+            while j < len(b.ins):
+                i = b.ins[j]
+                if i.op == D.Ocall:
+                    s = _symname(fn, i.arg[0])
+                    body = bodies.get(s) if s is not None else None
+                    if body is not None and body.name != fn.name and \
+                            not (s in once and (once[s] != me or small is not None and small + body.size > cap)):
+                        k = _args(b, j, body)
+                        free = k is not None and body.size <= j - k + 1  # no bigger than the call and its args
+                        if k is not None and (free or size + body.size <= CALLER_LIMIT):
+                            nxt = b.link
+                            cont = _expand1(fn, b, k, j, body)
+                            x = b.link
+                            while x is not None and x is not nxt:  # the copy and the rest: the call's weight
+                                weight[x] = w
+                                x = x.link
+                            if not free:
+                                size += body.size
+                                if small is not None:
+                                    small += body.size
+                            n += 1
+                            b, j = cont, 0
+                            continue
+                j += 1
+            b = b.link
     if n:
         fn.rpo = [None] * fn.nblk
     return n
+
+
+def _hascalls(fn, bodies):
+    b = fn.start
+    while b:
+        for i in b.ins:
+            if i.op == D.Ocall and _symname(fn, i.arg[0]) in bodies:
+                return True
+        b = b.link
+    return False
 
 
 def _noescape(fn):

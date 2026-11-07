@@ -385,13 +385,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   0.5% spread at any offset or alignment. Check timing differences of a few percent on EC2 before chasing them here.
 - **Loop alignment (LLVM's `alignBlocks`, 16 to 32 bytes by CPU) tried and left out:** on the 15 kernels the geomean is
   0.997 to 1.005 at both sizes on Snapdragon X and Neoverse N1, V1, V2, at 62 directives in 1639 instructions.
-- **Inlining stops by position in a large function** (from scramjit): `inline.CALLER_LIMIT` (4000 IR
-  instructions) is spent in source order, so later code keeps its calls however hot it is and however
-  small the callee. A llama2.c forward pass as one function (scramjit's `bench/llm.py`) called
-  one-instruction helpers three times per element in its matrix loops: 28 tok/s, against 89 with the
-  limit lifted (compile 0.8 to 1.4 s). Exempt callees no bigger than the call they replace, which
-  shrinks the caller, and spend the rest of the budget on the deepest loops first. scramjit made its
-  four wrapping helpers macros because of this; its other helpers still hit the limit.
+- ~~Inlining stops by position in a large function~~ **Done** (2026-11-07, from scramjit): `CALLER_LIMIT` is spent
+  on the deepest loops first (`fillloop`'s weights; inlined blocks take the call's), and a callee no bigger than its call
+  and arguments inlines without counting. llama2 tok/s to measure on mains power (was 28, 89 with no limit).
 - **FMA contraction slows reductions on arm64**: `s += a[i] * b[i]` runs 2.15 ns per element with `fmadd`,
   1.81 with `fmul` and `fadd` (`-ffp-contract` shows the same in gcc: `bench/llm.py`'s C at `-O3`, 63 tok/s
   with, 82 without), probably the latency on the sum (not measured on other cores). Contraction is on

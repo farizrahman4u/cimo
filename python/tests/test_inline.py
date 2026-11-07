@@ -262,3 +262,27 @@ long f2(long a) { return fast(a) + 2; }
         else:
             x = a * 3
         assert m.f1(a) == x + 1 and m.f2(a) == x + 2, a
+
+
+def test_the_budget_goes_to_loops_first():
+    """A large function spends CALLER_LIMIT on its deepest loops before its straight-line code, and a callee no bigger
+    than its call inlines whatever is left (scramjit's llama2 forward pass: 28 tok/s against 89 with no limit)."""
+    from cimo.backend import inline
+    helper = ('static long mix%d(long a, long b) { long r = a * 7 + b; for (int k = 0; k < 3; k++) r = (r ^ (r >> 3))'
+              ' * 31 + k; return r - b * %d; }\n')
+    src = ''.join(helper % (n, n) for n in range(2)) + 'static long w(long a, long b) { return a + b; }\n'
+    calls_ = ''.join('    s = mix0(s, %d);\n' % n for n in range(inline.CALLER_LIMIT // 8))
+    src += ('long big(const long *x, long n) {\n    long s = 1;\n' + calls_ +
+            '    for (long i = 0; i < n; i++) s = w(mix1(s, x[i]), i);\n    return s;\n}\n')
+    asm = driver._build(src)[0]
+    c = calls(asm, 'big')
+    assert 'mix1' not in c and 'w' not in c and 'mix0' in c, sorted(set(c))
+    m = cimo.compile(src, cache=False)
+    x = (ctypes.c_long * 4)(3, 1, 4, 1)
+    old = inline.CALLER_LIMIT
+    try:
+        inline.CALLER_LIMIT = 1 << 30
+        ref = cimo.compile(src + '\nint ref_marker;', cache=False)
+    finally:
+        inline.CALLER_LIMIT = old
+    assert m.big(x, 4) == ref.big(x, 4)
