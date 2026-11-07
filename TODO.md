@@ -383,6 +383,28 @@ the whole function for one block, the `ext` passes that don't pay for themselves
 inputs (rule from "Optimizations to lift": drop them), and the cost of `onefile` imports in Pyodide.
 Target: a 100-line kernel in under 0.3 s warm natively and under 1 s in Pyodide.
 
+- **Optimization sprint: cimo's own speed.** scramjit's first call is 2 to 8x Numba's (0.1 to 1 s against 0.04 to
+  0.12 s, scramjit's `bench/compare.py`, 2026-11-07), and about 99% of it is cimo. Profile of a cold compile of
+  viewshed and Gray-Scott (cProfile, so inflated, but the shares hold): backend 64%, frontend 12%, middle end 5%,
+  preprocessor 3%, assembler 1%, scramjit 1%. The hottest functions are C-shaped: `rtype` and `rval` (1.6M and 1.1M
+  calls, unpacking a ref from an int), the bit sets (`bselems`, `bset`), `filluse`, `filllive`, `lex`, rega's
+  `hint`/`prio2`. Measure each strategy before and after, on the inputs above, and keep the output byte-identical:
+  - **Cheaper Python where it's hot:** inline `rtype`/`rval` and other one-line helpers into the passes that call them
+    millions of times, bit sets as Python ints (`&`, `|`, `int.bit_count`) where they're lists, no whole-function walks
+    for one block, and drop `ext` passes that don't pay for themselves.
+  - **Cache what repeats:** the prelude and bundled headers parsed once per process (a warm scramjit compile is mostly
+    preprocessing the same prelude).
+  - **Compile hot loops with scramjit when it's installed.** cimo looks for scramjit at run time, never as a dependency:
+    without it, nothing changes. The hot passes (liveness, uses, bit sets, the lexer) are written within what scramjit
+    compiles: integers, arrays, records with references, no lists that grow in the inner loops. scramjit compiles them
+    to C, which cimo compiles and caches like any kernel, built on the user's machine and never shipped. What it needs:
+    the import happens at the first compile, not when cimo is imported (scramjit imports cimo); a per-thread flag runs
+    the Python passes while one of them is being compiled, which also bootstraps the first compile; cimo's output is
+    byte-identical with and without it, so its cache keys don't change, checked by running the suite both ways and
+    comparing the machine code (a scramjit miscompile would otherwise reach every C compile); an environment variable
+    turns it off; in Pyodide the compiled passes are wasm, cached the same way. Try `filllive` and `filluse` first, as
+    written: what scramjit refuses, and what they gain on a real compile, before reshaping more passes for it.
+
 - ~~**Compile time is quadratic in a function's size**~~ **mostly done** (2026-11-05; see "Compile time on large
   functions" in `requirements.md`): scramjit's 60-loop function, every loop versioned (4,150 lines of C), 32.6 to 7.9 s;
   a generated function of 120 small loops 21.4 to 2.7 s. What's left is spread over QBE's passes, each about 3x per
