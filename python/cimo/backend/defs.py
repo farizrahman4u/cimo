@@ -390,6 +390,8 @@ _QOPS += [('qfcvtl', _Q1()), ('qfcvth', _Q1()), ('qfcvtn', _QQ())] + [('qnrw' + 
 # %r =q qsshlvw %v, %n: each lane shifted left by n's lane (signed: right where negative, arithmetic); qushlv, the
 # same with logical shifts right (arm64 sshl, ushl; GNU vectors shifted by a variable)
 _QOPS += [(n + x, _QQ()) for n in ('qsshlv', 'qushlv') for x in 'bhwl']
+# x86-64 AVX2's, by direction: qshlv, qshrv (logical) w and l, qsarvw (vpsllv*, vpsrlv*, vpsravd)
+_QOPS += [('qshlvw', _QQ()), ('qshlvl', _QQ()), ('qshrvw', _QQ()), ('qshrvl', _QQ()), ('qsarvw', _QQ())]
 # permutations (arm64; __builtin_shufflevector's one-instruction cases), the lane size in the name: qzip1w %a, %b
 # interleaves the low halves, qzip2 the high; quzp1/quzp2 the even or odd lanes of a then b; qtrn1/qtrn2 the even or odd
 # lanes of each pair; qext<k> %a, %b: bytes k to 15 of a then 0 to k - 1 of b; %r =q qbcastw %v, i: lane i everywhere

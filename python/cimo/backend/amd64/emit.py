@@ -408,7 +408,8 @@ _QTWO = {'qaddb': ('paddb', 1), 'qaddh': ('paddw', 1), 'qaddw': ('paddd', 1), 'q
          'qcgtb': ('pcmpgtb', 0), 'qcgth': ('pcmpgtw', 0), 'qcgtw': ('pcmpgtd', 0),
          'qxmuludq': ('pmuludq', 1), 'qxlo': ('punpckldq', 0), 'qxhi': ('punpckhdq', 0),
          'qxmins': ('minps', 0), 'qxmind': ('minpd', 0), 'qxmaxs': ('maxps', 0), 'qxmaxd': ('maxpd', 0),
-         'qceqs': ('cmpps $0,', 1), 'qceqd': ('cmppd $0,', 1), 'qxunords': ('cmpps $3,', 1), 'qxunordd': ('cmppd $3,', 1)}
+         'qceqs': ('cmpps $0,', 1), 'qceqd': ('cmppd $0,', 1), 'qxunords': ('cmpps $3,', 1), 'qxunordd': ('cmppd $3,', 1),
+         'qtbl': ('pshufb', 0)}  # qtbl: only with AVX2 (vpshufb: within each 16-byte half; the frontend's 16-byte vectors)
 _QSWAPPED = {'qcgts': 'cmpps $1,', 'qcgtd': 'cmppd $1,', 'qcges': 'cmpps $2,', 'qcged': 'cmppd $2,'}  # b < a, b <= a
 _QSHIFT = {'qshlh': 'psllw', 'qshlw': 'pslld', 'qshll': 'psllq', 'qshrh': 'psrlw', 'qshrw': 'psrld', 'qshrl': 'psrlq',
            'qsarh': 'psraw', 'qsarw': 'psrad'}
@@ -456,7 +457,8 @@ def _qcopy(i, e):
 _QY = dict((k, 'v' + mn) for k, (mn, _) in _QTWO.items())
 _QY.update({'qmulw': 'vpmulld', 'qceql': 'vpcmpeqq', 'qcgtl': 'vpcmpgtq', 'qminb': 'vpminsb', 'qminw': 'vpminsd',
             'qmaxb': 'vpmaxsb', 'qmaxw': 'vpmaxsd', 'quminh': 'vpminuw', 'quminw': 'vpminud', 'qumaxh': 'vpmaxuw',
-            'qumaxw': 'vpmaxud'})
+            'qumaxw': 'vpmaxud', 'qshlvw': 'vpsllvd', 'qshlvl': 'vpsllvq', 'qshrvw': 'vpsrlvd', 'qshrvl': 'vpsrlvq',
+            'qsarvw': 'vpsravd'})
 _QYSWAPPED = dict((k, 'v' + mn) for k, mn in _QSWAPPED.items())
 
 

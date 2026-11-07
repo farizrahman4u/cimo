@@ -440,3 +440,6 @@ def test_f16c_and_broadcast(text, want):
     o = assembler_amd64.assemble('.text\n%s\n' % text)
     sec = next(s for s in (o.sections.values() if isinstance(o.sections, dict) else o.sections) if s.name == '.text')
     assert bytes(sec.data).hex(' ') == want
+_F16C += [('vpsllvd %ymm2, %ymm1, %ymm0', 'c4 e2 75 47 c2'), ('vpsllvq %ymm2, %ymm1, %ymm0', 'c4 e2 f5 47 c2'),
+          ('vpsrlvd %ymm2, %ymm1, %ymm0', 'c4 e2 75 45 c2'), ('vpsrlvq %ymm2, %ymm1, %ymm0', 'c4 e2 f5 45 c2'),
+          ('vpsravd %ymm2, %ymm1, %ymm0', 'c4 e2 75 46 c2')]

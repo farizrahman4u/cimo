@@ -1937,7 +1937,11 @@ def _qvshift(f, e, vt, la, ls, ra, rs):
     """v << n and v >> n with n a variable or a vector: sshl/ushl by the counts, negated for a right shift."""
     el = vt.base
     x = _qlane(el)
-    name = ('qsshlv' if el.issigned else 'qushlv') + x
+    neg = 'vshift' in vecops  # arm64: a left shift by the count, negated for >>; x86-64 AVX2: by direction
+    if neg:
+        name = ('qsshlv' if el.issigned else 'qushlv') + x
+    else:
+        name = 'qshlv' + x if e.op == TSHL else 'qsarvw' if el.issigned else 'qshrv' + x
     res = _cxslot(f, e.type)
     off = (lambda p, k: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
     if ra is None:
@@ -1948,7 +1952,7 @@ def _qvshift(f, e, vt, la, ls, ra, rs):
     for k in range(_qchunks(vt)):
         a = _qop(f, _qls(vt.size)[0], off(la, k)) if la is not None else _qop(f, 'qdup' + x, ls)
         n = _qop(f, _qls(vt.size)[0], off(ra, k)) if ra is not None else dup
-        if e.op == TSHR:
+        if e.op == TSHR and neg:
             n = _qop(f, 'qneg' + x, n)
         _qop(f, _qls(vt.size)[1], _qop(f, name, a, n), off(res, k), res=False)
     return res
@@ -1961,7 +1965,7 @@ def _qbinary(f, e, vt, la, ls, ra, rs):
     fl = bool(el.prop & PROPFLOAT)
     op = e.op
     if op in (TSHL, TSHR) and (ra is not None or rs.kind != VALUE_INTCONST):  # by a variable (vecops 'vshift')
-        if 'vshift' not in vecops or fl:
+        if fl or not ('vshift' in vecops or 'vshiftx' in vecops and x in 'wl' and not (op == TSHR and el.issigned and x == 'l')):
             return None
         return _qvshift(f, e, vt, la, ls, ra, rs)
     if op in (TSHL, TSHR):
@@ -2180,14 +2184,15 @@ def _qperm(f, a, b, es, n, idx):
 def _qshuffle(f, a, b, st, t, idx, res):
     """__builtin_shufflevector of two vectors of one q value into one (vecops 'shuffle': arm64 tbl): a byte table for
     each source, 0xff (tbl's 0) where the byte comes from the other; False if it can't."""
-    if 'shuffle' not in vecops or st.size != vecq or t.size != vecq:
-        return False
+    if not ('shuffle' in vecops and st.size == t.size == vecq or 'shuffle16' in vecops and st.size == t.size == 16):
+        return False  # shuffle16: x86-64 AVX2's vpshufb, within each 16-byte half
     es, n = st.base.size, st.vlanes
-    one = _qperm(f, a, b, es, n, idx)
+    ld, stq = _qls(16 if 'shuffle16' in vecops else vecq)
+    one = _qperm(f, a, b, es, n, idx) if 'shuffle' in vecops else None
     if one is not None:
         _qop(f, 'qstore', one, res, res=False)
         return True
-    ia, ib = bytearray(b'\xff' * vecq), bytearray(b'\xff' * vecq)
+    ia, ib = bytearray(b'\xff' * st.size), bytearray(b'\xff' * st.size)
     for i, k in enumerate(idx):
         if k >= 0:
             for j in range(es):
@@ -2195,12 +2200,12 @@ def _qshuffle(f, a, b, st, t, idx, res):
     out = []
     for src, tab in ((a, ia), (b, ib)):
         if any(x != 0xff for x in tab):
-            out.append(_qop(f, 'qtbl', _qop(f, 'qload', src), _qop(f, 'qload', _qbytes(tab))))
+            out.append(_qop(f, 'qtbl', _qop(f, ld, src), _qop(f, ld, _qbytes(tab))))
     if not out:
         v = _qop(f, 'qdupw', mkintconst(0))
     else:
         v = out[0] if len(out) == 1 else _qop(f, 'qor', out[0], out[1])
-    _qop(f, 'qstore', v, res, res=False)
+    _qop(f, stq, v, res, res=False)
     return True
 
 
