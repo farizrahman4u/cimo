@@ -267,6 +267,12 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
+- **The bundled `hypot` is 1.4x glibc's** (found by scramjit, 2026-11-07, Snapdragon X): a viewshed loop (96x96, one
+  `hypot` per inner step, about 280,000 calls) takes 2.19 ms compiled by cimo with its own `hypot`, and 1.53 ms
+  compiled by gcc -O2 with glibc 2.39's; with `sqrt(a*a + b*b)` instead, cimo 0.98 and gcc 1.12 ms, so the loop
+  itself isn't it. glibc's is one `sqrt` of an fma and one correction step. Either kind is fine for C (neither is
+  CPython's correctly rounded `math.hypot`; scramjit brings that one).
+
 - ~~**The inliner sizes a function before cleaning it up, and grows small functions with their cold paths**~~
   **Done** (2026-11-07, found by scramjit): loads and stores of slots only ever loaded and stored, their constant
   offsets, copies and extensions of constants and `fma0` don't count toward `ext.inline` (`inline._free`); a function
