@@ -294,7 +294,10 @@ Also from scramjit's first measurements (its M0, 2026-11-01):
   for math calls (native targets) would let generated code match CPython where that matters.
 - **Fast libm (2026-11-07):** bundled functions are to be as fast as glibc's, one at a time as kernels need them.
   `hypot` is glibc's algorithm now (fma kernel where `__FP_FAST_FMA`, arm64; a correction step on x86-64 and wasm),
-  under 1 ulp, 1.47x faster than musl's on a `hypot` loop; its bits now differ from musl's in places.
+  under 1 ulp, 1.47x faster than musl's on a `hypot` loop. It gives glibc's bits on each target, so arm64 and
+  x86-64/wasm differ in about 6% of inputs: the fma kernel is correctly rounded 87% of the time, the correction step
+  99% (the correction's division is what makes it musl's speed on arm64, 1.18 ms). The same bits everywhere would
+  need a correctly rounded `hypot`.
 
 ## Optimization model
 
@@ -986,6 +989,20 @@ which releasing and taking the GIL back is 45-60 ns (15-25 ns free-threaded): th
 kernel has a class whose `__call__` is generated for its parameters, reading the error word and stdout length through a
 per-thread `memoryview` of the context: a `void` call 763 to 364 ns (Graviton 3), 455 to 206 (Sapphire Rapids), against
 161 and 94 for ctypes alone.
+
+**No ctypes on a call (2026-11-07):** each kernel's class `__call__` is a builtin function whose code is a CPython
+`METH_FASTCALL` entry, one per signature (`driver._pyentry`, IR compiled when a module is assembled and kept in memory;
+a cached image has it). Its `self` is the address of the kernel's words (Python call, post, counts, trampoline, kinds).
+`runtime/pyentry.c` converts an exact float (read in place), an exact int (`PyLong_AsLongLongAndOverflow`) and a
+writable buffer of a byte or more (`PyObject_GetBuffer`), releases the GIL around the trampoline, makes the result and,
+if the error word or stdout length is set, calls the kernel's `post`, which flushes and raises. Anything else (bool,
+numpy scalars, `bytes`, read-only or empty buffers, ints over 64 bits, no context yet) goes to the Python call, so
+results and errors are the ctypes path's. The Python C API is a table filled at load (`driver._pyapi`: the object
+header's size found by reading `id(1.5)`, so free-threaded builds work), so nothing resolves at link time. A thread
+reusing a dead thread's key goes through Python first: context word 120 (`CTX_PY`) is set by `State.ctx` and cleared
+by a finalizer in the thread's `threading.local`. A `double, double, long` call 661 to 92 ns on the Snapdragon X laptop
+(a bare builtin call there 39 ns; the GIL release is most of the rest). Each new set of signatures compiles once per
+process, about 5 ms.
 
 ## Compile time on large functions (2026-11-05)
 

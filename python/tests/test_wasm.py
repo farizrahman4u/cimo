@@ -157,9 +157,11 @@ int f(int n) { int i = 0; if (n) goto inside; for (; i < 10; i++) { inside: n++;
 
 
 # the runtime test programs (tests/runtime): the wasm build's output must equal the native one
-# known differences: musl's pow takes its fma path natively (__FP_FAST_FMA) and the plain one
-# on wasm (no scalar fma), which round a few hard cases differently
-_POW_DIFFS_OK = 8
+# known differences: musl's pow and glibc's hypot algorithm take their fma paths natively
+# (__FP_FAST_FMA) and the plain ones on wasm (no scalar fma), which round differently (each under
+# 1 ulp): pow a few hard cases; hypot's fma kernel is correctly rounded 87% of the time and its
+# correction step 99%, so about 6% of its 600 cases (glibc's bits on each target)
+_FMA_DIFFS_OK = {'pow': 8, 'hypot': 60}
 
 
 @pytest.mark.skipif(not ARM64, reason='the native build is the reference (arm64)')
@@ -182,8 +184,8 @@ def test_runtime_programs_match_native(host, t):
     diffs = [(x, y) for x, y in zip(got.splitlines(), ref.splitlines()) if x != y]
     assert len(got.splitlines()) == len(ref.splitlines())
     if t == 't_math':
-        assert all(x.startswith('pow ') for x, _ in diffs) and len(diffs) <= _POW_DIFFS_OK, \
-            diffs[:5]
+        names = [x.split()[0] for x, _ in diffs]
+        assert all(names.count(n) <= _FMA_DIFFS_OK.get(n, 0) for n in names), (len(diffs), diffs[:5])
     else:
         assert not diffs, diffs[:5]
 
