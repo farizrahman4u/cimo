@@ -843,7 +843,7 @@ def body(fast, em, state, copy=0):
                 lanes = [em.raw(get, r.cls, w, em.con(n)) for w in vs]
                 if r.op == D.Ofma1:
                     em.ins(Ins(D.Ofma0, r.cls, R, acc, R))
-                    acc = em.raw(D.Ofma1, r.cls, lanes[0], lanes[1])
+                    acc = em.raw(D.Ofma1, r.cls, lanes[0], lanes[1], contract=r.i.contract)
                 else:
                     acc = em.raw(r.op, r.cls, acc, lanes[0])
             new[('phi', r.t)] = acc
