@@ -1081,6 +1081,7 @@ def postfixexpr(s, r):
                 p = exprconvert(p, mkpointertype(arr.type.base, p.type.qual))
                 e = mkunaryexpr(TMUL, mkbinaryexpr(tok.loc, TADD, p, idx))
                 e.lvalue = lv
+                e.vlane = (arr, idx)
                 expect(TRBRACK, "after array index")
                 r = e
                 continue

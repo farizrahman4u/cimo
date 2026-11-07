@@ -555,7 +555,7 @@ WSL2, mains, tok/s:
 
 ## Vector code (2026-11-02)
 
-Built on arm64 and x86-64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes. GNU vector types are accepted (2026-11-06, below) but computed lane by lane; wasm isn't vectorized. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
+Built on arm64 and x86-64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes. GNU vector types compute in class q where it has the operation (2026-11-07, below); wasm isn't vectorized. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
 Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorization (`rgb2gray` up to 6.6x; `saxpy`, `jacobi2d`,
 `conv3x3` 3 to 4x).
 
@@ -1451,7 +1451,13 @@ for Linux and macOS (strategies under "Platform loading findings").
     broadcast, comparisons giving -1/0 in signed lanes of the same size, `v[i]` as an lvalue, casts of the
     bits to and from types of the same size, `__builtin_shuffle` (one or two vectors, variable masks),
     `__builtin_shufflevector`, `__builtin_convertvector`. Also GNU casts to a union (`(union U)x`).
-    Not yet: vector instructions for them (class `q`), `__int128` lanes, `ext_vector_type`.
+    **Class q (2026-11-07):** vectors of `vecq` bytes (16; 32 on x86-64 with AVX2) or twice that compute as q values
+    (frontend `vecq=`, IR `%r =q qaddw ...`): `+ - * / & | ^`, comparisons, unary `-` and `~`, shifts by a constant,
+    copies and `memcpy` to or from a vector, and `v[constant]` (`qget`). A slot only ever read and written whole by
+    `qload`/`qstore` becomes a q temporary (`mem.promote`), so vector locals live in registers; initializer lists fill a
+    slot of their own first. Lane by lane still: what q lacks (integer `/` and `%`, 64-bit `*`, shifts by a variable),
+    shuffles, `convertvector`, writing `v[i]`, 16-byte vectors with AVX2, and calls (vectors go as structs of lanes, not
+    in vector registers as gcc passes them). Not yet: `__int128` lanes, `ext_vector_type`.
     `aligned` after a declarator applies to the object/member, and on a typedef makes an
     over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's
     `#define __attribute__(x)` (made for non-GNU compilers), so attributes are never dropped.

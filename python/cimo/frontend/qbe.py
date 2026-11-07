@@ -203,6 +203,8 @@ IUMULH = 123
 # cimo: the floating-point environment (<fenv.h>, the runtime's fenv.c): the control and status registers read and
 # written (arm64 FPCR and FPSR; x86-64 MXCSR for both), the declared external functions of these names
 IRDFPCR, IRDFPSR, IWRFPCR, IWRFPSR = 124, 125, 126, 127
+# cimo: an operation on the backend's class q (GNU vector types), its name in arg2: "%r =q qaddw %a, %b", "qstore %v, %p"
+IQ = 128
 _SETJMP = ('setjmp', '_setjmp')  # cimo: functions that return twice (emitfunc)
 _FPUBUILTINS = {'__cimo_rdfpcr': IRDFPCR, '__cimo_rdfpsr': IRDFPSR, '__cimo_wrfpcr': IWRFPCR,
                 '__cimo_wrfpsr': IWRFPSR}
@@ -231,6 +233,11 @@ instname += ['bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16']
 instname += ['frint', 'fnearbyint']
 instname += ['umulh']
 instname += ['rdfpcr', 'rdfpsr', 'wrfpcr', 'wrfpsr']
+instname += [None]  # IQ: printed by emitinst itself
+
+# cimo extension: bytes in the backend's class q (16; 32 on x86-64 with AVX2), so GNU vector types of that size or twice
+# it compute in vector registers; 0 (stock cproc output, and wasm): lane by lane. Set by compile(vecq=)
+vecq = 0
 
 
 def _vol(op, tq):
@@ -671,7 +678,9 @@ def funcstore(f, t, tq, lval, v, srcq=QUALNONE):
     assert not lval.bits[0] and not lval.bits[1] or tp & PROPINT
     r = v
     k = t.kind
-    if k == TYPESTRUCT or k == TYPEUNION or k == TYPEARRAY:
+    if TY.isvec(t) and _qchunks(t) and not (tq | srcq) & QUALVOLATILE:
+        _qcopy(f, lval.addr, v, t.size)
+    elif k == TYPESTRUCT or k == TYPEUNION or k == TYPEARRAY:
         funccopy(f, lval.addr, v, t.size, t.align, tq | srcq)
     else:
         if k == TYPEPOINTER or _isnullptr(t):
@@ -1340,8 +1349,14 @@ def _libcall(f, e, name, d):
         c = _stripcast(e.args.next.next)
         if c.kind != EXPRCONST or not c.type.prop & PROPINT or not 0 <= c.u <= _INLINEMEM:
             return None
+        vec = vecq and c.u in (vecq, 2 * vecq) and any(
+            x.type.kind == TYPEPOINTER and TY.isvec(x.type.base) and x.type.base.size == c.u
+            for x in (_stripcast(e.args), _stripcast(e.args.next)))
         dst = funcexpr(f, e.args)
         src = funcexpr(f, e.args.next)
+        if vec:  # into or out of a vector: whole q values, so the vector can live in a register
+            _qcopy(f, dst, src, c.u)
+            return dst
         for off, size, load, store, cls in _chunks(c.u):
             a = funcinst(f, IADD, 'l', src, mkintconst(off)) if off else src
             v = funcinst(f, load, cls, a, None)
@@ -1755,6 +1770,105 @@ def _voperand(f, e):
     return None, funcexpr(f, e)
 
 
+def _qop(f, name, a, b=None, res=True, cls='q'):
+    """One class-q instruction; its result (None for a store). cls: the result's class (qget's w, l, s or d)."""
+    if f.end.jump_kind:
+        funclabel(f, mkblock("dead"))
+    inst = mkinst(f, IQ, cls if res else 0, a, b)
+    inst.arg2 = name
+    f.end.insts.append(inst)
+    return inst.res if res else None
+
+
+def _qget(f, v, i):
+    """Lane i of vector expression v, read from its q value (so v can stay in a register)."""
+    t = v.type
+    el = t.base
+    per = vecq // el.size
+    a = funcexpr(f, v)
+    k = i // per
+    q = _qop(f, 'qload', funcinst(f, IADD, ptrclass, a, mkintconst(k * vecq)) if k else a)
+    cls = qbetype(el).base
+    x = _qlane(el)
+    r = _qop(f, 'qget' + x, q, mkintconst(i % per), cls=cls)
+    if el.size < 4 and el.issigned:  # qget zero-extends
+        r = funcinst(f, IEXTSB if el.size == 1 else IEXTSH, 'w', r, None)
+    return r
+
+
+def _qcopy(f, dst, src, size):
+    """size bytes (vecq or twice it) as q values: a vector object read and written only this way is a register."""
+    for k in range(size // vecq):
+        off = (lambda p: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
+        _qop(f, 'qstore', _qop(f, 'qload', off(src)), off(dst), res=False)
+
+
+def _qlane(el):
+    """The q lane letter of a vector element type."""
+    if el.prop & PROPFLOAT:
+        return 's' if el.size == 4 else 'd'
+    return 'bhwl'[el.size.bit_length() - 1]
+
+
+def _qchunks(t):
+    """How many q values a vector type is computed in (0: lane by lane)."""
+    if vecq and t.size in (vecq, 2 * vecq) and t.base.size in (1, 2, 4, 8):
+        return t.size // vecq
+    return 0
+
+
+_QCMP = {TEQL: ('qceq', 0, 0), TNEQ: ('qceq', 0, 1), TGREATER: ('qcgt', 0, 0), TLESS: ('qcgt', 1, 0),
+         TGEQ: ('qcge', 0, 0), TLEQ: ('qcge', 1, 0)}  # name, swapped, negated
+
+
+def _qbinary(f, e, vt, la, ls, ra, rs):
+    """e computed in class q, into a new slot; None if q has no such operation."""
+    el = vt.base
+    x = _qlane(el)
+    fl = bool(el.prop & PROPFLOAT)
+    op = e.op
+    if op in (TSHL, TSHR):
+        if ra is not None or rs.kind != VALUE_INTCONST or not 0 <= rs.i < 8 * el.size:
+            return None
+        name = 'qshl' if op == TSHL else 'qsar' if el.issigned else 'qshr'
+        name += x
+    elif op in _QCMP:
+        name, swap, neg = _QCMP[op]
+        if not fl and not el.issigned and name != 'qceq':
+            name = 'qcu' + name[2:]
+        name += x
+    else:
+        name = {TADD: 'qadd', TSUB: 'qsub', TMUL: 'qmul', TDIV: 'qdiv', TBAND: 'qand', TBOR: 'qor', TXOR: 'qxor'}.get(op)
+        if name is None or (op == TMUL and x == 'l') or (op == TDIV and not fl) or (name in ('qand', 'qor', 'qxor') and fl):
+            return None
+        if name in ('qadd', 'qsub', 'qmul', 'qdiv'):
+            name += x
+        swap = neg = 0
+    n = _qchunks(vt)
+    res = _cxslot(f, e.type)
+
+    def operand(addr, scalar, k):
+        if addr is not None:
+            return _qop(f, 'qload', funcinst(f, IADD, ptrclass, addr, mkintconst(k * vecq)) if k else addr)
+        return _qop(f, 'qdup' + x, scalar)
+
+    dup = {}
+    for k in range(n):
+        if op in (TSHL, TSHR):  # by 0: the operand (arm64's shifts right have no #0)
+            v = _qop(f, name, operand(la, ls, k), rs) if rs.i else operand(la, ls, k)
+        else:
+            a = operand(la, ls, k) if la is not None else dup.setdefault('l', operand(None, ls, k))
+            b = operand(ra, rs, k) if ra is not None else dup.setdefault('r', operand(None, rs, k))
+            if op in _QCMP:
+                v = _qop(f, name, b, a) if swap else _qop(f, name, a, b)
+                if neg:
+                    v = _qop(f, 'qnot', v)
+            else:
+                v = _qop(f, name, a, b)
+        _qop(f, 'qstore', v, funcinst(f, IADD, ptrclass, res, mkintconst(k * vecq)) if k else res, res=False)
+    return res
+
+
 def _vbinary(f, e):
     vt = e.l.type if TY.isvec(e.l.type) else e.r.type
     el = vt.base
@@ -1763,6 +1877,10 @@ def _vbinary(f, e):
     la, ls = _voperand(f, e.l)
     ra, rs = _voperand(f, e.r)
     rel = e.r.type.base if TY.isvec(e.r.type) else el
+    if _qchunks(vt) and rel.size == el.size and rel.prop & PROPFLOAT == el.prop & PROPFLOAT and rel.issigned == el.issigned:
+        res = _qbinary(f, e, vt, la, ls, ra, rs)
+        if res is not None:
+            return res
     res = _cxslot(f, rt)
     cls = qbetype(el).base
     cmp = op in (TEQL, TNEQ, TLESS, TGREATER, TLEQ, TGEQ)
@@ -1788,6 +1906,12 @@ def _vunary(f, e):
     cls = qbetype(el).base
     a = funcexpr(f, e.base)
     res = _cxslot(f, t)
+    if _qchunks(t) and (e.op == TSUB or not el.prop & PROPFLOAT):
+        name = 'qneg' + _qlane(el) if e.op == TSUB else 'qnot'
+        for k in range(_qchunks(t)):
+            off = (lambda p: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
+            _qop(f, 'qstore', _qop(f, name, _qop(f, 'qload', off(a))), off(res), res=False)
+        return res
     for i in range(t.vlanes):
         x = _vlane(f, a, el, i)
         if e.op == TSUB:
@@ -1985,6 +2109,10 @@ def funcexpr(f, e):
             lval = funclval(f, e.base)
             return lval.addr
         if op == TMUL:
+            vl = getattr(e, 'vlane', None)
+            if vl is not None and vl[1].kind == EXPRCONST and _qchunks(vl[0].type) and not e.qual & QUALVOLATILE \
+                    and 0 <= vl[1].u < vl[0].type.vlanes:  # cimo: v[constant] from v's register
+                return _qget(f, vl[0], vl[1].u)
             r = funcexpr(f, e.base)
             return funcload(f, e.type, LValue(r), e.qual)
         if TY.isvec(e.type):  # cimo
@@ -2188,11 +2316,27 @@ def _strelem(data, i, w):
 
 
 def funcinit(func, d, init, hasinit):
-    offset = 0
-    mx = 0
     funcalloc(func, d)
     if not hasinit:
         return
+    t = d.type
+    if TY.isvec(t) and _qchunks(t) and not d.qual & QUALVOLATILE and not (
+            init and not init.next and init.start == 0 and init.end == t.size and TY.isvec(init.expr.type)):
+        # cimo: lane by lane into a slot of its own, then into the vector as whole q values (a register)
+        var = d.value
+        d.value = _cxslot(func, t)
+        try:
+            funcinit_lanes(func, d, init)
+        finally:
+            src, d.value = d.value, var
+        _qcopy(func, var, src, t.size)
+        return
+    funcinit_lanes(func, d, init)
+
+
+def funcinit_lanes(func, d, init):
+    offset = 0
+    mx = 0
     dst = LValue()
     while init:
         zero(func, d.value, d.type.align, offset, init.start, d.qual)
@@ -2451,6 +2595,18 @@ def emitinst(insts, i, n):
         emitvalue(inst.arg1)
         w(", ")
         emitvalue(inst.arg2)
+        w('\n')
+        return i + 1
+    if inst.kind == IQ:
+        if inst.res.kind:
+            emitvalue(inst.res)
+            w(" =%s " % inst.cls)
+        w(inst.arg2)
+        w(' ')
+        emitvalue(inst.arg0)
+        if inst.arg1:
+            w(", ")
+            emitvalue(inst.arg1)
         w('\n')
         return i + 1
     assert inst.kind < len(instname)

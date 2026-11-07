@@ -227,7 +227,7 @@ arm64 and x86-64. Differential-tested against gcc on random programs (Csmith, YA
 Planned:
 
 - Auto-vectorization of more loops (float `max`/`min`, `argmax`, 8- and 16-bit elements, outer loops), and on WebAssembly
-- GNU vector types (`__attribute__((vector_size(16)))`) as vector instructions (today they are computed lane by lane)
+- GNU vector types: shuffles, conversions and lane writes as vector instructions (operators already are), and vectors in vector registers across calls
 - `debug=True`: bounds checks on every access, and detection of use-after-free, double free and leaks
 - `cimo report`: which loops were optimized, and why the others weren't
 - Checking at call time that an array matches a VLA parameter's shape

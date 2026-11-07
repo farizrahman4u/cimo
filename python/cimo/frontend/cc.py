@@ -539,7 +539,7 @@ class Expr(object):
       szof.type -> sztype, temp -> temp."""
     __slots__ = ('kind', 'lvalue', 'decayed', 'type', 'qual', 'op', 'base', 'next', 'toeval',
                  'decl', 'init', 'u', 'ssize', 'sdata', 'args', 'nargs', 'bits', 'post',
-                 'l', 'r', 'ct', 'cf', 'bkind', 'sztype', 'temp')
+                 'l', 'r', 'ct', 'cf', 'bkind', 'sztype', 'temp', 'vlane')  # vlane (cimo): v[i]'s (v, i)
 
     def __init__(self, kind, type, base):
         self.qual = QUALNONE

@@ -523,12 +523,18 @@ def _preprocess(src, filename='<string>', include_dirs=(), host_headers=False, d
         raise CompileError(_hint(str(e), host_headers)) from None
 
 
+def _vecq(target=None):
+    """Bytes in the backend's class q for a native target (GNU vector types of that size or twice it compute in
+    vector registers): 32 on x86-64 with AVX2 (ext.qbytes), else 16."""
+    return 32 if _is_amd64(target) and 'avx2' in _x86(target) else 16
+
+
 def _ir(pp, filename='<string>', host_headers=False):
     """Preprocessed text -> (QBE IR text, parameter info for the middle end)."""
     from .frontend import FrontendError
     try:
         return _frontend(pp, filename, fma=_contract(), nowrap=not _wraps(), builtins=True,
-                         diagnostics=True, prune=True)
+                         diagnostics=True, prune=True, vecq=_vecq())
     except FrontendError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
 

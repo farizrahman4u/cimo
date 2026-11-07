@@ -17,6 +17,9 @@ from .cfg import dom
 from .parse import printfn
 
 
+# cimo (ext.vector): the vector stores, and which argument is the address
+_QSTORES = {D.Oqstore: 1, D.Oqstbh: 1, D.Oqstshrn: 0}
+
 def MASK(w):
     """must work when w==8"""
     return (BIT(8 * w - 1) * 2 - 1) & M64
@@ -278,6 +281,9 @@ def def_(sl, msk, b, i, il):
         if isvstore(ins.op) and \
                 alias(sl.ref, sl.off, sl.sz, ins.arg[1], 8, curf)[0] != NoAlias:
             return Load()  # cimo: a volatile store (ext.volatile) is never forwarded from
+        if ins.op in _QSTORES and \
+                alias(sl.ref, sl.off, sl.sz, ins.arg[_QSTORES[ins.op]], 32, curf)[0] != NoAlias:
+            return Load()  # cimo (ext.vector): a vector store (GNU vector types write stack slots) is not forwarded from
         ld = isload(ins.op)
         if ld:
             sz = loadsz(ins)

@@ -29,9 +29,13 @@ def _insidx(b, i):
     raise AssertionError("instruction not in block")
 
 
+def _st(op):
+    return isstore(op) or op == D.Oqstore
+
+
 def _readbeforestore(fn, t, blocks):
     """The slot has one store, and a load may run without it having run. blocks: by id, doms filled."""
-    stores = [u for u in t.use[:t.nuse] if isstore(u.u.op)]
+    stores = [u for u in t.use[:t.nuse] if _st(u.u.op)]
     if len(stores) != 1:
         # several stores: SSA construction joins them, except when all is in one block
         if any(u.bid != stores[0].bid for u in t.use[:t.nuse]):
@@ -40,7 +44,7 @@ def _readbeforestore(fn, t, blocks):
         for x in b.ins[:b.nins]:
             for u in t.use[:t.nuse]:
                 if x is u.u:
-                    return not isstore(x.op)
+                    return not _st(x.op)
         return False
     from .cfg import dom
     if not blocks:
@@ -79,11 +83,21 @@ def promote(fn):
         s = -1
         skip = False
         _to = i.to
+        q = False  # cimo (ext.vector): a slot only read and written whole through qload/qstore is a q temporary
         for u in t.use[:t.nuse]:
             if u.type != UIns:
                 skip = True
                 break
             l = u.u
+            if l.op == D.Oqload and k in (-1, D.Kq) and s in (-1, 16):
+                q, s = True, 16
+                continue
+            if l.op == D.Oqstore and i.to == l.arg[1] and i.to != l.arg[0] and k in (-1, D.Kq) and s in (-1, 16):
+                q, s, k = True, 16, D.Kq
+                continue
+            if q:
+                skip = True
+                break
             if isload(l.op):
                 if s == -1 or s == loadsz(l):
                     s = loadsz(l)
@@ -97,10 +111,10 @@ def promote(fn):
                             continue
             skip = True
             break
-        if skip:
+        if skip or q and (k != D.Kq or _readbeforestore(fn, t, blocks)):  # q: no indeterminate vector made up
             continue
         # get rid of the alloc and replace uses
-        early = _readbeforestore(fn, t, blocks) if k != -1 else False
+        early = _readbeforestore(fn, t, blocks) if k != -1 and not q else False
         _nop(i)
         t.ndef -= 1
         if early:
@@ -113,6 +127,14 @@ def promote(fn):
             t.ndef += 1
         for u in t.use[:t.nuse]:
             l = u.u
+            if q:
+                if l.op == D.Oqstore:
+                    l.op, l.cls, l.to, l.arg[1] = Ocopy, D.Kq, l.arg[1], R
+                    t.nuse -= 1
+                    t.ndef += 1
+                else:
+                    l.op = Ocopy
+                continue
             if isstore(l.op):
                 l.cls = k
                 l.op = Ocopy
@@ -239,6 +261,11 @@ def store(r, x, ip, i, blk, idx, fn, sl):
             s.st.append(Store(ip, i, blk, idx))
 
 
+def _qbytes():
+    from .ext import qbytes
+    return qbytes()
+
+
 def _scmp_key(s):
     # scmp: by decreasing size, then increasing r.a (qsort is a stable
     # merge sort in glibc)
@@ -310,6 +337,12 @@ def coalesce(fn):
             if isstore(i.op):
                 x = BIT(storesz(i)) - 1
                 store(arg[1], x, ip, i, b, ii, fn, sl)
+                ip -= 1
+            if i.op == D.Oqload:  # cimo (ext.vector): GNU vector types read and write slots whole
+                ip -= 1
+                load(arg[0], BIT(_qbytes()) - 1, ip, fn, sl)
+            if i.op == D.Oqstore:
+                store(arg[1], BIT(_qbytes()) - 1, ip, i, b, ii, fn, sl)
                 ip -= 1
             if i.op == Oblit0:
                 i1 = b.ins[ii + 1]
