@@ -165,7 +165,8 @@ def test_pragmas():
                      '_Pragma("STDC FP_CONTRACT ON") z;\n')
     assert '#pragma omp parallel for num_threads(8)\n' in out
     assert '#pragma omp simd\n' in out
-    assert 'GCC' not in out and 'STDC' not in out and 'once' not in out
+    assert '#pragma STDC FP_CONTRACT ON\n' in out  # kept for the frontend (C11 7.12.2)
+    assert 'GCC' not in out and 'once' not in out
     assert preprocessor_compare.tokens(out) == ['#', 'pragma', 'omp', 'parallel', 'for', 'num_threads',
                                        '(', '8', ')', 'x', ';', '#', 'pragma', 'omp', 'simd',
                                        'y', ';', 'z', ';']
