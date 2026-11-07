@@ -382,6 +382,8 @@ def directive():
         if words[:2] == ['STDC', 'FENV_ACCESS'] and len(words) == 3:  # cimo (C11 7.6.1)
             U.fenvaccess = words[2] == 'ON'
             U.fenvtouched |= U.fenvaccess
+        if words[:2] == ['STDC', 'CX_LIMITED_RANGE'] and len(words) == 3:  # cimo (C11 7.3.4)
+            U.cxlimited = words[2] == 'ON'
     else:
         error(tok.loc, "invalid preprocessor directive #%s", tokenstr(tok.kind))
     tokencheck(tok, TNEWLINE, "after preprocessing directive")

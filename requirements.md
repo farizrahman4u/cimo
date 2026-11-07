@@ -555,7 +555,7 @@ WSL2, mains, tok/s:
 
 ## Vector code (2026-11-02)
 
-Built on arm64 and x86-64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes, and `_Float16` arrays on arm64 as 4 float lanes (a `loaduh` only an `h2f` reads becomes `qldh`: `ldr d`, `fcvtl`; an `f2h` only a `storeh` reads, `qsth`: `fcvtn`, `str d`; 2026-11-07). The middle end copies the bit builtins and `h2f`/`f2h` now (`ir.PURE_SAFE`): a loop with one bailed out of every loop optimization before. GNU vector types compute in class q where it has the operation (2026-11-07, below); wasm isn't vectorized. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
+Built on arm64 and x86-64: class `q` (`ext.vector`) and the auto-vectorizer (`middle/vectorize.py`), for now only straight loops over 4- and 8-byte lanes, and `_Float16` arrays on arm64 as 4 float lanes (a `loaduh` only an `h2f` reads becomes `qldh`: `ldr d`, `fcvtl`; an `f2h` only a `storeh` reads, `qsth`: `fcvtn`, `str d`; 2026-11-07; x86-64 with F16C: `vcvtph2ps`/`vcvtps2ph $4` with memory, 8 halves a ymm with AVX2). The middle end copies the bit builtins and `h2f`/`f2h` now (`ir.PURE_SAFE`): a loop with one bailed out of every loop optimization before. GNU vector types compute in class q where it has the operation (2026-11-07, below); wasm isn't vectorized. The gap it closes: scalar code is level with gcc and clang on the 15 kernels (geomean 0.96 to 1.09x on
 Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorization (`rgb2gray` up to 6.6x; `saxpy`, `jacobi2d`,
 `conv3x3` 3 to 4x).
 
@@ -1476,7 +1476,10 @@ for Linux and macOS (strategies under "Platform loading findings").
     write, and SSA's undefined value has no q constant (gcc's vector-div-neg-pow2.c). x86-64 has none of these ops yet (`pshufb` is SSSE3, past the baseline). A slot only ever read and written whole by
     `qload`/`qstore` becomes a q temporary (`mem.promote`), so vector locals live in registers; initializer lists fill a
     slot of their own first. Lane by lane still: what q lacks (integer `/` and `%`, 64-bit `*`; on x86-64 shifts by a variable of 8- and 16-bit
-    lanes and `>>` of signed 64-bit ones), `__builtin_shuffle`, shuffles wider than one q value. 16-byte vectors with AVX2's 32-byte q (2026-11-07, `vecops` 'q16'): one q value,
+    lanes and `>>` of signed 64-bit ones), shuffles wider than 16 bytes. `__builtin_shuffle` with a
+    variable mask (2026-11-07, `_qvarshuffle`): each index modulo the lanes, times the lane's size, spread over its bytes
+    (a constant `tbl`), plus the byte's place; bit 4, b's half, turned into bit 7, which `tbl` and `vpshufb` both read as 0,
+    so `tbl(a, f(i)) | tbl(b, f(i ^ 16))`. 16-byte vectors with AVX2's 32-byte q (2026-11-07, `vecops` 'q16'): one q value,
     loaded into both halves (`qload16`, `vbroadcasti128`: the upper lanes repeat the lower, so no extra FP exception) and
     stored from the lower (`qstore16`). With AVX2 also shifts by a variable (`vpsllv`/`vpsrlv`/`vpsravd`, by direction:
     `qshlv`, `qshrv`, `qsarvw`; `vecops` 'vshiftx') and 16-byte `__builtin_shufflevector` (`qtbl` as `vpshufb`, which works
@@ -1522,7 +1525,8 @@ for Linux and macOS (strategies under "Platform loading findings").
     slot. Annex G: a real operand keeps its domain (`x * (a+bi)` is componentwise); `*` is inline and
     calls the runtime's `__cimo_cmul` only when both parts are NaN (recovering infinities, as gcc's
     `__muldc3`); `/` calls `__cimo_cdiv`, which carries each product as a mantissa and an exponent so
-    extreme quotients are exact to a few ulps (gcc's `ieee/cdivchk*.c`). Constant folding covers static
+    extreme quotients are exact to a few ulps (gcc's `ieee/cdivchk*.c`). Under `#pragma STDC CX_LIMITED_RANGE ON`
+    (2026-11-07; kept by the preprocessor, `U.cxlimited`) both are the usual formulas, inline, as gcc's `-fcx-limited-range`. Constant folding covers static
     initializers (`1.0 + 2.0*I`). GNU `__real__`/`__imag__` (lvalues), `~` (conjugate), imaginary
     constants (`2.0i`), `__builtin_complex`. `<complex.h>` is cimo's; the functions are musl's
     `src/complex` (double and float). The runtime is now compiled in cimo's own mode (diagnostics on).

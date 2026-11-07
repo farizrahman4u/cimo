@@ -293,3 +293,26 @@ def test_a_vector_read_before_it_is_written():
            'int f(int n) { int s = 0; for (int j = 0; j < n; j++) { V x, q; for (int i = 0; i < 4; i++) x[i] = i + j;\n'
            '  q = g(x); for (int i = 0; i < 4; i++) s += q[i]; } return s; }\n')
     assert cimo.compile(src, cache=False).f(3) == sum(i + j + 1 for j in range(3) for i in range(4))
+
+
+@pytest.mark.parametrize('ty', TYPES)
+def test_shuffle_with_a_variable_mask(ty, monkeypatch):
+    """__builtin_shuffle(a, m) and (a, b, m): each index modulo the lanes (all of a's and b's), as byte tables."""
+    n = 16 // ctypes.sizeof(_CT[ty])
+    it = {1: 'signed char', 2: 'short', 4: 'int', 8: 'long'}[16 // n]
+    src = ('typedef %s V __attribute__((vector_size(16)));\ntypedef %s M __attribute__((vector_size(16)));\n'
+           'void f(const V *a, const V *b, const M *m, V *r) { r[0] = __builtin_shuffle(a[0], m[0]);\n'
+           '  r[1] = __builtin_shuffle(a[0], b[0], m[0]); }\n') % (ty, it)
+    q = cimo.compile(src, cache=False)
+    monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
+    lanes = cimo.compile(src + '\nstatic int lane_by_lane;\n', cache=False)
+    rnd = random.Random(n)
+    mt = _CT[it]
+    for _ in range(30):
+        a = (_CT[ty] * n)(*_values(ty, n, rnd))
+        b = (_CT[ty] * n)(*_values(ty, n, rnd))
+        m = (mt * n)(*[rnd.choice([rnd.randrange(4 * n), -rnd.randrange(1, 100), rnd.randrange(2 * n)]) for _ in range(n)])
+        r1, r2 = (ctypes.c_char * 32)(), (ctypes.c_char * 32)()
+        q.f(a, b, m, r1)
+        lanes.f(a, b, m, r2)
+        assert bytes(r1) == bytes(r2), (ty, list(m))

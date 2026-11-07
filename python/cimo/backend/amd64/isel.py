@@ -601,9 +601,9 @@ def _selqfma(i, i0, fn, tn=None):
 def _qsel(i, tn, fn):
     """cimo (ext.vector): registers, a whole addressing mode, and a constant for shifts, shuffles and lanes."""
     op = i.op
-    if op in (D.Oqload, D.Oqldbh, D.Oqload16):
+    if op in (D.Oqload, D.Oqldbh, D.Oqload16, D.Oqldh):
         seladdr(i.arg, 0, tn, fn)
-    elif op in (D.Oqstore, D.Oqstbh, D.Oqstore16):
+    elif op in (D.Oqstore, D.Oqstbh, D.Oqstore16, D.Oqsth):
         seladdr(i.arg, 1, tn, fn)
     elif op in (D.Oqld3bh, D.Oqxwin):  # a base register: the emitter loads at offsets from it
         emiti(i)

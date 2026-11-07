@@ -35,9 +35,10 @@ from .regs import (RAX, RCX, RDX, RSI, RDI, R8, R9, R10, R11, RBX, R12, R13, R14
 
 
 class ArgClass:
-    __slots__ = ('type', 'style', 'align', 'size', 'cls', 'ref')
+    __slots__ = ('type', 'style', 'align', 'size', 'cls', 'ref', 'copyalign16')
 
     def __init__(self):  # alloc() / {0}
+        self.copyalign16 = False
         self.type = None
         self.style = APS_Invalid
         self.align = 0
@@ -222,6 +223,7 @@ def classify_arguments(u, ins, begin, end, arg_classes, env):
         elif op == Oargc or op == Oparc:
             type = D.typ[rval(instr.arg[0])]
             by_copy = type_is_by_copy(type)
+            arg.copyalign16 = type.align >= 4  # cimo: a copy of a 16-byte aligned type (a vector: the callee may movaps it)
             assign_register_or_stack(u, arg, False, by_copy)
             arg.cls = Kl
             if not by_copy and type.size <= 4:
@@ -324,8 +326,9 @@ def lower_call(func, block, call_idx, pextra_alloc):
     return_pad = None
     if is_struct_return:
         ret_pad_ref = newtmp("abi.ret_pad", Kl, func)
-        return_pad = ExtraAlloc(
-            Ins(Oalloc8, Kl, ret_pad_ref, getcon(ret_arg_class.size, func)), pextra_alloc[0])
+        return_pad = ExtraAlloc(  # cimo: 16-byte aligned for a type that is (the callee may store it with movaps)
+            Ins(D.Oalloc16 if ret_type.align >= 4 else Oalloc8, Kl, ret_pad_ref, getcon(ret_arg_class.size, func)),
+            pextra_alloc[0])
         pextra_alloc[0] = return_pad
         reg_usage.rax_returned = True
         emit(Ocopy, call_instr.cls, call_instr.to, TMP(RAX), R)
@@ -415,8 +418,8 @@ def lower_call(func, block, call_idx, pextra_alloc):
             # Alloca a space to copy into, and blit the value from the instr to the
             # copied location.
             copy_ref = newtmp("abi.copy", Kl, func)
-            arg_copy = ExtraAlloc(Ins(Oalloc8, Kl, copy_ref, getcon(arg.size, func)),
-                                  pextra_alloc[0])
+            arg_copy = ExtraAlloc(Ins(D.Oalloc16 if arg.copyalign16 else Oalloc8, Kl, copy_ref,
+                                      getcon(arg.size, func)), pextra_alloc[0])
             pextra_alloc[0] = arg_copy
             from .. import ext as _ext
             if _ext.bigcopy is not None and arg.size >= _ext.bigcopy:

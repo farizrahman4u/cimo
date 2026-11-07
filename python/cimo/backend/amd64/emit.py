@@ -649,6 +649,12 @@ def _qins_y(i, e):
     if op == D.Oqload16:  # 16 bytes in both halves
         _emitf_y("vbroadcasti128 %M0, %=", i, e)
         return True
+    if op == D.Oqldh:  # F16C: 8 halves to floats
+        _emitf_y("vcvtph2ps %M0, %=", i, e)
+        return True
+    if op == D.Oqsth:  # 8 floats rounded (MXCSR's mode) to halves
+        f.write("\tvcvtps2ph $4, %s, %s\n" % (_qy(i.arg[0]), _memtext(i.arg[1], e)))
+        return True
     if op == D.Oqstore16:  # the lower half
         emitf("vmovups %0, %M1", i, e)
         return True
@@ -724,6 +730,12 @@ def _qins(i, e):
         return _narrowins(i, e, False)
     if (op == Oload and i.cls == D.Kq) or op == D.Oqload:
         emitf("movups %M0, %=", i, e)
+        return True
+    if op == D.Oqldh:  # F16C (with AVX): 4 halves to floats
+        emitf("vcvtph2ps %M0, %=", i, e)
+        return True
+    if op == D.Oqsth:
+        f.write("\tvcvtps2ph $4, %s, %s\n" % (_qx(i.arg[0]), _memtext(i.arg[1], e)))
         return True
     if op == D.Oqstore:
         emitf("movups %0, %M1", i, e)

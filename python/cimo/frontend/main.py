@@ -159,7 +159,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.vecabi = bool(vecabi)
         _qbe.halfabi = bool(halfabi)
         U.diagnostics = bool(diagnostics)
-        U.fenvaccess = U.fenvtouched = False
+        U.fenvaccess = U.fenvtouched = U.cxlimited = False
         if diagnostics:
             from . import cc as _cc, diag as _diag
             _cc.exprhook = _diag.checktype

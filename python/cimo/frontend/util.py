@@ -19,6 +19,8 @@ diagnostics = False
 # parsed: the backend then leaves floating-point operations whose result is inexact to run (cimo.backend.fold)
 fenvaccess = False
 fenvtouched = False
+# cimo: `#pragma STDC CX_LIMITED_RANGE ON` in effect: complex * and / by the usual formulas, inline (qbe._cxbinary)
+cxlimited = False
 
 
 class FrontendError(Exception):

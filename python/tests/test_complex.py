@@ -37,3 +37,23 @@ def test_extreme_division_is_accurate():
     a, b, c, d = -float.fromhex('0x1.16e7fad79e45ep+651'), -float.fromhex('0x1.f7f75b94c6c6ap-860'), -float.fromhex('0x1.2f40d8ff7e55ep+245'), -float.fromhex('0x0.0000000004ebcp-1022')
     assert abs(m.q(a, b, c, d, 0) / float.fromhex('0x1.d6e4b0e282869p+405') - 1) < 2 ** -48
     assert abs(m.q(a, b, c, d, 1) / -float.fromhex('0x1.e9095e311e706p-900') - 1) < 2 ** -48
+
+
+def test_cx_limited_range():
+    """#pragma STDC CX_LIMITED_RANGE ON: complex * and / by the usual formulas, inline (no runtime call, no Annex G
+    recovery); OFF again restores the careful ones."""
+    import ctypes
+    import cimo
+    from cimo import driver
+    src = ('#include <complex.h>\n#pragma STDC CX_LIMITED_RANGE ON\n'
+           'double complex dv(double complex a, double complex b) { return a / b; }\n'
+           'float complex ml(float complex a, float complex b) { return a * b; }\n'
+           '#pragma STDC CX_LIMITED_RANGE OFF\ndouble complex dv2(double complex a, double complex b) { return a / b; }\n'
+           'void t(double *r) { double complex x = dv(1 + 2*I, 3 - 4*I), z = dv2(1 + 2*I, 3 - 4*I); float complex y = ml(1 + 2*I, 3 - 4*I);\n'
+           '  r[0] = creal(x); r[1] = cimag(x); r[2] = crealf(y); r[3] = cimagf(y); r[4] = creal(z); r[5] = cimag(z); }\n')
+    ir = driver._ir(driver._preprocess(src, 'x.c'), 'x.c')[0]
+    body = lambda n: ir[ir.index('$%s(' % n):].split('\n}')[0]
+    assert '__cimo_cdiv' not in body('dv') and '__cimo_cmul' not in body('ml') and '__cimo_cdiv' in body('dv2')
+    r = (ctypes.c_double * 6)()
+    cimo.compile(src).t(r)
+    assert list(r) == [-0.2, 0.4, 11.0, 2.0, -0.2, 0.4]

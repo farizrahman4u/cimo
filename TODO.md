@@ -56,17 +56,17 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    convention (gcc: register pairs, FP registers). In order:
    - GNU vector types as class-`q` values: operators, copies, `v[constant]`, and vector locals in registers **done**
      (2026-11-07, `tests/test_vector_q.py`; "GNU vector types" in `requirements.md`). `convertvector` and one-q `shufflevector` (`tbl`) on arm64 **done**.
-     One-instruction shuffles on arm64 **done**. x86-64 AVX2 shuffles of 16 bytes and variable shifts **done**. x86-64 AVX2 `convertvector` **done**. Open: `shuffle` with a variable mask, integer division and 64-bit `*` (no instruction on either; lane by lane is what gcc does too) (lane writes and
+     One-instruction shuffles on arm64 **done**. x86-64 AVX2 shuffles of 16 bytes and variable shifts **done**. x86-64 AVX2 `convertvector` **done**. `shuffle` with a variable mask **done**. Open: integer division and 64-bit `*` (no instruction on either; lane by lane is what gcc does too) (lane writes and
      variable shifts **done**). Vectors in calls as gcc passes them **done** on every target. Measure a hand-vectorized `Q8_0`
      dot and a 4x4 matrix kernel on mains power (not yet measured).
    - Half conversions without calls: arm64 `fcvt` and `__bf16` inline everywhere **done** (2026-11-07,
      `tests/test_half_hw.py`). Half loads and stores in the vectorizer on arm64 **done**
-     (`ldr d` + `fcvtl`, `fcvtn` + `str d`; `test_vectorize.py`). x86-64 F16C conversions (`cimo.cpu`) **done**; open there:
-     half arrays in the vectorizer (8 halves to a ymm: `vcvtph2ps` from memory). Half and bf16 arguments in FP registers **done**.
+     (`ldr d` + `fcvtl`, `fcvtn` + `str d`; `test_vectorize.py`). x86-64 F16C conversions (`cimo.cpu`) and half arrays in
+     the vectorizer (`vcvtph2ps`/`vcvtps2ph` with memory: 8 halves a ymm) **done**. Half and bf16 arguments in FP registers **done**.
    - `__int128`: passed as gcc does (even pair on arm64, two registers on SysV; `tests/test_abi.py`), halves in registers
      within a function (sroa), `umulh`, variable shifts inline **done** (2026-11-07). Open: `adds`/`adc` for the carry
      (today `cmp` and `csinc`, one more instruction), and the struct copies at call boundaries every small struct pays.
-   - `_Complex` stays two scalars (what gcc does too); its multiply and divide inline where the C allows (`CX_LIMITED_RANGE`).
+   - `_Complex` stays two scalars (what gcc does too); multiply and divide inline under `CX_LIMITED_RANGE` **done** (2026-11-07).
 6. **Debug mode.** `debug=True`: bounds checks against Python buffers and heap blocks
    (`cimo.BoundsError`, as in the README), use-after-free, double free, leak report.
 7. ~~**macOS (Apple silicon).**~~ **Done:** the suite, corpora and examples pass on an M-series

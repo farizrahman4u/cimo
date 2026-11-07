@@ -14,7 +14,7 @@ __STDC__, __STDC_VERSION__ (201112L) and __STDC_HOSTED__ (0, freestanding).
 
 Deviations from gcc's text output, none of which change the token sequence: whitespace and line
 layout differ, digraphs are printed in their canonical spelling (cproc's scanner has no digraphs),
-and `#pragma` lines are dropped except `#pragma STDC FENV_ACCESS` and `#pragma omp ...` (macro-expanded, as
+and `#pragma` lines are dropped except `#pragma STDC FENV_ACCESS` and `CX_LIMITED_RANGE`, and `#pragma omp ...` (macro-expanded, as
 OpenMP specifies), which are kept on a line of their own.
 """
 
@@ -911,9 +911,10 @@ class Preprocessor(object):
             text = '#pragma omp' + self._join_text(toks)
             self._emit_pragma(text, d)
             return
-        if first == 'STDC' and len(args) == 3 and args[1].text == 'FENV_ACCESS':
-            # kept for the frontend (C11 7.6.1): the backend then leaves inexact floating-point operations to run
-            self._emit_pragma('#pragma STDC FENV_ACCESS ' + args[2].text, d)
+        if first == 'STDC' and len(args) == 3 and args[1].text in ('FENV_ACCESS', 'CX_LIMITED_RANGE'):
+            # kept for the frontend (C11 7.6.1): the backend then leaves inexact floating-point operations to run;
+            # (7.3.4) complex * and / without Annex G's care for infinities and NaNs, inline
+            self._emit_pragma('#pragma STDC %s %s' % (args[1].text, args[2].text), d)
             return
         if first == 'GCC' and len(args) > 1:
             sub = args[1].text

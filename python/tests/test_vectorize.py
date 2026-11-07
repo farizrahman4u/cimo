@@ -895,7 +895,7 @@ HALVES = {
 }
 
 
-@pytest.mark.skipif(hosts.AMD64, reason='_Float16 conversions are instructions on arm64 only')
+@pytest.mark.skipif(hosts.AMD64 and 'f16c' not in driver._x86(), reason='_Float16 conversions are instructions on arm64 and with F16C')
 @pytest.mark.parametrize('name', sorted(HALVES))
 def test_float16_arrays(name):
     """Loads of halves widened to 4 float lanes (ldr d, fcvtl) and stores of 4 floats rounded to halves (fcvtn, str d):
@@ -903,7 +903,7 @@ def test_float16_arrays(name):
     an in-order float sum, which _worth may leave scalar."""
     src, kinds = HALVES[name]
     if name != 'dot':
-        assert re.search(r'\tfcvt[ln]\t', driver._build(src)[0]), name
+        assert re.search(r'\tfcvt[ln]\t|\tvcvtp[hs]2p[sh] [(%]', driver._build(src)[0]), name
     on, off = both(src)
     r = random.Random(name)
     for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 17, 64, 65):

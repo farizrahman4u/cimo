@@ -1569,6 +1569,8 @@ def _cxbinary(f, e):
         re = funcinst(f, ISUB, k, funcinst(f, IMUL, k, a, c), funcinst(f, IMUL, k, b, d))
         im = funcinst(f, IADD, k, funcinst(f, IMUL, k, a, d), funcinst(f, IMUL, k, b, c))
         r = _cxmake(f, t, re, im)
+        if U.cxlimited:  # CX_LIMITED_RANGE: no recovery of infinities
+            return r
         # both parts NaN: Annex G's recovery of infinities (G.5.1), in the runtime, as gcc's __muldc3
         uo = ICUOS if k == 's' else ICUOD
         nan = funcinst(f, IAND, 'w', funcinst(f, uo, 'w', re, re), funcinst(f, uo, 'w', im, im))
@@ -1584,6 +1586,11 @@ def _cxbinary(f, e):
             return _cxmake(f, t, funcinst(f, IDIV, k, a, c), funcinst(f, IDIV, k, b, c))
         if b is None:
             b = mkfltconst(VALUE_FLTCONST if k == 's' else VALUE_DBLCONST, 0.0)
+        if U.cxlimited:  # CX_LIMITED_RANGE: ((ac + bd) + (bc - ad)i) / (cc + dd), inline (gcc's -fcx-limited-range)
+            den = funcinst(f, IADD, k, funcinst(f, IMUL, k, c, c), funcinst(f, IMUL, k, d, d))
+            re = funcinst(f, IADD, k, funcinst(f, IMUL, k, a, c), funcinst(f, IMUL, k, b, d))
+            im = funcinst(f, ISUB, k, funcinst(f, IMUL, k, b, c), funcinst(f, IMUL, k, a, d))
+            return _cxmake(f, t, funcinst(f, IDIV, k, re, den), funcinst(f, IDIV, k, im, den))
         r = _cxslot(f, t)
         _cxcall(f, '__cimo_cdiv' + ('f' if k == 's' else ''), k, [(a, k), (b, k), (c, k), (d, k), (r, ptrclass)])
         return r
@@ -2180,6 +2187,34 @@ def _qconvert(f, a, st, t, res):
     return True
 
 
+def _qvarshuffle(f, a, b, m, st, mel, res):
+    """__builtin_shuffle(a[, b], mask) of 16-byte vectors as byte tables (tbl, vpshufb): each lane's index taken modulo
+    the lanes, times the lane's size, spread over its bytes; bit 4 (b's half) turned into bit 7, which makes both
+    instructions give 0, so one table picks from a and the other from b. False if it can't."""
+    if not vecq or not ('shuffle' in vecops and st.size == vecq or 'shuffle16' in vecops and vecq == 32 and st.size == 16):
+        return False
+    es, n = st.base.size, st.vlanes
+    if mel.size != es:
+        return False
+    ld, stq = _qls(16)
+    x = 'bhwl'[es.bit_length() - 1]
+    lanes = 2 * n if b is not None else n
+    idx = _qop(f, 'qand', _qop(f, ld, m), _qop(f, 'qdup' + x, mkintconst(lanes - 1)))
+    if es > 1:  # lane i's index * es in each of its bytes, plus the byte's place
+        idx = _qop(f, 'qshl' + x, idx, mkintconst(es.bit_length() - 1))
+        spread = bytes(i - i % es for i in range(16))
+        idx = _qop(f, 'qaddb', _qop(f, 'qtbl', idx, _qop(f, ld, _qbytes(spread))), _qop(f, ld, _qbytes(bytes(i % es for i in range(16)))))
+    if b is None:
+        v = _qop(f, 'qtbl', _qop(f, ld, a), idx)
+    else:
+        bit4 = _qop(f, 'qdupb', mkintconst(16))
+        pick = (lambda z: _qop(f, 'qor', z, _qop(f, 'qshlb', _qop(f, 'qand', z, bit4), mkintconst(3))))
+        v = _qop(f, 'qor', _qop(f, 'qtbl', _qop(f, ld, a), pick(idx)),
+                 _qop(f, 'qtbl', _qop(f, ld, b), pick(_qop(f, 'qxor', idx, bit4))))
+    _qop(f, stq, v, res, res=False)
+    return True
+
+
 def _qbytes(data):
     """The address of 16 (or vecq) constant bytes, for a qload."""
     s = Expr(EXPRSTRING, TY.mkarraytype(TY.typeuchar, QUALCONST, len(data)), None)
@@ -2274,9 +2309,11 @@ def _vbuiltin(f, e):
         return res
     m = funcexpr(f, e.ct)
     mel = e.ct.type.base
+    b = funcexpr(f, e.r) if e.r is not None else None
+    if _qvarshuffle(f, a, b, m, st, mel, res):
+        return res
     base, lanes = a, n
     if e.r is not None:  # a and b side by side, indexed together
-        b = funcexpr(f, e.r)
         both = _cxslot(f, TY.mkvector(el, 2 * st.size))
         funccopy(f, both, a, st.size, st.align)
         funccopy(f, funcinst(f, IADD, ptrclass, both, mkintconst(st.size)), b, st.size, st.align)
