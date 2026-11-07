@@ -1456,10 +1456,13 @@ for Linux and macOS (strategies under "Platform loading findings").
     copies and `memcpy` to or from a vector, and `v[constant]` (`qget`). `__builtin_convertvector` on arm64 (frontend
     `vecops=('convert',)`): integers widened by halves (`qsxl`/`qsxh`, `sshll`/`sshll2`), narrowed in pairs (`qnrw`, `xtn`/`xtn2`),
     floats likewise (`fcvtl`/`fcvtn`), then `scvtf`/`ucvtf`/`fcvtzs`/`fcvtzu` at one width; int64 to float stays lane by lane
-    (through double it would round twice). x86-64 has no such ops yet. A slot only ever read and written whole by
+    (through double it would round twice). `__builtin_shufflevector` of one-q vectors on arm64 (`vecops` 'shuffle'): a
+    constant byte table per source in read-only data, `tbl` (`qtbl`; out-of-range bytes give 0), two joined by `orr`.
+    Open there: `zip`/`uzp`/`ext`/`dup` for the shuffles that are one instruction, and the tables' `qload`s, pinned as
+    all of them are, stay inside loops. x86-64 has none of these ops yet (`pshufb` is SSSE3, past the baseline). A slot only ever read and written whole by
     `qload`/`qstore` becomes a q temporary (`mem.promote`), so vector locals live in registers; initializer lists fill a
     slot of their own first. Lane by lane still: what q lacks (integer `/` and `%`, 64-bit `*`, shifts by a variable),
-    shuffles, `convertvector` on x86-64, writing `v[i]`, 16-byte vectors with AVX2, and calls (vectors go as structs of lanes, not
+    `__builtin_shuffle`, shuffles wider than one q value, shuffles and `convertvector` on x86-64, writing `v[i]`, 16-byte vectors with AVX2, and calls (vectors go as structs of lanes, not
     in vector registers as gcc passes them). Not yet: `__int128` lanes, `ext_vector_type`.
     `aligned` after a declarator applies to the object/member, and on a typedef makes an
     over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's

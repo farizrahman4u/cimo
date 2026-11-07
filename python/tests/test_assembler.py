@@ -302,3 +302,4 @@ def test_vector_conversions(text, word):
     o = assembler.assemble('\t.text\nf:\n\t%s\n' % text)
     sec = next(s for s in o.sections if 'text' in s.name)
     assert int.from_bytes(bytes(sec.data)[:4], 'little') == word
+_VCVT_WORDS += [('tbl v1.16b, {v2.16b}, v3.16b', 0x4e030041), ('tbl v31.16b, {v30.16b}, v29.16b', 0x4e1d03df)]

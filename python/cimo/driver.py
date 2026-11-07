@@ -535,7 +535,7 @@ def _ir(pp, filename='<string>', host_headers=False):
     try:
         return _frontend(pp, filename, fma=_contract(), nowrap=not _wraps(), builtins=True,
                          diagnostics=True, prune=True, vecq=_vecq(),
-                         vecops=() if _is_amd64() else ('convert',))
+                         vecops=() if _is_amd64() else ('convert', 'shuffle'))
     except FrontendError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
 

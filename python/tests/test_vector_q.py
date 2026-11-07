@@ -165,3 +165,28 @@ def test_convertvector_matches_lane_by_lane(s, d, n, monkeypatch):
         q.f(a, r1)
         lanes.f(a, r2)
         assert bytes(r1) == bytes(r2), (s, d, n, vals, list(r1), list(r2))
+
+
+@pytest.mark.parametrize('ty', TYPES)
+def test_shufflevector_matches_lane_by_lane(ty, monkeypatch):
+    n = 16 // ctypes.sizeof(_CT[ty])
+    rnd = random.Random(n)
+    shuffles = [[rnd.choice([-1] + list(range(2 * n))) for _ in range(n)] for _ in range(6)]
+    shuffles += [list(range(n)), list(range(n, 2 * n)), [n - 1 - i for i in range(n)], [-1] * n]
+    body = ''.join('  r[%d] = __builtin_shufflevector(a[0], b[0], %s);\n' % (k, ', '.join(map(str, s)))
+                   for k, s in enumerate(shuffles))
+    src = 'typedef %s V __attribute__((vector_size(16)));\nvoid f(const V *a, const V *b, V *r) {\n%s}\n' % (ty, body)
+    q = cimo.compile(src, cache=False)
+    monkeypatch.setattr(driver, '_vecq', lambda target=None: 0)
+    lanes = cimo.compile(src, cache=False)
+    a = (_CT[ty] * n)(*_values(ty, n, rnd))
+    b = (_CT[ty] * n)(*_values(ty, n, rnd))
+    r1, r2 = (ctypes.c_char * (16 * len(shuffles)))(), (ctypes.c_char * (16 * len(shuffles)))()
+    q.f(a, b, r1)
+    lanes.f(a, b, r2)
+    for k in range(len(shuffles)):  # an index of -1 leaves the lane unspecified: compare the others
+        for i, x in enumerate(shuffles[k]):
+            if x >= 0:
+                es = 16 // n
+                o = 16 * k + es * i
+                assert bytes(r1)[o:o + es] == bytes(r2)[o:o + es], (ty, shuffles[k])

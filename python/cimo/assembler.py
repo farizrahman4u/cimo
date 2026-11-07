@@ -874,6 +874,18 @@ def _i_vcvt(a, mn, ops):
     return base | int(n.group(1)) << 5 | int(d.group(1))
 
 
+def _i_tbl(a, mn, ops):
+    """tbl Vd.16b, {Vn.16b}, Vm.16b: one table register."""
+    if len(ops) != 3:
+        raise AssemblerError('tbl needs 3 operands')
+    t = ops[1].strip().lower()
+    d, m = _VREG16B.match(ops[0].strip().lower()), _VREG16B.match(ops[2].strip().lower())
+    n = _VREG16B.match(t[1:-1].strip()) if t.startswith('{') and t.endswith('}') else None
+    if not d or not n or not m:
+        raise AssemblerError('unsupported operands for tbl')
+    return 0x4e000000 | int(m.group(1)) << 16 | int(n.group(1)) << 5 | int(d.group(1))
+
+
 def _vector_or(scalar):
     """The encoder for a mnemonic with a scalar and a vector form: vector operands go to _i_vcvt."""
     def enc(a, mn, ops):
@@ -1399,7 +1411,7 @@ _INSNS = {
     'frinti': _i_fneg,
     'clz': _i_dp1, 'rbit': _i_dp1, 'rev16': _i_dp1, 'rev': _i_dp1, 'cnt': _i_simd,
     'addv': _i_simd, 'ushll': _i_vcvt, 'xtn': _i_vcvt, 'sshll': _i_vcvt, 'sshll2': _i_vcvt, 'xtn2': _i_vcvt,
-    'fcvtl': _i_vcvt, 'fcvtl2': _i_vcvt, 'fcvtn': _i_vcvt, 'fcvtn2': _i_vcvt, 'ld3': _i_bytes, 'umlal': _i_bytes, 'shrn': _i_bytes, 'umull2': _i_bytes, 'umlal2': _i_bytes, 'ushll2': _i_vcvt,
+    'tbl': _i_tbl, 'fcvtl': _i_vcvt, 'fcvtl2': _i_vcvt, 'fcvtn': _i_vcvt, 'fcvtn2': _i_vcvt, 'ld3': _i_bytes, 'umlal': _i_bytes, 'shrn': _i_bytes, 'umull2': _i_bytes, 'umlal2': _i_bytes, 'ushll2': _i_vcvt,
     'fmadd': _i_fp4, 'fmsub': _i_fp4, 'fnmadd': _i_fp4, 'fnmsub': _i_fp4,
     'fmov': _i_fmov, 'fcvt': _i_fcvt, 'fcvtzs': _vector_or(_i_fcvtz), 'fcvtzu': _vector_or(_i_fcvtz),
     'scvtf': _vector_or(_i_cvtf), 'ucvtf': _vector_or(_i_cvtf), 'fcmp': _i_fcmp, 'fcmpe': _i_fcmp,
@@ -1630,7 +1642,7 @@ class _Asm:
                     continue
                 ops = _split(rest)
                 f = insns.get(mn)
-                if f is _i_bytes or mn in _VCVT:
+                if f is _i_bytes or f is _i_tbl or mn in _VCVT:
                     if mn in _VCVT and ops and ops[0].strip().lower().startswith('v'):
                         f = _i_vcvt
                 elif mn in ('umull', 'umlal', 'umull2', 'umlal2') and ops and ops[0].strip().lower().startswith('v'):

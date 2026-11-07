@@ -603,6 +603,9 @@ def _qins(i, e):
     if name in ('qand', 'qor', 'qxor'):
         f.write("\t%s\t%s, %s, %s\n" % ({'qand': 'and', 'qor': 'orr', 'qxor': 'eor'}[name], _qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
         return True
+    if name == 'qtbl':
+        f.write("\ttbl\t%s, {%s}, %s\n" % (_qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
+        return True
     if name in _QCVT:  # conversions
         mn, d, n = _QCVT[name]
         f.write("\t%s\t%s, %s%s\n" % (mn, _qv(i.to, d), _qv(i.arg[0], n), ', #0' if 'shll' in mn else ''))

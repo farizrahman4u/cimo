@@ -55,8 +55,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    The results are correct; the code is slow, and `__int128` and half arguments don't follow the platform calling
    convention (gcc: register pairs, FP registers). In order:
    - GNU vector types as class-`q` values: operators, copies, `v[constant]`, and vector locals in registers **done**
-     (2026-11-07, `tests/test_vector_q.py`; "GNU vector types" in `requirements.md`). `convertvector` on arm64 **done**.
-     Open: `__builtin_shufflevector`/`shuffle`, `convertvector` on x86-64 (SSE2 unpack and shifts; AVX2 `vpmovsx`), writing a lane, integer division and 64-bit `*`, shifts
+     (2026-11-07, `tests/test_vector_q.py`; "GNU vector types" in `requirements.md`). `convertvector` and one-q `shufflevector` (`tbl`) on arm64 **done**.
+     Open: one-instruction shuffles (`zip`/`uzp`/`ext`), `shuffle` with a variable mask, both on x86-64, `convertvector` on x86-64 (SSE2 unpack and shifts; AVX2 `vpmovsx`), writing a lane, integer division and 64-bit `*`, shifts
      by a variable, contraction of vector `a*b + c` into `qfma` as for scalars, 16-byte vectors with AVX2 (q is 32 bytes
      there), and vectors as arguments and returns in vector registers (AAPCS64, SysV). Measure a hand-vectorized `Q8_0`
      dot and a 4x4 matrix kernel on mains power (not yet measured).

@@ -1997,6 +1997,37 @@ def _qconvert(f, a, st, t, res):
     return True
 
 
+def _qbytes(data):
+    """The address of 16 (or vecq) constant bytes, for a qload."""
+    s = Expr(EXPRSTRING, TY.mkarraytype(TY.typeuchar, QUALCONST, len(data)), None)
+    s.sdata = bytearray(data)
+    s.ssize = len(data)
+    return D.stringdecl(s).value
+
+
+def _qshuffle(f, a, b, st, t, idx, res):
+    """__builtin_shufflevector of two vectors of one q value into one (vecops 'shuffle': arm64 tbl): a byte table for
+    each source, 0xff (tbl's 0) where the byte comes from the other; False if it can't."""
+    if 'shuffle' not in vecops or st.size != vecq or t.size != vecq:
+        return False
+    es, n = st.base.size, st.vlanes
+    ia, ib = bytearray(b'\xff' * vecq), bytearray(b'\xff' * vecq)
+    for i, k in enumerate(idx):
+        if k >= 0:
+            for j in range(es):
+                (ia if k < n else ib)[i * es + j] = (k % n) * es + j
+    out = []
+    for src, tab in ((a, ia), (b, ib)):
+        if any(x != 0xff for x in tab):
+            out.append(_qop(f, 'qtbl', _qop(f, 'qload', src), _qop(f, 'qload', _qbytes(tab))))
+    if not out:
+        v = _qop(f, 'qdupw', mkintconst(0))
+    else:
+        v = out[0] if len(out) == 1 else _qop(f, 'qor', out[0], out[1])
+    _qop(f, 'qstore', v, res, res=False)
+    return True
+
+
 def _vbuiltin(f, e):
     t = e.type
     el = t.base
@@ -2012,6 +2043,8 @@ def _vbuiltin(f, e):
     n = st.vlanes
     if e.op == 'shufflevector':
         b = funcexpr(f, e.r)
+        if _qshuffle(f, a, b, st, t, e.args, res):
+            return res
         for i, k in enumerate(e.args):
             v = mkintconst(0) if k < 0 else _vlane(f, a if k < n else b, el, k % n)
             if k < 0 and el.prop & PROPFLOAT:
