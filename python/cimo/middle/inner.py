@@ -256,7 +256,7 @@ class Fast:
         if i.op in ir.PURE and i.cls in (Kw, Kl):
             v = self.em.op(i.op, i.cls, args[0], args[1])
         else:
-            v = self.em.raw(i.op, i.cls, args[0], args[1])
+            v = self.em.raw(i.op, i.cls, args[0], args[1], contract=i.contract)
         self.memo[key] = v
         return v
 
@@ -649,7 +649,7 @@ class Fast:
                 if i.op in ir.PURE and i.cls in (Kw, Kl) and ir.fold(i.op, i.cls, 0, 0) is not None:
                     v = em.op(i.op, i.cls, args[0], args[1])
                 else:
-                    v = em.raw(i.op, i.cls, args[0], args[1])
+                    v = em.raw(i.op, i.cls, args[0], args[1], contract=i.contract)
                 env[t] = v
                 if t in self.srload:
                     fresh[self.srload[t][0].idx] = v
@@ -781,7 +781,7 @@ class LocalMem:
                         if not self.overlap(p[0], p[1], p[2], key, size, ao)]
         if info is None:
             return None
-        v = self.em.raw(i.op, i.cls, args[0], args[1])
+        v = self.em.raw(i.op, i.cls, args[0], args[1], contract=i.contract)
         self.avail.append((key, size, i.cls, v, ao))
         return v
 
@@ -833,7 +833,7 @@ def full_unroll(fn, lp, sh, A, ctl, T):
                 if i.op in ir.PURE and i.cls in (Kw, Kl) and ir.fold(i.op, i.cls, 0, 0) is not None:
                     v = em.op(i.op, i.cls, args[0], args[1])
                 else:
-                    v = em.raw(i.op, i.cls, args[0], args[1])
+                    v = em.raw(i.op, i.cls, args[0], args[1], contract=i.contract)
                 env[rval(i.to)] = v
         last = env
         if t < T:

@@ -1237,6 +1237,7 @@ def funcfma(f, e):
         funclabel(f, mkblock("dead"))
     inst = mkinst(f, IFMA, cls, a, b)
     inst.arg2 = c
+    inst.nsw = True  # contracted, not an fma() call: printed "fmac", which the backend may split again
     f.end.insts.append(inst)
     return inst.res
 
@@ -2444,7 +2445,7 @@ def emitinst(insts, i, n):
         emitvalue(inst.res)
         w(" =")
         emitclass(inst.cls, None)
-        w(" fma ")
+        w(" fmac " if inst.nsw else " fma ")
         emitvalue(inst.arg0)
         w(", ")
         emitvalue(inst.arg1)

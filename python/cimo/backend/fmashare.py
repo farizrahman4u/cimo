@@ -4,7 +4,8 @@ Contraction is per expression (the frontend's), so `zr*zr + zi*zi < 4` and `zr*z
 an fma; after promotion they multiply the same temporaries. As gcc, which contracts a multiplication only into its
 single use: the product once, and plain adds. mandelbrot's zr*zr - zi*zi was an fnmsub whose addend came from the
 last iteration's zi, 4 cycles on the loop's cycle where gcc had a 2-cycle subtraction (1.14 to 1.21x of gcc on
-Graviton). A product used once stays fused, and code outside loops is contracted as written.
+Graviton). A product used once stays fused, and code outside loops is contracted as written. Only contractions are
+split (IR `fmac`, Ins.contract): an `fma()` call is fused always, as C requires.
 """
 
 from . import defs as D
@@ -30,7 +31,7 @@ def split(fn):
         ins = b.ins[:b.nins]
         for n, i in enumerate(ins):
             if i.op == D.Ofma1 and n and ins[n - 1].op == D.Ofma0 and i.cls in (Ks, Kd):
-                count[_key(i)] = count.get(_key(i), 0) + 1
+                count[_key(i)] = count.get(_key(i), 0) + 1  # an fma() call's product counts: it is computed there too
             elif i.op == D.Omul and i.cls in (Ks, Kd):
                 count[_key(i)] = count.get(_key(i), 0) + 1
     if not any(v > 1 for v in count.values()):
@@ -72,7 +73,8 @@ def split(fn):
         n = 0
         while n < len(ins):
             i = ins[n]
-            if i.op == D.Ofma0 and n + 1 < len(ins) and ins[n + 1].op == D.Ofma1 and count.get(_key(ins[n + 1]), 0) > 1:
+            if (i.op == D.Ofma0 and n + 1 < len(ins) and ins[n + 1].op == D.Ofma1 and ins[n + 1].contract
+                    and count.get(_key(ins[n + 1]), 0) > 1):
                 f = ins[n + 1]
                 p = product(b, _key(f), f.arg[0], f.arg[1], f.cls, out)
                 c = i.arg[0]

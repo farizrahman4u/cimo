@@ -318,7 +318,7 @@ _VASTRUCT = {'arm64': 'aapcs', 'arm64_apple': 'slots', 'arm64_win': 'slots',
              'amd64_sysv': 'sysv', 'amd64_windows': 'win64'}
 # Calls and builtins that become one instruction (cimo.frontend builtins=, bitops=): on x86-64
 # what SSE2, the baseline, has, and what this CPU adds (cimo.cpu): contraction with FMA, POPCNT;
-# no SSE4.1 rounding (floor, ceil, ...) yet, and fmin/fmax are C's, not minsd/maxsd.
+# fma() with FMA; no SSE4.1 rounding (floor, ceil, ...) yet, and fmin/fmax are C's, not minsd/maxsd.
 _X86_BUILTINS = frozenset(('fsqrt', 'fabs'))
 _X86_BITOPS = frozenset(('bclz', 'bctz', 'bswap', 'bswap16'))
 
@@ -424,9 +424,9 @@ def _frontend(pp, filename, target=None, **kw):
     kw.setdefault('bigcopy', 256)
     kw.setdefault('vastruct', _VASTRUCT[target or TARGET])
     if _is_amd64(target):
-        if kw.get('builtins') is True:
-            kw['builtins'] = _X86_BUILTINS
         x86 = _x86(target)
+        if kw.get('builtins') is True:  # fma() as one vfmadd with FMA (never split: fmachain only splits contractions)
+            kw['builtins'] = _X86_BUILTINS | ({'fma'} if 'fma' in x86 else set())
         if kw.get('bitops') is True:
             kw['bitops'] = _X86_BITOPS | ({'bpopcnt'} if 'popcnt' in x86 else set())
         if 'fma' not in x86:

@@ -4,15 +4,6 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Big
 
-- **Miscompile, fix first: an explicit `fma()` call in a loop is split into a multiply and an add** when the loop also
-  computes the same product (since 913a872, `backend/fmashare.py`), with `fma=True` and `fma=False` alike. The docs promise
-  calls of `fma()` are always fused. It breaks the error-free product `hi = x * x; lo = fma(x, x, -hi)`: `lo` becomes
-  `x*x - hi`, which is 0. Found by scramjit's exact `math.hypot` and `math.dist` (1 ulp off). Repro, x86-64:
-  `double err(const double *v, long n) { double t = 0; for (long i = 0; i < n; i++) { double x = v[i], hi = x * x;
-  t += fma(x, x, -hi); } return t; }` gives 0.0 for v = {0.1}, not -8.326672684688674e-19 (913a872~1 is right).
-  `fmashare.split` must split only the fused operations contraction made, never those from `fma()` calls, so the IR needs to tell
-  them apart. Add the repro to the tests.
-
 - **High priority: x86-64 for this machine's CPU.** Detection, the cache key, FMA (scalar and vector, negations
   folded, none on a recurrence through its addend) and `popcnt`/`lzcnt`/`tzcnt` **done** (`cimo/cpu.py`; see "x86-64
   for this CPU" in `requirements.md`). 256-bit AVX2 vectors **done** (`ext.qbytes()`; see "AVX2" in `requirements.md`): against gcc `-O3 -march=native`

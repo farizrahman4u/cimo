@@ -234,7 +234,8 @@ def lex():
         return t
     t = _kwlookup.get(S.tokval_str)
     if t is None:
-        if S.tokval_str == 'fma' and _ext.fma:
+        if S.tokval_str in ('fma', 'fmac') and _ext.fma:
+            S.fmac = S.tokval_str == 'fmac'
             return Tfma
         if _ext.math and S.tokval_str in _MATHOPS:
             S.mathop = getattr(D, 'O' + S.tokval_str)
@@ -635,7 +636,9 @@ def parseline(ps):
         if D.curi >= NIns - 1:
             err("too many instructions")
         _put(Ins(D.Ofma0, k, R, arg[2], R))
-        _put(Ins(D.Ofma1, k, r, arg[0], arg[1]))
+        f1 = Ins(D.Ofma1, k, r, arg[0], arg[1])
+        f1.contract = S.fmac  # "fmac": contracted from a*b + c, so fmashare/fmachain may split it; "fma" (an fma() call) never
+        _put(f1)
         return PIns
     elif op == Tvol:
         return _ins(S.mathop, k, r, arg)

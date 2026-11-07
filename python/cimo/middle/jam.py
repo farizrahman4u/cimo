@@ -45,7 +45,7 @@ def _clone(em, i, env):
     if not ir.istmp(i.to):
         em.ins(Ins(i.op, i.cls, R, args[0], args[1]))
         return
-    v = em.raw(i.op, i.cls, args[0], args[1])
+    v = em.raw(i.op, i.cls, args[0], args[1], contract=i.contract)
     env[rval(i.to)] = v
 
 

@@ -7,6 +7,8 @@ caller switches a flag on. `cimo.driver` switches them on.
 Flags:
   fma     accept the `fma` instruction in the IR text (`%r =s fma %a, %b, %c` is a*b + c,
           rounded once) and select fmadd/fmsub/fnmadd/fnmsub for it on arm64
+          (`fmac`: the same, contracted from C's a*b + c, which fmashare/fmachain may split
+          into a multiply and an add again; `fma` is an fma() call and never split)
   ldp     arm64: pair adjacent loads/stores off the same base into ldp/stp
   layout  arm64: lay loops out so the back edge is one conditional branch
   math    accept the math instructions in the IR text (`%r =d fsqrt %x`; also fabs, fmin,

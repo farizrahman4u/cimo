@@ -67,13 +67,13 @@ float n8(float a, float b, float c) { return a * b * c + c; }
 def test_frontend_contracts():
     got = fns(X.ir(CONTRACT, fma=True))
     for name in ('f1', 'f2', 'f3', 'f4', 'd1', 'd2', 'd3'):
-        assert got[name].count(' fma ') == 1, name
+        assert got[name].count(' fmac ') == 1, name
     assert ' mul ' not in got['f1']
     assert got['f3'].count(' neg ') == 1 and got['f4'].count(' neg ') == 1
     assert got['d2'].count(' mul ') == 1  # c*d stays a multiply, a*b is fused
-    assert got['d4'].count(' fma ') == 1  # (a*b + c*d) + a: only the inner add is fused
+    assert got['d4'].count(' fmac ') == 1  # (a*b + c*d) + a: only the inner add is fused
     stock = X.ir(CONTRACT)
-    assert ' fma ' not in stock
+    assert ' fma ' not in stock and ' fmac ' not in stock
     assert stock == X.ir(CONTRACT, fma=False)
 
 
@@ -81,9 +81,9 @@ def test_frontend_does_not_contract():
     got = fns(X.ir(NO_CONTRACT, fma=True))
     for name, body in got.items():
         if name == 'n8':
-            assert body.count(' fma ') == 1  # (a*b)*c + c: the outer product is fused
+            assert body.count(' fmac ') == 1  # (a*b)*c + c: the outer product is fused
         else:
-            assert ' fma ' not in body, name
+            assert ' fma' not in body, name
 
 
 def test_fma_keyword_needs_flag(tmp_path, capsys):
@@ -281,3 +281,30 @@ def test_loops_and_pressure(built):
             getattr(mine, 'press_' + k)(ctypes.addressof(xv), ctypes.addressof(o1))
             getattr(ref, 'press_' + k)(xv, o2)
             assert [_bits(v, k) for v in o1] == [_bits(v, k) for v in o2], (k, trial)
+
+
+def test_fma_calls_in_a_loop_stay_fused():
+    """An fma() call is one rounding whatever else the loop computes (fmashare and x86's fmachain split only contractions):
+    the error-free product lo = fma(x, x, -hi), hi = x*x, behind scramjit's exact math.hypot."""
+    import array
+    import cimo
+    src = ('#include <math.h>\ndouble err(const double *v, long n) { double t = 0; for (long i = 0; i < n; i++) {\n'
+           '  double x = v[i], hi = x * x; t += fma(x, x, -hi); } return t; }\n')
+    for fma in (True, False):
+        assert cimo.compile(src, fma=fma).err(array.array('d', [0.1]), 1) == -8.326672684688674e-19
+
+
+def test_fmashare_splits_contractions_only():
+    """A product computed twice in a loop is one multiply when C's a*b + c was contracted (fmashare), and stays inside
+    each fma() call that computes it."""
+    from cimo import driver
+    loop = ('int f(double cr, double ci) { double zr = 0, zi = 0; int k = 0;\n'
+            '  while (k < 100 && %s < 4) { double t = %s + cr; zi = 2 * zr * zi + ci; zr = t; k++; } return k; }\n')
+    def body(src):
+        pp = driver._preprocess(src, 'x.c', target='arm64')
+        ssa, params = driver._ir(pp, 'x.c')
+        return driver._qbe(ssa, params, target='arm64')
+    contracted = body('#include <math.h>\n' + loop % ('zr * zr + zi * zi', 'zr * zr - zi * zi'))
+    called = body('#include <math.h>\n' + loop % ('fma(zr, zr, zi * zi)', 'fma(zr, zr, -(zi * zi))'))
+    assert 'fmul\td' in contracted and contracted.count('fmadd') + contracted.count('fmsub') <= 1
+    assert called.count('fmadd') + called.count('fnmsub') + called.count('fmsub') >= 2

@@ -659,6 +659,10 @@ def test_x86_no_fma_on_a_recurrence_through_its_addend(monkeypatch):
     assert not re.search(r'\tvf\w+ ', _body(text, 'iir'))
     assert re.search(r'\tvfmadd\w+ ', _body(text, 'rec'))  # y as a factor: fused
     assert re.search(r'\tvfmadd231ps ', _body(text, 'saxpy'))  # nothing comes round: fused
+    # an fma() call on the recurrence is fused all the same: C says one rounding
+    text = _x86with('#include <math.h>\ndouble dot(int n, const double *x, const double *y) { double s = 0; '
+                    'for (int i = 0; i < n; i++) s = fma(x[i], y[i], s); return s; }\n', _FEATURES, monkeypatch)
+    assert re.search(r'\tvfmadd\w+ ', _body(text, 'dot'))
 
 
 def _select_forms():

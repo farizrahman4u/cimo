@@ -257,6 +257,7 @@ def dedupins(fn, b, i):
     i1 = gvndup(i, 1)
     if i1:
         i1.nsw = i1.nsw and i.nsw  # one instruction for both, and gcm may place it on either's path
+        i1.contract = i1.contract and i.contract  # an fma() call and a contraction of the same: never split
         killins(fn, i, i1.to)
         return
 

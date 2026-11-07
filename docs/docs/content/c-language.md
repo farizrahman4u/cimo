@@ -21,7 +21,7 @@ cimo ships its own C library, so a kernel behaves the same on every platform, th
 
 and the freestanding headers: `stdint.h`, `stddef.h`, `stdbool.h`, `stdarg.h`, `limits.h`, `float.h`, `stdalign.h`, `stdnoreturn.h`, `iso646.h`.
 
-`printf` writes to Python's `sys.stdout`. `sqrt` and `fabs` compile to single instructions; on arm64 so do `floor`, `ceil`, `trunc`, `round`, `fmin` and `fmax` (on x86-64 they are library calls).
+`printf` writes to Python's `sys.stdout`. `sqrt` and `fabs` compile to single instructions, and `fma` too where the CPU has a fused multiply-add (arm64, x86-64 with FMA; always fused, one rounding); on arm64 so do `floor`, `ceil`, `trunc`, `round`, `fmin` and `fmax` (on x86-64 they are library calls).
 
 GNU C extensions that work as in gcc: statement expressions (`({ ... })`), case ranges (`case 'a' ... 'z':`), range designators (`[0 ... 7] = x`), local labels (`__label__`), and the attributes `aligned`, `packed`, `mode` and the usual hints.
 

@@ -205,6 +205,7 @@ def _expand1(fn, b, k, j, body):
                 continue
             x = D.Ins(o, i.cls, ref(i.to), ref(i.arg[0]), ref(i.arg[1]))
             x.nsw = i.nsw
+            x.contract = i.contract
             if D.isalloc(o):
                 allocs.append(x)
             else:

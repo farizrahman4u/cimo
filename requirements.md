@@ -1727,7 +1727,11 @@ replacing host-libc resolution.
   aarch64; musl's C version differs only for signaling NaNs), `frinta` rounds halfway away
   from zero, `fsqrt` is correctly rounded. The runtime's own `sqrt` etc. are one-line
   wrappers (for `&sqrt`). The driver always has backend `fma` on now: an explicit `fma()` is
-  fused even with `CIMO_FMA=0`, which only controls contraction.
+  fused even with `CIMO_FMA=0`, which only controls contraction. The IR tells them apart (2026-11-07): contraction
+  emits `fmac` (Ins.contract on fma1, kept by copies, inlining and the loop transforms), `fma()` emits `fma`, and only
+  `fmac` may be split again (`fmashare`, `amd64/fmachain`); before, both split `fma()` calls too, which broke
+  error-free products (`lo = fma(x, x, -x*x)` was 0). x86-64 with FMA compiles `fma()` to `vfmadd` (was a call to
+  the software `fma`).
   **nbody_acc: 0.74x of gcc nofma** (7.3 ms vs 9.9 ms; 0.98x of gcc with FMA, whose result
   it matches bit for bit), was 1.88x. Suite geomean with the driver defaults now 1.01x of gcc
   nofma, 1.05x of novec, 1.58x of `-O3` (was 1.07x / 1.13x / 1.68x).

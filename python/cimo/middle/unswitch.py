@@ -138,7 +138,7 @@ def clone(fn, lp, E, exits, subst=None):
         after = nb
     for b in order:
         nb = copy[b]
-        ir.setins(nb, [Ins(i.op, i.cls, m(i.to), m(i.arg[0]), m(i.arg[1])) for i in ir.ins(b)])
+        ir.setins(nb, [_copy(i, m) for i in ir.ins(b)])
         for p in ir.phis(b):
             ir.addphi(nb, p.cls, m(p.to), [(copy.get(x, x), m(a)) for x, a in zip(p.blk[:p.narg], p.arg[:p.narg])])
         nb.jmp.type = b.jmp.type
@@ -188,3 +188,9 @@ def clone(fn, lp, E, exits, subst=None):
                         if not (b is T and p.blk[k] in inside):
                             p.arg[k] = joined.get(p.arg[k], p.arg[k])
     return copy
+
+
+def _copy(i, m):
+    c = Ins(i.op, i.cls, m(i.to), m(i.arg[0]), m(i.arg[1]))
+    c.contract = i.contract
+    return c

@@ -151,10 +151,13 @@ class Emitter:
     def con(self, v):
         return getcon(s64(v), self.fn)
 
-    def raw(self, op, cls, a0=R, a1=R, to=None):
+    def raw(self, op, cls, a0=R, a1=R, to=None, contract=False):
+        """contract: a copy's Ins.contract (an fma1 contracted from a*b + c)."""
         if to is None:
             to = self.tmp(cls) if cls is not None else R
-        self.out.append(Ins(op, cls if cls is not None else Kw, to, a0, a1))
+        i = Ins(op, cls if cls is not None else Kw, to, a0, a1)
+        i.contract = contract
+        self.out.append(i)
         return to
 
     def ins(self, i):
