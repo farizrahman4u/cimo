@@ -50,6 +50,10 @@ def forward(fn):
                 lsize = 8 if D.KWIDE(ld.cls) else 4
             if k is None or lsize != size or rtype(st.arg[0]) not in (RTmp, RCon):
                 continue
+            if rtype(st.arg[0]) == RCon and D.KBASE(k) != D.KBASE(ld.cls):
+                continue  # a constant isn't cast
+            if _fpreg(ld.to):
+                continue  # an SSE eightbyte is loaded as an l into xmm0: not a copy of an integer into it
             if any(o2 < off + size and off < o2 + _STORE[s2.op][0] for o2, s2 in stores if s2 is not st):
                 continue  # another store writes some of these bytes
             if ld.op in (D.Oloadsw, D.Oloaduw) and ld.cls != D.Kw:
@@ -73,6 +77,17 @@ def forward(fn):
                 x.set(Ins(D.Onop))
             a.set(Ins(D.Onop))
     return changed
+
+
+def _fpreg(r):
+    """r is a physical floating-point register (xmm, v)."""
+    if rtype(r) != RTmp or rval(r) >= D.Tmp0:
+        return False
+    if D.T.name.startswith('amd64'):
+        from .amd64.regs import XMM0
+        return rval(r) >= XMM0
+    from .arm64.regs import V0
+    return rval(r) >= V0
 
 
 def _accesses(fn, slot):

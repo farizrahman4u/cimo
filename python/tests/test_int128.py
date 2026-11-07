@@ -82,7 +82,7 @@ def test_no_slot_at_a_call_boundary():
            'unsigned long hi(unsigned long a) { u128 x = add(a, ~0UL); return (unsigned long)(x >> 64); }\n')
     text = driver._qbe(*driver._ir(driver._preprocess(src, 'x.c'), 'x.c'))
     for fn in ('add', 'sum'):
-        body = text[text.index('\n%s:' % fn):]
+        body = text[text.index('\n%s%s:' % (driver.TARGET == 'arm64_apple' and '_' or '', fn)):]
         body = body[:body.index('end function')]
         assert 'ldr' not in body and 'str' not in body, (fn, body)
     m = cimo.compile(src + 'long t(void) { struct P p = { 3, 4 }; return sum(p) * 1000 + bump(p) * 10 + (p.x == 3); }\n')
@@ -108,7 +108,7 @@ def test_add_with_carry():
            '  u128 r = add((u128)b << 64 | a, (u128)d << 64 | c); return (unsigned long)r ^ (unsigned long)(r >> 64) * 3; }\n')
     if not driver._is_amd64():
         text = driver._qbe(*driver._ir(driver._preprocess(src, 'x.c'), 'x.c'))
-        body = text[text.index('\nadd:'):]
+        body = text[text.index('\n%sadd:' % (driver.TARGET == 'arm64_apple' and '_' or '')):]
         body = body[:body.index('end function')]
         assert '\tadds\t' in body and '\tadc\t' in body and 'csinc' not in body, body
     m = cimo.compile(src)

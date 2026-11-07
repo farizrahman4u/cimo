@@ -1492,8 +1492,9 @@ for Linux and macOS (strategies under "Platform loading findings").
     `qshlv`, `qshrv`, `qsarvw`; `vecops` 'vshiftx') and 16-byte `__builtin_shufflevector` (`qtbl` as `vpshufb`, which works
     within each half and gives 0 for an index with its top bit set, as `tbl` does past 15; 'shuffle16') and `__builtin_convertvector` ('convertx': `vpmovsx`/`vpmovzx`, through `xmm15` for a high half;
     narrowing by clearing the high bits, `vpackuswb`/`vpackusdw` and `vpermq $0xd8`, or `vpshufd`/`vpermq`/`vinserti128` for
-    64 to 32 bits; `vcvtps2pd`, `vcvtpd2ps`; `vcvtdq2ps`, `vcvttps2dq`): unsigned 32-bit and 64-bit ints to or from
-    floats are AVX-512's, so lane by lane (int16 to double goes through float, exact). A 16-byte vector narrowed from
+    64 to 32 bits; `vcvtps2pd`, `vcvtpd2ps`; `vcvtdq2ps`, `vcvttps2dq`); the AVX-512 ones as exact sequences (`amd64/qlower._cvt`): an unsigned 32-bit int to float
+    as its 16-bit halves, float to unsigned less 2^31 where it is that much, 64-bit ints to double as 32-bit halves made
+    doubles with 2^52's bits (one rounding, in `hi * 2^32 + lo`), double to 64-bit by `vroundpd` and floor(t * 2^-32). A 16-byte vector narrowed from
     one q value lands in its lower half (the pair is the value twice). Not yet: `__int128` lanes, `ext_vector_type`.
     `aligned` after a declarator applies to the object/member, and on a typedef makes an
     over-aligned variant (glibc's `pthread.h`). The preprocessor ignores glibc's

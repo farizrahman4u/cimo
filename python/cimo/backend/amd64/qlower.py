@@ -67,11 +67,52 @@ class _L:
 _AVX2 = frozenset(('qmulw', 'qceql', 'qcgtl', 'qminb', 'qminw', 'qmaxb', 'qmaxw', 'quminh', 'quminw', 'qumaxh', 'qumaxw'))
 
 
+# __builtin_convertvector's conversions AVX2 has no instruction for (AVX-512's), exact: a 32-bit unsigned int to float
+# as its 16-bit halves (hi * 65536 exact, one rounding in the add); float to unsigned less 2^31 where it is that much;
+# 64-bit ints to double as their 32-bit halves made doubles by 2^52's bits (hi * 2^32 exact, one rounding in the add);
+# double to 64-bit truncated, split by floor(t * 2^-32), the halves made ints by 2^52's (or 1.5 * 2^52's) bits
+_CVT = frozenset(('quitofs', 'qftous', 'quitofd', 'qitofd', 'qftoud', 'qftoid'))
+_F2_31, _F2_16 = 0x4f000000, 0x47800000  # 2^31, 2^16 as floats
+_D2_52, _D15_52, _D2_32, _D2_M32 = 0x4330000000000000, 0x4338000000000000, 0x41f0000000000000, 0x3df0000000000000
+
+
+def _cvt(L, name, a, to):
+    if name == 'quitofs':
+        hi = L.op('qitofs', L.op('qshrw', a, L.con(16)))
+        lo = L.op('qitofs', L.op('qand', a, L.dup('w', 0xffff)))
+        L.op('qadds', L.op('qmuls', hi, L.dup('w', _F2_16)), lo, to)
+    elif name == 'qftous':
+        big = L.dup('w', _F2_31)
+        m = L.op('qcges', a, big)
+        i = L.op('qftois', L.op('qsubs', a, L.op('qand', m, big)))
+        L.op('qxor', i, L.op('qand', m, L.dup('w', 0x80000000)), to)
+    elif name in ('quitofd', 'qitofd'):
+        k = L.dup('l', _D2_52)
+        hd = L.op('qsubd', L.op('qor', L.op('qshrl', a, L.con(32)), k), k)  # the high half, unsigned
+        if name == 'qitofd':  # less 2^32 where the int is negative
+            neg = L.op('qcgtl', L.zero(), a)
+            hd = L.op('qsubd', hd, L.op('qand', neg, L.dup('l', _D2_32)))
+        ld = L.op('qsubd', L.op('qor', L.op('qand', a, L.dup('l', 0xffffffff)), k), k)
+        L.op('qaddd', L.op('qmuld', hd, L.dup('l', _D2_32)), ld, to)
+    else:  # qftoud, qftoid
+        t = L.op('qxtruncd', a)
+        hd = L.op('qxfloord', L.op('qmuld', t, L.dup('l', _D2_M32)))
+        ld = L.op('qsubd', t, L.op('qmuld', hd, L.dup('l', _D2_32)))  # 0 to 2^32 - 1, exact
+        k = L.dup('l', _D15_52 if name == 'qftoid' else _D2_52)  # hd may be negative for a signed result
+        hi = L.op('qsubl', L.op('qaddd', hd, k), k)
+        k2 = L.dup('l', _D2_52)
+        lo = L.op('qsubl', L.op('qaddd', ld, k2), k2)
+        L.op('qaddl', L.op('qshll', hi, L.con(32)), lo, to)
+
+
 def _lower(L, i, third):
     """Writes i in L if it has to be; False if it has an instruction."""
     name = optab[i.op].name
     if name in _AVX2 and _ext.qbytes() == 32:
         return False
+    if name in _CVT and _ext.qbytes() == 32:
+        _cvt(L, name, i.arg[0], i.to)
+        return True
     a, b, to = i.arg[0], i.arg[1], i.to
     base, x = name[:-1], name[-1]
     if name == 'qnot':

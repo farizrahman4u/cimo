@@ -686,6 +686,8 @@ def _qins_y(i, e):
         f.write("\tvpshufd $%d, %s, %s\n" % (e.fn.con[rval(b)].i, _qy(a), _qy(to)))
     elif name in ('qsqrts', 'qsqrtd'):
         f.write("\tvsqrtp%s %s, %s\n" % (name[-1], _qy(a), _qy(to)))
+    elif name in ('qxtruncd', 'qxfloord'):
+        f.write("\tvroundpd $%d, %s, %s\n" % (3 if name == 'qxtruncd' else 1, _qy(a), _qy(to)))
     elif name.startswith('qdup'):
         x = name[-1]
         y = _qy(to)

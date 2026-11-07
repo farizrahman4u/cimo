@@ -2096,8 +2096,8 @@ def _vcast(f, dst, src, e):
 
 def _qconvert(f, a, st, t, res):
     """__builtin_convertvector in class q, from the vector at a into res; False if it can't: widening and narrowing by
-    halves, then the conversion between int and float at one width. vecops 'convert' (arm64): every op; 'convertx'
-    (x86-64 AVX2): no unsigned or 64-bit int to float or back (AVX-512's), and a 16-byte vector in a ymm's lower half."""
+    halves, then the conversion between int and float at one width. vecops 'convert' (arm64) or 'convertx' (x86-64 AVX2:
+    the unsigned and 64-bit ones are sequences, amd64/qlower._cvt; a 16-byte vector in a ymm's lower half)."""
     full = 'convert' in vecops
     if not vecq or not (full or 'convertx' in vecops):
         return False
@@ -2114,7 +2114,7 @@ def _qconvert(f, a, st, t, res):
     if not sf and not df and s.size == d.size:  # the same bits
         _qcopy(f, res, a, t.size)
         return True
-    has = (lambda name: full or not (name.startswith(('quitof', 'qftou')) or name in ('qitofd', 'qftoid')))
+    has = (lambda name: True)  # x86-64's AVX-512 ones are sequences (amd64/qlower._cvt)
     # the plan: (kind, ...) steps on (value, bytes) pairs
     steps = []
     size, fl, signed = s.size, sf, s.issigned
@@ -2131,8 +2131,6 @@ def _qconvert(f, a, st, t, res):
         to = d.size
         if not has('qitofd') and d.size == 8 and size <= 2:
             to = 4  # x86-64: through float, exact for 16-bit ints
-        if not full and (to != 4 or size == 4 and not signed):
-            return False
         while size < to:
             steps.append(('widen', size, False, signed))
             size *= 2

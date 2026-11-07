@@ -1346,7 +1346,7 @@ _AVX += [('vpshufb', _P66, 2, 0x00, 0, 'rvm'), ('vpmovzxbw', _P66, 2, 0x30, 0, '
          ('vpbroadcastd', _P66, 2, 0x58, 0, 'rm'), ('vpbroadcastq', _P66, 2, 0x59, 0, 'rm'),
          ('vptest', _P66, 2, 0x17, 0, 'rm'), ('vbroadcasti128', _P66, 2, 0x5a, 0, 'rm'),
          ('vcvtph2ps', _P66, 2, 0x13, 0, 'rm'), ('vcvtps2ph', _P66, 3, 0x1d, 0, 'mri'),  # F16C
-         ('vpshufd', _P66, 1, 0x70, 0, 'rmi'), ('vpermq', _P66, 3, 0x00, 1, 'rmi'),
+         ('vpshufd', _P66, 1, 0x70, 0, 'rmi'), ('vpermq', _P66, 3, 0x00, 1, 'rmi'), ('vroundpd', _P66, 3, 0x09, 0, 'rmi'),
          ('vextracti128', _P66, 3, 0x39, 0, 'mri'), ('vextractf128', _P66, 3, 0x19, 0, 'mri'),
          ('vinserti128', _P66, 3, 0x38, 0, 'rvmi'), ('vinsertf128', _P66, 3, 0x18, 0, 'rvmi'),
          ('vblendvps', _P66, 3, 0x4a, 0, 'rvmr'), ('vblendvpd', _P66, 3, 0x4b, 0, 'rvmr'),

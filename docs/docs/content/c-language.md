@@ -36,7 +36,7 @@ Each of these is a compile error that names the problem:
 - 128-bit `long double`
 - the hosted parts of the C library: files, time, threads, sockets, `getenv`. To use them, link the host's C library; see [Calling host libraries](host-libraries.md).
 
-GNU vector types (`__attribute__((vector_size(N)))`) work and match gcc's results. On arm64 and x86-64, vectors of 16, 32 and 64 bytes (16 to 128 on x86-64 with AVX2) keep their values in vector registers: arithmetic, bitwise operators, comparisons, negation, shifts by a constant, copies and lanes read by a constant index are vector instructions, and writing a lane or indexing by a variable keeps the vector in a register, and so are shifts by a variable, and `__builtin_shufflevector` and `__builtin_shuffle` (on x86-64 with AVX2), and `__builtin_convertvector` (widening, narrowing, and between integers and floats; on x86-64 with AVX2 not for 64-bit or unsigned 32-bit integers to or from floats).
+GNU vector types (`__attribute__((vector_size(N)))`) work and match gcc's results. On arm64 and x86-64, vectors of 16, 32 and 64 bytes (16 to 128 on x86-64 with AVX2) keep their values in vector registers: arithmetic, bitwise operators, comparisons, negation, shifts by a constant, copies and lanes read by a constant index are vector instructions, and writing a lane or indexing by a variable keeps the vector in a register, and so are shifts by a variable, and `__builtin_shufflevector` and `__builtin_shuffle` (on x86-64 with AVX2), and `__builtin_convertvector` (widening, narrowing, and between integers and floats).
 
 > [!PLANNED]
 > Vector instructions for the rest: integer division, 64-bit multiplication,. Calls pass vectors as gcc does on every target.
