@@ -140,9 +140,9 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    `pow`, `exp`, `log` between the bundled libm's scalar and vectorized code, and `sqrt`/`fma`), fix
    or exclude each with a reason in `faq.md`. Not the host libm: `link=["libm"]` is outside the promise.
 6. **Half types and int8 dot products** (for scramjit's Directions #6, quantized inference kernels).
-   `_Float16` and `__bf16` are rejected today (`requirements.md`, GNU extensions): accept them as
-   storage types converted to and from `float` (arm64 `fcvt`/`bfcvt`, x86-64 F16C behind a check at
-   load, wasm in software), then vectorized loads and widening in the vectorizer. Int8 dot products
+   `_Float16` and `__bf16` are accepted (2026-11-06) as storage types computed in `float`, converted by
+   runtime calls. Open: hardware conversions (arm64 `fcvt`/`bfcvt`, x86-64 F16C behind a check at
+   load; wasm stays in software), then vectorized loads and widening in the vectorizer. Int8 dot products
    (`sdot`/`udot` on arm64, VNNI behind a check on x86-64, wasm relaxed-SIMD dot) for a reduction of
    `int8 * int8` into `int32`. Oracle: gcc and clang on the same C. Measure a `Q8_0` block dot against
    ggml's before and after.
@@ -294,6 +294,16 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   the main module's `i32`. It affects any kernel calling into a host library by pointer, or a callback taking
   one. scramjit worked around it by computing `frexp` from the float's bits. **When done, note it in
   scramjit's `TODO.md`.**
+- **A call by address into another module crashes once the callee uses `malloc`** (found by scramjit,
+  2026-11-02; reproduced 2026-11-07, Linux x86-64). Module A's `long f(long)` calls `malloc`; module B's
+  `g(long (*fp)(long), long n)` calls `fp`; `b.g(a.f.address, 1000)` dumps core unless Python called into A on
+  this thread first. Cause: a module's per-thread context (`execution.py`, `__cimo_ctxtab`) is created by
+  Python on the thread's first call into that module, and `malloc`'s lookup finds none. Also open once that
+  works: an error or fault inside A unwinds to A's context, which has no entry frame for this call. Blocks
+  scramjit's C modules with state. **When done, note it in scramjit's `TODO.md`.**
+- **`#pragma STDC FP_CONTRACT`** (requested by scramjit, 2026-11-02): contraction on or off per function or
+  block, as `FENV_ACCESS` is now, so a module can mix `fma=` code with exact math in one file. Today `fma=`
+  applies to the whole compile. **When done, note it in scramjit's `TODO.md`.**
 - **Make the CLI framework public, or a small package** (requested by scramjit, 2026-11-01, low priority).
   scramjit's command line copies `cli/term.py`, `cli/parse.py` and `cli/completion.py`, because they aren't
   public API, so a fix to one needs copying by hand.
