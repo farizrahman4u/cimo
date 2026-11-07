@@ -181,11 +181,11 @@ double g3(double a, double b, double c) { return fma(a, b, -c); }
 double g4(double a, double b, double c) { return fma(-a, b, c); }
 double g5(double a, double b, double c) { return fma(a, b, -(c * a)); }
 double dot(int n, const double *x, const double *y)
-{ double s = 0; for (int i = 0; i < n; i++) s = fma(x[i], y[i], s); return s; }
+{ double s = 0; for (int i = 0; i < n; i++) s = s + x[i] * y[i]; return s; }  /* the sum's chain stays unfused (fmachain) */
 float iir(int n, float b0, float a1, float a2, const float *x, float *y)
 {
 	float y1 = 0, y2 = 0;
-	for (int i = 0; i < n; i++) { float v = fmaf(-a2, y2, fmaf(b0, x[i], -(a1 * y1))); y[i] = v; y2 = y1; y1 = v; }
+	for (int i = 0; i < n; i++) { float v = fmaf(b0, x[i], -(a1 * y1)) - a2 * y2; y[i] = v; y2 = y1; y1 = v; }  /* the fma on the inner one's chain: unfused */
 	return y1;
 }
 float nf(float a, float b, float c) { float t = a * b; return t + c; }

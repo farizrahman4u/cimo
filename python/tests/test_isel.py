@@ -1095,12 +1095,13 @@ def test_extension_of_a_load_stays_in_the_load():
 
 
 def test_accumulator_stays_on_its_way_round_the_loop():
-    """No copy on the chain: one fmov in `s += x[i] * y[i]` cost 52 to 56% on Neoverse."""
+    """No copy on the chain: one fmov in `s += x[i] * y[i]` cost 52 to 56% on Neoverse. The sum is an fadd: an
+    fmadd's latency on the chain made it 1.3x slower on Snapdragon X (fmachain, as on x86-64)."""
     src = 'double f(int n, const double *restrict x, const double *restrict y) { double s = 0.0; for (int i = 0; i < n; i++) s += x[i] * y[i]; return s; }'
     text = body(src, 'f')
     loops = [m.group(2) for m in re.finditer(r'^(\.?L\d+):\n((?:(?!^\.?L\d+:).*\n)*?\tb\w*\t\1\n)', text, re.M)]
-    assert any('fmadd' in x for x in loops), text
-    assert not any('fmadd' in x and 'fmov' in x for x in loops), text
+    assert any('fadd' in x for x in loops) and not any('fmadd' in x for x in loops), text
+    assert not any('fadd' in x and 'fmov' in x for x in loops), text
     x = (ctypes.c_double * 9)(*[i + 0.5 for i in range(9)])
     y = (ctypes.c_double * 9)(*[2.0 * i - 1 for i in range(9)])
     m = cimo.compile(src, cache=False)

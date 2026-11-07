@@ -706,8 +706,11 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   `a < y + 1` as `a <= y` (nowrap) and a store the next iteration loads carried in a register; x86-64 then needed the
   compare re-issued at the cmov (an add came between). mandelbrot: a product computed twice in a loop isn't fused
   (`fmashare.py`, as gcc). jacobi2d, conv3x3: `ldur`/`stur` offsets, 4 vectors an iteration for long fp chains (arm64).
-  Measured and left: arm64 `fmachain` (mandelbrot +7% on V1/V2) breaks matching gcc's contracted bits on dot, iir,
-  conv3x3, nbody_acc (`test_ext_kernels`); a phi's latch value sunk to the block end didn't remove mandelbrot's fmov.
+  arm64 `fmachain` (2026-11-07) splits only accumulator chains (the addend is the loop's phi or another fma on it):
+  Snapdragon X dot 273.8 to 207.1 ms (gcc 275), iir 830 to 768, mandelbrot unchanged (its addend is a product, which
+  the full rule split, +7% on V1/V2); geomean of those five against gcc -O3 0.98 to 0.91x. dot and conv3x3 now give gcc's
+  `-ffp-contract=off` bits, iir and nbody_acc neither of gcc's (`test_ext_kernels`). A phi's latch value sunk to the
+  block end didn't remove mandelbrot's fmov.
 - **What remains is vector width:** gcc -O3 native uses 256-bit SVE on Graviton 3 and AVX-512 on Zen 4 (zmm in nine of the
   kernels; 256-bit on Sapphire Rapids); cimo has 128-bit NEON and 256-bit AVX2. Graviton 4's SVE is 128-bit, and there the
   same kernels are level.

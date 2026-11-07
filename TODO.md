@@ -379,10 +379,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 - ~~Inlining stops by position in a large function~~ **Done** (2026-11-07, from scramjit): `CALLER_LIMIT` is spent
   on the deepest loops first (`fillloop`'s weights; inlined blocks take the call's), and a callee no bigger than its call
   and arguments inlines without counting. llama2 (`bench/llm.py`, stories15M, mains): 90.5 tok/s, was 28 (89 with no limit).
-- **FMA contraction slows reductions on arm64**: `s += a[i] * b[i]` runs 2.15 ns per element with `fmadd`,
-  1.81 with `fmul` and `fadd` (`-ffp-contract` shows the same in gcc: `bench/llm.py`'s C at `-O3`, 63 tok/s
-  with, 82 without), probably the latency on the sum (not measured on other cores). Contraction is on
-  by default. Measure on other arm64 cores, then consider not contracting when `c` is carried round the loop.
+- ~~FMA contraction slows reductions on arm64~~ **Done** (2026-11-07): `fmachain` runs on arm64 for accumulator chains
+  (addend the loop's phi or another fma on it): Snapdragon X `dot` 1.47 to 1.12 ns an element, `bench/run.py` dot 273.8
+  to 207.1 ms (gcc -O3 275), iir 830 to 768, mandelbrot unchanged. To confirm on Neoverse and Apple cores.
 - **Linking the host libm for math calls** (requested by scramjit; see the scramjit paragraph in
   `requirements.md`): needed for results bit-identical to CPython's on native targets, on Linux,
   macOS and Windows. **When done, note it in scramjit's `TODO.md`.**

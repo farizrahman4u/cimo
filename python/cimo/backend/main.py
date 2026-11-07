@@ -250,9 +250,9 @@ class _Driver:
                 cfg.fillcfg(fn)
                 ssa.filluse(fn)
                 cfg.filldom(fn)
-        if T.name.startswith('amd64') and 'fma' in ext.x86:
-            from .amd64 import fmachain
-            if fmachain.split(fn):
+        if T.name.startswith('amd64') and 'fma' in ext.x86 or T.name.startswith('arm64') and ext.fma:
+            from .amd64 import fmachain  # arm64 too: Snapdragon X's dot 1.47 to 1.12 ns an element unfused
+            if fmachain.split(fn, direct=T.name.startswith('arm64')):
                 ssa.filluse(fn)
         aggregates = _aggregates(fn)
         T.abi1(fn)

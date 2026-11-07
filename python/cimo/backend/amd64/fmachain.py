@@ -21,8 +21,10 @@ def _tmps(refs):
     return [rval(r) for r in refs if rtype(r) == RTmp]
 
 
-def split(fn):
-    """Needs rpo; returns whether anything changed."""
+def split(fn, direct=False):
+    """Needs rpo; returns whether anything changed. direct (arm64): only an fma whose addend is the recurrence's own
+    phi or another fma on it, an accumulator (unrolled) (`s += a * b`: Snapdragon X's dot 1.47 to 1.12 ns an element); one computed from it stays
+    fused (mandelbrot's zr*zr - zi*zi + cr was 7% slower split on Neoverse V1 and V2)."""
     blocks = fn.rpo[:fn.nblk]
     ins = [(b, k, i) for b in blocks for k, i in enumerate(b.ins[:b.nins])]
     defs = {}
@@ -85,7 +87,8 @@ def split(fn):
         cycle = down & up
         for t in cycle:
             c = third.get(t)
-            if c is not None and rtype(c) == RTmp and rval(c) in cycle and t not in keep:
+            if c is not None and rtype(c) == RTmp and rval(c) in cycle and t not in keep and \
+                    (not direct or rval(c) in {rval(p.to) for p in top} or rval(c) in fused):
                 split_.add(t)
     def negated(r, k):
         """x if r is neg x of class k, else None."""

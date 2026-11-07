@@ -25,7 +25,12 @@ pytestmark = list(M.pytestmark) + [pytest.mark.skipif(not hosts.ARM64,
 FLAGSETS = {'ldp+layout': ('ldp', 'layout'), 'all': ('fma', 'ldp', 'layout'),
             'gen_opt+ldp+layout': ('ldp', 'layout')}
 # kernels whose fused result equals gcc's -ffp-contract=fast result by construction
-FAST_SAME = {'saxpy', 'gemm', 'conv3x3', 'dot', 'nbody_acc', 'iir'}
+FAST_SAME = {'saxpy', 'gemm'}
+# a sum whose every product is on its chain: unfused (backend fmachain, arm64: an fmadd's latency on the chain made dot
+# 1.32x slower), so gcc's -ffp-contract=off result
+OFF_SAME = {'conv3x3', 'dot'}
+# some products on a sum's chain (unfused), others not (fused): neither of gcc's, within rounding of both
+MIXED = {'nbody_acc', 'iir'}
 
 
 def _novec():
@@ -89,6 +94,13 @@ def test_kernel(built, flags, name):
         assert got == want['off']
     elif name in FAST_SAME:
         assert got == want['fast']
+    elif name in OFF_SAME:
+        assert got == want['off']
+    elif name in MIXED:
+        types = [a.dtype for a in args if isinstance(a, M.np.ndarray)]
+        g = [M.np.frombuffer(x, t) for x, t in zip(got[1:], types)]
+        w = [M.np.frombuffer(x, t) for x, t in zip(want['fast'][1:], types)]
+        assert all(M.np.allclose(a, b, rtol=1e-5, atol=1e-6) for a, b in zip(g, w)), name
     else:
         assert got in (want['off'], want['fast'])
 
