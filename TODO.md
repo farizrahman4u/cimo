@@ -268,14 +268,12 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
-- **The inliner sizes a function before cleaning it up, and grows small functions with their cold paths** (found by
-  scramjit, 2026-11-07). scramjit's `sj_hypot2` (CPython's exact `math.hypot` for two values; about 45 arm64
-  instructions once compiled, its rare cases in a separate `noinline` function) stays a call below `CIMO_INLINE=300`,
-  against the default 40. A `static` function called once is inlined at any size, even into a small function that is
-  hot: `sj_truediv` (a two-compare fast path, its long division called once) became too big to inline until the long
-  division was marked `noinline`. Effect on scramjit's viewshed (96x96, laptop): `noinline` on the cold paths 4.05 to
-  3.45 ms; `CIMO_INLINE=300`, which inlines `sj_hypot2` too, 3.07 ms. gcc and LLVM count after their early cleanup
-  (mem2reg, simplification) and weigh cold calls less. When done, note it in scramjit's `TODO.md`.
+- ~~**The inliner sizes a function before cleaning it up, and grows small functions with their cold paths**~~
+  **Done** (2026-11-07, found by scramjit): loads and stores of slots only ever loaded and stored, their constant
+  offsets, copies and extensions of constants and `fma0` don't count toward `ext.inline` (`inline._free`); a function
+  declared `inline` may be `HINT` (2) times the limit; a `static` function called once inlines only at that call, and
+  not into a small caller it would push past that caller's own limit (`test_inline.py`). `sj_hypot2` counts 57, not
+  over 150; scramjit's viewshed 3.44 to 3.12 ms. Noted in scramjit's `TODO.md`.
 
 - ~~**Keep struct fields in registers across a loop**~~ **Done** (2026-11-05): a field the loop reads and writes at an
   address fixed for the loop (`p->x`), with one size and class, that no other access can touch (other offsets of the
