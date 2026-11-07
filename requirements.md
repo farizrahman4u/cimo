@@ -594,6 +594,11 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
 - **`#pragma STDC FP_CONTRACT` (2026-11-07):** ON, OFF, DEFAULT (the compile's `fma=`) set the frontend's
   contraction from there on; a compound statement restores the value it started with (C11 7.12.2). ON does nothing
   without a fused multiply-add (wasm, x86-64 without FMA: `fmaok`).
+- **Ctrl-C (2026-11-07, POSIX):** cimo.fault's handler also takes SIGINT. A pc in a module's own code (before
+  `__cimo_enter`: not the runtime, trampolines or entries, which may be mid-update) inside a kernel unwinds the innermost
+  entry frame with `E_INTERRUPT`; `State.error` then runs Python's handler (`signal.raise_signal`), and raises
+  `KernelError('interrupt')` if it doesn't raise. Elsewhere SIGINT goes to Python's handler. No polling in loops. Windows
+  delivers Ctrl-C on its own thread: not done.
 - **Last values (2026-11-07):** a header phi whose latch value is from outside the loop and that nothing in the loop reads
   (`f = 1` as a flag) is set to that value by each vector iteration (`_last`), so it doesn't stop vectorizing.
 - **`#pragma omp simd reduction(op:s, ...)` (2026-11-07):** `+`, `-`, `*` on float variables. The frontend marks the

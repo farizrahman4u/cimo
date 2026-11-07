@@ -39,9 +39,11 @@ F_MEMORY, F_DIVISION, F_ILLEGAL = 1, 2, 3
 _WIN = sys.platform == 'win32'
 _APPLE = sys.platform == 'darwin'
 _SIGNALS = (11, 10 if _APPLE else 7, 8, 4)  # SIGSEGV, SIGBUS, SIGFPE, SIGILL
+# SIGINT, so Ctrl-C stops a kernel: only in the main interpreter's main thread, where Python has its handler
+_INTERRUPT = (2,) if os.environ.get('CIMO_INTERRUPT', '1') != '0' else ()
 _ALTSTACK = 128 << 10  # the kernel's signal frame alone is tens of KB with SME
 _GUARANTEE = 64 << 10  # Windows, what the kernel's exception dispatch and the handler may use
-_SLOT = 40
+_SLOT = 48
 
 # The register file inside what the OS passes to a handler: Linux's ucontext, macOS's mcontext
 # and Windows' CONTEXT all lay out arm64 alike from x0 - 8; x86-64 differs between Linux's gregs
@@ -54,7 +56,7 @@ struct ctx {
     u64 err; void *msg, *file; u64 line; void *func; u64 pc; long depth; u64 limit, tid;
     u64 fault, addr;
 };
-struct mod { u64 lo, hi; struct ctx *(*ctx)(void); u64 resume, noframe; };
+struct mod { u64 lo, hi; struct ctx *(*ctx)(void); u64 resume, noframe, own; };  /* own: end of the module's own code */
 struct tab { u64 n, pad; struct mod mods[1]; };
 
 struct tab * volatile __cimo_fault_tab;
@@ -157,6 +159,25 @@ static int handle(int fault, u64 addr, char *r)
     return 1;
 }
 
+/* 1 if Ctrl-C came while this thread ran a kernel's own code (not the runtime, the trampolines or anything else, which
+   may be half way through updating something): it unwinds as a fault does, and Python then runs its SIGINT handler */
+static int interrupt(char *r)
+{
+    u64 pc = REG(r, R_PC);
+    struct mod *m = find(pc), *at;
+    struct ctx *c;
+    if (!m || pc >= m->own)
+        return 0;
+    at = m;
+    c = innermost(REG(r, R_SP), &at);
+    if (!c)
+        return 0;
+    c->err = 8, c->pc = pc, c->fault = 0, c->addr = 0, c->msg = c->file = c->func = 0, c->line = 0;
+    REG(r, R_CTX) = (u64)c;
+    REG(r, R_PC) = at->resume;
+    return 1;
+}
+
 #ifdef CIMO_WINDOWS
 int __cimo_fault_veh(void **pointers)
 {
@@ -203,6 +224,17 @@ static char dfl[256];
 void __cimo_fault_sig(int sig, char *si, char *uc)
 {
     void (*old)(int, void *, void *) = __cimo_fault_old[sig];
+    if (sig == 2) {  /* SIGINT */
+        if (interrupt(REGS(uc)) || (u64)old == 1)  /* or ignored */
+            return;
+        if (old) {
+            old(sig, si, uc);
+            return;
+        }
+        __cimo_fault_sigaction(sig, dfl, 0);
+        __cimo_fault_raise(sig);
+        return;
+    }
     int fault = sig == 8 ? 2 : sig == 4 ? 3 : 1;
     int real = REAL(*(int *)(si + 8));  /* raised by the CPU, not sent: only those unwind a kernel */
     u64 me, pc = REG(REGS(uc), R_PC), *last = __cimo_fault_last[sig];
@@ -346,7 +378,7 @@ def _install_posix():
     ours = img.address('__cimo_fault_sig')
     old = img.address('__cimo_fault_old')
     call = _sigaction()
-    for sig in _SIGNALS:
+    for sig in _SIGNALS + _INTERRUPT:
         cur = _Sigaction()
         if call(sig, None, ctypes.byref(cur)) != 0:
             raise OSError(ctypes.get_errno(), 'sigaction failed')
@@ -447,6 +479,7 @@ def register(image):
         u64(a + 16).value = image.address('__cimo_ctx')
         u64(a + 24).value = image.address('__cimo_fault')
         u64(a + 32).value = image.address('__cimo_noframe')
+        u64(a + 40).value = image.address('__cimo_enter')  # the module's own code comes first (driver.Module)
         u64(a).value = code
         m._state._barrier()
         u64(a + 8).value = code + image.code_size

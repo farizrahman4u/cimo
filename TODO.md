@@ -347,11 +347,10 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 - **Make the CLI framework public, or a small package** (requested by scramjit, 2026-11-01, low priority).
   scramjit's command line copies `cli/term.py`, `cli/parse.py` and `cli/completion.py`, because they aren't
   public API, so a fix to one needs copying by hand.
-- **Ctrl-C can't stop a running kernel** (found by scramjit, 2026-11-01): Python's handler only runs between
-  bytecodes, so `KeyboardInterrupt` waits until the kernel returns, and an infinite loop can only be killed.
-  Every cimo user has this. scramjit is adding a check of its own to the C it generates; if cimo offers a
-  general way (an interruptible loop flag in the execution context, set from the entry path), scramjit would
-  use that instead.
+- ~~Ctrl-C can't stop a running kernel~~ **Done on Linux and macOS** (2026-11-07, found by scramjit): SIGINT in a
+  kernel's own code unwinds it and runs Python's handler (`KeyboardInterrupt`). Open: Windows (Ctrl-C arrives on its
+  own thread: suspend the main thread and redirect it, as the fault path does), and a kernel spending all its time in
+  the runtime.
 - ~~Public cache export and import~~ **Done** (2026-11-07, requested by scramjit): `module.cache_entry()` (bytes)
   and `cimo.add_cache_entry(data)`, native and Pyodide; used only by a compile of the same source and options.
 - **A public way to get a module's WebAssembly** (requested by scramjit): its site demo shows the

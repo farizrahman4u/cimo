@@ -374,3 +374,48 @@ def test_context_layout_matches_the_handler():
         assert 'movq\t%rsp, 72(%r12)' in glue and 'str\tx12, [x11, #96]' in glue, 'the entry sp f._defines names'
         assert (x.E_STACK, x.E_FAULT) == (4, 7) and (f.F_MEMORY, f.F_DIVISION, f.F_ILLEGAL) == (1, 2, 3)
     ''')
+
+
+INTERRUPT = r'''
+import cimo, os, signal, sys, threading, time
+m = cimo.compile(r"""
+#include <math.h>
+long spin(long n) { volatile long i = 0; for (;;) { i++; if (n && i == n) return i; } }
+double heavy(double x) { volatile double s = 0; for (;;) s += sqrt(x + s); }
+""", cache=False)
+kill = lambda: os.kill(os.getpid(), signal.SIGINT)
+for f, arg in ((m.spin, 0), (m.heavy, 2.0)):  # its own loop; one calling the runtime, stopped in its own code
+    threading.Timer(0.2, kill).start()
+    t0 = time.time()
+    try:
+        f(arg)
+        print('returned')
+    except KeyboardInterrupt:
+        assert time.time() - t0 < 10
+print(m.spin(1000))  # still usable
+try:  # Ctrl-C in Python code is as before
+    threading.Timer(0.2, kill).start()
+    time.sleep(5)
+except KeyboardInterrupt:
+    print('python')
+got = []
+signal.signal(signal.SIGINT, lambda s, f: got.append(s))
+m2 = cimo.compile('long spin2(void) { volatile long i = 0; for (;;) i++; }', cache=False)
+threading.Timer(0.2, kill).start()
+try:
+    m2.spin2()
+except cimo.KernelError as e:
+    print(e.kind, e.function, got)
+'''
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX signals')
+def test_ctrl_c_stops_a_kernel():
+    """SIGINT while a kernel runs its own code unwinds it and runs Python's handler: KeyboardInterrupt, or a handler
+    of the program's own, after which the call raises KernelError('interrupt')."""
+    if os.environ.get('CIMO_FAULTS') == '0':
+        pytest.skip('CIMO_FAULTS=0')
+    r = subprocess.run([sys.executable, '-c', INTERRUPT], capture_output=True, text=True, timeout=120,
+                       cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split('\n')[:3] == ['1000', 'python', 'interrupt spin2 [2]'], r.stdout

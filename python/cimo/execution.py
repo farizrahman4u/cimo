@@ -77,7 +77,7 @@ CTX_OUT = 4096
 CTX_PY = 120
 STACK_MARGIN = 128 << 10
 
-E_ABORT, E_ASSERT, E_TRAP, E_STACK, E_DEPTH, E_EXIT, E_FAULT = 1, 2, 3, 4, 5, 6, 7
+E_ABORT, E_ASSERT, E_TRAP, E_STACK, E_DEPTH, E_EXIT, E_FAULT, E_INTERRUPT = 1, 2, 3, 4, 5, 6, 7, 8
 _HASH_K = 0x9E3779B97F4A7C15
 _M64 = (1 << 64) - 1
 
@@ -85,7 +85,8 @@ _M64 = (1 << 64) - 1
 class KernelError(Exception):
     """A kernel called abort() or exit(), failed an assert, trapped, overflowed its stack or
     faulted. Attributes: kind ('abort', 'exit', 'assert', 'trap', 'stack overflow', 'nesting',
-    'memory fault', 'division fault', 'illegal instruction'), kernel (the entry point Python
+    'memory fault', 'division fault', 'illegal instruction', 'interrupt': Ctrl-C under a SIGINT handler
+    that doesn't raise), kernel (the entry point Python
     called), function (where it happened, if known), for assert: expr, file, line, for exit:
     status, and for a memory fault or a stack overflow caught at the guard page: address."""
 
@@ -551,6 +552,19 @@ def stack_checked(ssa):
 # ---------------------------------------------------------------------------------------------
 # Python side
 
+def _interrupted():
+    """Run Python's SIGINT handler for a Ctrl-C that stopped a kernel: KeyboardInterrupt, unless a handler of the
+    program's own says otherwise. Off the main thread, the main thread gets it and this call raises
+    KeyboardInterrupt."""
+    import signal
+    if threading.current_thread() is threading.main_thread():
+        signal.raise_signal(signal.SIGINT)
+        return
+    import _thread
+    _thread.interrupt_main()
+    raise KeyboardInterrupt
+
+
 class _Unmark:
     """Clears a context's CTX_PY word when its thread's threading.local goes (the thread ended), unless the module
     went first."""
@@ -731,6 +745,12 @@ class State:
     def error(self, c, kernel):
         """Raise KernelError for the error recorded in context c (and clear it)."""
         code, pc, fault, addr = c.err, c.pc, c.fault, c.addr
+        if code == E_INTERRUPT:  # Ctrl-C stopped the kernel (cimo.fault): Python's SIGINT handler, as if it came now
+            c.err = c.pc = 0
+            _interrupted()  # KeyboardInterrupt, normally; a handler that doesn't raise still has the kernel stopped
+            where = self._symbol(pc) if pc else None
+            raise KernelError('interrupted%s (calling %s)' % (' in %s()' % where if where else '', kernel),
+                              'interrupt', kernel, where, None, None, None, None, None)
         expr = ctypes.string_at(c.msg).decode('utf-8', 'replace') if c.msg else None
         file = ctypes.string_at(c.file).decode('utf-8', 'replace') if c.file else None
         func = ctypes.string_at(c.func).decode('utf-8', 'replace') if c.func else None
