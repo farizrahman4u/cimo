@@ -386,6 +386,9 @@ def directive():
             U.fenvtouched |= U.fenvaccess
         if words[:2] == ['STDC', 'CX_LIMITED_RANGE'] and len(words) == 3:  # cimo (C11 7.3.4)
             U.cxlimited = words[2] == 'ON'
+        if words[:2] == ['STDC', 'FP_CONTRACT'] and len(words) == 3:  # cimo (C11 7.12.2)
+            from . import qbe as Q
+            Q.contract = U.fmaok and (words[2] == 'ON' or words[2] == 'DEFAULT' and U.fmadefault)
     else:
         error(tok.loc, "invalid preprocessor directive #%s", tokenstr(tok.kind))
     tokencheck(tok, TNEWLINE, "after preprocessing directive")

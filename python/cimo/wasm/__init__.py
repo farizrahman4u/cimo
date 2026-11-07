@@ -36,7 +36,7 @@ def compile_object(src, filename='<string>', include_dirs=(), defines=(), runtim
     pp = d._preprocess(src, filename, include_dirs, False, defines, 'arm64')
     from ..frontend import FrontendError
     try:
-        ssa, params = d._frontend(pp, filename, 'arm64', fma=False, builtins=True,
+        ssa, params = d._frontend(pp, filename, 'arm64', fma=False, fmaok=False, builtins=True,
                                   diagnostics=True, prune=True, vastruct='slots', bitops=False, wasmptr=True)
     except FrontendError as e:
         raise d.CompileError(str(e)) from None

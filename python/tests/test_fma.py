@@ -308,3 +308,40 @@ def test_fmashare_splits_contractions_only():
     called = body('#include <math.h>\n' + loop % ('fma(zr, zr, zi * zi)', 'fma(zr, zr, -(zi * zi))'))
     assert 'fmul\td' in contracted and contracted.count('fmadd') + contracted.count('fmsub') <= 1
     assert called.count('fmadd') + called.count('fnmsub') + called.count('fmsub') >= 2
+
+
+FP_CONTRACT = r'''
+double on(double a, double b, double c) {
+#pragma STDC FP_CONTRACT ON
+    return a * b + c;
+}
+double after(double a, double b, double c) { return a * b + c; }
+double inner(double a, double b, double c) {
+    double x;
+    { 
+#pragma STDC FP_CONTRACT ON
+      x = a * b + c; }
+    return x + (a * b + c);
+}
+#pragma STDC FP_CONTRACT OFF
+double off(double a, double b, double c) { return a * b + c; }
+#pragma STDC FP_CONTRACT DEFAULT
+double dflt(double a, double b, double c) { return a * b + c; }
+'''
+
+
+@pytest.mark.parametrize('fma', [False, True])
+def test_fp_contract_pragma(fma):
+    """`#pragma STDC FP_CONTRACT` (C11 7.12.2): ON, OFF and DEFAULT (the compile's fma=), to the end of the compound
+    statement it is in or to the next one at file scope."""
+    import cimo
+    from cimo import driver
+    pp = driver._preprocess(FP_CONTRACT, 'x.c', (), False, ())
+    body = fns(driver._frontend(pp, 'x.c', fma=fma)[0])
+    assert 'fmac' in body['on'] and 'fmac' not in body['off']
+    assert ('fmac' in body['after']) == fma and ('fmac' in body['dflt']) == fma
+    assert body['inner'].count('fmac') == 1 + fma
+    m = cimo.compile(FP_CONTRACT + '// %s' % fma, fma=fma, cache=False)
+    a, b = 1 + 2.0 ** -30, 1 - 2.0 ** -30  # a*b rounds to 1: only a fused a*b - 1 sees -2^-60
+    assert m.on(a, b, -1.0) == -2.0 ** -60 and m.off(a, b, -1.0) == 0.0
+    assert m.dflt(a, b, -1.0) == (-2.0 ** -60 if fma else 0.0)

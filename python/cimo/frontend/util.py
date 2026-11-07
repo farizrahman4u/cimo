@@ -21,6 +21,10 @@ fenvaccess = False
 fenvtouched = False
 # cimo: `#pragma STDC CX_LIMITED_RANGE ON` in effect: complex * and / by the usual formulas, inline (qbe._cxbinary)
 cxlimited = False
+# cimo: `#pragma STDC FP_CONTRACT` (C11 7.12.2) sets qbe.contract: DEFAULT is the compile's fma=, ON is honored only
+# where the target has a fused multiply-add (fmaok); a compound statement restores the value it started with (stmt)
+fmadefault = False
+fmaok = True
 # cimo: `#pragma omp simd reduction(+:s)`: the (operator, name) pairs of the pragma before the next statement
 # (pp.directive), and {id(decl): operator} for the loop it precedes, while it is parsed (stmt, expr.assignexpr)
 ompnext = None

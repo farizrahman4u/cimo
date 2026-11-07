@@ -432,6 +432,7 @@ def _frontend(pp, filename, target=None, **kw):
             kw['bitops'] = _X86_BITOPS | ({'bpopcnt'} if 'popcnt' in x86 else set())
         if 'fma' not in x86:
             kw['fma'] = False
+            kw['fmaok'] = False  # `#pragma STDC FP_CONTRACT ON` too
     with _compile_lock:
         _fq.paraminfo = {}
         try:

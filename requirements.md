@@ -591,6 +591,9 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   x86-64 ran it 1.4 to 1.5x faster. Polynomial sums measured on Graviton: float 0.63 to 0.66x the scalar loop's time, double 0.79 to 0.85x.
   gcc gets `nbody_acc`'s other 1.3x from vectorizing the outer loop, each lane its own sum. scramjit needs numpy's pairwise order
   for its sums, which is a loop it writes itself (`TODO.md`).
+- **`#pragma STDC FP_CONTRACT` (2026-11-07):** ON, OFF, DEFAULT (the compile's `fma=`) set the frontend's
+  contraction from there on; a compound statement restores the value it started with (C11 7.12.2). ON does nothing
+  without a fused multiply-add (wasm, x86-64 without FMA: `fmaok`).
 - **Last values (2026-11-07):** a header phi whose latch value is from outside the loop and that nothing in the loop reads
   (`f = 1` as a flag) is set to that value by each vector iteration (`_last`), so it doesn't stop vectorizing.
 - **`#pragma omp simd reduction(op:s, ...)` (2026-11-07):** `+`, `-`, `*` on float variables. The frontend marks the

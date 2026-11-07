@@ -82,6 +82,7 @@ def stmt(f, s):
     omp, U.ompnext = U.ompnext, None  # cimo: `#pragma omp simd reduction(...)` before this statement, for a `for`
     # 6.8.2 Compound statement
     if k == TLBRACE:
+        contract = Q.contract  # cimo: `#pragma STDC FP_CONTRACT` in the block lasts to its end (C11 7.12.2)
         next()
         s = mkscope(s)
         nvla = len(f.vlas)
@@ -93,6 +94,7 @@ def stmt(f, s):
         _vlaleave(f, nvla)
         del f.vlas[nvla:]
         s = delscope(s)
+        Q.contract = contract
         next()
 
     # 6.8.3 Expression statement

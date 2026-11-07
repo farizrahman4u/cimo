@@ -343,9 +343,8 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   (Emscripten's is 32-bit, cimo's 64).
 - ~~**A call by address into another module crashes once the callee uses `malloc`**~~ (found by scramjit) **Done
   2026-11-07:** contexts made on demand, errors moved to the innermost entry frame (`tests/test_cross_module.py`).
-- **`#pragma STDC FP_CONTRACT`** (requested by scramjit, 2026-11-02): contraction on or off per function or
-  block, as `FENV_ACCESS` is now, so a module can mix `fma=` code with exact math in one file. Today `fma=`
-  applies to the whole compile. **When done, note it in scramjit's `TODO.md`.**
+- ~~`#pragma STDC FP_CONTRACT`~~ **Done** (2026-11-07, requested by scramjit): ON, OFF and DEFAULT (the compile's
+  `fma=`), to the end of the block or the next pragma at file scope.
 - **Make the CLI framework public, or a small package** (requested by scramjit, 2026-11-01, low priority).
   scramjit's command line copies `cli/term.py`, `cli/parse.py` and `cli/completion.py`, because they aren't
   public API, so a fix to one needs copying by hand.

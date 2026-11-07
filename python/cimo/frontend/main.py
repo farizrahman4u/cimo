@@ -93,7 +93,7 @@ def _opset(v):
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
             builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False, bigcopy=None, nowrap=False,
-            vecq=0, vecops=(), vecabi=False, halfabi=False, wasmptr=False):
+            vecq=0, vecops=(), vecabi=False, halfabi=False, wasmptr=False, fmaok=True):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -147,6 +147,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     from . import qbe as _qbe
     try:
         _qbe.contract = bool(fma)
+        U.fmadefault, U.fmaok = bool(fma), bool(fmaok)
         _qbe.nowrap = bool(nowrap)
         _qbe.builtins = _opset(builtins)
         _qbe.volatile = bool(volatile)
