@@ -84,7 +84,7 @@ loops that leave early (`any`, `all`, finding the first match). Loops over bytes
 values fit (pixels: `rgb2gray`), and an outer loop vectorizes when its inner loop's sums must stay in order (`nbody_acc`).
 Float `max`/`min`, `argmax`, 16-bit elements and WebAssembly stay scalar, so the
 reference compilers are ahead where they vectorize those. Geomean over 15 kernels, against vectorized
-`gcc -O3`: 0.83 to 0.86x on Neoverse N1, V1 and V2. On x86-64 cimo compiles for the CPU it runs on (FMA, POPCNT,
+`gcc -O3`: 0.83 to 0.86x on Neoverse N1, V1 and V2. On x86-64 cimo compiles for the CPU it runs on (FMA, F16C, POPCNT,
 LZCNT, TZCNT, 256-bit AVX2): against `gcc -O3 -march=native`, 0.87x on Sapphire Rapids, 0.88x on Ice Lake and 0.95x on
 Zen 4, from 1.16 to 1.41x with 128-bit vectors. See [`requirements.md`](requirements.md) for the full measurements.
 

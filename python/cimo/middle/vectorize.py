@@ -441,7 +441,7 @@ def plan(fast, rts):
             if st and not _operand(fast, hstores[id(i)].arg[0], made):
                 return 0
             f = A.form(i.arg[1 if st else 0], 64)
-            if f is None or not f.S.isconst() or f.S.c != 2 or A.avlevel(f) == 'X' or _ext.qbytes() != 16:
+            if f is None or not f.S.isconst() or f.S.c != 2 or A.avlevel(f) == 'X' or not D.T.name.startswith('arm64'):
                 return 0
             widths.add(4)
             mem.append((i, f, n, st))

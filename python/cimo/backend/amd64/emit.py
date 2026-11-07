@@ -988,6 +988,12 @@ def emitins(i, e):
             emitf("tzcnt%k %0, %=", i, e)
         else:
             emitf("bsf%k %0, %=", i, e)
+    elif op == D.Oh2f:  # ext.x86 f16c: the half's bits through xmm15
+        emitf("vmovd %W0, %%xmm15", i, e)
+        emitf("vcvtph2ps %%xmm15, %S=", i, e)
+    elif op == D.Of2h:  # rounded in MXCSR's mode ($4), the 16 bits zero-extended
+        emitf("vcvtps2ph $4, %S0, %%xmm15", i, e)
+        emitf("vpextrw $0, %%xmm15, %W=", i, e)
     elif op == D.Obpopcnt:  # only with ext.x86 popcnt: the frontend emits it then
         _clear(i, e)
         emitf("popcnt%k %0, %=", i, e)
@@ -1155,6 +1161,8 @@ def _usesxmm15(fn):
             if i.op == Ocopy and rtype(i.to) == RSlot and rtype(i.arg[0]) in (RSlot, RMem):
                 return True
             if i.op == Oswap and KBASE(i.cls) == 1:
+                return True
+            if i.op in (D.Oh2f, D.Of2h):  # f16c through xmm15
                 return True
         b = b.link
     return False

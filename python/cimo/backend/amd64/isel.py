@@ -447,6 +447,17 @@ def sel(i, tn, fn):
         fixarg(ci.arg, 0, argcls(i, 0), ci, fn)
     elif op in _EMIT or isext(op) or isxsel(op):
         _emit_fix(i, fn)
+    elif op in (D.Oh2f, D.Of2h):  # ext.x86 f16c: the operand in a register (vmovd and vcvtps2ph take no immediate)
+        emiti(i)
+        i1 = D.insb[D.curi]
+        ka = argcls(i, 0)
+        if rtype(i1.arg[0]) == RCon:
+            r = newtmp("isel", ka, fn)
+            i1.arg[0] = r
+            emit(Ocopy, ka, r, i.arg[0], R)
+            fixarg(D.insb[D.curi].arg, 0, ka, D.insb[D.curi], fn)
+        else:
+            fixarg(i1.arg, 0, ka, i1, fn)
     elif op in _EXTOPS:
         # cimo extensions (ext.vla, ext.math): getsp, setsp, fsqrt, fabs and the bit
         # builtins; integer operands must be in registers (bsr, bsf and bswap take no

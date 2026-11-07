@@ -59,7 +59,7 @@ def test_conversions():
     pp = driver._preprocess(SRC, 'x.c')
     ir = driver._ir(pp, 'x.c')[0]
     assert '__cimo_f2bf' not in ir and '__cimo_bf2f' not in ir
-    if not driver._is_amd64():
+    if not driver._is_amd64() or 'f16c' in driver._x86():  # arm64 fcvt, x86-64 F16C
         assert '__cimo_f2h' not in ir and '__cimo_h2f' not in ir and ' h2f ' in ir and ' f2h ' in ir
     for x in _floats():
         b = _bits(x) if not math.isnan(x) else None

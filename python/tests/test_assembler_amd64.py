@@ -426,3 +426,17 @@ def test_execute_sum():
     assert f(ctypes.addressof(arr), len(vals)) == sum(vals)
     assert f(ctypes.addressof(arr), 0) == 0
     del keep
+
+
+# F16C and AVX2's vbroadcasti128 (16-byte GNU vectors and _Float16): bytes from the Intel SDM's encodings
+_F16C = [('vcvtps2ph $4, %xmm0, %xmm15', 'c4 c3 79 1d c7 04'), ('vcvtph2ps %xmm15, %xmm0', 'c4 c2 79 13 c7'),
+         ('vcvtph2ps %xmm1, %ymm0', 'c4 e2 7d 13 c1'), ('vcvtps2ph $4, %ymm2, %xmm1', 'c4 e3 7d 1d d1 04'),
+         ('vbroadcasti128 (%rax), %ymm1', 'c4 e2 7d 5a 08'), ('vpextrw $0, %xmm15, %eax', 'c4 c1 79 c5 c7 00')]
+
+
+@pytest.mark.parametrize('text, want', _F16C)
+def test_f16c_and_broadcast(text, want):
+    from cimo import assembler_amd64
+    o = assembler_amd64.assemble('.text\n%s\n' % text)
+    sec = next(s for s in (o.sections.values() if isinstance(o.sections, dict) else o.sections) if s.name == '.text')
+    assert bytes(sec.data).hex(' ') == want

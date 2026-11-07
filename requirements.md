@@ -1535,12 +1535,13 @@ for Linux and macOS (strategies under "Platform loading findings").
     on assignment, cast, call and return (one float operation rounded to half equals the half operation).
     Conversions (2026-11-07): `__bf16` inline on every target (a shift; round to nearest even with a NaN kept quiet,
     branch-free); `_Float16` on arm64 by `fcvt` through `h31` (backend `h2f`/`f2h`, frontend `vecops` 'half'; ARMv8.0,
-    rounding in the current mode, as C asks), elsewhere runtime `__cimo_f2h`/`__cimo_h2f` (nearest always). Variadic arguments go as double.
+    rounding in the current mode, as C asks), on x86-64 CPUs with F16C (`cimo.cpu`) by `vcvtph2ps`/`vcvtps2ph $4`
+    through `xmm15`, elsewhere runtime `__cimo_f2h`/`__cimo_h2f` (nearest always). Variadic arguments go as double.
     Constants: `f16`, `bf16`, `f32`, `f64`, `f32x`, `f64x` suffixes, folded in half (`eval.halfbits`).
     `_Float32` is float, `_Float64`/`_Float32x` double; `<float.h>` has the `FLTn_` macros. Calls pass
     them in FP registers, as gcc does (2026-11-07, frontend `halfabi=`): the 16 bits are the low half of a class-s value
     (`h0` on arm64, the low word of `xmm0` on x86-64), cleared above them on the way in (`tests/test_abi.py`).
-    Open: x86-64 F16C instead of calls; signaling-NaN constants.
+    Open: signaling-NaN constants.
   - **Floating-point environment** (2026-11-06): `<fenv.h>` (runtime `fenv.c`) on the hardware's registers
     through four backend ops (`rdfpcr`, `rdfpsr`, `wrfpcr`, `wrfpsr`: arm64 FPCR/FPSR, x86-64 MXCSR for both;
     wasm reads 0, so `fesetround` reports anything but nearest as unsupported by reading back). Comparisons

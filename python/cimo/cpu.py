@@ -18,12 +18,13 @@ _BITS = {
     'fma': (1, 0, 2, 12),
     'osxsave': (1, 0, 2, 27),
     'avx': (1, 0, 2, 28),
+    'f16c': (1, 0, 2, 29),
     'bmi1': (7, 0, 1, 3),
     'avx2': (7, 0, 1, 5),
     'bmi2': (7, 0, 1, 8),
     'lzcnt': (0x80000001, 0, 2, 5),
 }
-KNOWN = frozenset(('popcnt', 'fma', 'avx', 'avx2', 'bmi1', 'bmi2', 'lzcnt'))
+KNOWN = frozenset(('popcnt', 'fma', 'avx', 'avx2', 'bmi1', 'bmi2', 'lzcnt', 'f16c'))
 
 # (leaf, subleaf, out) -> stores eax, ebx, ecx, edx at out; and xgetbv(0) -> XCR0. Assembled by
 # cimo's own assembler, for the calling convention of this platform.
@@ -84,9 +85,9 @@ def _detect():
                 have.add(name)
         ymm = 'osxsave' in have and (g(0) & 6) == 6  # xmm and ymm state saved by the OS
         if not ymm:
-            have -= {'avx', 'avx2', 'fma'}
+            have -= {'avx', 'avx2', 'fma', 'f16c'}
         if 'avx' not in have:
-            have -= {'avx2', 'fma'}
+            have -= {'avx2', 'fma', 'f16c'}
         have.discard('osxsave')
         return frozenset(have)
     finally:

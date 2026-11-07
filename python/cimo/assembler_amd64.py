@@ -1045,13 +1045,18 @@ def _vr(o, mem=False):
 _PP = {b'': 0, b'\x66': 1, b'\xf3': 2, b'\xf2': 3}
 
 
-_MIXED = {0x18: 'bcast', 0x19: 'bcast', 0x58: 'bcast', 0x59: 'bcast', 0x78: 'bcast', 0x79: 'bcast'}
+_MIXED = {0x18: 'bcast', 0x19: 'bcast', 0x58: 'bcast', 0x59: 'bcast', 0x78: 'bcast', 0x79: 'bcast', 0x13: 'bcast',
+          0x5a: 'bcast'}  # 0x13: vcvtph2ps, 4 or 8 halves into %xmm or %ymm; 0x5a: vbroadcasti128, memory into %ymm
 
 
 def _avxwidths(mn, form, ops, op):
     """xmm and ymm operands that agree, as GNU as requires: one width, but where the instruction mixes them."""
     regs = [o for o in ops if o[0] in ('x', 'y')]
     kinds = {o[0] for o in regs}
+    if form == 'mri' and op == 0x1d:  # vcvtps2ph: 4 or 8 floats into an %xmm or memory
+        if ops[1][0] == 'y':
+            raise AssemblerError('vcvtps2ph writes an %xmm or memory')
+        return
     if form in ('mri',):  # vextract*128: ymm source, xmm or memory destination
         if ops[0][0] != 'y' or ops[1][0] == 'y':
             raise AssemblerError('expected %ymm, then %xmm or memory')
@@ -1321,7 +1326,8 @@ _AVX += [('vpshufb', _P66, 2, 0x00, 0, 'rvm'), ('vpmovzxbw', _P66, 2, 0x30, 0, '
          ('vbroadcastss', _P66, 2, 0x18, 0, 'rm'), ('vbroadcastsd', _P66, 2, 0x19, 0, 'rm'),
          ('vpbroadcastb', _P66, 2, 0x78, 0, 'rm'), ('vpbroadcastw', _P66, 2, 0x79, 0, 'rm'),
          ('vpbroadcastd', _P66, 2, 0x58, 0, 'rm'), ('vpbroadcastq', _P66, 2, 0x59, 0, 'rm'),
-         ('vptest', _P66, 2, 0x17, 0, 'rm'),
+         ('vptest', _P66, 2, 0x17, 0, 'rm'), ('vbroadcasti128', _P66, 2, 0x5a, 0, 'rm'),
+         ('vcvtph2ps', _P66, 2, 0x13, 0, 'rm'), ('vcvtps2ph', _P66, 3, 0x1d, 0, 'mri'),  # F16C
          ('vpshufd', _P66, 1, 0x70, 0, 'rmi'), ('vpermq', _P66, 3, 0x00, 1, 'rmi'),
          ('vextracti128', _P66, 3, 0x39, 0, 'mri'), ('vextractf128', _P66, 3, 0x19, 0, 'mri'),
          ('vinserti128', _P66, 3, 0x38, 0, 'rvmi'), ('vinsertf128', _P66, 3, 0x18, 0, 'rvmi'),
