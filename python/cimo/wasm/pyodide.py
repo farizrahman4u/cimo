@@ -76,6 +76,11 @@ class WasmModule(Introspection):
 
     cached = False  # whether it came from the compile cache, with nothing compiled
 
+    def cache_entry(self):
+        """The module's compile cache entry (cimo.Module.cache_entry)."""
+        from ..driver import _entry
+        return _entry(getattr(self, '_cachekey', None))
+
     def __init__(self, mod, sigs):
         self._err = None
         self._decoder = codecs.getincrementaldecoder('utf-8')('replace')

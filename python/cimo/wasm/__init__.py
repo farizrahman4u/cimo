@@ -144,7 +144,7 @@ def _build(src, filename='<string>', include_dirs=(), defines=()):
                          + pp.encode('utf-8', 'surrogateescape')).hexdigest()[:24]
     hit = _cache_get(key)
     if hit is not None:
-        return hit[0], hit[1], True
+        return hit[0], hit[1], True, key
     obj, ssa, params = compile_object(src, filename, include_dirs, defines)
     sigs = d._sigs(ssa, params)
     names = [line.split(' ')[0] for line in sigs.splitlines()]
@@ -154,7 +154,7 @@ def _build(src, filename='<string>', include_dirs=(), defines=()):
     except _link.LinkError as e:
         raise d.CompileError(str(e)) from None
     _cache_put(key, mod, sigs)
-    return mod, sigs, False
+    return mod, sigs, False, key
 
 
 def _cache_get(key):

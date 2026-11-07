@@ -238,13 +238,14 @@ with contextlib.redirect_stdout(f):
     u.fill(4087)  # and one split by a full buffer
     u.byte(10)
 assert f.getvalue() == 'é' + 'a' * 4087 + 'é\n', repr(f.getvalue()[:8] + f.getvalue()[-8:])
-h = cimo.compile(r"""
+HSRC = r"""
 #include <stdlib.h>
 int big(int w) { void *p = w == 0 ? malloc((1UL << 32) + 16) : w == 1 ? calloc(1, 1UL << 43) : malloc(0x7fff0001UL);
                  return p == 0; }
 long mk(int n) { long *p = malloc(n * sizeof *p); for (int i = 0; i < n; i++) p[i] = i; return (long)p; }
 long rd(long p, int i) { return ((long *)p)[i]; }
-""")
+"""
+h = cimo.compile(HSRC)
 for w in range(3):  # more than wasm32 can have: NULL, not a small block or a trap (2026-11-07)
     assert h.big(w) == 1, w
 q = h.mk(1000)
@@ -252,6 +253,9 @@ assert h.rd(q, 999) == 999 and h.heap_bytes() > 0
 h.free(q)
 h.reset_heap()
 assert h.rd(h.mk(10), 9) == 9
+e = h.cache_entry()  # into the cache again, as a page keeping its compiles between visits would (2026-11-07)
+cimo.add_cache_entry(e)
+assert e.startswith(b'cimo-cache') and cimo.compile(HSRC).cached
 libm = ctypes.CDLL(None)  # Pyodide's own frexp, called by address: its pointer parameter is an i32 (2026-11-07)
 fx = cimo.compile(r"""
 typedef double (*F)(double, int *);

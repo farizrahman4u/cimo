@@ -30,6 +30,14 @@ cimo.load(path, include_dirs=(), link=(), host_headers=False, defines=(), cache=
 
 Compiles a `.c` file. The file's directory is searched for `#include "..."`. Other parameters as for `compile`.
 
+## cimo.add_cache_entry
+
+```python
+cimo.add_cache_entry(data)
+```
+
+Puts a module's cache entry (`module.cache_entry()`) into the cache, on disk if it is writable, else in memory. A later `compile()` of the same source and options loads it instead of compiling. Raises `ValueError` for bytes that aren't an intact entry for this platform.
+
 ## Module
 
 What `compile` and `load` return. Every function in the source that isn't `static` is an attribute.
@@ -42,6 +50,7 @@ What `compile` and `load` return. Every function in the source that isn't `stati
 | `module.free(ptr)` | `free()` a pointer a kernel returned from `malloc` and friends |
 | `module.reset_heap()` | free every block of the module's heap at once; no kernel of the module may be running |
 | `module.heap_bytes()` | bytes currently mapped for the module's heap |
+| `module.cache_entry()` | the module's compile cache entry as bytes, for `cimo.add_cache_entry()` |
 | `module.cached` | `True` if the module came from the compile cache with nothing compiled, `False` if this call compiled it |
 | `module.source` | the C text it was compiled from |
 | `module.options` | the arguments of `compile()` or `load()` that weren't the defaults |

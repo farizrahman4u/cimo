@@ -45,3 +45,13 @@ $ cimo cache path     # print the directory
 ```
 
 The parts of cimo's C library a program uses are compiled the first time they're needed and cached in the same place, so the very first compile after installing (or after an upgrade) takes a little longer.
+
+`module.cached` says whether a module came from the cache. To keep compiles where the cache folder doesn't persist, as in a browser between visits, or to compile on one machine for another of the same kind, take a module's entry as bytes and put it back later:
+
+```python
+data = module.cache_entry()   # bytes
+cimo.add_cache_entry(data)    # later, or elsewhere
+module = cimo.compile(src)    # the same source and options: nothing is compiled
+```
+
+An entry is used only by a `compile()` given the source and options it was built from, so nothing runs from the bytes alone. Damaged bytes, or an entry for another platform, raise `ValueError`.

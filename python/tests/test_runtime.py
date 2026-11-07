@@ -1076,3 +1076,33 @@ def test_module_says_whether_it_came_from_the_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(W, '_memory_cache', {})
     wsrc = 'long g(long x) { return x * 43; }'
     assert W._build(wsrc)[2] is False and W._build(wsrc)[2] is True
+
+
+def test_cache_entry_round_trip(tmp_path, monkeypatch):
+    """module.cache_entry() into another cache with cimo.add_cache_entry(): the same source then compiles nothing;
+    damaged or foreign bytes are refused, and nothing is used without the source."""
+    from cimo import driver
+    src = '#include <stdio.h>\nlong f(long x) { printf("f%ld\\n", x); return x * 47; }'
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path / 'a'))
+    monkeypatch.setattr(driver, '_memory_cache', {})
+    entry = cimo.compile(src).cache_entry()
+    assert cimo.compile(src, cache=False).cache_entry() == entry
+    monkeypatch.setenv('CIMO_CACHE_DIR', str(tmp_path / 'b'))  # another machine of the same kind
+    monkeypatch.setattr(driver, '_memory_cache', {})
+    cimo.add_cache_entry(entry)
+    monkeypatch.setattr(driver, '_compile', lambda *a: 1 / 0)
+    m = cimo.compile(src)
+    assert m.cached and m.f(2) == 94
+    with pytest.raises(ZeroDivisionError):
+        cimo.compile(src + '\nint other;')  # another source: compiled, not taken from the entry
+    bad = bytearray(entry)
+    bad[-3] ^= 1
+    import json
+    n = struct.unpack_from('<I', entry, len(driver._ENTRY))[0]
+    head = json.loads(entry[len(driver._ENTRY) + 4:len(driver._ENTRY) + 4 + n])
+    head['target'] = 'elsewhere'
+    h = json.dumps(head).encode()
+    other = driver._ENTRY + struct.pack('<I', len(h)) + h + entry[len(driver._ENTRY) + 4 + n:]
+    for data, msg in ((b'hello', 'not a cimo'), (bytes(bad), 'damaged'), (other, 'cache entry for elsewhere')):
+        with pytest.raises(ValueError, match=msg):
+            cimo.add_cache_entry(data)

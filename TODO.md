@@ -129,7 +129,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    loader, vector and compile-time tests); nothing needed changing. Scaling 7.7x on 8 threads (Graviton 3), 7.0x (Sapphire
    Rapids, 4 cores and 8 threads); a call about 1 us, of which the GIL's release is 45-60 ns. CI runs those files under
    3.13t (`linux-arm64-free-threaded`).
-2. **Public cache export and import** (already in "Small" as a TODO from scramjit; promoted). API:
+2. ~~Public cache export and import~~ **Done** (2026-11-07) as `module.cache_entry()` and `cimo.add_cache_entry()`, without `prebuilt=` (compiled code is a cache, never shipped). The plan was: API:
    `cimo.export_cache(module, path)` writes the linked image plus the signatures, the source hash,
    the target (`os-arch` or `wasm32`), the cimo version and the options; `cimo.import_cache(path)`
    returns a module without compiling when the host matches, and raises `cimo.CacheMismatch` naming
@@ -352,11 +352,8 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   Every cimo user has this. scramjit is adding a check of its own to the C it generates; if cimo offers a
   general way (an interruptible loop flag in the execution context, set from the entry path), scramjit would
   use that instead.
-- **Public cache export and import** (requested by scramjit, 2026-11-02). Get a compiled module's cache entry as bytes, and put one back, for a
-  worker that compiles for another or a browser keeping compiles between visits, where the cache's folder doesn't persist. An entry is
-  used only when `compile()` is given the source it was built from, so the source is always required and nothing runs from a blob alone
-  (see "Compiled code is a cache" in `requirements.md`). scramjit's LLM demo does this today by listing the files that change in `CIMO_CACHE_DIR`,
-  which depends on the cache's layout. **When done, note it in scramjit's `TODO.md`.**
+- ~~Public cache export and import~~ **Done** (2026-11-07, requested by scramjit): `module.cache_entry()` (bytes)
+  and `cimo.add_cache_entry(data)`, native and Pyodide; used only by a compile of the same source and options.
 - **A public way to get a module's WebAssembly** (requested by scramjit): its site demo shows the
   compiled kernel's disassembly and calls `cimo.wasm.build` for the bytes, as cimo's own demo does,
   which isn't documented API. For example `module.wasm` (bytes, in Pyodide) and making

@@ -750,6 +750,62 @@ def _pyapi(image):
     return table
 
 
+_ENTRY = b'cimo-cache\x01'
+
+
+def _entry(key):
+    """A cache entry as bytes: magic, header length, a JSON header (key, kind, target, crc32), then the image
+    (`img`), the assembly and signatures (`s`) or the wasm module and signatures (`wasm`)."""
+    import json
+    if key is None:
+        raise ValueError('this module was not built by compile() or load(), so it has no cache entry')
+    if _PYODIDE:
+        from . import wasm as _wasm
+        hit = _wasm._cache_get(key)
+        kind, payload, sigs = 'wasm', hit and hit[0], hit and hit[1]
+    else:
+        payload, kind, sigs = _image_get(key), 'img', None
+        if payload is None:
+            hit = _cache_get(key)
+            kind, payload, sigs = 's', hit and hit[0].encode('utf-8'), hit and hit[1]
+    if payload is None:
+        raise ValueError('the cache no longer holds this module (its directory was cleared)')
+    head = json.dumps({'key': key, 'kind': kind, 'target': 'wasm32' if _PYODIDE else TARGET, 'sigs': sigs,
+                       'crc': zlib.crc32(payload)}).encode()
+    return _ENTRY + struct.pack('<I', len(head)) + head + bytes(payload)
+
+
+def add_cache_entry(data: bytes) -> None:
+    """Put a module's cache entry (Module.cache_entry()) into the compile cache, on disk if it is writable, else
+    in memory for this process. Nothing runs from it: compile() uses it only when given the source and options
+    it was built from. Raises ValueError for bytes that aren't an intact entry for this machine's target."""
+    import json
+    data = bytes(data)
+    if not data.startswith(_ENTRY) or len(data) < len(_ENTRY) + 4:
+        raise ValueError('not a cimo cache entry')
+    n, = struct.unpack_from('<I', data, len(_ENTRY))
+    try:
+        head = json.loads(data[len(_ENTRY) + 4:len(_ENTRY) + 4 + n])
+        key, kind, target = head['key'], head['kind'], head['target']
+    except (ValueError, KeyError, TypeError):
+        raise ValueError('not a cimo cache entry') from None
+    payload = data[len(_ENTRY) + 4 + n:]
+    if zlib.crc32(payload) != head.get('crc') or not re.fullmatch(r'[0-9a-f]{24}', str(key)):
+        raise ValueError('damaged cimo cache entry')
+    here = 'wasm32' if _PYODIDE else TARGET
+    if target != here:
+        raise ValueError('cache entry for %s, but this is %s' % (target, here))
+    if kind == 'img':
+        _image_put(key, payload)
+    elif kind == 's':
+        _cache_put(key, payload.decode('utf-8'), head.get('sigs') or '')
+    elif kind == 'wasm':
+        from . import wasm as _wasm
+        _wasm._cache_put(key, payload, head.get('sigs') or '')
+    else:
+        raise ValueError('not a cimo cache entry')
+
+
 def _address(x, keep):
     """Pointer argument: a buffer (numpy array, bytearray, memoryview, ctypes array, bytes) or
     int. Objects that must outlive the call are appended to `keep`. bytes are passed in place
@@ -967,6 +1023,11 @@ class Module(Introspection):
                                          params.split(',') if params else [], self._state,
                                          self._out)
 
+    def cache_entry(self) -> bytes:
+        """The module's compile cache entry, for add_cache_entry() in another process or on another
+        machine of the same kind: a compile() given the same source and options then finds it."""
+        return _entry(getattr(self, '_cachekey', None))
+
     def reset_heap(self) -> None:
         """Free every heap block of the module (all threads' heaps) at once, e.g. between calls
         that use the heap as a scratch arena. Pointers into the heap become invalid. Must not
@@ -1057,9 +1118,9 @@ def _module1(src, filename, include_dirs, link, host_headers, defines):
                                'no host C library)')
         from . import wasm as _wasm
         from .wasm.pyodide import WasmModule
-        mod, sigs, cached = _wasm._build(src, filename, tuple(include_dirs), tuple(defines))
+        mod, sigs, cached, key = _wasm._build(src, filename, tuple(include_dirs), tuple(defines))
         m = WasmModule(mod, sigs)
-        m.cached = cached
+        m.cached, m._cachekey = cached, key
         return m
     _check_machine()
     pp = _preprocess(src, filename, tuple(include_dirs), host_headers, tuple(defines))
@@ -1084,6 +1145,7 @@ def _module1(src, filename, include_dirs, link, host_headers, defines):
         m.cached = hit is not None
     else:
         m.cached = True
+    m._cachekey = key
     for c in m._longs:
         warnings.warn("'%s' (from %s) is declared with long, which is 64-bit in cimo but "
                       "32-bit in Windows DLLs; declare it with int (or long long where the "
