@@ -231,6 +231,17 @@ def _select(fast, p, cloned):
     return r
 
 
+def _last(fast, p, cloned):
+    """Whether p is set to the same value every iteration (`f = 1`, or one from before the loop) and nothing in the loop
+    reads it, so the loop leaves with that value once it has run: a vector iteration sets it as a scalar one does."""
+    v = ir.phiargof(p, fast.sh.latch)
+    if ir.istmp(v) and fast.A.inloop(v):
+        return False
+    if any(p.to in x.arg[:2] for x in cloned):
+        return False
+    return not any(q is not p and p.to in q.arg[:q.narg] for q in ir.phis(fast.sh.H))
+
+
 def _ordered(fast, p, cloned):
     """p as a float Reduction, or None: s = s + v, s - v or fma(a, b, s), nothing else reading s or the new value but
     the phi, done in order; in any order if `#pragma omp simd reduction` names s (Ins.reassoc), and then s * v too.
@@ -423,6 +434,8 @@ def plan(fast, rts):
     for p in ir.phis(sh.H):
         if rval(p.to) not in A.biv:
             r = _reduction(fast, p, fast.cloned) or _select(fast, p, fast.cloned) or _ordered(fast, p, fast.cloned)
+            if r is None and _last(fast, p, fast.cloned):
+                continue
             if r is None:
                 return 0
             if r.op == D.Osel1:
@@ -958,6 +971,11 @@ def body(fast, em, state, copy=0):
         r.out0 = em.raw(op, Kq, r.in0, vec(r.v, r.cls))
         r.out1 = None
         _keep(r, copy)
+    reds = {r.t for r in fast.vreds}
+    for p in ir.phis(fast.sh.H):  # the rest set to one value each iteration (_last)
+        t = rval(p.to)
+        if t not in fast.A.biv and t not in reds:
+            new[('phi', t)] = ir.phiargof(p, fast.sh.latch)
     return new
 
 

@@ -301,6 +301,10 @@ REDUCTIONS = {
     'poly': ('float f(const float *restrict x, long n) { float s = 0; for (long i = 0; i < n; i++) { float t = x[i] * 0.01f; s += (((((t * 3 - 1) * t + 2) * t - 5) * t + 7) * t - 11) * t * t + 13 * t; } return s; }', ctypes.c_float, True),
     'dpoly': ('double f(const double *restrict x, long n) { double s = 1; for (long i = 0; i < n; i++) { double t = x[i] * 0.01; s -= (((((t * 3 - 1) * t + 2) * t - 5) * t + 7) * t - 11) * t * t + 13 * t * t * t; } return s; }', ctypes.c_double, True),
     'fseen': ('#include <math.h>\nfloat f(float *restrict y, const float *restrict x, long n) { float s = 0; for (long i = 0; i < n; i++) { s += sqrtf(fabsf(x[i])) / 3.0f; y[i] = s; } return s; }', ctypes.c_float, False),
+    # a local set to one value each iteration, read only after the loop (a flag): its last value, once the loop ran
+    'flag': ('int f(const int *restrict x, long n) { int s = 0, g = 0; for (long i = 0; i < n; i++) { s += x[i]; g = 1; } return s * 3 + g; }', ctypes.c_int, True),
+    'flagarg': ('long f(const long *restrict x, long n) { long s = 0, last = -7, k = n * 3; for (long i = 0; i < n; i++) { s += x[i]; last = k; } return s + last; }', ctypes.c_int64, True),
+    'flagread': ('int f(const int *restrict x, long n) { int s = 0, g = 0; for (long i = 0; i < n; i++) { s += x[i] + g; g = 1; } return s; }', ctypes.c_int, False),
     'wmin': ('long f(const short *restrict x, long n) { long s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_short, False),
 }
 

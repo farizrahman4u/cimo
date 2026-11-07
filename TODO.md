@@ -238,7 +238,7 @@ in Python.
   limits 40, 100 and 225 (only 0 is worse: scramjit's viewshed 3.48 against 4.05 ms), so 40 stays for now.
 
 **Tier 3, loops** (`middle/`, which has unrolling, unroll-and-jam, scalar replacement, strength reduction):
-- **A local assigned a constant in a loop stops vectorizing** (found by scramjit, whose flag says a variable is now a numpy scalar). `for (...) { s += x[i]; f = 1; }` on `int32_t`: 0.367 ns per element against 0.195 without `f` (100,000 elements, arm64). LLVM's `LICM` sinks it out of the loop. When done, note it in scramjit's `TODO.md`.
+- ~~A local assigned a constant in a loop stops vectorizing~~ **Done** (2026-11-07): a header phi set to a value from outside the loop each iteration, read nowhere in it, takes that value after each vector iteration (`vectorize._last`); `s += x[i]; f = 1;` runs as fast as the plain sum.
 - `LoopRotate`, `IndVarSimplify`/GCC `iv_canon`, `LoopSimplifyCFG`, ~~`LICM` scalar promotion~~ (fields, above). ~~`LoopDeletion`~~
   **Done** for loops that count (`scalar._deadloops`).
 - `LoopIdiomRecognize`: memset, memcpy, popcount, ctz. GCC `crc_optimization`.

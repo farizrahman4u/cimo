@@ -585,6 +585,8 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   x86-64 ran it 1.4 to 1.5x faster. Polynomial sums measured on Graviton: float 0.63 to 0.66x the scalar loop's time, double 0.79 to 0.85x.
   gcc gets `nbody_acc`'s other 1.3x from vectorizing the outer loop, each lane its own sum. scramjit needs numpy's pairwise order
   for its sums, which is a loop it writes itself (`TODO.md`).
+- **Last values (2026-11-07):** a header phi whose latch value is from outside the loop and that nothing in the loop reads
+  (`f = 1` as a flag) is set to that value by each vector iteration (`_last`), so it doesn't stop vectorizing.
 - **`#pragma omp simd reduction(op:s, ...)` (2026-11-07):** `+`, `-`, `*` on float variables. The frontend marks the
   assignment's operation (IR `addassoc`, `subassoc`, `mulassoc`, `fmacassoc`; `Ins.reassoc`) in the loop the pragma
   precedes, and `_ordered` takes a marked sum or product as an unordered reduction (lanes from -0 or 1, INTERLEAVE
