@@ -1243,6 +1243,8 @@ def decl(s, f):
                     Q.paraminfo.setdefault('#fenv', set()).add(d.value.name if d.value else name)
                 if name in DG.noinline and Q.paraminfo is not None:
                     Q.paraminfo.setdefault('#noinline', set()).add(d.value.name if d.value else name)
+                if fs & FUNCINLINE and Q.paraminfo is not None:  # cimo: the backend's inliner allows these more
+                    Q.paraminfo.setdefault('#inline', set()).add(d.value.name if d.value else name)
                 if d.isnoreturn:
                     Q.funchlt(f)
                 # XXX: need to keep track of function in case a later declaration specifies extern

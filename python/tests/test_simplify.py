@@ -683,7 +683,8 @@ ONCE = """static long big(long a, long b) { long s = 0; for (long i = 0; i < a; 
     s += b * 3; s -= i >> 1; s |= 1; s += i * i; s ^= b; s += a; s -= b; s ^= s >> 2; s += 11; s *= 3; s ^= 77; s -= 5; s += a ^ b; } return s; }
 long once(long a) { return big(a, 3); }
 static long twice(long a, long b) { long s = 0; for (long i = 0; i < a; i++) { s += i * b; if (s > 100) s -= 7; s ^= i;
-    s += b * 3; s -= i >> 1; s |= 1; s += i * i; s ^= b; s += a; s -= b; s ^= s >> 2; s += 11; s *= 3; s ^= 77; s -= 5; s += a ^ b; } return s; }
+    s += b * 3; s -= i >> 1; s |= 1; s += i * i; s ^= b; s += a; s -= b; s ^= s >> 2; s += 11; s *= 3; s ^= 77; s -= 5; s += a ^ b;
+    s = s * 5 + i; s ^= s >> 3; s += b * i; s -= a >> 1; s ^= 12345; s += i * 7; s *= 9; s ^= s >> 5; s -= b; s += a * 3; } return s; }
 long t1(long a) { return twice(a, 1); }
 long t2(long a) { return twice(a, 2); }
 static long small(long a) { return a + 1; }
@@ -730,7 +731,40 @@ def test_once_called_functions_inline_and_dead_ones_go():
             s += a ^ b
             s = ((s + 2 ** 63) % 2 ** 64) - 2 ** 63
         return s
-    assert m.once(9) == big(9, 3) and m.t1(5) == big(5, 1) and m.t2(5) == big(5, 2)
+    def twice(a, b):  # big, then 20 more instructions: over the limit with only what the cleanup keeps counted
+        w = lambda v: ((v + 2 ** 63) % 2 ** 64) - 2 ** 63
+        s = 0
+        for i in range(a):
+            s += i * b
+            if s > 100:
+                s -= 7
+            s ^= i
+            s += b * 3
+            s -= i >> 1
+            s |= 1
+            s += i * i
+            s ^= b
+            s += a
+            s -= b
+            s ^= s >> 2
+            s += 11
+            s *= 3
+            s ^= 77
+            s -= 5
+            s += a ^ b
+            s = w(s)
+            s = w(s * 5 + i)
+            s ^= s >> 3
+            s = w(s + b * i)
+            s -= a >> 1
+            s ^= 12345
+            s = w(s + i * 7)
+            s = w(s * 9)
+            s ^= s >> 5
+            s = w(s - b)
+            s = w(s + a * 3)
+        return s
+    assert m.once(9) == big(9, 3) and m.t1(5) == twice(5, 1) and m.t2(5) == twice(5, 2)
 
 
 PURE = """#include <math.h>

@@ -3,7 +3,9 @@
 Runs on the parsed functions of a module before abi0, so the IR is still target independent
 and not yet in SSA form (the later passes accept temporaries defined more than once). A
 function is copied into its callers when it is small: at most ext.inline instructions, not
-counting parameters, stack slots and debug locations. Callees are processed before their
+counting what the cleanup after inlining removes (LLVM's InlineCost does the same): parameters,
+stack slots, debug locations, loads and stores of slots only ever loaded and stored (promoted to
+temporaries), their constant offsets, and copies and extensions of constants. Callees are processed before their
 callers, so a helper's own inlined helpers come along.
 
     expand_all(fns, limit)  the whole module (main._Driver.finish)
@@ -64,6 +66,81 @@ def _count(fn):
     return n
 
 
+def _free(fn):
+    """The instructions of fn that cost nothing once inlined and cleaned up: loads and stores
+    through a stack slot (or a constant offset into one) whose address goes nowhere else, as
+    mem.promote and sroa turn those into temporaries; the offsets themselves; and copies and
+    extensions of constants, which fold. Returns their ids."""
+    slots = set()
+    b = fn.start
+    for i in b.ins if b else ():
+        if D.isalloc(i.op) and rtype(i.to) == RTmp:
+            slots.add(i.to)
+    derived = {}  # offset temporary -> its slot
+    if slots:
+        grew = True
+        while grew:
+            grew = False
+            b = fn.start
+            while b:
+                for i in b.ins:
+                    if i.op == D.Oadd and rtype(i.to) == RTmp and i.to not in derived and i.to not in slots:
+                        for a, c in ((i.arg[0], i.arg[1]), (i.arg[1], i.arg[0])):
+                            base = a if a in slots else derived.get(a)
+                            if base is not None and rtype(c) == RCon and fn.con[rval(c)].type != CAddr:
+                                derived[i.to] = base
+                                grew = True
+                                break
+                b = b.link
+    escaped = set()
+    if slots:
+        def use(r):
+            base = r if r in slots else derived.get(r)
+            if base is not None:
+                escaped.add(base)
+        b = fn.start
+        while b:
+            p = b.phi
+            while p:
+                for a in p.arg:
+                    use(a)
+                p = p.link
+            for i in b.ins:
+                o = i.op
+                if D.isalloc(o) or D.ispar(o) or o == D.Odbgloc:
+                    continue
+                if D.isload(o):
+                    continue                    # arg[0] is the address
+                if D.isstore(o):
+                    use(i.arg[0])               # the value stored; arg[1] is the address
+                    continue
+                if o == D.Oadd and i.to in derived:
+                    continue
+                use(i.arg[0])
+                use(i.arg[1])
+            use(b.jmp.arg)
+            b = b.link
+    free = set()
+    b = fn.start
+    while b:
+        for i in b.ins:
+            o = i.op
+            if D.isload(o):
+                base = i.arg[0] if i.arg[0] in slots else derived.get(i.arg[0])
+                if base is not None and base not in escaped:
+                    free.add(id(i))
+            elif D.isstore(o):
+                base = i.arg[1] if i.arg[1] in slots else derived.get(i.arg[1])
+                if base is not None and base not in escaped:
+                    free.add(id(i))
+            elif o == D.Oadd and i.to in derived and derived[i.to] not in escaped:
+                free.add(id(i))
+            elif o in (D.Ocopy, D.Oextsw, D.Oextuw) and rtype(i.arg[0]) == RCon or o == D.Ofma0:
+                free.add(id(i))                 # fma0 only carries fma1's addend
+        b = b.link
+    return free
+
+
 def snapshot(fn, limit):
     if fn.vararg or fn.dynalloc or fn.retty != D.Kx:
         return None
@@ -76,6 +153,7 @@ def snapshot(fn, limit):
     retk = None
     pars = []
     blocks = []
+    free = _free(fn)
     b = fn.start
     while b:
         start = b is fn.start
@@ -100,7 +178,8 @@ def snapshot(fn, limit):
                     s = _symname(fn, i.arg[0])
                     if s is not None and str_(s) in _RETURNS_TWICE:
                         return None
-                size += 1
+                if id(i) not in free:
+                    size += 1
         j = b.jmp.type
         if D.isret(j):
             if j == D.Jretc:
@@ -295,11 +374,37 @@ def _parno(body, i):
     raise AssertionError('parameter not found')
 
 
-def expand(fn, bodies):
-    """Inline the calls of fn to the functions in bodies; returns the number inlined."""
+def cost(fn):
+    """fn's size as snapshot counts it: what inlining copies and the cleanup keeps"""
+    free = _free(fn)
+    n = 0
+    b = fn.start
+    while b:
+        for i in b.ins:
+            if not (D.ispar(i.op) or D.isalloc(i.op) or i.op == D.Odbgloc or id(i) in free):
+                n += 1
+        b = b.link
+    return n
+
+
+def expand(fn, bodies, cap=None, once=None):
+    """Inline the calls of fn to the functions in bodies; returns the number inlined. once:
+    {symbol: its one caller's symbol} for the bodies taken at any size because one call refers to
+    them; they inline only there, never with a copy of that caller. cap: fn's own inline limit
+    when fn is small enough to be inlined itself; a once body that would take fn past it stays a
+    call, so that a cold path doesn't keep a hot function out of its callers (sj_truediv and its
+    long division)."""
+    from .util import intern
+    once = once or {}
+    me = intern(fn.name)
     if not bodies:
         return 0
     size = _count(fn)
+    small = None
+    if cap is not None and once:
+        small = cost(fn)
+        if small > cap:
+            small = None
     n = 0
     b = fn.start
     while b:
@@ -309,11 +414,14 @@ def expand(fn, bodies):
             if i.op == D.Ocall:
                 s = _symname(fn, i.arg[0])
                 body = bodies.get(s) if s is not None else None
-                if body is not None and body.name != fn.name and size + body.size <= CALLER_LIMIT:
+                if body is not None and body.name != fn.name and size + body.size <= CALLER_LIMIT and \
+                        not (s in once and (once[s] != me or small is not None and small + body.size > cap)):
                     k = _args(b, j, body)
                     if k is not None:
                         b = _expand1(fn, b, k, j, body)
                         size += body.size
+                        if small is not None:
+                            small += body.size
                         n += 1
                         j = 0
                         continue
@@ -480,6 +588,9 @@ _LIBM = frozenset(_LIBM + [n + 'f' for n in _LIBM])
 _READONLY = frozenset("""strlen strnlen strcmp strncmp strcasecmp strncasecmp strchr strrchr strstr strspn strcspn
     strpbrk memcmp memchr abs labs llabs isalpha isdigit isalnum isspace isupper islower toupper tolower""".split())
 ONCE_LIMIT = 800  # LLVM's last-call bonus: a static function called once goes away when inlined
+# a function declared `inline` may be this many times ext.inline (LLVM's inlinehint-threshold is 1.44x its
+# default, gcc's max-inline-insns-single at -O2 about 4.7x max-inline-insns-auto)
+HINT = 2
 
 
 def _symrefs(fn):
@@ -697,6 +808,12 @@ def _deadparam(fn, par, uses, slots):
     return None
 
 
+def _inlinehint():
+    """cimo: the functions declared `inline` (the frontend's paraminfo, through the middle end's params)"""
+    from .. import middle
+    return middle.params.get('#inline', ()) if middle.params else ()
+
+
 def _noinline():
     """cimo: the functions declared noinline or noipa (the frontend's paraminfo, through the middle end's params):
     their calls stay calls, their parameters and results unknown to the callers"""
@@ -829,12 +946,23 @@ def expand_all(fns, limit, datarefs=()):
                 order.append(fn)
     bodies = {}
     noinl = _noinline()
+    hint = _inlinehint()
     nomem = {intern(n) for n in _LIBM | _READONLY if intern(n) not in byid}
+    owner = {}  # symbol -> the function whose one reference it is
+    for fn in fns:
+        for sym in _symrefs(fn):
+            if refs.get(sym) == 1:
+                owner[sym] = intern(fn.name)
+    oncebodies = {}
     for fn in order:
-        expand(fn, bodies)
         s = intern(fn.name)
         once = not fn.lnk.export and refs.get(s, 0) == 1 and s not in data
-        body = None if fn.name in noinl else snapshot(fn, ONCE_LIMIT if once else limit)
+        flimit = ONCE_LIMIT if once else limit * HINT if fn.name in hint else limit
+        cap = None if once or fn.name in noinl or not refs.get(s) else flimit
+        expand(fn, bodies, cap, oncebodies)
+        body = None if fn.name in noinl else snapshot(fn, flimit)
+        if body is not None and once and body.size > limit and s in owner:
+            oncebodies[s] = owner[s]
         if body is not None:
             bodies[s] = body
         if not _writesmemory(fn, nomem):

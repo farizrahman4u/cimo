@@ -208,3 +208,57 @@ def test_struct_fields_stay_in_registers_through_a_loop(tmp_path, monkeypatch):
             v += -2.0 * x * 1e-3
             x += v * 1e-3
         assert abs(s[0] - x) < 1e-12 and abs(s[1] - v) < 1e-12 and s[2] == 2.0, n
+
+
+def _chain(name, n, spec='static'):
+    """a function of 2n arithmetic instructions on one local"""
+    return '%s long %s(long x) {\n' % (spec, name) + ''.join(
+        '    x = x * %d + %d;\n' % (i + 3, i) for i in range(n)) + '    return x;\n}\n'
+
+
+def test_size_is_what_the_cleanup_keeps():
+    """Locals are stack slots until promotion: their loads and stores, the slots' constant offsets and constants'
+    extensions cost nothing once inlined, so they don't count (LLVM's InlineCost does the same). poly is 15
+    arithmetic instructions and over 60 before promotion."""
+    src = r'''
+static double poly(double x) {
+    double a = x * 1.5, b = a + x, c = b * a, d = c - b, e = d * x, f = e + c, g = f * d, h = g - a;
+    union { double d; unsigned long u; } w;
+    w.d = h * b + g * f;
+    w.u ^= 1;
+    return w.d + a + b + c;
+}
+double f(double x) { return poly(x) + poly(x + 1.0); }
+'''
+    assert calls(driver._build(src)[0], 'f') == []
+    assert cimo.compile(src, cache=False).f(0.25) == cimo.compile(src.replace('static double', 'static __attribute__((noinline)) double'), cache=False).f(0.25)
+
+
+def test_declared_inline_gets_more_room():
+    """A function declared inline may be HINT times the limit (gcc and LLVM allow those more too)."""
+    n = driver.INLINE * 3 // 4                      # 1.5x the limit
+    for spec, expect in (('static', ['big', 'big']), ('static inline', [])):
+        src = _chain('big', n, spec) + 'long f(long x) { return big(x) + big(x + 1); }\n'
+        assert calls(driver._build(src)[0], 'f') == expect, spec
+        assert cimo.compile(src, cache=False).f(2) == cimo.compile(src.replace(spec + ' long big', 'long big'), cache=False).f(2)
+
+
+def test_a_cold_callee_called_once_keeps_its_caller_small():
+    """slow is called once, so it inlines at any size, but not into fast, which is small and called from two places:
+    fast would grow past the limit and stay a call in both (scramjit's int / int and its long division)."""
+    src = _chain('slow', driver.INLINE) + r'''
+static long fast(long a) { return a < 100 ? a * 3 : slow(a); }
+long f1(long a) { return fast(a) + 1; }
+long f2(long a) { return fast(a) + 2; }
+'''
+    asm = driver._build(src)[0]
+    assert calls(asm, 'f1') == ['slow'] and calls(asm, 'f2') == ['slow']
+    m = cimo.compile(src, cache=False)
+    for a in (5, 99, 100, 12345):
+        x = a
+        if a >= 100:
+            for i in range(driver.INLINE):
+                x = (x * (i + 3) + i + 2 ** 63) % 2 ** 64 - 2 ** 63
+        else:
+            x = a * 3
+        assert m.f1(a) == x + 1 and m.f2(a) == x + 2, a
