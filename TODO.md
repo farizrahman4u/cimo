@@ -268,6 +268,15 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 
 ## Performance
 
+- **Large blocks: keep freed ones for reuse** (found by scramjit, 2026-11-07, Snapdragon X laptop, WSL). `heap.c`
+  maps every block over `MAXSMALL` (256 KB) on its own, through the Python grow hook, and unmaps it on free, so a
+  loop that makes and drops a big array pays for a new mapping and its page faults each time. scramjit's
+  `y = y * 0.5 + b` ten times (one new array each, freed by its sweep): at 1,000 and 10,000 doubles 7.0 and 41.8 µs
+  against numpy's 12.1 and 59.1, but at 100,000 2,637 against 840 and at 1,000,000 33.2 ms against 8.0, where
+  numpy's glibc malloc reuses the freed block (its mmap threshold rises after the first free). Wanted: a few freed
+  large blocks kept (by size, with a byte cap) and handed out again, and maybe `MADV_HUGEPAGE` for big ones, as
+  numpy asks for. When done, note it in scramjit's `TODO.md`.
+
 - **Kernel calls without ctypes** (found by scramjit, 2026-11-07, Snapdragon X laptop). After the faster
   `Kernel.__call__` (2026-11-05), a call of a kernel taking two doubles and a long still costs 830 to 900 ns here;
   scramjit's whole call of a compiled `a + b` is now 1,145 ns, of which its own dispatch is about 300. Numba's whole
