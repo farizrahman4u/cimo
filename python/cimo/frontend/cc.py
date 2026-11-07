@@ -539,7 +539,7 @@ class Expr(object):
       szof.type -> sztype, temp -> temp."""
     __slots__ = ('kind', 'lvalue', 'decayed', 'type', 'qual', 'op', 'base', 'next', 'toeval',
                  'decl', 'init', 'u', 'ssize', 'sdata', 'args', 'nargs', 'bits', 'post',
-                 'l', 'r', 'ct', 'cf', 'bkind', 'sztype', 'temp', 'vlane')  # vlane (cimo): v[i]'s (v, i)
+                 'l', 'r', 'ct', 'cf', 'bkind', 'sztype', 'temp', 'vlane', 'reassoc')  # vlane (cimo): v[i]'s (v, i)
 
     def __init__(self, kind, type, base):
         self.qual = QUALNONE
@@ -552,6 +552,7 @@ class Expr(object):
         self.toeval = None
         self.op = 0
         self.u = 0
+        self.reassoc = False  # cimo: a binary +, - or * of a reduction `#pragma omp simd` names (expr.assignexpr)
         if exprhook is not None and type is not None:
             exprhook(type)
 

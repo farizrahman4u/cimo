@@ -147,6 +147,7 @@ def emiti(i):
     emit(i.op, i.cls, i.to, i.arg[0], i.arg[1])
     D.insb[D.curi].nsw = i.nsw
     D.insb[D.curi].contract = i.contract
+    D.insb[D.curi].reassoc = i.reassoc
 
 
 def idup(b, s, n):

@@ -10,7 +10,7 @@ from .cc import (SwitchCases, TCASE, TDEFAULT, TIDENT, TCOLON, TLBRACE, TRBRACE,
 from .token import tok, tokenstr, error
 from .pp import next, expect, consume, peek
 from . import type as TY
-from .scope import mkscope, delscope
+from .scope import mkscope, delscope, scopegetdecl
 from . import attr as A
 from . import decl as D
 from . import expr as E
@@ -79,6 +79,7 @@ def stmt(f, s):
     """6.8 Statements and blocks"""
     A.attr(None, 0)
     k = tok.kind
+    omp, U.ompnext = U.ompnext, None  # cimo: `#pragma omp simd reduction(...)` before this statement, for a `for`
     # 6.8.2 Compound statement
     if k == TLBRACE:
         next()
@@ -230,6 +231,13 @@ def stmt(f, s):
     elif k == TFOR:
         next()
         expect(TLPAREN, "after 'for'")
+        outer = U.reduce
+        if omp:
+            U.reduce = dict(outer)
+            for op, name in omp:
+                d = scopegetdecl(s, name, 1)
+                if d is not None and d.kind == DECLOBJECT:
+                    U.reduce[id(d)] = op
         s = mkscope(s)
         nvla = len(f.vlas)
         if D.decl(s, f):
@@ -277,6 +285,7 @@ def stmt(f, s):
             E.delexpr(e)
         Q.funcjmp(f, b0)
         Q.funclabel(f, b3)
+        U.reduce = outer
         _vlaleave(f, nvla)
         del f.vlas[nvla:]
         s = delscope(s)

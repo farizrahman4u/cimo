@@ -585,6 +585,12 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   x86-64 ran it 1.4 to 1.5x faster. Polynomial sums measured on Graviton: float 0.63 to 0.66x the scalar loop's time, double 0.79 to 0.85x.
   gcc gets `nbody_acc`'s other 1.3x from vectorizing the outer loop, each lane its own sum. scramjit needs numpy's pairwise order
   for its sums, which is a loop it writes itself (`TODO.md`).
+- **`#pragma omp simd reduction(op:s, ...)` (2026-11-07):** `+`, `-`, `*` on float variables. The frontend marks the
+  assignment's operation (IR `addassoc`, `subassoc`, `mulassoc`, `fmacassoc`; `Ins.reassoc`) in the loop the pragma
+  precedes, and `_ordered` takes a marked sum or product as an unordered reduction (lanes from -0 or 1, INTERLEAVE
+  copies). `fmin`/`fmax` reductions are unordered without it (fminnm/fmaxnm are associative, a quiet NaN the lane
+  identity). 1M-double dot on the laptop (not a benchmark): 1.30 to 0.22 ms. Float selects (`x > 0 ? a : b`) still
+  don't vectorize on x86-64, so a reduction through one stays scalar there.
 - **Conditions (2026-11-05):** a comparison becomes a lane mask (`qceq`/`qcgt`/`qcge`/`qcugt`/`qcuge`, operands swapped for
   `<`, `<=`, negated for `!=`; ordered/unordered tests have none), read only by `qsel0`/`qsel1`, so a select stays exact for NaNs
   and signed zeros. `ifconv` lets an arm hold an inner diamond's select, so nested ternaries (a clamp) convert inside out.

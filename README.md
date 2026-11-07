@@ -78,8 +78,9 @@ Results are bit-identical to the reference compiler.</sub>
 
 On arm64 and x86-64, cimo also auto-vectorizes straight counted loops over 4- and 8-byte elements, 128 bits at a
 time (256 with AVX2), conditions included (`x > 0 ? x : 0`; integer ones only on x86-64). Floating-point sums vectorize only where
-the loop does enough else, since C fixes their order. Integer reductions use four vectors of accumulators, and a
-running integer `max` or `min` vectorizes, with a fast path when a stride argument is 1 (`a[i * st]`), and so do
+the loop does enough else, since C fixes their order, unless `#pragma omp simd reduction(+:s)` frees it; then they
+and integer reductions use four vectors of accumulators. `fmin`/`fmax` reductions vectorize on arm64, and a
+running integer `max` or `min`, with a fast path when a stride argument is 1 (`a[i * st]`), and so do
 loops that leave early (`any`, `all`, finding the first match). Loops over bytes vectorize in 16-bit lanes when their
 values fit (pixels: `rgb2gray`), and an outer loop vectorizes when its inner loop's sums must stay in order (`nbody_acc`).
 Float `max`/`min`, `argmax`, 16-bit elements and WebAssembly stay scalar, so the
@@ -226,7 +227,7 @@ Pre-release. Runs on Linux, macOS and Windows (arm64 and x86-64) and in the brow
 arm64 and x86-64. Differential-tested against gcc on random programs (Csmith, YARPGen) on both architectures.
 Planned:
 
-- Auto-vectorization of more loops (float `max`/`min`, `argmax`, 8- and 16-bit elements, outer loops), and on WebAssembly
+- Auto-vectorization of more loops (float `max`/`min` written as comparisons, `argmax`, 8- and 16-bit elements, outer loops), and on WebAssembly
 - GNU vector types: shuffles, conversions and lane writes as vector instructions (operators already are), and vectors in vector registers across calls
 - `debug=True`: bounds checks on every access, and detection of use-after-free, double free and leaks
 - `cimo report`: which loops were optimized, and why the others weren't

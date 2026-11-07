@@ -161,6 +161,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.wasmptr = bool(wasmptr)
         U.diagnostics = bool(diagnostics)
         U.fenvaccess = U.fenvtouched = U.cxlimited = False
+        U.ompnext, U.reduce = None, {}
         if diagnostics:
             from . import cc as _cc, diag as _diag
             _cc.exprhook = _diag.checktype

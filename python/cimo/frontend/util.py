@@ -21,6 +21,10 @@ fenvaccess = False
 fenvtouched = False
 # cimo: `#pragma STDC CX_LIMITED_RANGE ON` in effect: complex * and / by the usual formulas, inline (qbe._cxbinary)
 cxlimited = False
+# cimo: `#pragma omp simd reduction(+:s)`: the (operator, name) pairs of the pragma before the next statement
+# (pp.directive), and {id(decl): operator} for the loop it precedes, while it is parsed (stmt, expr.assignexpr)
+ompnext = None
+reduce = {}
 
 
 class FrontendError(Exception):

@@ -596,7 +596,7 @@ class BSet:
 
 
 class Ins:
-    __slots__ = ('op', 'cls', 'to', 'arg', 'nsw', 'contract')
+    __slots__ = ('op', 'cls', 'to', 'arg', 'nsw', 'contract', 'reassoc')
 
     def __init__(self, op=0, cls=0, to=R, arg0=R, arg1=R):
         self.op = op
@@ -606,11 +606,14 @@ class Ins:
         self.nsw = False  # cimo (ext.nowrap): C says this signed operation doesn't overflow
         self.contract = False  # cimo (ext.fma), on fma1: contracted from a*b + c (IR "fmac"), so it may be split again;
         # an fma() call ("fma") never is. Copies keep it; a lost mark only leaves a product fused
+        self.reassoc = False  # cimo, on a float add, sub, mul or fma1: a reduction `#pragma omp simd reduction` names
+        # (IR "addassoc", ...), which the vectorizer may sum in any order. A lost mark only keeps C's order
 
     def copy(self):
         i = Ins(self.op, self.cls, self.to, self.arg[0], self.arg[1])
         i.nsw = self.nsw
         i.contract = self.contract
+        i.reassoc = self.reassoc
         return i
 
     def set(self, o):
@@ -622,6 +625,7 @@ class Ins:
         self.arg[1] = o.arg[1]
         self.nsw = o.nsw
         self.contract = o.contract
+        self.reassoc = o.reassoc
 
     def __repr__(self):
         return 'Ins(%s, %d, %#x, %#x, %#x)' % (optab[self.op].name, self.cls, self.to,

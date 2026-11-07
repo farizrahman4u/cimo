@@ -9,7 +9,8 @@ Legal when, as LoopVectorizationLegality and LoopAccessAnalysis ask:
   either sees: see _distance;
 - nothing is carried round the loop but the induction variables and integer reductions (_reduction), whose order C
   doesn't fix, and float sums (_ordered), whose order it does: the vector loop adds its lanes one by one, in order, as
-  gcc's fold-left reductions, when what else the loop does is worth it (_worth);
+  gcc's fold-left reductions, when what else the loop does is worth it (_worth); in any order where
+  `#pragma omp simd reduction` names them (Ins.reassoc), and fmin/fmax ones always;
 - operands are computed in the loop by a vectorized instruction, or are the same on every iteration.
 
 Each lane does what the scalar instruction did, in the same rounding, so results are bit for bit the scalar loop's.
@@ -136,6 +137,11 @@ class Reduction:
 
 
 _REDOPS = {D.Oadd: 'qadd', D.Osub: 'qsub', D.Oand: 'qand', D.Oor: 'qor', D.Oxor: 'qxor'}
+_FREDOPS = {**_REDOPS, D.Omul: 'qmul', D.Ofmin: 'qmin', D.Ofmax: 'qmax'}  # and float reductions in any order
+# each lane's starting value, as float bits: -0 is the identity of a sum (+0 isn't, for -0), a quiet NaN of fmin and
+# fmax (which take the number over it)
+_FIDENT = {(Ks, D.Oadd): 0x80000000, (Kd, D.Oadd): 1 << 63, (Ks, D.Omul): 0x3f800000, (Kd, D.Omul): 0x3ff0000000000000,
+           (Ks, D.Ofmin): 0x7fc00000, (Kd, D.Ofmin): 0x7ff8000000000000}
 
 
 def _reduction(fast, p, cloned):
@@ -226,8 +232,9 @@ def _select(fast, p, cloned):
 
 
 def _ordered(fast, p, cloned):
-    """p as a float Reduction done in order, or None: s = s + v, s - v or fma(a, b, s), nothing else reading s or the
-    new value but the phi."""
+    """p as a float Reduction, or None: s = s + v, s - v or fma(a, b, s), nothing else reading s or the new value but
+    the phi, done in order; in any order if `#pragma omp simd reduction` names s (Ins.reassoc), and then s * v too.
+    s = fmin(s, v) and fmax always in any order: fminnm and fmaxnm give the same in any order (NaNs and zeros too)."""
     if p.cls not in (Ks, Kd):
         return None
     nxt = ir.phiargof(p, fast.sh.latch)
@@ -251,6 +258,8 @@ def _ordered(fast, p, cloned):
         v = i.arg[0]  # v + s: s + v, the same for floats
     elif i.op == D.Osub and i.arg[0] == p.to and i.arg[1] != p.to:
         v = i.arg[1]
+    elif (i.op in (D.Ofmin, D.Ofmax) or i.op == D.Omul and i.reassoc) and p.to in i.arg[:2] and i.arg[0] != i.arg[1]:
+        v = i.arg[1] if i.arg[0] == p.to else i.arg[0]
     else:
         return None
     reads = 0
@@ -266,7 +275,8 @@ def _ordered(fast, p, cloned):
     r = Reduction()
     r.t, r.i, r.op, r.v, r.cls, r.third = rval(p.to), i, i.op, v, p.cls, third
     r.ext = None
-    r.ordered = True
+    r.ordered = not (i.reassoc or i.op in (D.Ofmin, D.Ofmax))
+    r.identity = _FIDENT[p.cls, {D.Osub: D.Oadd, D.Ofma1: D.Oadd, D.Ofmax: D.Ofmin}.get(i.op, i.op)]
     return r
 
 
@@ -526,7 +536,7 @@ def plan(fast, rts):
                 return 0
             widths.add(4)
         else:
-            if not _operand(fast, r.v, made):
+            if not all(_operand(fast, a, made) for a in (r.v if isinstance(r.v, tuple) else (r.v,))):
                 return 0
             widths.add(_SIZE[r.cls])
     if len(widths) != 1:
@@ -922,7 +932,10 @@ def body(fast, em, state, copy=0):
             r.out1 = None
             _keep(r, copy)
             continue
-        identity = fast.fp.raw(getattr(D, 'Oqdup' + _LANE[r.cls]), Kq, fast.fp.con(-1 if r.op == D.Oand else 0))
+        if r.cls in (Ks, Kd):
+            identity = fast.fp.raw(getattr(D, 'Oqdup' + _LANE[r.cls]), Kq, fast.fp.con(r.identity))
+        else:
+            identity = fast.fp.raw(getattr(D, 'Oqdup' + _LANE[r.cls]), Kq, fast.fp.con(-1 if r.op == D.Oand else 0))
         r.acc0 = identity
         r.in0 = newtmp('v', Kq, fn)
         if r.ext is not None:
@@ -935,7 +948,13 @@ def body(fast, em, state, copy=0):
             _keep(r, copy)
             continue
         r.in1 = None
-        op = getattr(D, 'O' + _REDOPS[r.op] + ('' if r.op in (D.Oand, D.Oor, D.Oxor) else _LANE[r.cls]))
+        if r.op == D.Ofma1:
+            em.ins(Ins(D.Oqfma0, Kq, R, r.in0, R))
+            r.out0 = em.raw(getattr(D, 'Oqfma1' + _LANE[r.cls]), Kq, vec(r.v[0], r.cls), vec(r.v[1], r.cls))
+            r.out1 = None
+            _keep(r, copy)
+            continue
+        op = getattr(D, 'O' + _FREDOPS[r.op] + ('' if r.op in (D.Oand, D.Oor, D.Oxor) else _LANE[r.cls]))
         r.out0 = em.raw(op, Kq, r.in0, vec(r.v, r.cls))
         r.out1 = None
         _keep(r, copy)
@@ -977,9 +996,9 @@ def closeloop(fast, em, MB, FP, state):
                 v = em.raw(D.Osel1, k, at(r.i.arg[0]), at(r.i.arg[1]))
             out[('phi', r.t)] = v
             continue
-        op = D.Oadd if r.op in (D.Oadd, D.Osub) else r.op
+        op = D.Oadd if r.op in (D.Oadd, D.Osub, D.Ofma1) else r.op
         # the copies' accumulators into one, lane by lane (a subtraction's each hold 0 - their part: added)
-        vop = getattr(D, 'O' + _REDOPS[op] + ('' if op in (D.Oand, D.Oor, D.Oxor) else ('l' if r.ext is not None else x)))
+        vop = getattr(D, 'O' + _FREDOPS[op] + ('' if op in (D.Oand, D.Oor, D.Oxor) else ('l' if r.ext is not None else x)))
         total = totals[0]
         for t in totals[1:]:
             total = em.raw(vop, Kq, total, t)

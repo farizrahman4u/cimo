@@ -1516,6 +1516,9 @@ def _constmember(t):
     return False
 
 
+_REDUCE = {'+': (TADD, TSUB), '-': (TADD, TSUB), '*': (TMUL,)}  # s - x in a + reduction too, as OpenMP has it
+
+
 def assignexpr(s):
     l = condexpr(s)
     if l.kind == EXPRBINARY or l.kind == EXPRCOMMA or l.kind == EXPRCAST:
@@ -1529,7 +1532,14 @@ def assignexpr(s):
         error(tok.loc, "cannot assign to a struct or union with a 'const' member")
     next()
     r = assignexpr(s)
+    red = U.reduce and l.kind == EXPRIDENT and U.reduce.get(id(l.decl))
+    if red and l.type.prop & PROPFLOAT and not l.type.iscomplex:  # cimo: s = s + x of a `#pragma omp simd reduction`
+        red = _REDUCE[red]
+    else:
+        red = ()
     if not op:
+        if r.kind == EXPRBINARY and r.op in red and r.type is l.type:
+            r.reassoc = True
         return mkassignexpr(l, r)
     # rewrite `E1 OP= E2` as `T = &E1, *T = *T OP E2`, where T is a temporary slot
     if l.kind == EXPRBITFIELD:
@@ -1546,6 +1556,8 @@ def assignexpr(s):
         bit.base = l
         l = bit
     r = mkbinaryexpr(tok.loc, op, l, r)
+    if r.kind == EXPRBINARY and r.op in red and r.type is l.type:
+        r.reassoc = True
     e.next = mkassignexpr(l, r)
     return Expr(EXPRCOMMA, l.type, e)
 

@@ -283,7 +283,7 @@ class QbeType(object):
 
 
 class Inst(object):
-    __slots__ = ('kind', 'cls', 'res', 'arg0', 'arg1', 'arg2', 'nsw')
+    __slots__ = ('kind', 'cls', 'res', 'arg0', 'arg1', 'arg2', 'nsw', 'reassoc')
 
 
 JUMP_NONE, JUMP_JMP, JUMP_JNZ, JUMP_RET, JUMP_HLT = range(5)
@@ -467,6 +467,7 @@ def mkinst(f, op, cls, arg0, arg1):
     inst.arg0 = arg0
     inst.arg1 = arg1
     inst.nsw = False
+    inst.reassoc = False  # cimo: an operation of a `#pragma omp simd reduction` (Expr.reassoc), printed "addassoc", ...
     inst.res = Value(VALUE_NONE)
     if cls and op != IARG:
         functemp(f, inst.res)
@@ -2578,6 +2579,8 @@ def funcexpr(f, e):
         if contract:
             v = funcfma(f, e)
             if v is not None:
+                if e.reassoc:
+                    f.end.insts[-1].reassoc = True
                 return v
         if (e.op == TEQL or e.op == TNEQ) and e.l.kind == EXPRCALL:
             r = _stripcast(e.r)
@@ -2594,6 +2597,8 @@ def funcexpr(f, e):
         if op == INONE:
             U.fatal("internal error; unimplemented binary expression")
         v = funcinst(f, op, qbetype(e.type).base, l, r)
+        if e.reassoc:
+            f.end.insts[-1].reassoc = True
         if op in (IADD, ISUB, IMUL) and t is e.l.type:  # not of pointers (t became unsigned long)
             _nowrapinst(f, e.type)
         if t.kind == TYPEBITINT:
@@ -2998,7 +3003,7 @@ def emitinst(insts, i, n):
         emitvalue(inst.res)
         w(" =")
         emitclass(inst.cls, None)
-        w(" fmac " if inst.nsw else " fma ")
+        w((" fmac" if inst.nsw else " fma") + ("assoc " if inst.reassoc else " "))
         emitvalue(inst.arg0)
         w(", ")
         emitvalue(inst.arg1)
@@ -3031,6 +3036,8 @@ def emitinst(insts, i, n):
     w(instname[inst.kind])
     if inst.nsw:
         w('nsw')
+    if inst.reassoc:
+        w('assoc')
     if inst.kind in (IGETSP, IRDFPCR, IRDFPSR):
         w('\n')
         return i + 1

@@ -919,3 +919,65 @@ def test_float16_arrays(name):
         b = off.f(*copies, n)
         assert a == b or (a != a and b != b), (name, n)
         assert [bytes(x) for x in bufs] == [bytes(x) for x in copies], (name, n)
+
+
+# `#pragma omp simd reduction`: the sums and products it names in any order, as integers', INTERLEAVE vectors an
+# iteration. Small integers (or powers of two) as data, so every order gives the same bits
+OMP = {
+    'dot': ('double f(const double *restrict x, long n) { double s = 0;\n#pragma omp simd reduction(+:s)\n'
+            'for (long i = 0; i < n; i++) s += x[i] * x[i]; return s; }', ctypes.c_double),
+    'fsum': ('float f(const float *restrict x, long n) { float s = 0.5f;\n#pragma omp simd reduction(+ : s)\n'
+             'for (long i = 0; i < n; i++) s = s + x[i]; return s; }', ctypes.c_float),
+    'sub': ('double f(const double *restrict x, long n) { double s = 7;\n#pragma omp simd reduction(-:s)\n'
+            'for (long i = 0; i < n; i++) s -= x[i]; return s; }', ctypes.c_double),
+    'two': ('float f(const float *restrict x, long n) { float s = 0, t = 1;\n#pragma omp simd reduction(+:s,t)\n'
+            'for (long i = 0; i < n; i++) { s += x[i]; t += 2 * x[i]; } return s - t; }', ctypes.c_float),
+    'prod': ('double f(const double *restrict x, long n) { double p = 1;\n#pragma omp simd reduction(*:p)\n'
+             'for (long i = 0; i < n; i++) p *= x[i]; return p; }', ctypes.c_double),
+}
+
+
+@pytest.mark.parametrize('name', sorted(OMP))
+def test_omp_simd_reduction(name):
+    src, ctype = OMP[name]
+    assert vectorized(src), driver._build(src)[0]
+    assert not vectorized(src.replace('#pragma omp', '#pragma xomp')), name
+    on, off = both(src)
+    r = random.Random(5)
+    for n in (0, 1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 200):
+        x = (ctype * (n + 8))(*[r.choice((2, 0.5, -1, 1, -4)) if name == 'prod' else r.randrange(-50, 50)
+                                  for _ in range(n + 8)])
+        assert on.f(ctypes.addressof(x), n) == off.f(ctypes.addressof(x), n), (name, n)
+
+
+def test_omp_simd_reduction_only_what_it_names():
+    """A sum the pragma doesn't name keeps C's order, and so does one the next loop does; the IR says which is which."""
+    src = ('double f(const double *restrict x, long n) { double s = 0, t = 0;\n#pragma omp simd reduction(+:t)\n'
+           'for (long i = 0; i < n; i++) s += x[i]; for (long i = 0; i < n; i++) t += x[i]; return s + t; }')
+    assert not vectorized(src)
+    pp = driver._preprocess(src, 'x.c', (), False, ())
+    ssa, _ = driver._frontend(pp, 'x.c')
+    assert 'assoc' not in ssa
+    ssa, _ = driver._frontend(driver._preprocess(OMP['dot'][0], 'x.c', (), False, ()), 'x.c', fma=True)
+    assert re.search(r'=d fmacassoc ', ssa), ssa
+
+
+@pytest.mark.parametrize('op', ['fmin', 'fmax'])
+@pytest.mark.parametrize('t', ['float', 'double'])
+def test_fmin_fmax_reductions_in_any_order(op, t):
+    """fminnm and fmaxnm give the same in any order, NaNs and signed zeros included: no pragma needed."""
+    if hosts.AMD64:
+        pytest.skip('fmin and fmax are calls on x86-64')
+    fn = op + ('f' if t == 'float' else '')
+    src = ('#include <math.h>\n%s f(const %s *restrict x, long n) { %s m = x[-1]; for (long i = 0; i < n; i++) '
+           'm = %s(m, x[i]); return m; }' % (t, t, t, fn))
+    assert vectorized(src), driver._build(src)[0]
+    ctype = ctypes.c_float if t == 'float' else ctypes.c_double
+    on, off = both(src)
+    r = random.Random(3)
+    pick = [0.0, -0.0, float('nan'), float('inf'), -float('inf'), 1.5, -2.5, 3.0]
+    for n in (0, 1, 2, 3, 4, 5, 8, 9, 16, 17, 33, 64, 65):
+        for _ in range(6):
+            x = (ctype * (n + 1))(*[r.choice(pick) for _ in range(n + 1)])
+            a, b = on.f(ctypes.addressof(x) + ctypes.sizeof(ctype), n), off.f(ctypes.addressof(x) + ctypes.sizeof(ctype), n)
+            assert struct.pack('d', a) == struct.pack('d', b) or (a != a and b != b), (n, list(x), a, b)

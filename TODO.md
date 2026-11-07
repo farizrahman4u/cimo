@@ -286,14 +286,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
   address), compiled with the kernel and wrapped by `PyCFunction_New`, falling back to ctypes where the Python C API
   isn't there (Pyodide?). Expect under 100 ns. When done, note it in scramjit's `TODO.md`.
 
-- **`#pragma omp simd reduction(+:s)` does nothing yet** (found by scramjit, 2026-11-07, Snapdragon X). The
-  preprocessor keeps the pragma and the spec ("Floating point") says it opts a loop into vectorized reductions, but
-  the frontend drops it: a dot product of 1M doubles takes 1.36 ms with or without it, same bits (the vectorizer's
-  in-order fold, `_ordered`). Numba with fastmath takes 0.34 ms (gcc -O3 -ffast-math is similar). Wanted: the named
-  float sums (and products, `fmin`/`fmax`) of the loop the pragma precedes become unordered reductions, with
-  `INTERLEAVE` accumulators as integer ones already get; nothing else about the loop's floating point changes (no
-  no-NaN or no-inf assumptions). scramjit will emit it for `reassoc=True`, a new opt-in separate from `parity`.
-  When done, note it in scramjit's `TODO.md`.
+- ~~`#pragma omp simd reduction(+:s)` does nothing~~ **Done** (2026-11-07): `+`, `-`, `*` sums and products it
+  names are unordered reductions with INTERLEAVE accumulators (1M-double dot 1.30 to 0.22 ms on the laptop, to
+  re-measure on mains power); `fmin`/`fmax` reductions are unordered without it, on arm64 (calls on x86-64).
 
 - **A fast bundled libm, for scramjit's `parity=False`** (found by scramjit, 2026-11-07). scramjit's `parity=False`
   calls cimo's C library for `math` (its `parity=True` keeps the host's, as CPython does, and its own CPython-exact

@@ -48,6 +48,8 @@ Tvector = Ntok + 8  # cimo extension: "type :v = align 16 vector { s 4 }", a GNU
 _QNAMES = {optab[o].name: o for o in list(range(D.Oqaddb, D.Oqstore + 1)) + [D.Oqload16, D.Oqstore16] if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
 _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
+Tassoc = Ntok + 10  # cimo extension: a float add, sub or mul of a `#pragma omp simd reduction`, in any order
+_ASSOCOPS = {'addassoc': D.Oadd, 'subassoc': D.Osub, 'mulassoc': D.Omul}
 _FPUOPS = ('rdfpcr', 'rdfpsr', 'wrfpcr', 'wrfpsr')  # cimo: the floating-point environment (ext.math)
 _BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16', 'umulh', 'h2f', 'f2h')  # umulh: arm64's, for the frontend's __int128
 
@@ -241,9 +243,13 @@ def lex():
             return Tvector
         if S.tokval_str == 'p':
             return Tp
-        if S.tokval_str in ('fma', 'fmac') and _ext.fma:
-            S.fmac = S.tokval_str == 'fmac'
+        if S.tokval_str in ('fma', 'fmac', 'fmaassoc', 'fmacassoc') and _ext.fma:
+            S.fmac = S.tokval_str.startswith('fmac')
+            S.assoc = S.tokval_str.endswith('assoc')
             return Tfma
+        if S.tokval_str in _ASSOCOPS:
+            S.mathop = _ASSOCOPS[S.tokval_str]
+            return Tassoc
         if _ext.math and S.tokval_str in _MATHOPS:
             S.mathop = getattr(D, 'O' + S.tokval_str)
             return Tmath
@@ -650,6 +656,7 @@ def parseline(ps):
         _put(Ins(D.Ofma0, k, R, arg[2], R))
         f1 = Ins(D.Ofma1, k, r, arg[0], arg[1])
         f1.contract = S.fmac  # "fmac": contracted from a*b + c, so fmashare/fmachain may split it; "fma" (an fma() call) never
+        f1.reassoc = S.assoc
         _put(f1)
         return PIns
     elif op == Tvol:
@@ -670,6 +677,12 @@ def parseline(ps):
             err("%snsw needs two arguments and class w or l", optab[S.mathop].name)
         p = _ins(S.mathop, k, r, arg)
         D.insb[D.curi - 1].nsw = True
+        return p
+    elif op == Tassoc:
+        if i != 2 or KBASE(k) != 1:
+            err("%sassoc needs two arguments and class s or d", optab[S.mathop].name)
+        p = _ins(S.mathop, k, r, arg)
+        D.insb[D.curi - 1].reassoc = True
         return p
     elif op == Tbits:
         if S.mathop == D.Oumulh:

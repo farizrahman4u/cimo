@@ -377,8 +377,10 @@ def directive():
         words = []
         while tok.kind != TNEWLINE and tok.kind != TEOF:
             next()
-            if tok.kind != TNEWLINE and tok.kind != TEOF and len(words) < 4:
+            if tok.kind != TNEWLINE and tok.kind != TEOF and len(words) < 64:
                 words.append(tokenstr(tok.kind) if not tok.lit else tok.lit)
+        if words[:1] == ['omp'] and 'simd' in words:  # cimo: the loop's reductions, for stmt
+            U.ompnext = _reductions(words)
         if words[:2] == ['STDC', 'FENV_ACCESS'] and len(words) == 3:  # cimo (C11 7.6.1)
             U.fenvaccess = words[2] == 'ON'
             U.fenvtouched |= U.fenvaccess
@@ -388,6 +390,22 @@ def directive():
         error(tok.loc, "invalid preprocessor directive #%s", tokenstr(tok.kind))
     tokencheck(tok, TNEWLINE, "after preprocessing directive")
     ppflags = oldflags
+
+
+def _reductions(words):
+    """The (operator, name) pairs of an omp pragma's reduction(op: a, b) clauses: +, - and *."""
+    out = []
+    n = 0
+    while n < len(words):
+        if words[n] == 'reduction' and words[n + 1:n + 2] == ['('] and words[n + 3:n + 4] == [':']:
+            op = words[n + 2]
+            n += 4
+            while n < len(words) and words[n] != ')':
+                if words[n] != ',' and op in ('+', '-', '*'):
+                    out.append((op, words[n]))
+                n += 1
+        n += 1
+    return out
 
 
 def nextinto(t):
