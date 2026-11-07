@@ -42,7 +42,7 @@ jobs:
           python-version: "3.13t"
       - run: pip install pytest numpy
       - run: python -c "import sys; assert not sys._is_gil_enabled(), 'not a free-threaded build'"
-      - run: python -m pytest -q tests/test_threads.py tests/test_execution.py tests/test_faults.py tests/test_runtime.py tests/test_loader.py tests/test_vectorize.py tests/test_compile_time.py
+      - run: python -m pytest -q tests/test_threads.py tests/test_execution.py tests/test_faults.py tests/test_runtime.py tests/test_loader.py tests/test_vectorize.py tests/test_compile_time.py tests/test_fastcall.py tests/test_cross_module.py
 
   macos-arm64:
     runs-on: macos-15
