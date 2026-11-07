@@ -49,7 +49,9 @@ def _values(ty, n, rnd):
         return [rnd.choice(pool) if rnd.random() < 0.5 else rnd.uniform(-100, 100) for _ in range(n)]
     bits = 8 * {'char': 1, 'short': 2, 'int': 4, 'unsigned': 4, 'long': 8}[ty.split()[-1]]
     lo, hi = (0, 2 ** bits - 1) if ty.startswith('unsigned') else (-2 ** (bits - 1), 2 ** (bits - 1) - 1)
-    return [rnd.choice([lo, hi, 1, -1 if lo else 1, 2, 7, rnd.randint(lo, hi)]) or 3 for _ in range(n)]  # no 0: / by lanes
+    # no 0 and no -1: x / 0 and INT_MIN / -1 are undefined (x86-64 traps)
+    return [v if v not in (0, -1) else 3 for v in (rnd.choice([lo, hi, 1, -2 if lo else 1, 2, 7, rnd.randint(lo, hi)])
+                                                   for _ in range(n))]
 
 
 _CT = {'signed char': ctypes.c_int8, 'unsigned char': ctypes.c_uint8, 'short': ctypes.c_int16,
