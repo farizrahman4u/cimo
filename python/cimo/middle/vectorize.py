@@ -119,6 +119,25 @@ def _storeclass(i):
     return {D.Ostorew: Kw, D.Ostorel: Kl, D.Ostores: Ks, D.Ostored: Kd}.get(i.op)
 
 
+def _way(fast, step):
+    """Whether an access stepping by step goes the way the loop's others do (cimo.middle: fast.vdown, a loop whose
+    accesses step down); the first one decides."""
+    down = step < 0
+    if fast.vdown is None:
+        fast.vdown = down
+    return fast.vdown == down
+
+
+def _at(fast, k0, j=0, lanes=None):
+    """The iteration whose element is at a vector's lowest address: j vectors of `lanes` elements into the copy that
+    starts at iteration k0. Stepping down, lanes hold the elements in memory order, the copy's last iteration first;
+    every access does the same, so each lane is one iteration throughout."""
+    lanes = lanes or fast.vf
+    if fast.vdown:
+        return k0 + fast.vf - 1 - j * lanes
+    return k0 + j * lanes
+
+
 def _distance(store, load, vf, storeat, loadat):
     """store and load are forms with one base and step. d = store's address - load's. Nothing changes if they're the
     same element, or a vector's worth apart. A load ahead of a store sees what it saw before only if the vector load
@@ -127,7 +146,7 @@ def _distance(store, load, vf, storeat, loadat):
     size = abs(store.S.c)
     if d == 0 or abs(d) >= vf * size:
         return True
-    return d < 0 and loadat < storeat
+    return (d < 0) == (store.S.c > 0) and loadat < storeat  # the load ahead, in the loop's order
 
 
 class Reduction:
@@ -140,7 +159,7 @@ class Index:
     """The position of a select reduction's value (Reduction.index): q, the phi of `q = cond ? b : q` beside the value's
     select on the same condition (None: kept only to order equal values: float zeros), b an induction variable stepping
     by step, sel0 and sel1 its select; its lanes in body and closeloop."""
-    __slots__ = ('q', 'b', 'step', 'sel0', 'sel1', 'bfirst', 'acc0', 'in0', 'out0', 'copies')
+    __slots__ = ('q', 'b', 'step', 'sel0', 'sel1', 'bfirst', 'acc0', 'in0', 'out0', 'copies', 'rel')
 
 
 _REDOPS = {D.Oadd: 'qadd', D.Osub: 'qsub', D.Oand: 'qand', D.Oor: 'qor', D.Oxor: 'qxor'}
@@ -197,7 +216,7 @@ def _select(fast, p, cloned):
     integer, so the order doesn't matter. A float one (a comparison false on NaN: NaNs never win) keeps an index beside
     each lane (plan: Index), since its equal values aren't all the same (two zeros): the lanes join by value, then the
     earlier or later index, as the loop would have."""
-    if p.cls not in (Kw, Kl, Kd):
+    if p.cls not in (Kw, Kl, Ks, Kd):
         return None
     nxt = ir.phiargof(p, fast.sh.latch)
     if not ir.istmp(nxt):
@@ -231,7 +250,9 @@ def _select(fast, p, cloned):
         return None  # !(x <= s), or s > x ? s : x: a NaN would win
     bits = 8 * _SIZE[p.cls]
     unsigned = c[0].startswith('qcu')
-    if flt:
+    if flt and p.cls == Ks:
+        identity = (0xff800000 if greater else 0x7f800000)
+    elif flt:
         identity = (0xfff0000000000000 if greater else 0x7ff0000000000000)  # -inf, +inf: nothing passes them strictly
     elif greater:
         identity = 0 if unsigned else -(1 << (bits - 1))
@@ -261,7 +282,7 @@ def _index(fast, q, cloned, sels):
     if n is None or n < 1 or cloned[n].op != D.Osel1 or cloned[n].cls != Kl or cloned[n - 1].op != D.Osel0:
         return None
     sel1, sel0 = cloned[n], cloned[n - 1]
-    r = next((r for r in sels if r.cmp.to == sel0.arg[0] and r.index is None and r.cls in (Kl, Kd)), None)
+    r = next((r for r in sels if r.cmp.to == sel0.arg[0] and r.index is None), None)
     if r is None or q.to not in sel1.arg[:2] or sel1.arg[0] == sel1.arg[1]:
         return None
     b = sel1.arg[1] if sel1.arg[0] == q.to else sel1.arg[0]
@@ -280,6 +301,7 @@ def _index(fast, q, cloned, sels):
         return None
     ix = Index()
     ix.q, ix.b, ix.step, ix.sel0, ix.sel1, ix.bfirst = q, b, step, sel0, sel1, sel1.arg[0] == b
+    ix.rel = r.cls in (Kw, Ks)  # 32-bit lanes: an iteration count beside each, the position from it (_closeindexed)
     return ix
 
 
@@ -436,7 +458,7 @@ def _bytes(fast, rts):
                 return 0
             width = w
             f = A.form(i.arg[1] if st else i.arg[0], 64)
-            if f is None or not f.S.isconst() or f.S.c != w or A.avlevel(f) == 'X':
+            if f is None or not f.S.isconst() or abs(f.S.c) != w or A.avlevel(f) == 'X' or not _way(fast, f.S.c):
                 return 0
             if st and not _operand(fast, i.arg[0], made):
                 return 0
@@ -523,10 +545,10 @@ def _bytes_body(fast, em, state, copy):
         if i.op in (D.Onop, D.Odbgloc):
             continue
         if i.op in _NARROWLD[w]:
-            env[rval(i.to)] = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], k0, env, state, None))
+            env[rval(i.to)] = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], _at(fast, k0), env, state, None))
             continue
         if i.op == _NARROWST[w]:
-            em.ins(Ins(D.Oqstore, Kq, R, vec(i.arg[0]), fast.opmap(i.arg[1], k0, env, state, None)))
+            em.ins(Ins(D.Oqstore, Kq, R, vec(i.arg[0]), fast.opmap(i.arg[1], _at(fast, k0), env, state, None)))
             continue
         if i.op in _IDENT:
             env[rval(i.to)] = vec(i.arg[0])
@@ -547,6 +569,295 @@ def _zero(fast, dup):
     if ('zero', dup) not in fast.memo:
         fast.memo[('zero', dup)] = fast.fp.raw(dup, Kq, fast.fp.con(0))
     return fast.memo[('zero', dup)]
+
+
+def _memop(i):
+    """(element size, signed, class of the value, store) of a load or store, or None. A load narrower than its class
+    extends (signed or not)."""
+    if i.op == D.Oload and i.cls in _SIZE:
+        return _SIZE[i.cls], True, i.cls, False
+    ext = {D.Oloadub: (1, False), D.Oloadsb: (1, True), D.Oloaduh: (2, False), D.Oloadsh: (2, True),
+           D.Oloaduw: (4, False), D.Oloadsw: (4, True)}.get(i.op)
+    if ext is not None and i.cls in (Kw, Kl) and ext[0] <= _SIZE[i.cls]:
+        return ext[0], ext[1], i.cls, False
+    st = {D.Ostoreb: 1, D.Ostoreh: 2, D.Ostorew: 4, D.Ostorel: 8, D.Ostores: 4, D.Ostored: 8}.get(i.op)
+    if st is not None:
+        return st, False, {D.Ostores: Ks, D.Ostored: Kd}.get(i.op), True
+    return None
+
+
+_CONV = {D.Oswtof: ('qitofs', Kw, Ks), D.Ouwtof: ('quitofs', Kw, Ks), D.Osltof: ('qitofd', Kl, Kd),
+         D.Oultof: ('quitofd', Kl, Kd)}
+_SUBEXT = {D.Oextub: (8, False), D.Oextsb: (8, True), D.Oextuh: (16, False), D.Oextsh: (16, True)}
+
+
+def _mixed(fast, rts):
+    """Loops over elements of several widths (a byte array into ints, bytes summed into a long, ints shifted into
+    bytes): each value in lanes of its own class, as C computes it, as many vectors as that takes for the narrowest
+    element's vector of iterations (an int, for 16 bytes: four), so every operation is C's, right shifts and comparisons
+    of what it can't bound included. An extending load widens its vector (ushll and ushll2, sshll; punpck on x86-64), a
+    narrower store narrows pairs (qnrw: the low bits, as C's conversion), extsw and extuw widen a value's vectors, an
+    integer reduction adds them all. Arrays that may overlap get run-time checks. Returns vf, or 0."""
+    if not (D.T.name.startswith('arm64') or D.T.name.startswith('amd64')):
+        return 0
+    A = fast.A
+    fn = fast.fn
+    x86 = D.T.name.startswith('amd64')
+    mem = []
+    sizes = set()
+    for n, i in enumerate(fast.cloned):
+        mo = _memop(i)
+        if mo is None:
+            continue
+        e, signed, k, st = mo
+        f = A.form(i.arg[1] if st else i.arg[0], 64)
+        if f is None or not f.S.isconst() or abs(f.S.c) != e or A.avlevel(f) == 'X' or not _way(fast, f.S.c):
+            return 0
+        mem.append((i, f, n, st))
+        sizes.add(e)
+    if not mem or not any(st for _, _, _, st in mem) and not any(True for p in ir.phis(fast.sh.H)
+                                                                    if rval(p.to) not in A.biv):
+        return 0
+    w = min(sizes)
+    reds = []
+    for p in ir.phis(fast.sh.H):
+        if rval(p.to) in A.biv:
+            continue
+        r = _reduction(fast, p, fast.cloned)
+        if r is None:
+            if _last(fast, p, fast.cloned):
+                continue
+            return 0
+        reds.append(r)
+    redins = {id(r.i) for r in reds}
+    cls = {}  # tmp -> class of its lanes
+    small = set()  # zero-extended bytes and shorts: never negative
+    for n, i in enumerate(fast.cloned):
+        if i.op in (D.Onop, D.Odbgloc) or id(i) in redins:
+            continue
+        mo = _memop(i)
+        if mo is not None:
+            e, signed, k, st = mo
+            if st:
+                v = i.arg[0]
+                if not (ir.istmp(v) and rval(v) in cls) and not _operand(fast, v, set(cls)):
+                    return 0
+                vk = _stclass(fn, cls, v, e, k)
+                if _SIZE[vk] < e or (k is not None and vk != k) or (k is None and vk not in (Kw, Kl)):
+                    return 0
+                continue
+            cls[rval(i.to)] = k
+            if not signed and e < 4:
+                small.add(rval(i.to))
+            continue
+        if not ir.istmp(i.to) or i.cls not in _SIZE or _SIZE[i.cls] % w:
+            return 0
+        made = set(cls)
+        if i.op in (D.Oextsw, D.Oextuw):
+            if i.cls != Kl or not ir.istmp(i.arg[0]) or cls.get(rval(i.arg[0])) != Kw:
+                return 0
+        elif i.op in _SUBEXT:  # within the operand's lanes (w or l), then to i's class
+            src = cls.get(rval(i.arg[0]), i.cls) if ir.istmp(i.arg[0]) else i.cls
+            if not _operand(fast, i.arg[0], made) or src not in (Kw, Kl) or _SIZE[src] > _SIZE[i.cls]:
+                return 0
+            cls[rval(i.to)] = i.cls
+            continue
+        elif i.op == D.Omul and i.cls == Kl and _pow2(ir.conval(fn, i.arg[1])) is not None:
+            if not _operand(fast, i.arg[0], made):  # no 64-bit multiply in NEON: a shift
+                return 0
+        elif i.op == D.Ocopy:
+            if not _operand(fast, i.arg[0], made):
+                return 0
+        elif i.op in _CONV:
+            name, src, dst = _CONV[i.op]
+            if i.cls != dst or not ir.istmp(i.arg[0]) or cls.get(rval(i.arg[0])) != src:
+                return 0
+            if x86 and name != 'qitofs' and not (name == 'quitofs' and rval(i.arg[0]) in small):
+                return 0  # x86-64: signed int to float only (unsigned from a byte or short is never negative)
+        else:
+            name = _opname(i)
+            if name is None:
+                return 0
+            args = [i.arg[0]] if i.arg[1] == R or i.op in (D.Oshl, D.Oshr, D.Osar) else i.arg[:2]
+            if i.op in (D.Oshl, D.Oshr, D.Osar):
+                c = ir.conval(fn, i.arg[1])
+                if c is None or not 0 < c < 8 * _SIZE[i.cls]:
+                    return 0
+            for a in args:
+                if not _operand(fast, a, made) or (ir.istmp(a) and rval(a) in cls and cls[rval(a)] != i.cls):
+                    return 0
+        cls[rval(i.to)] = i.cls
+    for r in reds:
+        if not ir.istmp(r.v) or cls.get(rval(r.v)) != r.cls:
+            if not _operand(fast, r.v, set(cls)):
+                return 0
+    if max((_SIZE[k] for k in cls.values()), default=w) == w and all(e == w for e in sizes):
+        return 0  # one width: plan's own path
+    vf = _ext.qbytes() // w
+    far = set()
+    for i, f, n, isstore in mem:
+        if not isstore:
+            continue
+        for j, g, m, other in mem:
+            if j is i or (other and m < n):
+                continue
+            if not rts.may_alias(i.arg[1], j.arg[1] if other else j.arg[0]):
+                continue
+            if f.L.noconst().ident() != g.L.noconst().ident():
+                far.add(tuple(sorted((f.L.noconst().ident(), g.L.noconst().ident()), key=str)))
+            elif f.S.c != g.S.c:
+                return 0
+            elif other:
+                d = f.L.c - g.L.c
+                if d != 0 and abs(d) < vf * f.S.c:
+                    return 0
+            elif not _distance(f, g, vf, n, m):
+                return 0
+    if len(far) > MAXCHECKS:
+        return 0
+    fast.vchecks = _checks(mem, far)
+    fast.vmem = mem
+    fast.vreds = reds
+    fast.vnarrow = ('mixed', w, cls, small)
+    return vf
+
+
+_UX = {1: 'b', 2: 'h', 4: 'w'}
+
+
+def _stclass(fn, cls, v, e, k):
+    """The class of the lanes a store of e bytes stores v from: a value of the loop's, its own; an invariant, its tmp's;
+    a constant, the store's (an 8-byte integer store's constant is an l: pr70021's storel of one beside a storew)."""
+    if ir.istmp(v):
+        return cls.get(rval(v), fn.tmp[rval(v)].cls)
+    return k or (Kl if e == 8 else Kw)
+
+
+def _pow2(c):
+    """k if c is 2**k (0 < k < 63), else None"""
+    if c is None or c <= 1 or c & (c - 1) or c >= 1 << 63:
+        return None
+    return c.bit_length() - 1
+
+
+def _mixed_body(fast, em, state, copy):
+    """body() for _mixed: env maps a value to its list of vectors, lane j of the iteration in vector j // lanes."""
+    fn = fast.fn
+    _, w, cls, small = fast.vnarrow
+    k0 = copy * fast.vf
+    q = _ext.qbytes()
+    env = {}
+
+    def parts(k):
+        return _SIZE[k] // w
+
+    def vec(a, k):
+        if ir.istmp(a) and rval(a) in env:
+            return env[rval(a)]
+        key = ('mixdup', a, k)
+        if key not in fast.memo:
+            em0, fast.em = fast.em, fast.fp
+            s = fast.opmap(a, 0, {}, state, None) if ir.istmp(a) else a
+            fast.em = em0
+            fast.memo[key] = fast.fp.raw(getattr(D, 'Oqdup' + _LANE[k]), Kq, s)
+        return [fast.memo[key]] * parts(k)
+
+    def widen(vs, e, signed, to):
+        """vectors of e-byte lanes, in order, as vectors of `to`-byte lanes"""
+        while e < to:
+            op = 'qsx' if signed else 'qux'
+            out = []
+            for v in vs:
+                out.append(em.raw(getattr(D, 'O' + op + 'l' + _UX[e]), Kq, v))
+                out.append(em.raw(getattr(D, 'O' + op + 'h' + _UX[e]), Kq, v))
+            vs, e = out, 2 * e
+        return vs
+
+    def narrow(vs, e, to):
+        """vectors of e-byte lanes as vectors of their low `to` bytes"""
+        while e > to:
+            name = {2: 'Oqnrwh', 4: 'Oqnrww', 8: 'Oqnrwl'}[e]
+            vs = [em.raw(getattr(D, name), Kq, vs[j], vs[j + 1]) for j in range(0, len(vs), 2)]
+            e //= 2
+        return vs
+
+    reds = {id(r.i): r for r in fast.vreds}
+    for i in fast.cloned:
+        if i.op in (D.Onop, D.Odbgloc) or id(i) in reds:
+            continue
+        mo = _memop(i)
+        if mo is not None:
+            e, signed, k, st = mo
+            if st:
+                vk = _stclass(fn, cls, i.arg[0], e, k)
+                vs = narrow(vec(i.arg[0], vk), _SIZE[vk], e)
+                for j, v in enumerate(vs):
+                    em.ins(Ins(D.Oqstore, Kq, R, v, fast.opmap(i.arg[1], _at(fast, k0, j, q // e), env, state, None)))
+                continue
+            vs = [em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], _at(fast, k0, j, q // e), env, state, None)) for j in range(e // w)]
+            env[rval(i.to)] = widen(vs, e, signed, _SIZE[k])
+            continue
+        k = i.cls
+        if i.op in (D.Oextsw, D.Oextuw):
+            env[rval(i.to)] = widen(vec(i.arg[0], Kw), 4, i.op == D.Oextsw, 8)
+        elif i.op in _SUBEXT:
+            bits, signed = _SUBEXT[i.op]
+            src = cls.get(rval(i.arg[0]), k) if ir.istmp(i.arg[0]) else k
+            x = _LANE[src]
+            top = 8 * _SIZE[src] - bits
+            vs = vec(i.arg[0], src)
+            if signed:
+                vs = [em.raw(getattr(D, 'Oqsar' + x), Kq, em.raw(getattr(D, 'Oqshl' + x), Kq, v, em.con(top)), em.con(top))
+                      for v in vs]
+            else:
+                m = vec(fast.fp.con((1 << bits) - 1), src)[0]
+                vs = [em.raw(D.Oqand, Kq, v, m) for v in vs]
+            if src != k:  # w to l: the value's sign, or zeros
+                vs = widen(vs, 4, signed, 8)
+            env[rval(i.to)] = vs
+        elif i.op == D.Omul and k == Kl and _pow2(ir.conval(fn, i.arg[1])) is not None:
+            env[rval(i.to)] = [em.raw(D.Oqshll, Kq, v, em.con(_pow2(ir.conval(fn, i.arg[1])))) for v in vec(i.arg[0], Kl)]
+        elif i.op == D.Ocopy:
+            env[rval(i.to)] = vec(i.arg[0], k)
+        elif i.op in _CONV:
+            name = _CONV[i.op][0]
+            if name == 'quitofs' and D.T.name.startswith('amd64'):
+                name = 'qitofs'  # plan: never negative here
+            env[rval(i.to)] = [em.raw(getattr(D, 'O' + name), Kq, v) for v in vec(i.arg[0], _CONV[i.op][1])]
+        else:
+            name = _opname(i)
+            op = getattr(D, 'O' + name)
+            a = vec(i.arg[0], k)
+            if i.op in (D.Oshl, D.Oshr, D.Osar):
+                env[rval(i.to)] = [em.raw(op, Kq, v, i.arg[1]) for v in a]
+            elif i.arg[1] == R:
+                env[rval(i.to)] = [em.raw(op, Kq, v) for v in a]
+            else:
+                b = vec(i.arg[1], k)
+                env[rval(i.to)] = [em.raw(op, Kq, x, y) for x, y in zip(a, b)]
+    new = dict(state)
+    for r in fast.vreds:  # each copy an accumulator, all of a value's vectors into it
+        x = _LANE[r.cls]
+        r.acc0 = fast.fp.raw(getattr(D, 'Oqdup' + x), Kq, fast.fp.con(-1 if r.op == D.Oand else 0))
+        r.in0 = newtmp('v', Kq, fn)
+        r.in1 = r.ext = None
+        op = getattr(D, 'O' + _REDOPS[r.op] + ('' if r.op in (D.Oand, D.Oor, D.Oxor) else x))
+        acc = r.in0
+        for v in vec(r.v, r.cls):
+            if r.op == D.Osub:
+                acc = em.raw(getattr(D, 'Oqsub' + x), Kq, acc, v)
+            else:
+                acc = em.raw(op, Kq, acc, v)
+        r.out0 = acc
+        r.out1 = None
+        _keep(r, copy)
+    reds_t = {r.t for r in fast.vreds}
+    for p in ir.phis(fast.sh.H):
+        t = rval(p.to)
+        if t not in fast.A.biv and t not in reds_t:
+            v = ir.phiargof(p, fast.sh.latch)
+            new[('phi', t)] = state[('phi', t)] if v == p.to else v
+    return new
 
 
 def _narrow(fast, rts):
@@ -648,11 +959,30 @@ def plan(fast, rts):
     A = fast.A
     sh = fast.sh
     fast.vnarrow = None
-    if any(i.op in (D.Oloadub, D.Oloadsb, D.Ostoreb, D.Oloaduh, D.Oloadsh, D.Ostoreh) for i in fast.cloned):
+    fast.vdown = None
+    vf = _plan(fast, rts)
+    if vf and fast.vdown and any(r.ordered or (r.op == D.Osel1 and r.index is not None) for r in fast.vreds):
+        return 0  # stepping down the lanes are in the other order: only reductions whose order doesn't matter
+    if vf and fast.vdown and (fast.vnarrow is not None and not isinstance(fast.vnarrow, tuple)):
+        return 0  # _narrow's pixels: up only
+    return vf
+
+
+def _plan(fast, rts):
+    A = fast.A
+    sh = fast.sh
+    mos = [m for m in map(_memop, fast.cloned) if m is not None]
+    if any(i.op in (D.Oloadub, D.Oloadsb, D.Ostoreb, D.Oloaduh, D.Oloadsh, D.Ostoreh) for i in fast.cloned) or \
+            len({m[0] for m in mos}) > 1 or any(not m[3] and m[0] < _SIZE[m[2]] for m in mos):
         vf = _bytes(fast, rts)
         if vf:
             return vf
         fast.vnarrow = None
+        vf = _mixed(fast, rts)
+        if vf:
+            return vf
+        fast.vnarrow = None
+        fast.vreds = []
         if any(i.op in (D.Oloadub, D.Ostoreb) for i in fast.cloned):
             return _narrow(fast, rts)
         # shorts that _bytes didn't take: _Float16 arrays (_halves) go on below
@@ -694,15 +1024,17 @@ def plan(fast, rts):
             # zero, which zero the loop would have kept depends on the order: the scalar loop runs again from the start
             r.restart = True
             continue
+        if r.flt and r.index is None and r.cls == Ks:  # an iteration count orders equal floats
+            ix = Index()
+            ix.q, ix.b, ix.step, ix.sel0, ix.sel1, ix.bfirst, ix.rel = None, None, 1, None, None, True, True
+            r.index = ix
         if r.flt and r.index is None:  # equal floats aren't the same: an index to order them
             c = _counter(fast)
             if c is None:
                 return 0
             ix = Index()
-            ix.q, ix.b, ix.step, ix.sel0, ix.sel1, ix.bfirst = None, c[0], c[1], None, None, True
+            ix.q, ix.b, ix.step, ix.sel0, ix.sel1, ix.bfirst, ix.rel = None, c[0], c[1], None, None, True, False
             r.index = ix
-        if r.index is not None and r.cls not in (Kl, Kd):
-            return 0
         if any(y.op == D.Osel0 and y.arg[0] == r.cmp.to and y is not r.sel0 and (r.index is None or y is not r.index.sel0)
                for y in fast.cloned):
             return 0
@@ -774,7 +1106,7 @@ def plan(fast, rts):
                 if not _operand(fast, i.arg[0], made):
                     return 0
             f = A.form(i.arg[1 if k is not None else 0], 64)
-            if f is None or not f.S.isconst() or f.S.c != size or A.avlevel(f) == 'X':
+            if f is None or not f.S.isconst() or abs(f.S.c) != size or A.avlevel(f) == 'X' or not _way(fast, f.S.c):
                 return 0
             widths.add(size)
             mem.append((i, f, n, k is not None))
@@ -845,8 +1177,8 @@ def _checks(mem, far):
     ranges = {}
     for i, f, n, isstore in mem:
         key = f.L.noconst().ident()
-        L, lo, hi = ranges.get(key, (f.L.noconst(), f.L.c, f.L.c + f.S.c))
-        ranges[key] = (L, min(lo, f.L.c), max(hi, f.L.c + f.S.c))
+        L, lo, hi, st = ranges.get(key, (f.L.noconst(), f.L.c, f.L.c + abs(f.S.c), abs(f.S.c)))
+        ranges[key] = (L, min(lo, f.L.c), max(hi, f.L.c + abs(f.S.c)), max(st, abs(f.S.c)))
     return [(ranges[a], ranges[b]) for a, b in sorted(far, key=str)]
 
 
@@ -854,11 +1186,16 @@ def overlapchecks(fast, em, T, step):
     """Conditions, in em, that hold when no two of those ranges can overlap over T iterations: ends compared unsigned, so
     a range that wraps round fails. LLVM's LoopVersioning; if they fail the scalar loop runs, in the original order."""
     out = []
-    span = em.mulc(Kl, T, step)
-    for (la, alo, ahi), (lb, blo, bhi) in fast.vchecks:
+    for (la, alo, ahi, ast), (lb, blo, bhi, bst) in fast.vchecks:
         a, b = fast.lin(la, 64), fast.lin(lb, 64)
-        a0, a1 = em.addc(Kl, a, alo), em.add(Kl, em.addc(Kl, a, ahi - step), span)
-        b0, b1 = em.addc(Kl, b, blo), em.add(Kl, em.addc(Kl, b, bhi - step), span)
+        # each range steps by its own elements' size (an int array beside a byte one: four times the bytes)
+        asp, bsp = em.mulc(Kl, T, ast), em.mulc(Kl, T, bst)
+        if fast.vdown:  # the ranges reach down from the offsets at t = 0
+            a0, a1 = em.sub(Kl, em.addc(Kl, a, alo + ast), asp), em.addc(Kl, a, ahi)
+            b0, b1 = em.sub(Kl, em.addc(Kl, b, blo + bst), bsp), em.addc(Kl, b, bhi)
+        else:
+            a0, a1 = em.addc(Kl, a, alo), em.add(Kl, em.addc(Kl, a, ahi - ast), asp)
+            b0, b1 = em.addc(Kl, b, blo), em.add(Kl, em.addc(Kl, b, bhi - bst), bsp)
         out.append(em.raw(D.Oor, Kw, em.cmp(D.Ocugel, b0, a1), em.cmp(D.Ocugel, a0, b1)))
     return out
 
@@ -1065,6 +1402,8 @@ def body(fast, em, state, copy=0):
         return dict(state)
     if isinstance(fast.vnarrow, tuple) and fast.vnarrow[0] == 'bytes':
         return _bytes_body(fast, em, state, copy)
+    if isinstance(fast.vnarrow, tuple) and fast.vnarrow[0] == 'mixed':
+        return _mixed_body(fast, em, state, copy)
     if fast.vnarrow is not None:
         return _narrow_body(fast, em, state, copy)
     fn = fast.fn
@@ -1154,7 +1493,7 @@ def body(fast, em, state, copy=0):
                 continue
             for p in [p for p in pending if overlaps(p, key)]:
                 del pending[p]
-            env[rval(i.to)] = avail[key] = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], k0, env, state, None))
+            env[rval(i.to)] = avail[key] = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], _at(fast, k0), env, state, None))
             continue
         k = _storeclass(i)
         if k is not None:
@@ -1166,7 +1505,7 @@ def body(fast, em, state, copy=0):
                 del avail[x]
             for p in [p for p in pending if overlaps(p, key)]:
                 del pending[p]
-            st = Ins(D.Oqstore, Kq, R, v, fast.opmap(i.arg[1], k0, env, state, None))
+            st = Ins(D.Oqstore, Kq, R, v, fast.opmap(i.arg[1], _at(fast, k0), env, state, None))
             em.ins(st)
             avail[key] = v
             pending[key] = st
@@ -1210,7 +1549,16 @@ def body(fast, em, state, copy=0):
             r.out0 = em.raw(D.Oqsel1, Kq, pick(r.i.arg[0]), pick(r.i.arg[1]))
             r.out1 = None
             ix = r.index
-            if ix is not None:  # the position beside each lane: b's value this copy, on every lane (closeloop adds n)
+            if ix is not None and ix.rel:  # 32-bit lanes: 1 + the iteration count, the same on every lane (0: none)
+                ix.acc0 = fast.fp.raw(D.Oqdupw, Kq, fast.fp.con(0))
+                ix.in0 = newtmp('v', Kq, fn)
+                bv = _count(fast, em, copy, k0)
+                em.ins(Ins(D.Oqsel0, Kq, R, m, R))
+                ix.out0 = em.raw(D.Oqsel1, Kq, *((bv, ix.in0) if ix.bfirst else (ix.in0, bv)))
+                if copy == 0:
+                    ix.copies = []
+                ix.copies.append((ix.acc0, ix.in0, ix.out0))
+            elif ix is not None:  # the position beside each lane: b's value this copy, on every lane (closeloop adds n)
                 up = ix.step > 0  # positions grow with the iterations
                 ix.acc0 = fast.fp.raw(D.Oqdupl, Kq, fast.fp.con(_SENTINEL if r.later != up else -_SENTINEL))
                 ix.in0 = newtmp('v', Kq, fn)
@@ -1259,7 +1607,83 @@ def body(fast, em, state, copy=0):
     return new
 
 
+def _count(fast, em, copy, k0):
+    """1 + the iteration count from the vector loop's start of this copy's first lane, on every lane (Index.rel):
+    a vector counter, its phi in closeloop, stepping by an iteration's lanes after the last copy."""
+    c = fast.vcount
+    if copy == 0:
+        if c is None:
+            c = fast.vcount = {}
+        if 'in0' not in c:
+            c['acc0'] = fast.fp.raw(D.Oqdupw, Kq, fast.fp.con(1))
+            c['in0'] = newtmp('v', Kq, fast.fn)
+        c['cur'] = {}
+    if copy not in c['cur']:
+        v = c['in0']
+        if k0:
+            v = em.raw(D.Oqaddw, Kq, v, fast.fp.raw(D.Oqdupw, Kq, fast.fp.con(k0)))
+        c['cur'][copy] = v
+        if copy == fast.ic - 1:
+            c['out0'] = em.raw(D.Oqaddw, Kq, c['in0'], fast.fp.raw(D.Oqdupw, Kq, fast.fp.con(fast.vf * fast.ic)))
+    return c['cur'][copy]
+
+
 _SENTINEL = 1 << 62  # a lane's index before it takes a value: loses every tie (minus it where the later one wins)
+
+
+def _closerel(fast, em, MB, FP, r, totals, state, out):
+    """_closeindexed for 32-bit lanes (Index.rel): each lane's 1 + count (0: never took one), the position of
+    count c b's value then: b now - (iterations done - c) * step."""
+    ix = r.index
+    cnt = fast.vcount
+    if 'phi' not in cnt:
+        ir.addphi(MB, Kq, cnt['in0'], [(FP, cnt['acc0']), (MB, cnt['out0'])])
+        cnt['phi'] = True
+    done = em.raw(D.Oextuw, Kl, em.raw(D.Oqgetw, Kw, cnt['out0'], em.con(0)), R)  # 1 + iterations done
+    idxs = []
+    for acc0, in0, out0 in ix.copies:
+        ir.addphi(MB, Kq, in0, [(FP, acc0), (MB, out0)])
+        idxs.append(out0)
+    k = r.cls
+    x = _LANE[k]
+    lanes = _ext.qbytes() // _SIZE[k]
+    v = state[('phi', r.t)]
+    # in counts: the scalar value's comes before every lane's (0)
+    idx = em.con(0)
+    phi = r.i.arg[0] if r.i.arg[1] == r.v else r.i.arg[1]
+    eqop = {Ks: D.Oceqs, Kw: D.Oceqw}[k]
+    for total, itotal in zip(totals, idxs):
+        for n in range(lanes):
+            lv = em.raw(getattr(D, 'Oqget' + x), k, total, em.con(n))
+            li = em.raw(D.Oextuw, Kl, em.raw(D.Oqgetw, Kw, itotal, em.con(n)), R)
+            some = em.raw(D.Ocnel, Kw, li, em.con(0))
+            if n:
+                li = em.raw(D.Oadd, Kl, li, em.con(n))
+            at = lambda a: v if a == phi else lv
+            cond = em.raw(r.cmp.op, Kw, at(r.cmp.arg[0]), at(r.cmp.arg[1]))
+            wins = cond if r.i.arg[0] == r.v else em.raw(D.Oxor, Kw, cond, em.con(1))
+            eq = em.raw(eqop, Kw, lv, v)
+            tie = em.raw(D.Ocugtl if r.later else D.Ocultl, Kw, li, idx)
+            if not r.later:  # the scalar value's count 0 is first: a lane only ties earlier than another lane
+                tie = em.raw(D.Oand, Kw, tie, em.raw(D.Ocnel, Kw, idx, em.con(0)))
+            take = em.raw(D.Oor, Kw, em.raw(D.Oand, Kw, wins, em.raw(D.Oxor, Kw, eq, em.con(1))),
+                          em.raw(D.Oand, Kw, eq, tie))
+            take = em.raw(D.Oand, Kw, take, some)
+            em.ins(Ins(D.Osel0, Kw, R, take, R))
+            v = em.raw(D.Osel1, k, lv, v)
+            em.ins(Ins(D.Osel0, Kw, R, take, R))
+            idx = em.raw(D.Osel1, Kl, li, idx)
+    out[('phi', r.t)] = v
+    if ix.q is not None:  # count c: b now - (done - c) * step; none taken: the scalar index
+        em0, fast.em = fast.em, em
+        try:
+            b = fast.opmap(ix.b, 0, {}, state, None)
+        finally:
+            fast.em = em0
+        pos = em.raw(D.Osub, Kl, b, em.raw(D.Omul, Kl, em.raw(D.Osub, Kl, done, idx), em.con(ix.step)))
+        anyl = em.raw(D.Ocnel, Kw, idx, em.con(0))
+        em.ins(Ins(D.Osel0, Kw, R, anyl, R))
+        out[('phi', rval(ix.q.to))] = em.raw(D.Osel1, Kl, pos, state[('phi', rval(ix.q.to))])
 
 
 def _closeindexed(fast, em, MB, FP, r, totals, state, out):
@@ -1329,7 +1753,7 @@ def closeloop(fast, em, MB, FP, state):
         lanes = _ext.qbytes() // _SIZE[k]
         v = state[('phi', r.t)]
         if r.op == D.Osel1 and r.index is not None:
-            _closeindexed(fast, em, MB, FP, r, totals, state, out)
+            (_closerel if r.index.rel else _closeindexed)(fast, em, MB, FP, r, totals, state, out)
             continue
         if r.op == D.Osel1:  # each lane into the scalar value as the loop would: s = cond(lane, s) ? ... : ...
             phi = r.i.arg[0] if r.i.arg[1] == r.v else r.i.arg[1]
@@ -1341,7 +1765,7 @@ def closeloop(fast, em, MB, FP, state):
                 v = em.raw(D.Osel1, k, at(r.i.arg[0]), at(r.i.arg[1]))
             out[('phi', r.t)] = v
             if r.restart:  # a zero: the scalar loop again from the start (inner.emit_versioned)
-                z = em.raw(D.Oceqd, Kw, v, em.con(0))
+                z = em.raw(D.Oceqd if k == Kd else D.Oceqs, Kw, v, em.con(0))
                 fast.vrestart = z if fast.vrestart is None else em.raw(D.Oor, Kw, fast.vrestart, z)
             continue
         op = D.Oadd if r.op in (D.Oadd, D.Osub, D.Ofma1) else r.op

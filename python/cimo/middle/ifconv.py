@@ -106,15 +106,15 @@ def convert_loop(fn, lp):
             continue
         if _ext.isel and _waits_on_division(lp, ifb.jmp.arg):
             continue
-        if any(p.cls not in (Kw, Kl) for p in ir.phis(joinb)) and not _ext.isel:
-            continue
+        if any(p.cls not in (Kw, Kl) for p in ir.phis(joinb)) and not (_ext.isel or D.T.name.startswith('amd64')):
+            continue  # cimo: x86-64 selects floats with a jump over a move (amd64.emit), so the vectorizer takes them
         out = ir.ins(ifb)
         for b in (tb, fb):
             if b is not ifb:
                 out = out + ir.ins(b)
         c = ifb.jmp.arg
         arm = _ext.isel and D.T.name.startswith('arm64')  # csel: one instruction per value
-        x86 = D.T.name.startswith('amd64') and all(p.cls in (Kw, Kl) for p in ir.phis(joinb))  # cmov, as QBE's ifopt
+        x86 = D.T.name.startswith('amd64')  # cmov, as QBE's ifopt; a float one a jump over a move
         if arm or x86:
             for p in ir.phis(joinb):  # a sel0 each: the loop passes copy them as pairs
                 out.append(Ins(D.Osel0, Kw, R, c, R))

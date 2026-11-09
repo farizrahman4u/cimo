@@ -162,6 +162,7 @@ omap += [
     (Oflagfne, Ki, "setnz %B=\n\tmovzb%k %B=, %="),
 ]
 
+_fsel = [0]  # labels of float selects' jumps
 cmov = {}
 for _c, _s0, _s1 in _CMP:
     cmov[_c] = ("cmov" + _s0 + " %0, %=", "cmov" + _s1 + " %1, %=")
@@ -771,9 +772,61 @@ def _qins(i, e):
         _qdup(name[-1], i, e)
     elif name.startswith('qget'):
         _qget(name[-1], i, e)
+    elif name == 'qitofs':
+        f.write("\tcvtdq2ps %s, %s\n" % (_qx(i.arg[0]), _qx(i.to)))
+    elif name[:3] in ('qux', 'qsx'):
+        _qwiden(name, i, e)
+    elif name in ('qnrwh', 'qnrww', 'qnrwl'):
+        _qnarrow(name, i, e)
     else:
         die("no x86-64 instruction for %s", name)
     return True
+
+
+_UNPK = {'b': 'bw', 'h': 'wd', 'w': 'dq'}
+
+
+def _qwiden(name, i, e):
+    """cimo (vectorize._mixed), SSE2: the low (l) or high (h) half's lanes, twice as wide: unpacked with zeros, or with
+    themselves and shifted back arithmetically (the sign); 32 to 64 bits signed with a mask of the signs."""
+    f = e.f
+    x = name[-1]
+    to, a = _qx(i.to), _qx(i.arg[0])
+    unpk = 'punpck%s%s' % ('l' if name[3] == 'l' else 'h', _UNPK[x])
+    if name[1] == 'u':
+        f.write("\tpxor %s, %s\n" % (_QX15, _QX15))
+        if to != a:
+            f.write("\tmovaps %s, %s\n" % (a, to))
+        f.write("\t%s %s, %s\n" % (unpk, _QX15, to))
+    elif x in 'bh':
+        if to != a:
+            f.write("\tmovaps %s, %s\n" % (a, to))
+        f.write("\t%s %s, %s\n\t%s $%d, %s\n" % (unpk, to, to, 'psraw' if x == 'b' else 'psrad', 8 if x == 'b' else 16, to))
+    else:
+        f.write("\tmovaps %s, %s\n\tpsrad $31, %s\n" % (a, _QX15, _QX15))
+        if to != a:
+            f.write("\tmovaps %s, %s\n" % (a, to))
+        f.write("\t%s %s, %s\n" % (unpk, _QX15, to))
+
+
+def _qnarrow(name, i, e):
+    """cimo (vectorize._mixed), SSE2: the low half of each lane of a (first) and b, in one vector. Each lane cut to the
+    half first, so the saturating packs keep it as it is: bytes masked (packuswb), shorts sign-extended (packssdw)."""
+    f = e.f
+    to, a, b = _qx(i.to), _qx(i.arg[0]), _qx(i.arg[1])
+    if name == 'qnrwl':  # dwords 0 and 2 of each, then the two together
+        f.write("\tpshufd $0x08, %s, %s\n\tpshufd $0x08, %s, %s\n\tpunpcklqdq %s, %s\n" % (b, _QX15, a, to, _QX15, to))
+        return
+    if name == 'qnrwh':
+        f.write("\tpcmpeqw %s, %s\n\tpsrlw $8, %s\n\tpand %s, %s\n" % (_QX15, _QX15, _QX15, b, _QX15))
+        if to != a:
+            f.write("\tmovaps %s, %s\n" % (a, to))
+        f.write("\tpsllw $8, %s\n\tpsrlw $8, %s\n\tpackuswb %s, %s\n" % (to, to, _QX15, to))
+        return
+    f.write("\tmovaps %s, %s\n\tpslld $16, %s\n\tpsrad $16, %s\n" % (b, _QX15, _QX15, _QX15))
+    if to != a:
+        f.write("\tmovaps %s, %s\n" % (a, to))
+    f.write("\tpslld $16, %s\n\tpsrad $16, %s\n\tpackssdw %s, %s\n" % (to, to, _QX15, to))
 
 
 def _qdup(x, i, e):
@@ -1006,6 +1059,23 @@ def emitins(i, e):
         emitcopy(i.arg[1], TMP(XMM0 + 15), i.cls, e)
     elif op == Odbgloc:
         emitdbgloc(rval(i.arg[0]), rval(i.arg[1]), f)
+    elif isxsel(op) and KBASE(i.cls) == 1:
+        # cimo: a float select (the middle end's if-conversion, for the vectorizer; this is the scalar loop's): no
+        # cmov for xmm registers, so a jump over a move, the flags still the comparison's
+        _, yes, no = _CMP[[c for c, _, _ in _CMP].index(op - Oxsel)]
+        _fsel[0] += 1
+        lbl = '.Lfsel%d' % _fsel[0]
+        if rval(i.to) == rval(i.arg[1]):
+            e.f.write("\tj%s %s\n" % (no, lbl))
+            emitcopy(i.to, i.arg[0], i.cls, e)
+        elif rval(i.to) == rval(i.arg[0]):
+            e.f.write("\tj%s %s\n" % (yes, lbl))
+            emitcopy(i.to, i.arg[1], i.cls, e)
+        else:
+            emitcopy(i.to, i.arg[1], i.cls, e)
+            e.f.write("\tj%s %s\n" % (no, lbl))
+            emitcopy(i.to, i.arg[0], i.cls, e)
+        e.f.write("%s:\n" % lbl)
     elif isxsel(op):
         if i.to == i.arg[1]:
             emitf(cmov[op - Oxsel][0], i, e)

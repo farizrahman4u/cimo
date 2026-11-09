@@ -1323,6 +1323,32 @@ loop as written when any invariant condition leaving the loop to one block would
 otherwise; values of the loop used after it must be where its other exit dominates (a phi's use: on its edge), and a
 preheader is made when the block before the loop ends in a branch.
 
+## Several widths, 32-bit positions, loops that count down, x86-64 float selects (2026-11-09)
+
+`vectorize._mixed`: loops whose accesses differ in width (bytes into ints, bytes summed into a long, ints shifted into
+bytes, bytes into floats): the narrowest element's vector of iterations sets vf, and each value lives in lanes of its
+own C class, as many vectors as that takes (bytes to ints: four), so every operation is C's, right shifts included.
+An extending load widens (`ushll`/`ushll2`, `sshll`; SSE2 `punpck` with zeros or with itself and a shift back), a
+narrower store narrows pairs (`qnrw`: the low bits; SSE2 masks and `packuswb`/`packssdw`), `extsw`/`extuw` and the
+byte and short extensions too, `uwtof` of a never-negative byte or short is `cvtdq2ps` on x86-64, a 64-bit multiply by
+a power of two is a shift, integer reductions add a value's vectors into one accumulator. A store of a constant or an
+invariant takes its lanes from the store's width (an l for an 8-byte store: gcc's pr70021 caught a 4-byte one). The
+run-time overlap checks give each range its own step (an int array beside a byte one spans four times the bytes: the
+single element-size step missed overlaps). Byte multiplies and shifts on x86-64 come out this way, in int lanes.
+
+float32 and int32 selects with a position: an index doesn't fit 32-bit lanes, so each lane keeps 1 + the iteration
+count since the vector loop started (a shared vector counter, `_count`), 0 for one that never took a value; the
+position is the index variable's value now minus (iterations done - count) times its step. A float32 maximum in a loop
+that stores nothing reruns the scalar loop on a zero result, as float64's.
+
+Loops that count down (`_way`, `_at`): every access stepping down by its element's size, lanes hold the elements in
+memory order (the last iteration of a vector first), each access's vector at its lowest address; `_distance` and the
+run-time checks look the other way; reductions only where the order doesn't matter (integer, and integer or
+restarting float selects).
+
+x86-64 float selects: `ifconv` makes them there too; the scalar one is a jump over a move (`amd64.emit`: no cmov for
+xmm registers), the vector one masks. A loop that stores the running value each iteration checks them against Python.
+
 ## Conformance corpora (2026-10-31)
 
 Most tests compare a port with its reference (cproc, QBE, gcc's cpp, gas); they show fidelity,

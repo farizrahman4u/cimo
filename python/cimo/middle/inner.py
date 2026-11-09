@@ -220,6 +220,8 @@ class Fast:
         self.vchecks = ()      # and the arrays to compare before it
         self.vreds = ()        # and the reductions it collects (vectorize.Reduction)
         self.vrestart = None   # closeloop: a flag to run the scalar loop again from the start (vectorize._select)
+        self.vcount = None     # and a vector of iteration counts (vectorize._count)
+        self.vdown = False     # and whether its accesses step down (vectorize._way)
         self.vmem = ()         # and its memory accesses (vectorize.plan)
         self.vnarrow = None    # or, a loop over bytes: its pixel groups (vectorize._narrow)
         self.prom = []         # fields kept in registers through the loop (Promoted)
@@ -891,7 +893,7 @@ def _lanes(fn, lp, sh, A, ctl, rts):
     probe.ctl = ctl
     probe.plan(1)
     vf = vectorize.plan(probe, rts)
-    return (vf, probe.vchecks, probe.vreds, probe.vnarrow) if vf else 0
+    return (vf, probe.vchecks, probe.vreds, probe.vnarrow, probe.vdown) if vf else 0
 
 
 def vectorizable(fn, lp, rts):
@@ -971,13 +973,14 @@ def transform(fn, lp, rts, done, mode='opt'):
     A, ctl, hoist, noalias_load = _hoisted(fn, lp, sh, A, ctl, rts)
 
     lanes = _lanes(fn, lp, sh, A, ctl, rts)
-    vf, vchecks, vreds, vnarrow = lanes or (0, (), (), None)
+    vf, vchecks, vreds, vnarrow, vdown = lanes or (0, (), (), None, False)
     fast = Fast(fn, lp, sh, A, rts)
     fast.ctl = ctl
     fast.vf = vf
     fast.vchecks = vchecks
     fast.vreds = vreds
     fast.vnarrow = vnarrow
+    fast.vdown = vdown
     if not vf:  # lanes read their own elements: nothing to reuse
         fast.find_chains(noalias_load)
         fast.find_promoted()

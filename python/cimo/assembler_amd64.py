@@ -1292,13 +1292,14 @@ for _n, _p, _op in (('andps', b'', 0x54), ('andpd', b'\x66', 0x54), ('andnps', b
                     ('comisd', b'\x66', 0x2f), ('cvtss2sd', b'\xf3', 0x5a),
                     ('cvtsd2ss', b'\xf2', 0x5a), ('unpcklps', b'', 0x14),
                     ('unpcklpd', b'\x66', 0x14), ('cvtps2pd', b'', 0x5a),
-                    ('cvtpd2ps', b'\x66', 0x5a)):
+                    ('cvtpd2ps', b'\x66', 0x5a), ('cvtdq2ps', b'', 0x5b)):
     _INSNS[_n] = (_h_sse, 0, (_p, bytes([0x0f, _op])))
 for _n, _op in (('paddb', 0xfc), ('paddw', 0xfd), ('paddd', 0xfe), ('paddq', 0xd4), ('psubb', 0xf8), ('psubw', 0xf9),
                 ('psubd', 0xfa), ('psubq', 0xfb), ('pmullw', 0xd5), ('pmuludq', 0xf4), ('pcmpeqb', 0x74), ('pcmpeqw', 0x75),
                 ('pcmpeqd', 0x76), ('pcmpgtb', 0x64), ('pcmpgtw', 0x65), ('pcmpgtd', 0x66), ('pminub', 0xda), ('pmaxub', 0xde),
                 ('pminsw', 0xea), ('pmaxsw', 0xee), ('pandn', 0xdf), ('punpcklbw', 0x60), ('punpcklwd', 0x61),
-                ('punpckldq', 0x62), ('punpckhdq', 0x6a), ('punpcklqdq', 0x6c)):
+                ('punpckldq', 0x62), ('punpckhdq', 0x6a), ('punpcklqdq', 0x6c), ('punpckhbw', 0x68), ('punpckhwd', 0x69),
+                ('punpckhqdq', 0x6d), ('packuswb', 0x67), ('packssdw', 0x6b), ('packsswb', 0x63)):
     _INSNS[_n] = (_h_sse, 0, (b'\x66', bytes([0x0f, _op])))
 for _n, _p, _o in (('pshufd', b'\x66', 0x70), ('pshuflw', b'\xf2', 0x70), ('cmpps', b'', 0xc2), ('cmppd', b'\x66', 0xc2)):
     _INSNS[_n] = (_h_sseimm, 0, (_p, bytes([0x0f, _o])))

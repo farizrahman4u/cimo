@@ -157,7 +157,7 @@ def test_store_before_a_load_ahead_is_not_taken():
     ('void f(long *restrict y, const long *restrict x, long n) { for (long i = 0; i < n; i++) y[i] = x[i] * x[i]; }', False),  # no 64-bit mul
     ('void f(int *restrict y, const int *restrict x, long n) { for (long i = 0; i < n; i++) y[i] = x[i] / 3; }', False),
     ('void f(float *restrict y, const float *restrict x, long n) { for (long i = 0; i < n; i += 2) y[i] = x[i]; }', False),  # not consecutive
-    ('void f(float *restrict y, const float *restrict x, long n) { for (long i = n; i > 0; i--) y[i] = x[i]; }', False),  # downward
+    ('void f(float *restrict y, const float *restrict x, long n) { for (long i = n; i > 0; i--) y[i] = x[i]; }', True),  # downward
     ('void f(int *restrict y, const int *restrict x, long n) { for (long i = 0; i < n; i++) y[i] = (int)i + x[i]; }', False),  # counter as data
     ('void g(void); void f(int *restrict y, long n) { for (long i = 0; i < n; i++) { y[i] = 1; g(); } }', False),
 ])
@@ -305,7 +305,7 @@ REDUCTIONS = {
     'flag': ('int f(const int *restrict x, long n) { int s = 0, g = 0; for (long i = 0; i < n; i++) { s += x[i]; g = 1; } return s * 3 + g; }', ctypes.c_int, True),
     'flagarg': ('long f(const long *restrict x, long n) { long s = 0, last = -7, k = n * 3; for (long i = 0; i < n; i++) { s += x[i]; last = k; } return s + last; }', ctypes.c_int64, True),
     'flagread': ('int f(const int *restrict x, long n) { int s = 0, g = 0; for (long i = 0; i < n; i++) { s += x[i] + g; g = 1; } return s; }', ctypes.c_int, False),
-    'wmin': ('long f(const short *restrict x, long n) { long s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_short, False),
+    'wmin': ('long f(const short *restrict x, long n) { long s = 0; for (long i = 0; i < n; i++) s += x[i]; return s; }', ctypes.c_short, True),  # shorts widened (_mixed)
 }
 
 
@@ -721,8 +721,7 @@ def test_maximum_and_argmax_bit_for_bit(name):
     (one that stores, fmaxstore, keeps a hidden one: it can't run again)."""
     src = SELECTS[name]
     flt = 'double' in src.split('(')[1]
-    if hosts.ARM64 or not flt:
-        assert vectorized(src), driver._build(src)[0]
+    assert vectorized(src), driver._build(src)[0]
     on, off = both(src)
     ctype = ctypes.c_double if flt else ctypes.c_uint64 if 'unsigned' in src else ctypes.c_int64
     r = random.Random(len(name))
@@ -764,8 +763,7 @@ double f(const double *a, long n, long st) {
     for (long i = 0; i < n; i++) { double e = a[i * st]; if (e > r) r = e; z += e - e; }
     return z != z ? slow(a, n, st) : r;
 }'''
-    if hosts.ARM64:
-        assert vectorized(src), driver._build(src)[0]
+    assert vectorized(src), driver._build(src)[0]
     on, off = both(src)
     r = random.Random(5)
     for n in (1, 2, 5, 16, 17, 40, 100):
@@ -1076,9 +1074,7 @@ def test_byte_and_short_lanes_bit_for_bit(name):
     output may overlap the input at any distance (run-time checks)."""
     src, ctype = NARROW[name]
     src = '#include <stdint.h>\n' + src
-    mulshift = name in ('mix8',) and hosts.AMD64  # no byte multiply or shift on x86-64
-    if not mulshift:
-        assert vectorized(src), driver._build(src)[0]
+    assert vectorized(src), driver._build(src)[0]  # x86-64's byte multiply and shift: in int lanes (_mixed)
     on, off = both(src)
     size = ctypes.sizeof(ctype)
     r = random.Random(len(name))
@@ -1130,3 +1126,108 @@ def test_a_check_that_leaves_the_loop_is_unswitched(name):
             assert on.f(a, n, k) == off.f(b, n, k) and bytes(a) == bytes(b), (n, k)
     if name == 'check' and hosts.ARM64:
         assert vectorized(src), driver._build(src)[0]
+
+
+def test_scalar_float_select_against_python():
+    """The scalar float select every target now makes (x86-64: a jump over a move, no cmov for xmm), against Python:
+    each form of comparison, NaNs and signed zeros, the running value stored each iteration (no vector loop)."""
+    forms = {'gt': (lambda e, r: e > r), 'ge': (lambda e, r: e >= r), 'lt': (lambda e, r: e < r),
+             'le': (lambda e, r: e <= r), 'eq': (lambda e, r: e == r), 'ne': (lambda e, r: e != r)}
+    ops = {'gt': '>', 'ge': '>=', 'lt': '<', 'le': '<=', 'eq': '==', 'ne': '!='}
+    src = ''.join('void %s(double *o, const double *a, long n, double r) { for (long i = 0; i < n; i++) '
+                  '{ double e = a[i]; r = e %s r ? e : r; o[i] = r; } }\n' % (k, ops[k]) for k in forms)
+    m = cimo.compile(src, cache=False)
+    nan = float('nan')
+    rnd = random.Random(4)
+    for k, f in forms.items():
+        for _ in range(40):
+            n = rnd.randint(0, 20)
+            vals = [rnd.choice([0.0, -0.0, 1.0, -1.0, nan, 2.5]) for _ in range(n)]
+            r0 = rnd.choice([0.0, -0.0, nan, 1.0])
+            a, o = (ctypes.c_double * max(n, 1))(*vals), (ctypes.c_double * max(n, 1))()
+            getattr(m, k)(o, a, n, r0)
+            r, want = r0, []
+            for e in vals:
+                r = e if f(e, r) else r
+                want.append(struct.pack('<d', r))
+            assert [struct.pack('<d', x) for x in list(o)[:n]] == want, (k, vals, r0)
+
+
+def test_x86_float_select_is_a_jump_over_a_move():
+    text = _x86('void f(double *o, const double *a, long n, double r) { for (long i = 0; i < n; i++) { double e = a[i]; r = e > r ? e : r; o[i] = r; } }')
+    assert re.search(r'\tj(be|a) \.Lfsel\d+\n', text), text
+
+
+MIXED = {
+    'u8toi32': ('void f(int32_t *o, const uint8_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = a[i]; }', 4, 1),
+    's8toi32': ('void f(int32_t *o, const int8_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = a[i] * (int)k + 3; }', 4, 1),
+    'u8sum': ('long f(int32_t *o, const uint8_t *a, long n, long k) { long s = 0; for (long i = 0; i < n; i++) s += a[i]; return s; }', 0, 1),
+    's16sum': ('long f(int32_t *o, const int16_t *a, long n, long k) { int s = 0; for (long i = 0; i < n; i++) s += a[i]; return s; }', 0, 2),
+    'shr8': ('void f(uint8_t *o, const uint8_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = (a[i] * 3) >> 2; }', 1, 1),
+    'i32to8': ('void f(uint8_t *o, const int32_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = (uint8_t)(a[i] >> 4); }', 1, 4),
+    'u8tof': ('void f(float *o, const uint8_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = a[i] * (1.0f / 255); }', 4, 1),
+    'sext': ('void f(int32_t *o, const uint8_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = (int8_t)(a[i] + 100); }', 4, 1),
+    'w2l': ('void f(long *o, const int32_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = (long)a[i] * 2; }', 8, 4),
+    'down': ('void f(int32_t *o, const uint8_t *a, long n, long k) { for (long i = n - 1; i >= 0; i--) o[i] = a[i] * 3 - (int)k; }', 4, 1),
+    # constants and an invariant stored into arrays of two widths: each from lanes of its store's width (gcc pr70021)
+    'consts': ('void f(int64_t *o, int32_t *a, long n, long k) { for (long i = 0; i < n; i++) { a[i] = 1618000128; o[i] = 0x1eadbeefbeefdeadLL + k; } }', 8, 4),
+}
+
+
+@pytest.mark.parametrize('name', sorted(MIXED))
+def test_mixed_widths_bit_for_bit(name):
+    """Elements of several widths: each value in lanes of its own class, as many vectors as that takes (bytes into
+    ints: four), extending loads widened, narrower stores narrowed, so right shifts and multiplies are C's; arrays of
+    different widths that may overlap compared over the bytes each really spans (each range its own step)."""
+    src, osz, isz = MIXED[name]
+    src = '#include <stdint.h>\n' + src
+    assert vectorized(src), driver._build(src)[0]
+    on, off = both(src)
+    r = random.Random(len(name))
+    for n in (0, 1, 2, 7, 15, 16, 17, 31, 33, 64, 65, 100, 257):
+        for k in (0, 7, -300):
+            for shift in ((None,) if not osz else (None, 0, 1, 3, -1, -4, -16, -64)):
+                total = (n + 80) * 32
+                raw = bytes(r.randrange(256) for _ in range(total))
+                b1, b2 = (ctypes.c_uint8 * total).from_buffer_copy(raw), (ctypes.c_uint8 * total).from_buffer_copy(raw)
+
+                def args(b):
+                    a = ctypes.addressof(b) + total // 4  # inputs up to 4n bytes, outputs up to 8n: within total
+                    return (a + total // 4 if shift is None else a + shift), a
+                x, y = on.f(*args(b1), n, k), off.f(*args(b2), n, k)
+                assert x == y and bytes(b1) == bytes(b2), (n, k, shift)
+
+
+SELECTS32 = {
+    'fmax': 'float f(float *a, long n, float r) { for (long i = 0; i < n; i++) { float e = a[i]; if (e > r) r = e; } return r; }',
+    'fmaxst': 'float f(float *a, long n, float r) { for (long i = 0; i < n; i++) { float e = a[i]; if (e > r) r = e; a[i] = e * 2; } return r; }',
+    'fargmax': 'long f(float *a, long n, float r) { long at = -1; for (long i = 0; i < n; i++) { float e = a[i]; if (e > r) { r = e; at = i; } } return at; }',
+    'fargminge': 'long f(float *a, long n, float r) { long at = -1; for (long i = 0; i < n; i++) { float e = a[i]; if (e <= r) { r = e; at = i; } } return at; }',
+    'iargmax': 'long f(int *a, long n, int r) { long at = -1; for (long i = 0; i < n; i++) if (a[i] > r) { r = a[i]; at = i; } return at; }',
+    'down': 'int f(int *a, long n, int r) { for (long i = n - 1; i >= 0; i--) if (a[i] > r) r = a[i]; return r; }',
+}
+
+
+@pytest.mark.parametrize('name', sorted(SELECTS32))
+def test_32_bit_maximum_and_argmax_bit_for_bit(name):
+    """float and int lanes: a maximum, its position beside each lane as 1 + the iteration count (a vector counter: an
+    index doesn't fit the lanes), 0 for a lane that never took one; positions from the count and the index's step."""
+    src = SELECTS32[name]
+    assert vectorized(src), driver._build(src)[0]
+    on, off = both(src)
+    flt = src.startswith('float') or 'float *' in src
+    ctype = ctypes.c_float if flt else ctypes.c_int
+    r = random.Random(len(name))
+    nan, inf = float('nan'), float('inf')
+    pools = ([[0.0, -0.0], [0.0, -0.0, -1.0, 1.0], [nan, 0.0, -0.0, 2.0], [-inf, inf, 0.0], [1.5], [nan], None]
+             if flt else [[0, 1, -1, 5, -2 ** 31, 2 ** 31 - 1], [7], None])
+    for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100):
+        for pool in pools:
+            vals = [r.choice(pool) if pool else (r.uniform(-3, 3) if flt else r.randint(-2 ** 31, 2 ** 31 - 1)) for _ in range(n + 1)]
+            a, b = (ctype * (n + 1))(*vals), (ctype * (n + 1))(*vals)
+            x, y = on.f(a, n, vals[n]), off.f(b, n, vals[n])
+            if isinstance(x, float):
+                assert struct.pack('<f', x) == struct.pack('<f', y), (n, vals, x, y)
+            else:
+                assert x == y, (n, vals)
+            assert bytes(a) == bytes(b)
