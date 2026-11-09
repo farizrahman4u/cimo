@@ -12,6 +12,13 @@ _STORESIZE = {D.Ostoreb: 1, D.Ostoreh: 2, D.Ostorew: 4, D.Ostorel: 8, D.Ostores:
 _STORECLS = {D.Ostoreb: Kw, D.Ostoreh: Kw, D.Ostorew: Kw, D.Ostorel: Kl, D.Ostores: Ks, D.Ostored: Kd}
 _STOREOF = {Kw: D.Ostorew, Kl: D.Ostorel, Ks: D.Ostores, Kd: D.Ostored}
 MAXSIZE = 256
+_QLOADS = (D.Oqload, D.Oqload16)
+_QSTORES = (D.Oqstore, D.Oqstore16)
+
+
+def _qsize(op):
+    from . import ext
+    return 16 if op in (D.Oqload16, D.Oqstore16) else ext.qbytes()
 
 
 def _loadsize(i):
@@ -84,6 +91,14 @@ def sroa(fn):
             if D.isload(i.op) and i.arg[0] in at:
                 root, off = at[i.arg[0]]
                 size = _loadsize(i)
+            elif i.op in _QLOADS and i.arg[0] in at:  # ext.vector: a vector of several q values, each its own
+                root, off = at[i.arg[0]]
+                size = _qsize(i.op)
+            elif i.op in _QSTORES and i.arg[1] in at:
+                if i.arg[0] in at:
+                    bad.add(at[i.arg[0]][0])
+                root, off = at[i.arg[1]]
+                size = _qsize(i.op)
             elif D.isstore(i.op) and i.arg[1] in at:
                 if i.arg[0] in at:
                     bad.add(at[i.arg[0]][0])
@@ -117,14 +132,16 @@ def sroa(fn):
         for off, size in sorted(access[root].items()):
             t = newtmp('sr', Kl, fn)
             slots[(root, off)] = t
-            newalloc.append(D.Ins(Oalloc if size <= 4 else Oalloc + 1, Kl, t, getcon(size, fn), R))
+            newalloc.append(D.Ins(Oalloc if size <= 4 else Oalloc + 1 if size <= 8 else Oalloc1, Kl, t, getcon(size, fn), R))
     perblock = {}
     for b, i, root, off in uses:
         if root not in good:
             continue
         t = slots[(root, off)]
-        if D.isload(i.op):
+        if D.isload(i.op) or i.op in _QLOADS:
             i.arg[0] = t
+        elif i.op in _QSTORES:
+            i.arg[1] = t
         else:
             i.arg[1] = t
             k = _STORECLS[i.op]
@@ -148,6 +165,9 @@ def sroa(fn):
     s = fn.start
     for r in good:
         roots[r][1].set(D.Ins(D.Onop))
-    s.ins = newalloc + s.ins[:s.nins]
+    npar = 0  # after the parameters, which must come first (promote makes a q slot's alloc an instruction)
+    while npar < s.nins and D.ispar(s.ins[npar].op):
+        npar += 1
+    s.ins = s.ins[:npar] + newalloc + s.ins[npar:s.nins]
     s.nins = len(s.ins)
     return True

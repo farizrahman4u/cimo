@@ -101,7 +101,7 @@ def igroup(b, i):
         return i - 1, i + 1
     if op in (D.Ofma0, D.Oqfma0, D.Oqsel0):  # cimo extension, see ext.py
         return i, i + 2
-    if op in (D.Ofma1, D.Oqfma1s, D.Oqfma1d, D.Oqsel1):
+    if op == D.Ofma1 or op == D.Oqsel1 or op in D.QACC:
         return i - 1, i + 1
     if ispar(op):
         while i > ib and ispar(ins[i - 1].op):
@@ -432,3 +432,32 @@ def dumpts(bs, tmp, f):
     for t in bselems(bs, Tmp0):
         f.write(" %s" % tmp[t].name)
     f.write(" ]\n")
+
+
+# cimo (ext.vector): qdup's lane, the loads (op, class) of its size, and the op that broadcasts from memory
+_DUPM = {D.Oqdupb: (((D.Oloadsb, D.Kw), (D.Oloadub, D.Kw)), D.Oqdupmb),
+         D.Oqduph: (((D.Oloadsh, D.Kw), (D.Oloaduh, D.Kw)), D.Oqdupmh),
+         D.Oqdupw: (((D.Oloadsw, D.Kw), (D.Oloaduw, D.Kw), (D.Oload, D.Kw)), D.Oqdupmw),
+         D.Oqdupl: (((D.Oload, D.Kl),), D.Oqdupml), D.Oqdups: (((D.Oload, D.Ks),), D.Oqdupms),
+         D.Oqdupd: (((D.Oload, D.Kd),), D.Oqdupmd)}
+
+
+def dupfold(fn, ins, defs, writes, ops=None):
+    """cimo (ext.vector, isel): a value loaded only to be broadcast, nothing that may write memory (writes(op)) in
+    between, is broadcast from memory, as gcc does (x86-64 vpbroadcastd (%rax), arm64 ldr s and dup of the lane): a
+    move from a general register to a vector one takes the shuffle port on Sapphire Rapids, which its dot products
+    share, and one pipe on Neoverse V2. ins: a block's instructions, defs: temporary -> index; ops: the qdups to fold
+    (default all). Needs use counts."""
+    tmp = fn.tmp
+    for k, i in enumerate(ins):
+        spec = _DUPM.get(i.op)
+        if spec is None or rtype(i.arg[0]) != RTmp or fn.hasvolatile or ops is not None and i.op not in ops:
+            continue
+        a = i.arg[0]
+        d = defs.get(rval(a))
+        if d is None or d >= k or tmp[rval(a)].nuse != 1 or (ins[d].op, ins[d].cls) not in spec[0]:
+            continue
+        if any(writes(x.op) for x in ins[d + 1:k]):
+            continue
+        ins[k] = Ins(spec[1], D.Kq, i.to, ins[d].arg[0], R)
+        ins[d] = Ins(D.Onop)

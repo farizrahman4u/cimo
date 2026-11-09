@@ -483,6 +483,8 @@ _QFP = {'qadd': 'fadd', 'qsub': 'fsub', 'qmul': 'fmul', 'qdiv': 'fdiv', 'qmin': 
 
 
 _QPERM = {'qzip1': 'zip1', 'qzip2': 'zip2', 'quzp1': 'uzp1', 'quzp2': 'uzp2', 'qtrn1': 'trn1', 'qtrn2': 'trn2'}
+# the dot products (D.QACC after qfma0): mnemonic, the operands' arrangement
+_QDOT = {'qbfdot': ('bfdot', '8h'), 'qsdot': ('sdot', '16b'), 'qudot': ('udot', '16b'), 'qusdot': ('usdot', '16b')}
 # name: (mnemonic, destination arrangement, source arrangement)
 _QCVT = {'qitofs': ('scvtf', '4s', '4s'), 'qitofd': ('scvtf', '2d', '2d'), 'quitofs': ('ucvtf', '4s', '4s'),
          'quitofd': ('ucvtf', '2d', '2d'), 'qftois': ('fcvtzs', '4s', '4s'), 'qftoid': ('fcvtzs', '2d', '2d'),
@@ -607,6 +609,16 @@ def _qins(i, e):
     if op == D.Oqstore:
         f.write("\tstr\tq%d, %s\n" % (rval(i.arg[0]) - V0, _qaddr(i.arg[1], e)))
         return True
+    if D.Oqdupmb <= op <= D.Oqdupmd:  # a broadcast from memory (util.dupfold): the lane loaded, then dup
+        x = optab[op].name[-1]
+        r = 'bhssdd'['bhwsld'.index(x)]
+        n = rval(i.to) - V0
+        if rtype(i.arg[0]) == RSlot:
+            f.write("\tldr\t%s%d, %s\n" % (r, n, _qaddr(i.arg[0], e)))
+        else:
+            emitf("ldr\t%s%d, %%M0" % (r, n), i, e)
+        f.write("\tdup\tv%d.%s, v%d.%s[0]\n" % (n, _QLANE[x], n, r))
+        return True
     if not D.isqop(op):
         return False
     name = optab[op].name
@@ -646,6 +658,17 @@ def _qins(i, e):
         return True
     if name == 'qnot':
         f.write("\tmvn\t%s, %s\n" % (_qv(i.to), _qv(i.arg[0])))
+        return True
+    if name in _QDOT:  # bfdot, sdot, udot, usdot: the accumulator is the destination, as fmla's
+        mn, l = _QDOT[name]
+        third = e.qthird
+        to, a, b = _qv(i.to, '4s'), _qv(i.arg[0], l), _qv(i.arg[1], l)
+        if req(i.to, third):
+            f.write("\t%s\t%s, %s, %s\n" % (mn, to, a, b))
+        elif rval(i.to) in (rval(i.arg[0]), rval(i.arg[1])):
+            f.write("\tmov\tv31.16b, %s\n\t%s\tv31.4s, %s, %s\n\tmov\t%s, v31.16b\n" % (_qv(third), mn, a, b, _qv(i.to)))
+        else:
+            f.write("\tmov\t%s, %s\n\t%s\t%s, %s, %s\n" % (_qv(i.to), _qv(third), mn, to, a, b))
         return True
     if name in ('qsel1', 'qfma1s', 'qfma1d'):
         third = e.qthird

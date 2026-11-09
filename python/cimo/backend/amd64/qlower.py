@@ -123,6 +123,10 @@ def _lower(L, i, third):
         if 'fma' not in _ext.x86:
             die("x86-64 has no fused multiply-add without FMA")
         return False  # vfmadd231ps/pd (amd64/isel.py)
+    elif name in ('qbfdot', 'qusdot'):
+        return False  # vdpbf16ps, vpdpbusd (the frontend checked the CPU has them)
+    elif name in ('qsdot', 'qudot'):
+        die("x86-64 has no %s", name)
     elif name == 'qsaddl' or name == 'qsaddh' or name == 'quaddl' or name == 'quaddh':
         high = L.zero() if name[1] == 'u' else L.op('qcgtw', L.zero(), b)
         L.op('qaddl', a, L.op('qxhi' if x == 'h' else 'qxlo', b, high), to)
@@ -187,11 +191,12 @@ def run(fn):
             continue
         out = []
         third = R
-        for i in blk.ins[:blk.nins]:
+        ins = blk.ins[:blk.nins]
+        for k, i in enumerate(ins):
             if i.op == D.Oqfma0 or i.op == D.Oqsel0:
                 third = i.arg[0]
-                if i.op == D.Oqfma0 and 'fma' in _ext.x86:
-                    out.append(i)  # kept with its qfma1
+                if i.op == D.Oqfma0 and ('fma' in _ext.x86 or ins[k + 1].op in (D.Oqbfdot, D.Oqusdot)):
+                    out.append(i)  # kept with its qfma1 or dot product
                     continue
                 changed = True
                 continue

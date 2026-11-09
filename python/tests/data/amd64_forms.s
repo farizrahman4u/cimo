@@ -1393,5 +1393,27 @@ zero2:
 	vpermq $8, %ymm15, %ymm15
 	vmovsd %xmm15, (%rdx)
 	vmovdqu %xmm15, 16(%r10)
+	# AVX-512 (EVEX): the dot products, registers 16 to 31, masks, disp8*N
+	vdpbf16ps %ymm3, %ymm2, %ymm1
+	vdpbf16ps %xmm15, %xmm8, %xmm1
+	vdpbf16ps %zmm3, %zmm2, %zmm1
+	vdpbf16ps %ymm31, %ymm16, %ymm8
+	vdpbf16ps %zmm15, %zmm30, %zmm17
+	vdpbf16ps 64(%rax), %ymm2, %ymm1
+	vdpbf16ps 33(%rax), %ymm2, %ymm1
+	vdpbf16ps 4064(%rax), %ymm2, %ymm1
+	vdpbf16ps -4096(%rax), %zmm2, %zmm1
+	vdpbf16ps 64(%r13,%r12,4), %zmm2, %zmm1
+	vdpbf16ps (%rbp), %zmm2, %zmm9
+	vdpbf16ps foo(%rip), %zmm2, %zmm9
+	vdpbf16ps %zmm3, %zmm2, %zmm1{%k1}
+	vdpbf16ps %zmm3, %zmm2, %zmm1{%k7}{z}
+	vpdpbusd %ymm3, %ymm2, %ymm1
+	vpdpbusd %zmm13, %zmm12, %zmm11
+	vpdpbusd 64(%r9), %ymm12, %ymm1
+	{vex} vpdpbusd %ymm3, %ymm2, %ymm1
+	{vex} vpdpbusd %ymm13, %ymm12, %ymm11
+	{vex} vpdpbusd (%rax), %xmm2, %xmm1
+	{vex} vpdpbusd 40(%r9), %ymm12, %ymm1
 .Lmask:
 	.byte 0

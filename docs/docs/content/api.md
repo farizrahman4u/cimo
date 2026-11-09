@@ -39,6 +39,14 @@ cimo.add_cache_entry(data)
 
 Puts a module's cache entry (`module.cache_entry()`) into the cache, on disk if it is writable, else in memory. A later `compile()` of the same source and options loads it instead of compiling. Raises `ValueError` for bytes that aren't an intact entry for this platform.
 
+## cimo.cpu_features
+
+```python
+cimo.cpu_features()   # frozenset({'avx2', 'avx512bf16', 'fma', ...})
+```
+
+The features of this machine's CPU that compiled code may use, by gcc's `-m` names. x86-64: `popcnt`, `fma`, `avx`, `avx2`, `bmi1`, `bmi2`, `lzcnt`, `f16c`, `avx512f`, `avx512bw`, `avx512dq`, `avx512vl`, `avx512bf16`, `avx512vnni`, `avxvnni`, `amx-tile`, `amx-bf16`, `amx-int8` (each only if the OS saves its registers). arm64: `bf16`, `dotprod`, `i8mm` (NEON and FMA are always there). Empty in the browser. `CIMO_X86` and `CIMO_ARM64` override it (see [Environment variables](environment.md)). Code is compiled for these features and cached under them, and the [CPU intrinsics](c-language.md#cpu-intrinsics) a kernel calls must be among them.
+
 ## Module
 
 What `compile` and `load` return. Every function in the source that isn't `static` is an attribute.

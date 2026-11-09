@@ -44,7 +44,9 @@ M64 = (1 << 64) - 1
 # register: ('r', size, number, rexflag)  rexflag 1: needs a REX prefix (spl bpl sil dil),
 #                                          2: can't have one (ah ch dh bh)
 # xmm:      ('x', 16, number, 0)
-# ymm:      ('y', 32, number, 0)         (AVX: VEX-encoded instructions only)
+# ymm:      ('y', 32, number, 0)         (AVX: VEX-encoded instructions; 16 to 31 and zmm EVEX only)
+# zmm:      ('z', 64, number, 0)
+# mask:     ('k', 8, number, 0)          (AVX-512's k0 to k7)
 # immediate: ('i', sym, value, modifier)
 # memory:   ('m', seg, sym, disp, modifier, base, index, scale)   base: None, -1 (%rip) or 0..15
 # indirect: ('*', operand)
@@ -68,6 +70,15 @@ for _i in range(16):
         _REGS['%%r%dl' % _i] = ('r', 1, _i, 0)
     _REGS['%%xmm%d' % _i] = ('x', 16, _i, 0)
     _REGS['%%ymm%d' % _i] = ('y', 32, _i, 0)
+for _i in range(32):
+    if _i >= 16:
+        _REGS['%%xmm%d' % _i] = ('x', 16, _i, 0)
+        _REGS['%%ymm%d' % _i] = ('y', 32, _i, 0)
+    _REGS['%%zmm%d' % _i] = ('z', 64, _i, 0)
+for _i in range(8):
+    _REGS['%%k%d' % _i] = ('k', 8, _i, 0)
+for _i in range(8):
+    _REGS['%%tmm%d' % _i] = ('t', 1024, _i, 0)  # AMX tiles
 for _i, _n in enumerate(['ah', 'ch', 'dh', 'bh']):
     _REGS['%' + _n] = ('r', 1, 4 + _i, 2)
 _RIP = -1
@@ -358,19 +369,25 @@ _ABS = {1: 'ABS8', 2: 'ABS16', 4: 'ABS32', 8: 'ABS32S'}
 # encoding
 
 
-def _enc(a, opc, reg, rm, size=0, mand=b'', imm=None, w=None, dabs='ABS32S', vex=None):
+def _enc(a, opc, reg, rm, size=0, mand=b'', imm=None, w=None, dabs='ABS32S', vex=None, evex=None):
     """Emit one instruction: legacy prefixes, REX, opcode `opc` (bytes), ModRM with `reg` (an
     int /digit or a register operand) and `rm` (a register or memory operand), SIB, displacement,
     and immediate `imm` = (nbytes, sym, value, reloc kind) or None. `size` 2 adds the operand-size
     prefix, 8 sets REX.W (unless `w` says otherwise); `mand` is a mandatory SSE prefix; `dabs` is
     the relocation for an absolute symbolic displacement. vex = (pp, map, W, L, vvvv): a VEX prefix in place
-    of the mandatory prefix and REX, `opc` then the one opcode byte of that map."""
+    of the mandatory prefix and REX, `opc` then the one opcode byte of that map. evex = (pp, map, W, L'L, vvvv,
+    aaa, z, b, N): an EVEX prefix (AVX-512; registers 16 to 31, mask aaa, zeroing, broadcast), a displacement that
+    is a multiple of N in a scaled disp8 (disp8*N)."""
     out = bytearray()
     rex = 8 if (size == 8 if w is None else w) else 0
     force = 0
     if reg.__class__ is tuple:
         force = reg[3]
         reg = reg[2]
+    regn = reg
+    if evex is None and (reg > 15 or rm[0] != 'm' and rm[2] > 15 or vex is not None and vex[4] > 15):
+        raise AssemblerError('registers 16 to 31 need an EVEX instruction')
+    n8 = evex[8] if evex is not None else 1
     if reg & 8:
         rex |= 4
     reg = (reg & 7) << 3
@@ -404,7 +421,7 @@ def _enc(a, opc, reg, rm, size=0, mand=b'', imm=None, w=None, dabs='ABS32S', vex
                     dsz = 4
                 elif disp == 0 and base & 7 != 5:
                     dsz = 0
-                elif -128 <= disp <= 127:
+                elif disp % n8 == 0 and -128 <= disp // n8 <= 127:
                     dsz = 1
                 else:
                     dsz = 4
@@ -431,8 +448,19 @@ def _enc(a, opc, reg, rm, size=0, mand=b'', imm=None, w=None, dabs='ABS32S', vex
         n = rm[2]
         if n & 8:
             rex |= 1
+        if n & 16:  # EVEX: X extends a register operand
+            rex |= 2
         modrm = 0xc0 | reg | (n & 7)
-    if vex is not None:
+    if evex is not None:
+        if a.lock:
+            raise AssemblerError('lock prefix on an EVEX instruction')
+        pp, mm, W, LL, vvvv, aaa, z, bc, _ = evex
+        R, X, B = (rex & 4) == 0, (rex & 2) == 0, (rex & 1) == 0
+        out += bytes((0x62, R << 7 | X << 6 | B << 5 | ((regn & 16) == 0) << 4 | mm,
+                      W << 7 | (~vvvv & 15) << 3 | 4 | pp,
+                      z << 7 | LL << 5 | bc << 4 | ((vvvv & 16) == 0) << 3 | aaa))
+        out += opc
+    elif vex is not None:
         if a.lock:
             raise AssemblerError('lock prefix on a VEX instruction')
         pp, mm, W, L, vvvv = vex
@@ -459,7 +487,7 @@ def _enc(a, opc, reg, rm, size=0, mand=b'', imm=None, w=None, dabs='ABS32S', vex
         out.append(sib)
     doff = len(out)
     if dsz == 1:
-        out.append(disp & 0xff)
+        out.append((disp // n8) & 0xff)
     elif dsz == 4:
         out += (0 if fix else disp & 0xffffffff).to_bytes(4, 'little')
     fixups = []
@@ -537,6 +565,8 @@ def _gpr(o, sizes=(1, 2, 4, 8)):
 def _xmm(o, mem=False):
     if o[0] != 'x' and not (mem and o[0] == 'm'):
         raise AssemblerError('expected an %%xmm register%s' % (' or memory' if mem else ''))
+    if o[0] == 'x' and o[2] > 15:
+        raise AssemblerError('registers 16 to 31 need an EVEX instruction')
     return o
 
 
@@ -1039,6 +1069,8 @@ def _vr(o, mem=False):
     """An %xmm or %ymm register (or memory, if mem)."""
     if o[0] not in ('x', 'y') and not (mem and o[0] == 'm'):
         raise AssemblerError('expected an %%xmm or %%ymm register%s' % (' or memory' if mem else ''))
+    if o[0] != 'm' and o[2] > 15:
+        raise AssemblerError('registers 16 to 31 need an EVEX instruction')
     return o
 
 
@@ -1200,6 +1232,61 @@ def _h_avx(a, ops, sz, arg):
     raise AssertionError(form)
 
 
+def _vz(o, mem=False):
+    """An %xmm, %ymm or %zmm register (or memory, if mem)."""
+    if o[0] not in ('x', 'y', 'z') and not (mem and o[0] == 'm'):
+        raise AssemblerError('expected an %%xmm, %%ymm or %%zmm register%s' % (' or memory' if mem else ''))
+    return o
+
+
+_EVEXL = {'x': 0, 'y': 1, 'z': 2}
+
+
+def _h_evex(a, ops, sz, arg):
+    """AVX-512 (EVEX): arg = (prefix, map, opcode, W, form, vex). Forms as _h_avx's (rvm so far), a mask
+    ({%k1}, {z}) on the destination; a memory operand is a full vector (disp8*N with N its bytes). vex: the
+    instruction also has a VEX form ({vex} vpdpbusd: AVX-VNNI), which `{vex}` asks for."""
+    pfx, mm, op, W, form, vexok = arg
+    pp = _PP[pfx]
+    aaa, z = a.mask
+    if form == 'rvm':
+        _nops(ops, 3)
+        src2, src1, dst = _vz(ops[0], True), _vz(ops[1]), _vz(ops[2])
+        if len({src1[0], dst[0]} | ({src2[0]} if src2[0] != 'm' else set())) != 1:
+            raise AssemblerError('mixed vector register widths')
+        if a.pref == 'vex':
+            if not vexok or dst[0] == 'z' or aaa or z:
+                raise AssemblerError('no VEX encoding for these operands')
+            return _enc(a, bytes([op]), dst, src2, vex=(pp, mm, W, dst[0] == 'y', src1[2]))
+        L = _EVEXL[dst[0]]
+        return _enc(a, bytes([op]), dst, src2, evex=(pp, mm, W, L, src1[2], aaa, z, 0, 16 << L))
+    raise AssertionError(form)
+
+
+_DECO = re.compile(r'\{([^}]*)\}')
+
+
+def _decorations(a, strs):
+    """Takes AVX-512's {%kN} and {z} off the last operand into a.mask."""
+    last = strs[-1]
+    j = last.find('{')
+    if j < 0 or not last.endswith('}'):
+        return
+    aaa = z = 0
+    for d in _DECO.findall(last[j:]):
+        d = d.strip().lower()
+        if d == 'z':
+            z = 1
+        elif d[:2] == '%k' and d[2:] in ('1', '2', '3', '4', '5', '6', '7'):
+            aaa = int(d[2:])
+        else:
+            raise AssemblerError('bad operand decoration {%s}' % d)
+    if z and not aaa:
+        raise AssemblerError('{z} needs a mask')
+    strs[-1] = last[:j].strip()
+    a.mask = (aaa, z)
+
+
 # mnemonic table: name -> (handler, suffix size, argument)
 
 _SFX = {'b': 1, 'w': 2, 'l': 4, 'q': 8}
@@ -1312,6 +1399,11 @@ for _o, _base in (('132', 0x98), ('213', 0xa8), ('231', 0xb8)):
         for _k, _w, _d in (('ps', 0, 0), ('pd', 1, 0), ('ss', 0, 1), ('sd', 1, 1)):
             _INSNS['%s%s%s' % (_n, _o, _k)] = (_h_vfma, 0, (_w, _base + _add + _d))
 _INSNS['cpuid'] = (_h_fixed, 0, b'\x0f\xa2')
+# AVX-512 (EVEX): (mnemonic, prefix, map, opcode, W, form, has a VEX form)
+_EVEX = [('vdpbf16ps', b'\xf3', 2, 0x52, 0, 'rvm', False),  # AVX512-BF16
+         ('vpdpbusd', b'\x66', 2, 0x50, 0, 'rvm', True)]  # AVX512-VNNI; {vex}: AVX-VNNI
+for _e in _EVEX:
+    _INSNS[_e[0]] = (_h_evex, 0, _e[1:])
 _INSNS['vzeroupper'] = (_h_fixed, 0, b'\xc5\xf8\x77')
 # AVX and AVX2: (mnemonic, prefix, map (1 0F, 2 0F38, 3 0F3A), opcode, W, form)
 _P0, _P66, _PF3, _PF2 = b'', b'\x66', b'\xf3', b'\xf2'
@@ -1461,6 +1553,8 @@ class _Asm(_arm._Asm):
         self.states = {}
         self.st = None
         self.lock = False
+        self.mask = (0, 0)  # an EVEX instruction's {%kN} and {z}
+        self.pref = None  # {vex} or {evex}: the encoding asked for
         self.fixups = []
         _arm._Asm.__init__(self, syntax)
 
@@ -1604,17 +1698,35 @@ class _Asm(_arm._Asm):
                         mn = parts[0].lower()
                         rest = parts[1] if len(parts) > 1 else ''
                         self.lock = True
+                    if mn in ('{vex}', '{vex3}', '{evex}'):  # GNU as's pseudo-prefixes for the encoding
+                        parts = rest.split(None, 1)
+                        if not parts:
+                            raise AssemblerError('%s without an instruction' % mn)
+                        self.pref = mn[1:-1].rstrip('3')
+                        mn = parts[0].lower()
+                        rest = parts[1] if len(parts) > 1 else ''
                     ent = insns.get(mn)
                     if ent is None:
                         raise AssemblerError('unsupported instruction %r' % parts[0])
                     h, sz, arg = ent
-                    ops = [_operand(o) for o in _split(rest)] if rest else []
+                    strs = _split(rest) if rest else []
+                    if strs and '{' in strs[-1]:
+                        _decorations(self, strs)
+                    ops = [_operand(o) for o in strs]
                     if self.lock and not any(o[0] == 'm' for o in ops):
                         raise AssemblerError('lock needs a memory destination')
+                    if (self.mask != (0, 0) or self.pref == 'evex') and h is not _h_evex:
+                        raise AssemblerError('not an AVX-512 instruction')
+                    if self.pref == 'vex' and h is not _h_evex and h is not _h_avx:
+                        raise AssemblerError('{vex} on a non-VEX instruction')
                     h(self, ops, sz, arg)
                     self.lock = False
+                    self.mask = (0, 0)
+                    self.pref = None
                 except AssemblerError as e:
                     self.lock = False
+                    self.mask = (0, 0)
+                    self.pref = None
                     raise AssemblerError('line %d: %s: %s' % (self.lineno, e, line)) from None
         self.resolve()
         return self.obj

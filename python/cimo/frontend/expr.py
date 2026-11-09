@@ -28,6 +28,7 @@ from . import scope as SC
 from . import decl as D
 from . import eval as EV
 from . import init as IN
+from . import intrin as _intrin
 from . import utf as UTF
 from . import util as U
 from . import diag as DG
@@ -1160,6 +1161,11 @@ def postfixexpr(s, r):
                 continue
             if r.type.kind != TYPEPOINTER or r.type.base.kind != TYPEFUNC:
                 error(tok.loc, "called object is not a function")
+            if r.kind == EXPRUNARY and r.op == TBAND and r.base.kind == EXPRIDENT and r.base.decl.asmname \
+                    and r.base.decl.asmname.startswith(_intrin.PREFIX) and _intrin.lookup(r.base.decl):
+                msg = _intrin.missing(r.base.decl.asmname[len(_intrin.PREFIX):])  # cimo: a CPU intrinsic
+                if msg:
+                    error(tok.loc, "%s", msg)
             t = r.type.base
             e = Expr(EXPRCALL, t.base, r)
             e.args = None

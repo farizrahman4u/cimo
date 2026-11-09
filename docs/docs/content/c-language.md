@@ -41,6 +41,36 @@ GNU vector types (`__attribute__((vector_size(N)))`) work and match gcc's result
 > [!PLANNED]
 > Vector instructions for the rest: integer division, 64-bit multiplication,. Calls pass vectors as gcc does on every target.
 
+## CPU intrinsics
+
+The dot-product instructions have their intrinsics, under the names gcc and clang use, from cimo's own `arm_neon.h` and `immintrin.h`, so one file builds with all three:
+
+| Header | Intrinsics | Needs |
+|---|---|---|
+| `arm_neon.h` | `vbfdotq_f32` | `bf16` |
+| | `vdotq_s32`, `vdotq_u32` | `dotprod` |
+| | `vusdotq_s32` | `i8mm` |
+| `immintrin.h` | `_mm_dpbf16_ps`, `_mm256_dpbf16_ps`, `_mm512_dpbf16_ps` | `avx512bf16`, `avx512vl` |
+| | `_mm_dpbusd_epi32`, `_mm256_dpbusd_epi32`, `_mm512_dpbusd_epi32` | `avx512vnni`, `avx512vl` |
+| | `_mm_dpbusd_avx_epi32`, `_mm256_dpbusd_avx_epi32` | `avxvnni` |
+
+Each needs its CPU feature: on a CPU without it, the call is a compile error that names the feature. `cimo.cpu_features()` says what this CPU has, so a program can pick its kernel before compiling it, and the feature macros gcc defines with `-march=native` are defined too (`__ARM_FEATURE_BF16_VECTOR_ARITHMETIC`, `__ARM_FEATURE_DOTPROD`, `__ARM_FEATURE_MATMUL_INT8`, `__AVX512BF16__`, `__AVX512VNNI__`, `__AVXVNNI__`).
+
+The headers also have the vector types (`float32x4_t`, `bfloat16x8_t`, `__m256`, `__m512bh`, ...) and the loads, stores, broadcasts, additions and sums that a dot-product kernel needs around them (`vld1q_bf16`, `vdupq_n_f32`, `vaddvq_f32`, `_mm512_loadu_si512`, `_mm512_set1_epi32`, `_mm512_reduce_add_ps`, ...), with gcc's results. They declare nothing else: `__ARM_NEON`, `__AVX2__` and `__AVX512F__` stay undefined.
+
+```c
+#include <arm_neon.h>
+
+float dot(const bfloat16_t *a, const bfloat16_t *b, long n) {   /* n % 8 == 0 */
+    float32x4_t s = vdupq_n_f32(0);
+    for (long i = 0; i < n; i += 8)
+        s = vbfdotq_f32(s, vld1q_bf16(a + i), vld1q_bf16(b + i));
+    return vaddvq_f32(s);
+}
+```
+
+Vectors of `__bf16` and `_Float16` compute each lane in `float`, rounded back to the lane's type, as gcc does.
+
 ## Type sizes
 
 | Type | Size |

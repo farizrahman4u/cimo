@@ -418,6 +418,12 @@ _OPS += [(n, a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) for n, a in _QOPS]
 _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qfma0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qfma1s', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1), ('qfma1d', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         # dot products into 32-bit lanes, as qfma1 after a qfma0 of the accumulator (the CPU intrinsics of the bundled
+         # arm_neon.h and immintrin.h): qbfdot, each float lane + the products of its two bf16 pairs (arm64 bfdot, x86-64
+         # vdpbf16ps); qsdot, qudot, each int32 lane + the products of its four signed or unsigned bytes (sdot, udot);
+         # qusdot, unsigned bytes of a times signed bytes of b (usdot, vpdpbusd)
+         ('qbfdot', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1), ('qsdot', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qudot', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1), ('qusdot', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          # pinned, as qfma1 and sel1: gvn and gcm must never merge or move it away from its qsel0
          ('qsel1', _QQ(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qload', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
@@ -430,6 +436,14 @@ _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0
          # x86-64's own (amd64 isel, with fma): qfma1 with its second operand loaded from memory, %r =q qxfmams %a, %addr
          ('qxfmams', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Km)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qxfmamd', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Km)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         # made by isel (util.dupfold): qdup of a value loaded only for it, from memory, %r =q qdupmw %addr
+         # (x86-64 AVX2 vpbroadcastd mem, arm64 ldr s + dup: no move from a general register)
+         ('qdupmb', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qdupmh', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qdupmw', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qdupml', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qdupms', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qdupmd', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          # bytes to and from 16-bit lanes (vectorize's narrow loops): %r =q qldbh %addr, a byte a lane zero-extended;
          # %r =q qld3bh %addr, k, byte k of each 3 (rgb pixels, channel k); qstbh %v, %addr, each lane's low byte
          ('qldbh', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
@@ -521,6 +535,10 @@ def isload(o): return Oloadsb <= o <= Oload
 def isvload(o): return Ovloadsb <= o <= Ovload or o in (Oqload, Oqldbh, Oqld3bh, Oqld3x, Oqxwin, Oqld3x16, Oqldh, Oqload16)  # vector memory: as careful as volatile, for now
 def isvstore(o): return Ovstoreb <= o <= Ovstored or o in (Oqstore, Oqstbh, Oqstshrn, Oqsth, Oqstore16)
 def isqop(o): return Oqaddb <= o <= Oqwmla3h
+
+
+# cimo: the second of a qfma0 pair, which reads its destination too (isel made it a copy of the accumulator)
+QACC = frozenset((Oqfma1s, Oqfma1d, Oqbfdot, Oqsdot, Oqudot, Oqusdot))
 
 
 def unvolatile(fn, sink=None):

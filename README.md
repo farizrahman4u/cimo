@@ -101,6 +101,8 @@ including the browser.
 - `stdio.h`, `stdlib.h`, `string.h`, `math.h`, `complex.h`, `fenv.h`, `setjmp.h`, `ctype.h`, `inttypes.h` and the freestanding headers.
   `printf` writes to `sys.stdout`, so output appears in notebooks
 - `restrict`, used by the loop optimizer
+- The dot-product intrinsics of `arm_neon.h` and `immintrin.h` under gcc's names (`vbfdotq_f32`, `vdotq_s32`,
+  `_mm512_dpbf16_ps`, `_mm256_dpbusd_epi32`, ...), on CPUs that have them (`cimo.cpu_features()`)
 
 To use the operating system, link the host libc or any other shared library (zlib, BLAS, the Python C
 API):

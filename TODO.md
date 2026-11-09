@@ -59,7 +59,11 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
      serially. A fault in a worker raises `cimo.KernelError` as on the calling thread, Ctrl-C stops all parts, each
      worker has its own heap part as Python threads do, and the thread count is the caller's to set. Measure the cost
      of an empty region on 8 and 16 cores, and a memory-bound matrix-vector product's scaling against gcc's OpenMP.
-  2. **bf16 dot products as instructions.** arm64 `bfdot` (FEAT_BF16; 128 bits, so it fits class `q` now) and x86-64
+  2. ~~**bf16 dot products as instructions.**~~ **Done** (2026-11-09; "CPU features and intrinsics" in
+     `requirements.md`): `vbfdotq_f32`, `vdotq_s32`/`_u32`, `vusdotq_s32`, `_mm{,256,512}_dpbf16_ps`,
+     `_mm{,256,512}_dpbusd_epi32` and the `_avx_` ones from the bundled `arm_neon.h`/`immintrin.h`, an error naming the
+     feature on a CPU without it, `cimo.cpu_features()`, the features in the cache key. Same bits as gcc; Sapphire
+     Rapids 256-bit dot 1.01-1.07x, block 1.00x; Graviton 4 dot 1.04x, block 1.08x. Was: arm64 `bfdot` (FEAT_BF16; 128 bits, so it fits class `q` now) and x86-64
      `vdpbf16ps` (AVX512-BF16; the 256-bit form with AVX512-VL first, which needs EVEX encoding but not `zmm`). Not
      inline assembly, which stays out of CPU code: the intrinsics' own names on the vector types cimo has
      (`vbfdotq_f32`, `_mm256_dpbf16_ps`, `_mm512_dpbf16_ps`, from a bundled header declaring only what is implemented),
@@ -243,7 +247,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    runtime calls. Open: hardware conversions (arm64 `fcvt`/`bfcvt`, x86-64 F16C behind a check at
    load; wasm stays in software), then vectorized loads and widening in the vectorizer. Int8 dot products
    (`sdot`/`udot` on arm64, VNNI behind a check on x86-64, wasm relaxed-SIMD dot) for a reduction of
-   `int8 * int8` into `int32`. Oracle: gcc and clang on the same C. Measure a `Q8_0` block dot against
+   `int8 * int8` into `int32`. Their intrinsics **done** (2026-11-09: `vdotq_s32`, `vusdotq_s32`, `_mm256_dpbusd_epi32`,
+   see "CPU features and intrinsics" in `requirements.md`); open: the vectorizer making them from the C loop. Oracle: gcc and clang on the same C. Measure a `Q8_0` block dot against
    ggml's before and after.
 
 ## Optimizations to lift from LLVM and GCC

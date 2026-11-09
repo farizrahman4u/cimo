@@ -33,7 +33,7 @@ from ..defs import (R, RTmp, RCon, RMem, RSlot, NIns, Ins, Addr, Con, Num, Kw, K
                     Otruncd, Oalloc4, Oalloc8, Oalloc16, Oalloc, Oalloc1, Oflag, Oflagfo,
                     Oflagfuo, Oxcmp, Oxsel, Osel0, Osel1, Jret0, Jjmp, Jhlt, Jjnz, Jjf)
 from ..util import (err, die, newtmp, getcon, newcon, addcon, chuse, emit, emiti, idup,
-                    vgrow, intern, iscmp, cmpop, argcls, salloc, isreg)
+                    vgrow, intern, iscmp, cmpop, argcls, salloc, isreg, dupfold)
 from ..emit import stashbits
 from .. import ext as _ext
 from ..parse import printfn
@@ -578,7 +578,8 @@ def _selfma(i, blk, k1, fn):
 
 
 def _selqfma(i, i0, fn, tn=None):
-    """cimo (ext.x86 fma): vfmadd231ps/pd keep the addend in the destination, as arm64's fmla: the addend is
+    """cimo (ext.x86 fma): vfmadd231ps/pd keep the addend in the destination, as arm64's fmla (and vdpbf16ps,
+    vpdpbusd their accumulator): the addend is
     copied there first, and register allocation keeps the two in one register (rega's radd). qxfmam's second operand
     is an address, its whole addressing mode selected."""
     assert i0.op == D.Oqfma0
@@ -602,7 +603,7 @@ def _selqfma(i, i0, fn, tn=None):
 def _qsel(i, tn, fn):
     """cimo (ext.vector): registers, a whole addressing mode, and a constant for shifts, shuffles and lanes."""
     op = i.op
-    if op in (D.Oqload, D.Oqldbh, D.Oqload16, D.Oqldh):
+    if op in (D.Oqload, D.Oqldbh, D.Oqload16, D.Oqldh) or D.Oqdupmb <= op <= D.Oqdupmd:
         seladdr(i.arg, 0, tn, fn)
     elif op in (D.Oqstore, D.Oqstbh, D.Oqstore16, D.Oqsth):
         seladdr(i.arg, 1, tn, fn)
@@ -1117,6 +1118,8 @@ def _loadsfold(fn):
                     ins[k] = Ins(Onop)
         if 'fma' in _ext.x86:
             _fmafold(fn, ins, defs)
+        if _ext.qbytes() >= 32:
+            dupfold(fn, ins, defs, _writes)
         for k, st in enumerate(ins):
             k2 = {Ostorew: Kw, Ostorel: Kl}.get(st.op)
             if k2 is None or rtype(st.arg[0]) != RTmp or fn.hasvolatile:  # a volatile access stays as written
@@ -1207,7 +1210,7 @@ def amd64_isel(fn):
             elif i.op == D.Ofma1:
                 _selfma(i.copy(), b, k, fn)
                 k -= 1  # its fma0
-            elif i.op in (D.Oqfma1s, D.Oqfma1d, D.Oqxfmams, D.Oqxfmamd):
+            elif i.op in D.QACC or i.op in (D.Oqxfmams, D.Oqxfmamd):
                 _selqfma(i.copy(), b.ins[k - 1], fn, num)
                 k -= 1
             else:

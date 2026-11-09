@@ -60,3 +60,14 @@ project README quotes: saxpy 0.76x, gemm 0.85x, jacobi2d 1.10x, conv3x3 1.06x (g
   rgb2gray), which cimo does not do yet.
 - `edit_distance` needs a conditional select in the backend; `rgb2gray` needs better constant
   materialization. Both are in [`TODO.md`](../../TODO.md).
+
+## bf16 kernels
+
+`bf16.py` runs [`bf16.c`](bf16.c), kernels written with the CPU's dot-product intrinsics (a dot product with four
+accumulators, a matrix product block), through cimo and through gcc with `-mcpu=native` or `-march=native`, and
+checks that the results are the same bits. Each kernel runs only on a CPU with its features (`cimo.cpu_features()`).
+Measurements are in "CPU features and intrinsics" in [`requirements.md`](../../requirements.md).
+
+```console
+$ python3 python/bench/bf16.py
+```

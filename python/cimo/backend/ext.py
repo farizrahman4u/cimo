@@ -44,7 +44,7 @@ Flags:
           so it unwinds to Python (cimo.execution) instead of killing the process
   stkchk  None, or a set of function names whose prologue calls __cimo_stkchk (the stack
           guard, cimo.execution); not a bool, and not part of ALL
-  x86     the x86-64 features beyond SSE2 the code may use (cimo.cpu: fma, popcnt, lzcnt, bmi1,
+  x86     the x86-64 features beyond SSE2 the code may use (cimo.cpu: fma, popcnt, lzcnt, bmi1, avx512*, amx-*,
           avx, avx2, bmi2); a set, empty for baseline x86-64, and not part of ALL. fma: the fma
           pair as vfmadd, vectors too; popcnt, lzcnt, bmi1 (tzcnt): bpopcnt, bclz, bctz as one
           instruction each

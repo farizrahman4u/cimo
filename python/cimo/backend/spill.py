@@ -410,7 +410,7 @@ def spill(fn):
                         bsset(w, t)
             # cimo (ext.vector): qfma1 and qsel1 also read their destination, which isel made a copy of the addend or
             # mask (fmla, bsl): live into the instruction, in a register, like an argument
-            keep = ins.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1) and ins.to != R and rval(ins.to) >= Tmp0
+            keep = (ins.op in D.QACC or ins.op == D.Oqsel1) and ins.to != R and rval(ins.to) >= Tmp0
             if keep:
                 bsset(v, rval(ins.to))
                 bsset(w, rval(ins.to))

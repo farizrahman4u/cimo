@@ -335,6 +335,27 @@ def _x86(target=None):
         return frozenset()
     from . import cpu
     return cpu.x86_features()
+
+
+def _cpu(target=None):
+    """The CPU features code for target may use (cimo.cpu's names): this machine's when target is this machine's,
+    none for another target."""
+    if (target or TARGET) != TARGET or _PYODIDE:
+        return frozenset()
+    from . import cpu
+    return cpu.features()
+
+
+# the predefined macros of the features whose intrinsics the bundled arm_neon.h and immintrin.h declare, as gcc
+# -march=native defines them (no __AVX512F__, __AVX2__ or __ARM_NEON: those headers have only a few of theirs)
+_FEATURE_MACROS = {'bf16': ('__ARM_FEATURE_BF16', '__ARM_FEATURE_BF16_VECTOR_ARITHMETIC'),
+                   'dotprod': ('__ARM_FEATURE_DOTPROD',), 'i8mm': ('__ARM_FEATURE_MATMUL_INT8',),
+                   'avx512bf16': ('__AVX512BF16__',), 'avx512vnni': ('__AVX512VNNI__',), 'avxvnni': ('__AVXVNNI__',),
+                   'amx-tile': ('__AMX_TILE__',), 'amx-bf16': ('__AMX_BF16__',), 'amx-int8': ('__AMX_INT8__',)}
+
+
+def _feature_defines():
+    return [(m, None) for f in sorted(_cpu()) for m in _FEATURE_MACROS.get(f, ())]
 _PYODIDE = sys.platform == 'emscripten'  # cimo.wasm: an Emscripten side module, not arm64
 _VERSION = b'cimo-2'  # cache entry format; the compiler's own sources are hashed too (linker.compiler_key)
 
@@ -519,6 +540,8 @@ def _preprocess(src, filename='<string>', include_dirs=(), host_headers=False, d
             if not msg.endswith('#warning "Unsupported compiler detected"'):
                 sys.stderr.write(msg + '\n')
     try:
+        if target is None:  # this machine's: its CPU's feature macros
+            defines = _feature_defines() + list(defines)
         return preprocess(_PRELUDE + '#line 1\n' + src, filename, include_dirs=include_dirs,
                           defines=list(defines) or None, warn=warn,
                           target=target or TARGET, keep_attributes=True)
@@ -548,7 +571,7 @@ def _ir(pp, filename='<string>', host_headers=False):
         return _frontend(pp, filename, fma=_contract(), nowrap=not _wraps(), builtins=True,
                          diagnostics=True, prune=True, vecq=_vecq(),
                          vecops=_vecops(),
-                         vecabi=True, halfabi=True)
+                         vecabi=True, halfabi=True, cpufeat=_cpu())
     except FrontendError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
 
@@ -591,7 +614,7 @@ def _key(pp):
     return hashlib.sha256(
         _VERSION + _link.compiler_key().encode() + _link._key(TARGET).encode() + TARGET.encode()
         + b'p%d' % _jit.PAGE
-        + b'x' + ','.join(sorted(_x86())).encode()
+        + b'x' + ','.join(sorted(_cpu())).encode()
         + (b'm' if MIDDLE else b'') + (b'H' if _libm.get() == 'host' else b'') + (b'f' if _contract() else b'') + (b'v' if _wraps() else b'') + (b'V' if _vectorizes() else b'') + b'i%d' % INLINE
         + _code(pp).encode('utf-8', 'surrogateescape')).hexdigest()[:24]
 

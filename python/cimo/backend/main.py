@@ -194,6 +194,8 @@ class _Driver:
                 merged = cse.divconst(fn) or merged
                 merged = cse.divrem(fn) or merged
                 merged = cse.bytepatterns(fn) or merged
+            elif T.name.startswith('amd64'):  # signed divisions by powers of two as shifts (no multiply-high yet)
+                merged = cse.divconst(fn, pow2only=True) or merged
             ssa.filluse(fn)
             alias.fillalias(fn)
             load.loadopt(fn)

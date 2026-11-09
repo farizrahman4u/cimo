@@ -434,7 +434,7 @@ def doblk(b, cur):
                             skip = True
                         else:
                             i.to = TMP(rf)
-                            if D.Oqfma1s <= i.op <= D.Oqfma1d or i.op == D.Oqsel1:
+                            if i.op in D.QACC or i.op == D.Oqsel1:
                                 radd(cur, r, rf)  # cimo (ext.vector): also read, in the one before: see arm64's sel
         if skip:
             continue

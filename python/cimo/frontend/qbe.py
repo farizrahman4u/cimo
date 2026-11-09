@@ -19,6 +19,7 @@ from . import decl as D
 from . import eval as EV
 from . import tree as TR
 from . import util as U
+from . import intrin as _intrin
 from . import diag as DG
 
 out = U.out
@@ -1456,6 +1457,30 @@ def _fpubuiltin(f, e):
     return mkintconst(0)
 
 
+def funcintrinsic(f, e):
+    """cimo: a call of a CPU intrinsic of the bundled arm_neon.h or immintrin.h (intrin.py) as its instructions;
+    expr.py has checked that the CPU has what it needs."""
+    d = e.base.base.decl
+    spec = _intrin.lookup(d)
+    if spec is None:
+        return None
+    feats, kind, op = spec
+    if kind == 'dot':  # each 32-bit lane of the accumulator + the products of its pairs or fours of a and b
+        vt = e.type
+        n = _qchunks(vt)
+        if not n:
+            U.fatal("internal error; %s without class q" % d.name)
+        args = [funcexpr(f, a) for a in (e.args, e.args.next, e.args.next.next)]
+        res = _cxslot(f, vt)
+        ld, st = _qls(vt.size)
+        for k in range(n):
+            off = (lambda p: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
+            acc, a, b = [_qop(f, ld, off(p)) for p in args]
+            _qop(f, st, _qop(f, (op, acc), a, b), off(res), res=False)
+        return res
+    U.fatal("internal error; unknown intrinsic kind %s" % kind)
+
+
 def funcbuiltin(f, e):
     """cimo extension: a call of sqrt, fabs, fmin, fmax, floor, ceil, trunc, round, rint,
     nearbyint, fma (or
@@ -1891,7 +1916,7 @@ def _qget(f, v, i):
     cls = qbetype(el).base
     x = _qlane(el)
     r = _qop(f, 'qget' + x, q, mkintconst(i % per), cls=cls)
-    if el.size < 4 and el.issigned:  # qget zero-extends
+    if el.size < 4 and el.issigned and not el.prop & PROPFLOAT:  # qget zero-extends
         r = funcinst(f, IEXTSB if el.size == 1 else IEXTSH, 'w', r, None)
     return r
 
@@ -1905,7 +1930,9 @@ def _qcopy(f, dst, src, size):
 
 
 def _qlane(el):
-    """The q lane letter of a vector element type."""
+    """The q lane letter of a vector element type (a half's: its 16 bits')."""
+    if TY.ishalf(el):
+        return 'h'
     if el.prop & PROPFLOAT:
         return 's' if el.size == 4 else 'd'
     return 'bhwl'[el.size.bit_length() - 1]
@@ -2037,30 +2064,35 @@ def _vbinary(f, e):
     el = vt.base
     rt = e.type
     op = e.op
-    if contract and op in (TADD, TSUB) and el.prop & PROPFLOAT and _qchunks(vt) and rt is vt:
+    half = TY.ishalf(el)  # cimo: _Float16 and __bf16 lanes compute in float, lane by lane, as gcc's
+    if contract and op in (TADD, TSUB) and el.prop & PROPFLOAT and _qchunks(vt) and rt is vt and not half:
         res = _qfma(f, e, vt)
         if res is not None:
             return res
     la, ls = _voperand(f, e.l)
     ra, rs = _voperand(f, e.r)
     rel = e.r.type.base if TY.isvec(e.r.type) else el
-    if _qchunks(vt) and rel.size == el.size and rel.prop & PROPFLOAT == el.prop & PROPFLOAT and rel.issigned == el.issigned:
+    if _qchunks(vt) and not half and rel.size == el.size and rel.prop & PROPFLOAT == el.prop & PROPFLOAT and rel.issigned == el.issigned:
         res = _qbinary(f, e, vt, la, ls, ra, rs)
         if res is not None:
             return res
     res = _cxslot(f, rt)
     cls = qbetype(el).base
     cmp = op in (TEQL, TNEQ, TLESS, TGREATER, TLEQ, TGEQ)
-    o = _binop(op, el)
+    o = _binop(op, TY.typefloat if half else el)
     for i in range(vt.vlanes):
         a = _vlane(f, la, el, i) if la is not None else ls
         b = _vlane(f, ra, rel, i) if ra is not None else rs
+        if half:
+            a, b = convert(f, TY.typefloat, el, a), convert(f, TY.typefloat, rel, b)
         if op in (TSHL, TSHR) and cls == 'l' and qbetype(rel).base == 'w':
             b = funcinst(f, IEXTUW, 'l', b, None)
         if cmp:
             v = funcinst(f, INEG, 'w', funcinst(f, o, 'w', a, b), None)  # -1 or 0
             if rt.base.size == 8:
                 v = funcinst(f, IEXTSW, 'l', v, None)
+        elif half:
+            v = convert(f, el, TY.typefloat, funcinst(f, o, 's', a, b))
         else:
             v = funcinst(f, o, cls, a, b)
         _vput(f, res, rt.base, i, v)
@@ -2073,6 +2105,11 @@ def _vunary(f, e):
     cls = qbetype(el).base
     a = funcexpr(f, e.base)
     res = _cxslot(f, t)
+    if TY.ishalf(el):  # cimo: through float, as C computes it
+        for i in range(t.vlanes):
+            x = convert(f, TY.typefloat, el, _vlane(f, a, el, i))
+            _vput(f, res, el, i, convert(f, el, TY.typefloat, funcinst(f, INEG, 's', x, None)))
+        return res
     if _qchunks(t) and (e.op == TSUB or not el.prop & PROPFLOAT):
         name = 'qneg' + _qlane(el) if e.op == TSUB else 'qnot'
         for k in range(_qchunks(t)):
@@ -2095,7 +2132,9 @@ def _vcast(f, dst, src, e):
     v = funcexpr(f, e)
     if TY.isvec(dst):
         res = _cxslot(f, dst)
-        if TY.isvec(src):
+        if TY.isvec(src) and _qchunks(dst) and _qchunks(src) and dst.size == src.size:
+            _qcopy(f, res, v, dst.size)  # cimo: as q values, so neither leaves its register
+        elif TY.isvec(src):
             funccopy(f, res, v, dst.size, min(dst.align, src.align))
         else:
             if src.kind == TYPEPOINTER:
@@ -2458,6 +2497,11 @@ def funcexpr(f, e):
             v = _fpubuiltin(f, e)
             if v is not None:
                 return v
+        if b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT and b.base.decl.asmname \
+                and b.base.decl.asmname.startswith(_intrin.PREFIX):
+            v = funcintrinsic(f, e)
+            if v is not None:
+                return v
         if builtins:
             v = funcbuiltin(f, e)
             if v is not None:
@@ -2740,6 +2784,14 @@ def funcinit(func, d, init, hasinit):
     if not hasinit:
         return
     t = d.type
+    if TY.isvec(t) and _qchunks(t) and not d.qual & QUALVOLATILE and not TY.ishalf(t.base):
+        v = _qsplat(func, t, init)
+        if v is not None:  # cimo: every lane the same, as one qdup per q value
+            q = _qop(func, 'qdup' + v[0], v[1])
+            for k in range(_qchunks(t)):
+                p = funcinst(func, IADD, ptrclass, d.value, mkintconst(k * vecq)) if k else d.value
+                _qop(func, _qls(t.size)[1], q, p, res=False)
+            return
     if TY.isvec(t) and _qchunks(t) and not d.qual & QUALVOLATILE and not (
             init and not init.next and init.start == 0 and init.end == t.size and TY.isvec(init.expr.type)):
         # cimo: lane by lane into a slot of its own, then into the vector as whole q values (a register)
@@ -2752,6 +2804,32 @@ def funcinit(func, d, init, hasinit):
         _qcopy(func, var, src, t.size)
         return
     funcinit_lanes(func, d, init)
+
+
+def _qsplat(func, t, init):
+    """The value of every lane of vector type t initialized by init, if that's one value: all zero (lanes left out
+    included), or the same variable in every lane (`{x, x, x, x}`); else None."""
+    el = t.base
+    lanes = []
+    while init:
+        if init.bits[0] or init.bits[1] or init.end - init.start != el.size or init.start % el.size:
+            return None
+        lanes.append(init.expr)
+        init = init.next
+    def zero(ex):
+        if ex.kind == EXPRCAST and ex.type is el and ex.base.kind == EXPRCONST and ex.base.type.prop & PROPINT:
+            return ex.base.u == 0  # (float)0
+        if ex.kind != EXPRCONST or ex.type is not el:
+            return False
+        if el.prop & PROPFLOAT:
+            return ex.f == 0 and math.copysign(1, ex.f) > 0
+        return ex.u == 0
+    if all(zero(ex) for ex in lanes):
+        return 'w', mkintconst(0)
+    if len(lanes) != t.vlanes or not all(ex.kind == EXPRIDENT and ex.decl is lanes[0].decl and ex.type is el
+                                         and not ex.qual & QUALVOLATILE for ex in lanes):
+        return None
+    return _qlane(el), funcexpr(func, lanes[0])
 
 
 def funcinit_lanes(func, d, init):
@@ -2906,7 +2984,7 @@ def emittype(t):
     t.value.id = _typeid
     if TY.isvec(t) and vecq and t.size in (8, 16) and vecabi:  # cimo: passed in a V register (AAPCS64)
         el = t.base
-        x = ('s' if el.size == 4 else 'd') if el.prop & PROPFLOAT else 'bhwl'[el.size.bit_length() - 1]
+        x = 'h' if TY.ishalf(el) else ('s' if el.size == 4 else 'd') if el.prop & PROPFLOAT else 'bhwl'[el.size.bit_length() - 1]
         w("type ")
         emitname(t.value)
         w(" = align %d vector { %s %d }\n" % (t.align, x, t.vlanes))

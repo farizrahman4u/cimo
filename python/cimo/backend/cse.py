@@ -10,7 +10,7 @@ gcm's sink copies them again). With this flag:
   operands: a - (a / b) * b is what the rem instruction's own sdiv + msub computes, also for
   b == 0 and INT_MIN / -1;
 - on arm64, a division by a constant is a multiplication by its inverse (divconst; wasm engines
-  do this themselves);
+  do this themselves); on x86-64, a signed one by a power of two is shifts;
 - on arm64, a large multiplier used in a loop is built once, out of it (hoistcons);
 - on wasm, where they trap, gvn merges a division with an identical one that dominates it (if the
   first did not trap, neither does the second);
@@ -132,9 +132,9 @@ def umagic(d, w):
     return ((1 << w) * ((1 << l) - d)) // d + 1, l - 1, True
 
 
-def _expand(i, fn, out):
+def _expand(i, fn, out, pow2only=False):
     """Instructions for the division or remainder i by a constant, appended to out; False if i
-    isn't one this handles."""
+    isn't one this handles (pow2only: not a signed one by a power of two)."""
     c = fn.con[i.arg[1] & D.VMASK] if D.rtype(i.arg[1]) == D.RCon else None
     if c is None or c.type != D.CBits or D.rtype(i.arg[0]) != D.RTmp:
         return False
@@ -148,6 +148,8 @@ def _expand(i, fn, out):
     ad = abs(d)
     pow2 = ad & (ad - 1) == 0
     if ad < 2 or (pow2 and not signed):  # 0 and 1 stay; simpl has the unsigned powers of two
+        return False
+    if pow2only and not pow2:
         return False
     a = i.arg[0]
 
@@ -199,16 +201,16 @@ def _expand(i, fn, out):
     return True
 
 
-def divconst(fn):
+def divconst(fn, pow2only=False):
     """arm64: integer divisions and remainders by a constant, as multiplications. Breaks use.
-    Returns True if anything changed."""
+    pow2only (x86-64): only signed ones by a power of two, as shifts. Returns True if anything changed."""
     changed = False
     for b in fn.rpo[:fn.nblk]:
         if not any(i.op in _DIVOPS and KBASE(i.cls) == 0 for i in b.ins[:b.nins]):
             continue
         out = []
         for i in b.ins[:b.nins]:
-            if i.op in _DIVOPS and KBASE(i.cls) == 0 and _expand(i, fn, out):
+            if i.op in _DIVOPS and KBASE(i.cls) == 0 and _expand(i, fn, out, pow2only):
                 changed = True
             else:
                 out.append(i)

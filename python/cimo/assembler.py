@@ -1078,6 +1078,9 @@ _NEON3 = {'add': (0x4e208400, 's'), 'sub': (0x6e208400, 's'), 'mul': (0x4e209c00
           'trn1': (0x4e002800, 's'), 'trn2': (0x4e006800, 's')}
 _NEON2 = {'neg': (0x6e20b800, 's'), 'fneg': (0x6ea0f800, 'f'), 'fabs': (0x4ea0f800, 'f'), 'fsqrt': (0x6ea1f800, 'f'),
           'mvn': (0x6e205800, '')}
+# dot products into 4 x 32 bits (FEAT_BF16, FEAT_DotProd, FEAT_I8MM): opcode, the sources' arrangement
+_NEONDOT = {'bfdot': (0x6e40fc00, '8h'), 'sdot': (0x4e809400, '16b'), 'udot': (0x6e809400, '16b'),
+            'usdot': (0x4e809c00, '16b')}
 _NEONSH = {'shl': 0x4f005400, 'ushr': 0x6f000400, 'sshr': 0x4f000400}
 _LANES = {'16b': 0, '8h': 1, '4s': 2, '2d': 3}
 _NEONW = {'saddw': 0x0ea01000, 'saddw2': 0x4ea01000, 'uaddw': 0x2ea01000, 'uaddw2': 0x6ea01000}  # 2d, 2d, 2s or 4s
@@ -1149,6 +1152,14 @@ def _neon(mn, ops):
             return 0x4e000400 | _imm5(k, i) << 16 | n << 5 | d
         r = _reg(s, 'x' if size == 3 else 'w')
         return 0x4e000c00 | (1 << size) << 16 | r[1] << 5 | d
+    if mn in _NEONDOT:  # bfdot Vd.4s, Vn.8h, Vm.8h; sdot, udot, usdot Vd.4s, Vn.16b, Vm.16b
+        op, src = _NEONDOT[mn]
+        if len(ops) != 3:
+            raise AssemblerError('%s needs 3 operands' % mn)
+        d, _ = _v(ops[0], ('4s',))
+        n, _ = _v(ops[1], (src,))
+        m, _ = _v(ops[2], (src,))
+        return op | m << 16 | n << 5 | d
     d, lane = _v(ops[0], _LANES)
     size = _LANES[lane]
     same = (lane,)

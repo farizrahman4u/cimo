@@ -13,7 +13,7 @@ from ..defs import (R, RTmp, RCon, NIns, M64, Ins, Con, Mem, CBits, CAddr, SExt,
                     Jjf, Jjfine, isload, isstore, Oneg, Ofma0, Ofma1, Oafmadd, Oafmsub,
                     Oafnmadd, Oafnmsub)
 from ..util import (err, newtmp, newcon, getcon, chuse, emit, emiti, idup, intern, iscmp,
-                    cmpop, salloc, argcls, vgrow)
+                    cmpop, salloc, argcls, vgrow, dupfold)
 from ..parse import printfn
 from ..defs import Tmp0, Oextsw, Oextuw, Oextub, Oextuh, Osar, Oshr, Cieq, Cine, Kd, req
 from .regs import R0
@@ -1118,7 +1118,7 @@ def sel(i, fn):
         emit(i.op, D.Kq, R, d, R)
         emit(Ocopy, D.Kq, d, i.arg[0], R)
         return
-    if i.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1, D.Oqwmla3, D.Oqwmla3h):
+    if i.op in D.QACC or i.op in (D.Oqsel1, D.Oqwmla3, D.Oqwmla3h):
         _qdest[0] = i.to
         if i.op == D.Oqsel1:
             _qselb[0] = i.arg[1]
@@ -1135,6 +1135,11 @@ def sel(i, fn):
             foldaddr(i.arg, 0, 8, fn)
         elif i.op == D.Oqstshrn:
             foldaddr(i.arg, 0, 8, fn)
+        elif D.Oqdupmb <= i.op <= D.Oqdupmd:  # ldr b, h, s or d: an offset or a register index, as other loads
+            sz = {"b": 1, "h": 2, "w": 4, "s": 4, "l": 8, "d": 8}[D.optab[i.op].name[-1]]
+            foldaddr(i.arg, 0, sz, fn)
+            if _ext.isel:
+                foldindex(i.arg, 0, sz, fn)
         emiti(i)
         iarg = D.insb[D.curi].arg
         for n in (0, 1):
@@ -1515,7 +1520,7 @@ def qacrosscalls(fn):
             isslotop = x.op == D.Oqload and x.arg[0] in slots.values() or x.op == D.Oqstore and x.arg[1] in slots.values()
             if not isslotop:
                 # the reloads for a qfma1 or qsel1 go before its qfma0 or qsel0: the two stay side by side
-                first = new.pop() if x.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1, D.Oqwmla3, D.Oqwmla3h) and new and \
+                first = new.pop() if (x.op in D.QACC or x.op in (D.Oqsel1, D.Oqwmla3, D.Oqwmla3h)) and new and \
                     new[-1].op in (D.Oqfma0, D.Oqsel0, D.Oqwmla0) else None
                 for n in (0, 1):
                     a = x.arg[n]
@@ -1550,6 +1555,26 @@ def _elems(bs):
     return bselems(bs, Tmp0)
 
 
+def _writes(op):
+    """Whether op may write memory (dupfold)."""
+    return D.isstore(op) or op in (Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Oqstore, D.Oqstbh, D.Oqsth, D.Oqstshrn,
+                                   D.Oqstore16)
+
+
+def _dupfolds(fn):
+    """util.dupfold in each block: ldr s and dup of the lane, not ldr w and dup from it."""
+    if not _ext.vector:
+        return
+    b = fn.start
+    while b:
+        ins = b.ins[:b.nins]
+        if any(D.Oqdupb <= i.op <= D.Oqdupd for i in ins):
+            defs = {rval(i.to): k for k, i in enumerate(ins) if rtype(i.to) == RTmp}
+            dupfold(fn, ins, defs, _writes, (D.Oqdupw, D.Oqdupl, D.Oqdups, D.Oqdupd))  # ldr s, ldr d
+            b.ins = ins
+        b = b.link
+
+
 def arm64_isel(fn):
     global nfcon, selblk, selpos
 
@@ -1574,6 +1599,7 @@ def arm64_isel(fn):
         al += 1
         n *= 2
 
+    _dupfolds(fn)
     nfcon = 0
     b = fn.start.link
     while True:

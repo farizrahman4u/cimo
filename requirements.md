@@ -1353,6 +1353,44 @@ restarting float selects).
 x86-64 float selects: `ifconv` makes them there too; the scalar one is a jump over a move (`amd64.emit`: no cmov for
 xmm registers), the vector one masks. A loop that stores the running value each iteration checks them against Python.
 
+## CPU features and intrinsics (2026-11-09)
+
+For the kernel generator (TODO "Next after the PTX item"), whose CPU kernels are C on bf16 weights written against
+gcc's intrinsics.
+
+- **Features (`cimo/cpu.py`, public as `cimo.cpu_features()`):** x86-64 adds AVX-512's `avx512f`, `bw`, `dq`, `vl`,
+  `bf16`, `vnni`, the VEX `avxvnni`, and `amx-tile`, `amx-bf16`, `amx-int8`, each only with its XCR0 state (opmask and
+  zmm bits 5-7; tile bits 17, 18) and leaf 7's subleaf 1 only when leaf 7 lists it. arm64 has `bf16`, `dotprod`, `i8mm`
+  from the OS: Linux `getauxval` (HWCAP_ASIMDDP, HWCAP2_I8MM, HWCAP2_BF16; else /proc/cpuinfo), macOS
+  `hw.optional.arm.FEAT_*`, Windows `IsProcessorFeaturePresent` (43, 66, 68: checked on the Snapdragon X, where
+  EBF16, 69, is 0) or else the ID registers the registry keeps (`CP 4030`, `CP 4031`). `CIMO_ARM64` overrides as
+  `CIMO_X86` does. The module key takes them on both (the runtime's only on x86-64, where its code changes).
+- **Intrinsics:** the bundled `arm_neon.h` and `immintrin.h` declare each as a prototype with an asm label
+  `__cimo_intrin_<name>` (`frontend/intrin.py`), so a program's own function of the name is a function. The call is
+  checked where it's parsed (an error naming the missing features) and lowered by `qbe.funcintrinsic`: per q value of
+  the vector, `qfma0 acc` then `qbfdot`/`qsdot`/`qudot`/`qusdot` (`D.QACC`, the class of op that reads its destination,
+  as `qfma1`), arm64 `bfdot`/`sdot`/`udot`/`usdot`, x86-64 `vdpbf16ps` and `vpdpbusd` (`{vex}` with AVX-VNNI) accumulating in
+  place. The rest of those headers is macros over GNU vector code (statement expressions: functions with vector
+  arguments or results aren't inlined, `inline.snapshot` takes no aggregate), with gcc's lane orders in the sums
+  (`vaddvq_f32` as `faddp`'s, `_mm512_reduce_add_ps` as gcc's halving). Feature macros as `-march=native` defines
+  them, only for those features (no `__ARM_NEON`, `__AVX512F__`).
+- **EVEX in the assembler:** registers 16 to 31, zmm, k0-k7, `{%kN}{z}`, disp8*N, GNU as's `{vex}`/`{evex}`; VEX
+  forms reject registers past 15. Byte-identical to GNU as 2.42 (`data/amd64_forms.s`).
+- **Found on the way:** arithmetic on vectors of `__bf16`/`_Float16` was integer or double arithmetic on the bits
+  (now each lane in float, as gcc; `vector { h 8 }`, so arm64 passes them in a V register); a vector of 2 or 4 q values
+  stayed in memory (`sroa` splits it into q slots now); sroa put its new slots before the parameters (`par` reached
+  the emitter once a q slot's alloc became `qdupw 0`); a cast between vector types copied 8 bytes at a time out of
+  registers; `{x, x, x, x}` and `{0}` are one `qdup`.
+- **Broadcasts from memory (`util.dupfold`):** a value loaded only to be broadcast is `vpbroadcastd mem` (x86-64
+  AVX2) or `ldr s` + `dup v.4s, v.s[0]` (arm64), as gcc; through a general register it took Sapphire Rapids'
+  shuffle port, which `vdpbf16ps` shares, and Neoverse V2's one pipe for `dup` from a general register. Signed
+  divisions by powers of two are shifts on x86-64 too (`cse.divconst(pow2only)`; no multiply-high there yet), so
+  `k / 2` leaves the loop.
+- **Measured (`bench/bf16.py`, best of 7, cimo / `gcc -O3 -march=native` or `-mcpu=native`, same bits everywhere):**
+  Sapphire Rapids (c7i.2xlarge), 256-bit: dot with 4 accumulators 1.01-1.07x, 64x64x512 matrix block 1.51x, 1.00x
+  after the broadcasts; 512-bit at two ymm a zmm: dot 0.88-1.08x, block 2.4-2.6x (gcc: zmm). Graviton 4 (c8g.2xlarge):
+  dot 1.04-1.05x, block 1.91x, 1.08x after the broadcasts.
+
 ## Conformance corpora (2026-10-31)
 
 Most tests compare a port with its reference (cproc, QBE, gcc's cpp, gas); they show fidelity,

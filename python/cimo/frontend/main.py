@@ -93,7 +93,7 @@ def _opset(v):
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
             builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False, bigcopy=None, nowrap=False,
-            vecq=0, vecops=(), vecabi=False, halfabi=False, wasmptr=False, fmaok=True):
+            vecq=0, vecops=(), vecabi=False, halfabi=False, wasmptr=False, fmaok=True, cpufeat=()):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -137,6 +137,9 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     (N = its size: 16, or 32 on x86-64 with AVX2) instead of lane by lane. vecops: what else the target's q does
     ('convert': __builtin_convertvector).
 
+    cpufeat (cimo extension, empty by default): the CPU features the code may use (cimo.cpu's names), for the
+    intrinsics of the bundled arm_neon.h and immintrin.h (intrin.py); a call of one this lacks is an error.
+
     prune=True (cimo extension, off by default): drop static functions and data that no
     exported definition references (prune.py).
 
@@ -145,6 +148,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         text = text.encode('utf-8', 'surrogateescape')
     text = text.decode('latin-1')
     from . import qbe as _qbe
+    from . import intrin as _intrin
     try:
         _qbe.contract = bool(fma)
         U.fmadefault, U.fmaok = bool(fma), bool(fmaok)
@@ -160,6 +164,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.vecabi = bool(vecabi)
         _qbe.halfabi = bool(halfabi)
         _qbe.wasmptr = bool(wasmptr)
+        _intrin.cpufeat = frozenset(cpufeat)
         U.diagnostics = bool(diagnostics)
         U.fenvaccess = U.fenvtouched = U.cxlimited = False
         U.pack, U.packstack = 0, []
@@ -189,6 +194,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.vecabi = False
         _qbe.halfabi = False
         _qbe.wasmptr = False
+        _intrin.cpufeat = frozenset()
         U.diagnostics = False
         from . import cc as _cc
         _cc.exprhook = None

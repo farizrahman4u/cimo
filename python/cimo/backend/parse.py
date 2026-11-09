@@ -662,7 +662,7 @@ def parseline(ps):
     elif op == Tvol:
         return _ins(S.mathop, k, r, arg)
     elif op == Tq:
-        if S.mathop in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1):  # %r =q qfma1s %a, %b, %c, as fma; qsel1 %a, %b, %mask
+        if S.mathop in D.QACC or S.mathop == D.Oqsel1:  # %r =q qfma1s %a, %b, %c, as fma; qsel1 %a, %b, %mask
             if i != 3:
                 err("%s needs three arguments", optab[S.mathop].name)
             if D.curi + 2 > NIns:

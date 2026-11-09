@@ -201,13 +201,18 @@ def test_cli(tmp_path):
 
 def test_bundled_headers_preprocess():
     names = sorted(os.listdir(preprocessor.BUNDLED_INCLUDE))
-    expected = ['assert.h', 'complex.h', 'ctype.h', 'fenv.h', 'float.h', 'inttypes.h', 'iso646.h', 'limits.h', 'math.h', 'setjmp.h', 'stdalign.h',
-                'stdarg.h', 'stdbool.h', 'stddef.h', 'stdint.h', 'stdio.h', 'stdlib.h',
-                'stdnoreturn.h', 'string.h']
+    expected = ['arm_neon.h', 'assert.h', 'complex.h', 'ctype.h', 'fenv.h', 'float.h', 'immintrin.h', 'inttypes.h',
+                'iso646.h', 'limits.h', 'math.h', 'setjmp.h', 'stdalign.h', 'stdarg.h', 'stdbool.h', 'stddef.h',
+                'stdint.h', 'stdio.h', 'stdlib.h', 'stdnoreturn.h', 'string.h']
     assert names == expected
-    src = ''.join('#include <%s>\n' % n for n in names) * 2   # twice: include guards
+    other = {'arm_neon.h': 'amd64', 'immintrin.h': 'arm64'}  # the CPU intrinsics: one architecture's each
     for target in preprocessor.TARGETS:
+        mine = [n for n in names if not target.startswith(other.get(n, '-'))]
+        src = ''.join('#include <%s>\n' % n for n in mine) * 2   # twice: include guards
         preprocess(src, target=target, warn=lambda m: pytest.fail(m))
+        for n in set(names) - set(mine):
+            with pytest.raises(preprocessor.PreprocessError, match='is for'):
+                preprocess('#include <%s>\n' % n, target=target, warn=lambda m: None)
 
 
 # --- Differential: GNU cpp, C cproc ----------------------------------------------------------

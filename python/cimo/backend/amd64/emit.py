@@ -628,6 +628,19 @@ def _swap2slots(i, e):
                   % (sfx, a, fp, r, sfx, r, b, fp, sfx, r, a, fp))
 
 
+def _qdot(f, name, to, a, b, third, r, scratch):
+    """to = third + the dot products of a and b's pairs (vdpbf16ps: AVX512-BF16) or fours of bytes (vpdpbusd, a's
+    unsigned times b's signed: the VEX form with AVX-VNNI, else AVX512-VNNI's EVEX), which accumulate in place."""
+    mn = 'vdpbf16ps' if name == 'qbfdot' else '{vex} vpdpbusd' if 'avxvnni' in _ext.x86 else 'vpdpbusd'
+    if to == third:
+        f.write("\t%s %s, %s, %s\n" % (mn, r(b), r(a), r(to)))
+    elif to in (a, b):
+        f.write("\tvmovaps %s, %s\n\t%s %s, %s, %s\n\tvmovaps %s, %s\n"
+                % (r(third), scratch, mn, r(b), r(a), scratch, scratch, r(to)))
+    else:
+        f.write("\tvmovaps %s, %s\n\t%s %s, %s, %s\n" % (r(third), r(to), mn, r(b), r(a), r(to)))
+
+
 def _qins_y(i, e):
     """_qins on 256 bits (AVX2, ext.qbytes() == 32)."""
     f = e.f
@@ -649,6 +662,11 @@ def _qins_y(i, e):
         return True
     if op == D.Oqload16:  # 16 bytes in both halves
         _emitf_y("vbroadcasti128 %M0, %=", i, e)
+        return True
+    if D.Oqdupmb <= op <= D.Oqdupmd:  # a broadcast from memory (isel._dupfold)
+        mn = {'b': 'vpbroadcastb', 'h': 'vpbroadcastw', 'w': 'vpbroadcastd', 'l': 'vpbroadcastq', 's': 'vbroadcastss',
+              'd': 'vbroadcastsd'}[optab[op].name[-1]]
+        _emitf_y(mn + " %M0, %=", i, e)
         return True
     if op == D.Oqldh:  # F16C: 8 halves to floats
         _emitf_y("vcvtph2ps %M0, %=", i, e)
@@ -674,6 +692,9 @@ def _qins_y(i, e):
         return True
     if name in ('qxfmams', 'qxfmamd'):
         _fma3(f, 'p' + name[-1], to, a, _memtext(b, e), e.qthird, y=True)
+        return True
+    if name in ('qbfdot', 'qusdot'):
+        _qdot(f, name, to, a, b, e.qthird, _qy, '%ymm15')
         return True
     if name in _QYCVT:
         _qycvt(f, name, to, a, b)
@@ -754,6 +775,9 @@ def _qins(i, e):
         return True
     if name in ('qxfmams', 'qxfmamd'):
         _fma3(f, 'p' + name[-1], i.to, i.arg[0], _memtext(i.arg[1], e), e.qthird)
+        return True
+    if name in ('qbfdot', 'qusdot'):
+        _qdot(f, name, i.to, i.arg[0], i.arg[1], e.qthird, _qx, _QX15)
         return True
     if name in _QTWO:
         mn, commutes = _QTWO[name]
