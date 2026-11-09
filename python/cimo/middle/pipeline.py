@@ -146,6 +146,25 @@ def optimize(fn):
     unswitch._count.pop(fn.name, None)
     stride._count.pop(fn.name, None)
     stride._versioned.pop(fn.name, None)
+    if M.gpu:  # cimo.gpu: the driver's compiler does the rest; loop nests unroll from the inside out
+        from . import peel
+        changed = False
+        for _ in range(64):
+            more = _phase(fn, rnames, innermost, lambda fn, lp, rts: inner.transform(fn, lp, rts, done, 'full'), set())
+            ir.refresh(fn)
+            for lp in loops.find_loops(fn):  # bodies with branches: peeled
+                if peel.transform(fn, lp, inner.GPUFULL, inner.GPUFULLINS):
+                    more = True
+                    ir.refresh(fn)
+                    break
+            changed |= more
+            if not more:
+                break
+        if changed:
+            ir.refresh(fn)
+            ir.dce(fn)
+            ir.refresh(fn)
+        return changed
     tdone = set()
     changed = _phase(fn, rnames, nest3, lambda fn, lp, rts: tile.transform(fn, lp, rts, tdone), tdone)
     odone = set()

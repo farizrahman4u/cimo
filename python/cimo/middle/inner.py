@@ -39,6 +39,8 @@ import cimo.middle as M
 
 MAXFULL = 16         # full unrolling: at most this many iterations
 MAXFULLINS = 320     # ... and this many copied instructions
+GPUFULL = 64         # cimo.gpu: the same, for GPU code (registers instead of local memory; the driver schedules)
+GPUFULLINS = 4096
 MAXBODY = 160        # unrolled main-loop body size budget (instructions)
 SR_MAXSPAN = 8
 
@@ -960,9 +962,9 @@ def transform(fn, lp, rts, done, mode='opt'):
     A.fn_con0 = ir.getcon(0, fn)
     ctl = Control(A, sh)
     nbody = sum(ir.ins(b).__len__() for b in sh.order)
-    T = ctl.const_trips(MAXFULL)
+    T = ctl.const_trips(GPUFULL if M.gpu else MAXFULL)
     if mode == 'full':
-        if T is not None and T * nbody <= MAXFULLINS:
+        if T is not None and T * nbody <= (GPUFULLINS if M.gpu else MAXFULLINS):
             full_unroll(fn, lp, sh, A, ctl, T)
             return True
         return False

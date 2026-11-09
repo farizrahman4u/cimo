@@ -27,6 +27,7 @@
 - [Calling host libraries](https://www.cimo.dev/docs/content/host-libraries.md): Linking libc and other host libraries
 - [In the browser](https://www.cimo.dev/docs/content/browser.md): Pyodide, JupyterLite and marimo
 - [Shipping code that uses cimo](https://www.cimo.dev/docs/content/distribution.md): Shipping code that uses cimo: dependency, vendored file, frozen apps
+- [GPU kernels](https://www.cimo.dev/docs/content/gpu.md): Explicit kernels in C on NVIDIA GPUs, through the driver alone
 
 ## Reference
 

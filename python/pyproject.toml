@@ -32,7 +32,7 @@ include = ["cimo*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.md", "py.typed", "include/*.h", "runtime/COPYRIGHT", "runtime/symbols.txt", "frontend/LICENSE", "backend/LICENSE", "runtime/*.c", "runtime/*/*.c",
-       "runtime/*/*.h"]
+       "runtime/*/*.h", "gpu/include/cimo/*.h", "gpu/lib/*.c", "gpu/host/*.c"]
 
 [tool.black]
 line-length = 100

@@ -219,9 +219,10 @@ def _uses(fn, lp, defined, targets):
     return out
 
 
-def clone(fn, lp, E, exits, subst=None):
+def clone(fn, lp, E, exits, subst=None, envout=None):
     """A copy of lp's blocks, for the caller to branch to, in which subst ({value: replacement}) holds; values of
-    the loop used after it meet in phis at E. Returns {block: its copy}."""
+    the loop used after it meet in phis at E. Returns {block: its copy}; envout, if given, gets {temporary number:
+    its copy}."""
     subst = subst or {}
     env = {}
     for b in lp.blocks:
@@ -292,6 +293,8 @@ def clone(fn, lp, E, exits, subst=None):
                     for k in range(p.narg):
                         if not (b is T and p.blk[k] in inside):
                             p.arg[k] = joined.get(p.arg[k], p.arg[k])
+    if envout is not None:
+        envout.update(env)
     return copy
 
 

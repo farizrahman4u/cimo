@@ -69,6 +69,7 @@ declalign = 0  # `aligned` attribute after the declarator being parsed by decl()
 declmode = None  # `mode` attribute of the declaration being parsed by decl()
 memberpacked = False  # `packed` attribute after a struct member's declarator
 declvector = None  # `vector_size` attribute of the declaration being parsed (bytes)
+declgpu = None  # cimo_gpu_kernel or cimo_gpu_shared in the declaration being parsed by decl() (qbe.gpu)
 declnoinline = False  # `noinline` or `noipa` in the declaration being parsed by decl()
 noinline = set()  # the functions declared so (the backend's inliner leaves their calls: qbe.paraminfo['#noinline'])
 _cache = {}

@@ -8,6 +8,7 @@
 | macOS, Apple silicon | arm64 | supported: CPython 3.9 and newer (Apple's Command Line Tools, python.org, Homebrew) |
 | Linux, x86-64 | x86-64 | supported: code uses FMA, POPCNT, LZCNT and TZCNT when the CPU running it has them, and baseline SSE2 otherwise (`CIMO_X86`) |
 | Windows, x64 | x86-64 | supported: x64 builds of CPython; uses the CPU's features as on Linux |
+| NVIDIA GPUs (Linux, Windows) | PTX | explicit kernels, compute capability 5.0 and newer, through the driver alone: see [GPU kernels](gpu.md) |
 
 On an unsupported machine (for example an Intel Mac), `cimo.compile` raises `CompileError`.
 

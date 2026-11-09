@@ -86,6 +86,13 @@ def parseattr(a, allowed, prefix):
             if a:
                 a.section = section
             expect(TRPAREN, "after section name")
+    if prefix == PREFIXGNU and name in ('cimo_gpu_kernel', 'cimo_gpu_shared'):  # cimo: <cimo/gpu.h>
+        from . import qbe as Q
+        if not Q.gpu:
+            error(loc, "'%s' is GPU kernel C: compile it with cimo.compile(..., device=gpu)",
+                  '__gpu_kernel' if name == 'cimo_gpu_kernel' else '__gpu_shared')
+        DG.declgpu = name
+        return True
     if prefix == PREFIXGNU and name in ('noinline', 'noipa') and U.diagnostics:
         DG.declnoinline = True  # cimo: still an ignored attribute otherwise (diag.IGNOREDATTRS)
     if kind:

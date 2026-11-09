@@ -344,7 +344,11 @@ def isfma(op):
 def copyable(i):
     """Can this instruction be duplicated (unrolling, versioning)?"""
     op = i.op
-    return op in PURE or isload(op) or isstore(op) or isfma(op) or op in (D.Onop, D.Odbgloc)
+    if op in PURE or isload(op) or isstore(op) or isfma(op) or op in (D.Onop, D.Odbgloc):
+        return True
+    import cimo.middle as M
+    # cimo.gpu: full unrolling copies the body in order, so calls (asm statements, barriers) and their arguments copy
+    return M.gpu and (op == D.Ocall or D.Oarg <= op <= D.Oargv or op == D.Ogpuid)
 
 
 STORE_SIZE = None

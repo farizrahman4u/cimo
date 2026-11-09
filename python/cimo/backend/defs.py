@@ -486,6 +486,8 @@ _OPS += [('rdfpcr', ((Kx, Kx, Kx, Kx), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0
          ('wrfpsr', ((Kw, Kw, Kw, Kw), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('xcmpe', ((Kw, Kl, Ks, Kd), (Kw, Kl, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
          ('afcmpq', ((Ke, Ke, Ks, Kd), (Ke, Ke, Ks, Kd)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
+# cimo (cimo.gpu): "%r =w gpuid N", a thread, block or grid index or size on the GPU (cimo.gpu.backend.ptx); pure
+_OPS += [('gpuid', ((Kw, Ke, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)]
 del _QQ, _Q1, _QS
 
 

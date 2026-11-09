@@ -51,7 +51,7 @@ _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
 Tassoc = Ntok + 10  # cimo extension: a float add, sub or mul of a `#pragma omp simd reduction`, in any order
 _ASSOCOPS = {'addassoc': D.Oadd, 'subassoc': D.Osub, 'mulassoc': D.Omul}
 _FPUOPS = ('rdfpcr', 'rdfpsr', 'wrfpcr', 'wrfpsr')  # cimo: the floating-point environment (ext.math)
-_BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16', 'umulh', 'h2f', 'f2h')  # umulh: arm64's, for the frontend's __int128
+_BITOPS = ('bclz', 'bctz', 'bpopcnt', 'bswap', 'bswap16', 'umulh', 'h2f', 'f2h', 'gpuid')  # umulh: arm64's, for the frontend's __int128
 
 kwmap = {
     Tloadw: "loadw", Tloadl: "loadl", Tloads: "loads", Tloadd: "loadd",

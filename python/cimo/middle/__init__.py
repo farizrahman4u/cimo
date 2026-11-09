@@ -29,8 +29,9 @@ vectorizing = __import__('os').environ.get('CIMO_VECTORIZE', '1') != '0'  # auto
 unroll = 4       # main unroll factor for innermost loops (1 disables unrolling)
 debug = False    # print the IR before/after to stderr
 stats = None     # optional dict: counters of transformations applied
+gpu = False      # cimo.gpu: only full unrolling of small constant-trip loops, so their arrays become registers
 
-_NAMES = ('enabled', 'params', 'unroll', 'debug', 'stats', 'vectorizing')
+_NAMES = ('enabled', 'params', 'unroll', 'debug', 'stats', 'vectorizing', 'gpu')
 
 
 def configure(**kw):

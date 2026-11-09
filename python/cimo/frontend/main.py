@@ -93,7 +93,7 @@ def _opset(v):
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
             builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False, bigcopy=None, nowrap=False,
-            vecq=0, vecops=(), vecabi=False, halfabi=False, wasmptr=False, fmaok=True, cpufeat=()):
+            vecq=0, vecops=(), vecabi=False, halfabi=False, wasmptr=False, fmaok=True, cpufeat=(), gpu=False):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -139,6 +139,9 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
 
     cpufeat (cimo extension, empty by default): the CPU features the code may use (cimo.cpu's names), for the
     intrinsics of the bundled arm_neon.h and immintrin.h (intrin.py); a call of one this lacks is an error.
+    gpu=True (cimo extension, off by default): GPU kernel C (cimo.gpu): the attributes cimo_gpu_kernel and
+    cimo_gpu_shared, `gpuid N` for __cimo_gpu_id(N), and asm statements with a template, as calls of
+    __cimo_gpu_asm and __cimo_gpu_asmout whose templates and constraints are in qbe.paraminfo['#gpuasm'].
 
     prune=True (cimo extension, off by default): drop static functions and data that no
     exported definition references (prune.py).
@@ -165,6 +168,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.halfabi = bool(halfabi)
         _qbe.wasmptr = bool(wasmptr)
         _intrin.cpufeat = frozenset(cpufeat)
+        _qbe.gpu = bool(gpu)
         U.diagnostics = bool(diagnostics)
         U.fenvaccess = U.fenvtouched = U.cxlimited = False
         U.pack, U.packstack = 0, []
@@ -195,6 +199,7 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.halfabi = False
         _qbe.wasmptr = False
         _intrin.cpufeat = frozenset()
+        _qbe.gpu = False
         U.diagnostics = False
         from . import cc as _cc
         _cc.exprhook = None

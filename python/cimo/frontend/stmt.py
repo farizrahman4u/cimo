@@ -352,6 +352,21 @@ def _asmstrings():
     return ''.join(parts)
 
 
+def _unescape(t):
+    """The text of a string literal's body as C reads it (the asm template's \\n, \\t, \\" and \\\\)."""
+    out, i = [], 0
+    while i < len(t):
+        ch = t[i]
+        if ch == '\\' and i + 1 < len(t):
+            nx = t[i + 1]
+            out.append({'n': '\n', 't': '\t', '"': '"', '\\': '\\', "'": "'"}.get(nx, '\\' + nx))
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+
 def _colon():
     """Consume one ':' (half of a `::` token: `asm ("" ::: "memory")`)."""
     if tok.kind == TCOLONCOLON:
@@ -391,8 +406,12 @@ def _asm(f, s):
     while tok.kind in (TVOLATILE, TINLINE, TGOTO):
         next()
     expect(TLPAREN, "after 'asm'")
-    if tok.kind != TSTRINGLIT or not _EMPTYASM.fullmatch(_asmstrings()):
-        error(loc, DG.INLINEASM if U.diagnostics else "inline assembly is not yet supported")
+    template = _asmstrings() if tok.kind == TSTRINGLIT else None
+    if template is None or not _EMPTYASM.fullmatch(template):
+        if not Q.gpu or template is None:
+            error(loc, DG.INLINEASM if U.diagnostics else "inline assembly is not yet supported")
+    else:
+        template = None
     outs, ins = [], []
     if _colon():
         outs = _asmoperands(s, True)
@@ -411,6 +430,9 @@ def _asm(f, s):
                             break
     expect(TRPAREN, "after 'asm' operands")
     expect(TSEMICOLON, "after 'asm' statement")
+    if template is not None:  # cimo (gpu): target text, passed through to the PTX backend
+        Q.gpuasm(f, _unescape(template), outs, ins, loc)
+        return
     tiedouts = set()
     for name, c, e in ins:
         c = c.lstrip('=+&%')

@@ -365,8 +365,8 @@ MIDDLE = os.environ.get('CIMO_MIDDLE', '1') != '0'
 # fused multiply-add where C allows contraction (within one expression, like clang's
 # -ffp-contract=on); CIMO_FMA=0 turns it off, for results identical to -ffp-contract=off
 FMA = os.environ.get('CIMO_FMA', '1') != '0'
-_fma = contextvars.ContextVar('cimo_fma', default=None)  # compile(fma=): this call's choice
-_wrapv = contextvars.ContextVar('cimo_wrapv', default=None)  # compile(wrapv=): this call's choice
+_fma: 'contextvars.ContextVar[Optional[bool]]' = contextvars.ContextVar('cimo_fma', default=None)  # compile(fma=): this call's choice
+_wrapv: 'contextvars.ContextVar[Optional[bool]]' = contextvars.ContextVar('cimo_wrapv', default=None)  # compile(wrapv=): this call's choice
 _libm = contextvars.ContextVar('cimo_libm', default='bundled')  # compile(libm=): 'bundled' or 'host'
 WRAPV = os.environ.get('CIMO_WRAPV', '0') not in ('', '0')
 # the frontend and backend ports keep their state in module globals, as the C programs do: one
@@ -482,6 +482,8 @@ def _hint(msg, host_headers):
     host = ("pass host_headers=True to use the host's C headers (and link=['libc'] to "
             "call their functions)")
     m = re.search(r'([\w/.+-]+\.h): No such file or directory', msg)
+    if m and m.group(1) == 'cimo/gpu.h':
+        return msg + '; this is GPU kernel C: compile it with cimo.compile(src, device=gpu), gpu = cimo.gpu.device()'
     if m and not host_headers:
         return msg + '; %s is not bundled with cimo: %s' % (m.group(1), host)
     m = re.search(r"(?:undeclared identifier: |unknown type name ')(\w+)", msg)
@@ -581,6 +583,12 @@ def _contract():
     on an x86-64 CPU without FMA."""
     if _is_amd64() and 'fma' not in _x86():
         return False
+    v = _fma.get()
+    return FMA if v is None else v
+
+
+def _contract_gpu():
+    """Whether a GPU compile contracts a*b+c: its fma= argument, else the process default (every GPU has fma)."""
     v = _fma.get()
     return FMA if v is None else v
 
@@ -1086,7 +1094,8 @@ class Module(Introspection):
 
 def compile(src: str, include_dirs: Iterable[PathArg] = (), link: Union[str, Iterable[str]] = (),
             host_headers: bool = False, defines: Defines = (), cache: bool = True,
-            fma: Optional[bool] = None, wrapv: Optional[bool] = None, libm: str = 'bundled') -> Module:
+            fma: Optional[bool] = None, wrapv: Optional[bool] = None, libm: str = 'bundled',
+            device: Any = None) -> Module:
     """Compile C source and return a Module of callables.
 
     The module is linked with cimo's runtime library (string.h, math.h, printf, malloc, ...)
@@ -1104,7 +1113,18 @@ def compile(src: str, include_dirs: Iterable[PathArg] = (), link: Union[str, Ite
     C, and the compiler assumes it doesn't happen (None: the process default, off, or on with
     CIMO_WRAPV=1). libm='host': the math library's functions (sin, exp, pow, atan2, ...) are the host's libm, as
     CPython's math module calls them, for the same bits as Python on that machine; 'bundled' (default): cimo's own,
-    the same on every target. Not in Pyodide."""
+    the same on every target. Not in Pyodide. device: a GPU (cimo.gpu.device()): src is GPU kernel C
+    (<cimo/gpu.h>), compiled to PTX and loaded on it; the result is a cimo.gpu.GpuModule of its kernels."""
+    if device is not None:
+        if link or host_headers or libm != 'bundled':
+            raise ValueError('link, host_headers and libm are for CPU code, not with device=')
+        ftoken = _fma.set(None if fma is None else bool(fma))
+        vtoken = _wrapv.set(None if wrapv is None else bool(wrapv))
+        try:
+            return device.compile(src, include_dirs=include_dirs, defines=defines, cache=cache)
+        finally:
+            _fma.reset(ftoken)
+            _wrapv.reset(vtoken)
     return _module(src, '<string>', include_dirs, link, host_headers, defines, cache, fma, wrapv, libm)
 
 

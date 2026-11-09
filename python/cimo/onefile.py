@@ -131,6 +131,8 @@ def _bootstrap(files):
             return None, False
 
         def find_spec(self, fullname, path=None, target=None):
+            if (fullname == 'cimo.gpu' or fullname.startswith('cimo.gpu.')) and 'gpu/__init__.py' not in files:
+                raise ImportError('cimo.gpu is not in this onefile build: build it with `cimo onefile --gpu`')
             rel, pkg = self._find(fullname)
             if rel is None or fullname == 'cimo':
                 return None
@@ -299,11 +301,14 @@ def _strip(files):
     return out
 
 
-def _package_files():
-    """{path relative to the package: text} of the files the onefile build embeds."""
+def _package_files(gpu=False):
+    """{path relative to the package: text} of the files the onefile build embeds; gpu/ only if gpu."""
     out = {}
     for p in _res.files(_res.ROOT, _EXTS):
-        out[os.path.relpath(p, _res.ROOT).replace(os.sep, '/')] = _res.read_text(p)
+        rel = os.path.relpath(p, _res.ROOT).replace(os.sep, '/')
+        if rel.startswith('gpu/') and not gpu:
+            continue
+        out[rel] = _res.read_text(p)
     for rel in _EXTRA:
         out[rel] = _res.read_text(_res.path(rel))
     return out
@@ -314,16 +319,17 @@ def _version():
     return getattr(cimo, '__version__', 'unknown')
 
 
-def build(path='cimo.py', progress=None, strip=True, compress=False):
+def build(path='cimo.py', progress=None, strip=True, compress=False, gpu=False):
     """Write the single file to `path`. strip: leave out comments and docstrings
     (license notices stay); compress: store the files zlib-compressed (see above); cache keys are those of the original sources
     (onefile-keys.json), so a onefile build shares compiled runtime members and modules with the
-    tree it was built from. progress(msg): status lines, optional.
+    tree it was built from. gpu: include cimo.gpu (left out by default: CPU users keep a smaller file).
+    progress(msg): status lines, optional.
     Returns stats: {'path', 'modules', 'resources', 'bytes', 'seconds'}."""
     say = progress or (lambda msg: None)
     t0 = time.time()
     say('collecting package files from %s' % _res.ROOT)
-    files = _package_files()
+    files = _package_files(gpu)
     if strip:
         say('stripping comments and docstrings')
         files = _strip(files)

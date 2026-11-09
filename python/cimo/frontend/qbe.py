@@ -208,6 +208,8 @@ IRDFPCR, IRDFPSR, IWRFPCR, IWRFPSR = 124, 125, 126, 127
 IH2F, IF2H = 129, 130
 # cimo: an operation on the backend's class q (GNU vector types), its name in arg2: "%r =q qaddw %a, %b", "qstore %v, %p"
 IQ = 128
+# cimo (gpu): a thread, block or grid index or size, "%r =w gpuid N" (cimo.gpu.backend.ptx: N's meaning)
+IGPUID = 131
 _SETJMP = ('setjmp', '_setjmp')  # cimo: functions that return twice (emitfunc)
 _FPUBUILTINS = {'__cimo_rdfpcr': IRDFPCR, '__cimo_rdfpsr': IRDFPSR, '__cimo_wrfpcr': IWRFPCR,
                 '__cimo_wrfpsr': IWRFPSR}
@@ -238,6 +240,7 @@ instname += ['umulh']
 instname += ['rdfpcr', 'rdfpsr', 'wrfpcr', 'wrfpsr']
 instname += [None]  # IQ: printed by emitinst itself
 instname += ['h2f', 'f2h']
+instname += ['gpuid']
 
 # cimo extension: bytes in the backend's class q (16; 32 on x86-64 with AVX2), so GNU vector types of that size or twice
 # it compute in vector registers; 0 (stock cproc output, and wasm): lane by lane. Set by compile(vecq=)
@@ -253,6 +256,8 @@ halfabi = False
 # cimo extension: pointer parameters, arguments and results as class p (compile(wasmptr=True)), which the WebAssembly
 # backend passes as i32 as Emscripten's code does, so a kernel can call a host function by address (Pyodide's frexp)
 wasmptr = False
+# cimo extension: GPU kernel C (compile(gpu=True), cimo.gpu): kernels, shared memory, thread ids and asm statements
+gpu = False
 
 
 def _vol(op, tq):
@@ -1444,6 +1449,10 @@ def _fpubuiltin(f, e):
     if not (b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT):
         return None
     d = b.base.decl
+    if gpu and d.name == '__cimo_gpu_id' and not d.asmname and d.kind == DECLFUNC and not d.defined:
+        if not e.args or e.args.next or EV.eval(e.args).kind != EXPRCONST:
+            error(tok.loc, "the argument of a GPU thread, block or grid query must be a constant")
+        return funcinst(f, IGPUID, 'w', mkintconst(EV.eval(e.args).u), None)
     op = _FPUBUILTINS.get(d.name)
     if op is None or d.asmname or d.kind != DECLFUNC or d.linkage != LINKEXTERN or d.defined:
         return None
@@ -2493,7 +2502,7 @@ def funcexpr(f, e):
         b = e.base
         if b.kind == EXPRUNARY and b.op == TBAND and b.base.kind == EXPRIDENT and b.base.decl.name in _SETJMP:
             f.retwice = True
-        if U.diagnostics:
+        if U.diagnostics or gpu:
             v = _fpubuiltin(f, e)
             if v is not None:
                 return v
@@ -3475,3 +3484,92 @@ def emitdata(d, init, literal=False):
     if offset < d.type.size:
         w("z %d " % (d.type.size - offset))
     w("}\n")
+
+
+def irname(v):
+    """cimo: a global's name as the IR writes it, without the sigil (emitname)."""
+    n = v.name or ''
+    if v.kind & VALUE_GLOBAL and v.id:
+        return '.L%s.%d' % (n, v.id)
+    return n
+
+
+def gpunote(key, name):
+    """cimo (gpu): record a kernel ('#gpukernels') or a shared object ('#gpushared') for the PTX backend."""
+    if paraminfo is not None:
+        paraminfo.setdefault(key, []).append(name)
+
+
+_ASMTYPES = {'h': ('w', 'typeushort'), 'r': ('w', 'typeuint'), 'l': ('l', 'typeulong'), 'f': ('s', 'typefloat'),
+             'd': ('d', 'typedouble'), 'n': ('l', 'typelong')}
+
+
+def gpuasm(f, template, outs, ins, loc):
+    """cimo (gpu): an asm statement with a template. The template and the operands' constraints go to the backend
+    in paraminfo['#gpuasm'][n]; the code is `%t =l call $__cimo_gpu_asm(w n, inputs...)` (the values of the "+"
+    outputs, then the inputs), then `%o =k call $__cimo_gpu_asmout(l %t, w i)` for output i, stored to its lvalue.
+    Calls, so that no pass moves, merges or deletes them, or keeps memory in registers across them."""
+    specs, args = [], []
+
+    def letter(c, what):
+        c = c.lstrip('=+&%')
+        if c in _ASMTYPES:
+            return c
+        error(loc, "GPU asm %s constraint '%s' is not one of h, r, l, f, d%s", what, c, ', n' if what == 'input' else '')
+
+    def value(e, c):
+        k, tn = _ASMTYPES[c]
+        if c == 'n':
+            if EV.eval(e).kind != EXPRCONST:
+                error(loc, "GPU asm operand with constraint 'n' must be an integer constant")
+            return None
+        v = funcexpr(f, e)
+        if c == 'h' and TY.ishalf(e.type):
+            return v  # the bits
+        return convert(f, getattr(TY, tn), e.type, v)
+
+    for name, c, e in outs:
+        if not c.startswith(('=', '+')):
+            error(loc, "GPU asm output constraint '%s' must start with '=' or '+'", c)
+        l = letter(c, 'output')
+        if l == 'n':
+            error(loc, "GPU asm output constraint 'n' is not allowed")
+        specs.append((l, 'b' if c.startswith('+') else 'o', None))
+    for i, (name, c, e) in enumerate(outs):
+        if specs[i][1] == 'b':
+            args.append((specs[i][0], value(e, specs[i][0])))
+    for name, c, e in ins:
+        cc = c.lstrip('=+&%')
+        tied = None
+        if cc.isdigit() and int(cc) < len(outs):
+            tied = int(cc)
+        elif cc.startswith('[') and cc.endswith(']'):
+            tied = next((n for n, o in enumerate(outs) if o[0] == cc[1:-1]), None)
+        if tied is not None:
+            l = specs[tied][0]
+            specs.append((l, 't', tied))
+        else:
+            l = letter(c, 'input')
+            specs.append((l, 'i', EV.eval(e).u if l == 'n' else None))
+        if l != 'n':
+            args.append((l, value(e, l)))
+    table = paraminfo.setdefault('#gpuasm', []) if paraminfo is not None else []
+    table.append((template, tuple(specs)))
+    fn = Value(VALUE_GLOBAL | VALUE_EXTERN)
+    fn.name, fn.id = '__cimo_gpu_asm', 0
+    tokv = funcinst(f, ICALL, 'l', fn, None)
+    funcinst(f, IARG, 'w', mkintconst(len(table) - 1), None)
+    for l, v in args:
+        funcinst(f, IARG, _ASMTYPES[l][0], v, None)
+    for i, (name, c, e) in enumerate(outs):
+        l = specs[i][0]
+        k, tn = _ASMTYPES[l]
+        fo = Value(VALUE_GLOBAL | VALUE_EXTERN)
+        fo.name, fo.id = '__cimo_gpu_asmout', 0
+        v = funcinst(f, ICALL, k, fo, None)
+        funcinst(f, IARG, 'l', tokv, None)
+        funcinst(f, IARG, 'w', mkintconst(i), None)
+        lval = funclval(f, e)
+        if not (l == 'h' and TY.ishalf(e.type)):
+            v = convert(f, e.type, getattr(TY, tn), v)
+        funcstore(f, e.type, e.qual, lval, v)

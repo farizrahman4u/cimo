@@ -719,9 +719,9 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
   kernels; 256-bit on Sapphire Rapids); cimo has 128-bit NEON and 256-bit AVX2. Graviton 4's SVE is 128-bit, and there the
   same kernels are level.
 
-## GPU (planned, 2026-11-02)
+## GPU (planned 2026-11-02; explicit kernels to PTX built 2026-11-09)
 
-Nothing here is built. Plain C runs on any GPU the machine has, including in a browser tab, with no vendor
+Built: explicit kernels to PTX through the NVIDIA driver ("PTX: built and measured" below). The rest is planned. Plain C runs on any GPU the machine has, including in a browser tab, with no vendor
 toolkit and nothing to install beyond a driver. Tuned kernels are C too, shipped as source and compiled for
 the card on first use. cimo owns the targets; scramjit exposes them.
 
@@ -883,9 +883,10 @@ Through cimo's public API only:
 
 ### Milestones
 
-**Order changed (2026-11-09):** the compile half of milestone 4 comes first: explicit kernels (`__gpu_kernel`,
-`__gpu_shared`, `__gpu_asm`) to PTX, loaded through the driver, without a tuned GEMM of our own. It needs none of
-milestones 1 to 3. Scope and acceptance are in `TODO.md` ("Big", first item). Milestones 1 to 3 keep their order after it.
+**Order changed (2026-11-09):** the compile half of milestone 4 came first: explicit kernels (`__gpu_kernel`,
+`__gpu_shared`, `__gpu_asm`) to PTX, loaded through the driver, without a tuned GEMM of our own. **Done** (2026-11-09,
+"PTX: built and measured" above). Next on this path: launches recorded as one driver graph (`cuGraph*`). Milestones 1
+to 3 keep their order; milestone 4 is now the tuned GEMM only.
 
 1. **WGSL, plain.** The `matmul` above compiles and runs on WebGPU in a tab. Results match the CPU within rounding. Same GPU,
    against hand-written WGSL: speed, and compile time with passes on and off. Target: a 50-line kernel edit to dispatch
@@ -901,10 +902,62 @@ milestones 1 to 3. Scope and acceptance are in `TODO.md` ("Big", first item). Mi
 confirm on arm64 Linux. Speed only on real hardware, on mains. This machine's WSL has no usable GPU: WGSL speed runs
 in a Windows browser, the rest on rented cards.
 
+### PTX: built and measured (2026-11-09)
+
+`python/cimo/gpu/`: `include/cimo/gpu.h`, `lib/` (`expf`, `memcpy`/`memset`), `backend/ptx/` (`emit.py`, `canon.py`),
+`host/cuda.c` (the driver API, compiled by cimo, linked to `libcuda`/`nvcuda.dll` by `dlsym`), `cuda.py` (devices,
+arrays, launches). User docs: `docs/docs/content/gpu.md`. Tests: `tests/test_gpu.py` (PTX text everywhere, checked by
+ptxas when found; runs with libcuda; nvcc as the oracle when found), `tests/gpu_bench.py`, `tests/gpu_passes.py`.
+
+- **Frontend:** `gpu=True` mode. Attributes `cimo_gpu_kernel`, `cimo_gpu_shared` (a block-scope object becomes static);
+  `__cimo_gpu_id(N)` becomes the pure op `gpuid N`; an asm statement with a template becomes calls of `__cimo_gpu_asm`
+  (its inputs) and `__cimo_gpu_asmout` (each output), the templates and constraints in `paraminfo['#gpuasm']`. Calls
+  because then no pass moves, merges or deletes them, or keeps memory in registers across them.
+- **Backend:** QBE's target-independent passes, the middle end in a `gpu` mode (full unrolling only), then the emitter:
+  one virtual register per temporary, phis as parallel copies on edges (stubs for conditional edges), no register
+  allocation. Everything is inlined (no recursion is allowed anyway). Addresses known to be global, shared or local
+  (a pointer parameter of a kernel, a `__gpu_shared` object, a local array) use that space, shared with 32-bit addresses
+  made where the offset is defined. `.version` is the lowest the device's architecture has (`sm_90a` when asm uses
+  `wgmma` and the like); the driver's maximum is checked first. Division is not pinned in gcm on PTX (it never traps).
+- **What decided speed** (ncu on the tiled matmul, against nvcc): (1) arrays indexed by loop counters must become
+  registers: full unrolling of constant-trip loops up to 64 iterations and 4096 instructions in GPU mode, also of
+  bodies with calls (asm, barriers) and with branches (`middle/peel.py`: one copy of the loop per iteration, then sccp),
+  then SROA again after the cleanup has folded the offsets. Without it: 62 ms against 2.5 for the matmul. (2) Constants
+  out of scaled indices (`mul(add(y, c), k)` to `add(mul(y, k), c k)`), so an unrolled loop's accesses are one register
+  plus offsets; ptxas then merged four 32-bit shared loads into one 128-bit load (shared loads 134M to 34M, bank
+  conflicts 67M to 0, 3.66 to 2.56 ms). (3) Division by constants hoisted out of loops, and `(x + c d) / d` split when x
+  is known non-negative (thread ids have ranges): 2.56 to 2.29 ms. (4) Loop-invariant terms of a sum added first, so one
+  register per address stays live (gemm_gelu 168 to 150 registers).
+- **Speed, NVIDIA L4 (sm_89), driver 595 (CUDA 13.2), against nvcc 12.9 -O3 on the same file, same driver**
+  (ms, best of interleaved rounds; run-to-run noise on this card is up to ±10%):
+
+  | kernel | cimo PTX | nvcc PTX | nvcc cubin | PTX lines | registers (cimo, nvcc) |
+  |---|---|---|---|---|---|
+  | saxpy, 16M floats | 0.798 | 0.794 | 0.795 | 51 | 12, 10 |
+  | matmul, 2048², shared tiles, 4x4 per thread | 2.45 | 2.29 | 2.37 | 1571 | 56, 72 |
+  | gemm_mma, bf16 m16n8k16 from global | 1.76 | 1.85 | 1.86 | 162 | 40, 38 |
+  | gemm_gelu, bf16 2048³, shared staging, GELU | 0.494 | 0.440 | 0.441 | 3535 | 154, 96 |
+  | softmax, 4096 rows of 4096 bf16 | 0.416 | 0.434 | 0.436 | 293 | 20, 29 |
+
+  The driver's PTX compiler against NVIDIA's bundled one (nvcc's PTX loaded by the driver against its cubin): the same
+  within noise on every kernel, so a cubin buys nothing. cimo's own code generation: 0.95x to 1.07x of nvcc's time on
+  four kernels, 1.12x on gemm_gelu (more registers: lower occupancy). Results are bitwise equal to nvcc's except where expf differs (cimo's
+  is its own, within 1 ulp; nvcc's within 2).
+- **Compile and load:** source to PTX 0.02 to 0.07 s for the small kernels, 0.6 s (laptop) and 0.78 s (the L4 box's
+  CPU) for the 94-line gemm_gelu, most of it QBE's cleanup passes over the unrolled code. The driver's load (PTX to
+  machine code, `CUDA_CACHE_DISABLE=1`): 9 ms (saxpy) to 160 ms (gemm_gelu; nvcc's PTX of it 80 ms). The driver's own
+  JIT cache makes a reload free; cimo caches the PTX (`gpu-<key>.json`).
+- **Passes** (each group off, `tests/gpu_passes.py`, compile s / kernel ms): every group pays on some kernel. Middle end
+  (full unrolling) off: matmul 0.06 s / 62 ms against 0.65 / 2.5, gemm_gelu 0.17 / 2.58 against 0.78 / 0.50. cse off:
+  matmul 3.1 ms, gemm_gelu 0.65 ms. Inlining off: gemm_gelu 2.8 ms. nowrap off: matmul 3.9 ms. So all stay on.
+- **Launch cost:** 4 µs per launch from Python (the cimo call with cuLaunchKernel 2.2 of it, packing 0.65). A `bytes` argument to a cimo kernel
+  costs 3.3 µs by itself (the buffer protocol on a read-only object), so the launch packs into a per-thread
+  preallocated buffer and passes its address.
+
 ### Unknown until measured
 
-Type recovery on real kernels. Compile time through cimo's passes. The gap from plain loops to tuned. Cooperative matrix
-against direct instructions. The driver's PTX compiler against NVIDIA's bundled one. `mfma` through `libhiprtc`. Stack
+Type recovery on real kernels. The gap from plain loops to tuned. Cooperative matrix against direct instructions.
+`mfma` through `libhiprtc`. Stack
 switching for synchronous calls in Pyodide.
 
 Sources: [HIP runtime compiler](https://rocm.docs.amd.com/projects/HIP/en/docs-6.4.1/how-to/hip_rtc.html),

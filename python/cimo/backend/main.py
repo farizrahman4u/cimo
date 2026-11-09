@@ -59,6 +59,9 @@ class _Driver:
             inline.recorddata(self.dataitems, d)
         if self.dbg:
             return
+        if D.T.name == 'ptx':  # cimo.gpu: the PTX module collects the data
+            self.outf.databuilder(d)
+            return
         if D.T.name == 'wasm':  # cimo: the wasm target collects an object, not assembly
             if not hasattr(self.outf, 'databuilder'):
                 from .wasm.emit import DataBuilder
@@ -227,6 +230,28 @@ class _Driver:
             # cleanup passes again over the new code
             cfg.filldom(fn)
             if middle.run(fn):
+                if T.name == 'ptx':  # cimo.gpu: unrolled loops index arrays by constants, once folded
+                    from ..gpu.backend.ptx import canon
+                    from . import scalar
+                    cfg.filldom(fn)
+                    if scalar.sccp(fn):  # the exit tests of peeled iterations
+                        cfg.fillcfg(fn)
+                        self._cleanup_fill(fn, cfg, ssa)
+                    for _ in range(4):  # nested: ((i + 1) * 16 + 2) * 4
+                        if not (canon.divisions(fn) | canon.run(fn)):
+                            break
+                        ssa.filluse(fn)
+                    self._cleanup(fn, cfg, ssa, gvn, gcm)
+                    if canon.reassoc(fn):
+                        ssa.filluse(fn)
+                        self._cleanup(fn, cfg, ssa, gvn, gcm)
+                    if _x.cse and sroa.sroa(fn):
+                        ssa.filluse(fn)
+                        mem.promote(fn)
+                        ssa.filluse(fn)
+                        ssa.ssa(fn)
+                        ssa.filluse(fn)
+                        cfg.filldom(fn)
                 self._qlower(fn, ssa)
                 self._cleanup(fn, cfg, ssa, gvn, gcm)
                 if ext.cse and T.name.startswith('arm64') and cse.bytepatterns(fn):  # reads made by loops
@@ -236,7 +261,10 @@ class _Driver:
             cfg.fillloop(fn)
             if cse.hoistcons(fn):
                 ssa.filluse(fn)
-        if T.name == 'wasm':  # cimo: no machine lowering; the engine allocates registers
+        if T.name in ('wasm', 'ptx'):  # cimo: no machine lowering; the engine (driver) allocates registers
+            if T.name == 'ptx':
+                T.emitfn(fn, self.outf)
+                return
             D.unvolatile(fn)
             T.emitfn(fn, self.outf)
             return

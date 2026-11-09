@@ -67,6 +67,10 @@
         [
           "distribution",
           "Shipping code that uses cimo"
+        ],
+        [
+          "gpu",
+          "GPU kernels"
         ]
       ]
     },

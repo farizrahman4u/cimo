@@ -7,7 +7,8 @@ import cimo
 ## cimo.compile
 
 ```python
-cimo.compile(src, include_dirs=(), link=(), host_headers=False, defines=(), cache=True, fma=None)
+cimo.compile(src, include_dirs=(), link=(), host_headers=False, defines=(), cache=True, fma=None, wrapv=None,
+             libm='bundled', device=None)
 ```
 
 Compiles C source and returns a [module](#module). Raises [`CompileError`](#compileerror).
@@ -22,6 +23,7 @@ Compiles C source and returns a [module](#module). Raises [`CompileError`](#comp
 | `cache` | `False`: read the compile cache but write nothing to disk |
 | `fma` | `False`: no fused multiply-add contraction, for results identical to `-ffp-contract=off`. `True`: contract `a*b+c` within one expression. `None` (default): on, unless `CIMO_FMA=0`. `#pragma STDC FP_CONTRACT ON`, `OFF` or `DEFAULT` in the source overrides it to the end of the block, or to the next pragma at file scope. wasm, and x86-64 CPUs without FMA, never contract. |
 | `libm` | `"bundled"` (default): cimo's math library, the same results on every target. `"host"`: `sin`, `exp`, `pow`, `atan2` and the rest are the host's libm (glibc, macOS's, Windows' UCRT), the functions CPython's `math` calls, so results match Python's bit for bit on that machine. Exact functions (`sqrt`, `floor`, `fma`, ...) are instructions either way. Not in Pyodide. |
+| `device` | a GPU (`cimo.gpu.device()`): `src` is GPU kernel C, compiled to PTX and loaded on it; the result is a module of its kernels. See [GPU kernels](gpu.md). |
 
 ## cimo.load
 

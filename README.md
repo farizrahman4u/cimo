@@ -201,6 +201,19 @@ In Pyodide, JupyterLite and marimo, `cimo.compile` emits WebAssembly in the page
 Pyodide's memory, with no compile server. Kernels work on numpy arrays in place. The
 [live demo](https://www.cimo.dev/) runs this way, and recompiles as you edit the C.
 
+## GPU
+
+Explicit kernels in C (`#include <cimo/gpu.h>`: `__gpu_kernel`, `__gpu_shared`, thread ids, `gpu_barrier()`, PTX through
+`__gpu_asm`) compile to PTX and load through the NVIDIA driver, with no CUDA toolkit:
+
+```python
+gpu = cimo.gpu.device()
+k = cimo.compile(src, device=gpu)
+k.saxpy(2.0, gpu.array(x), y_dev, n, grid=n // 256, block=256)
+```
+
+Within a few percent of nvcc on the same file for most kernels measured. See [GPU kernels](docs/docs/content/gpu.md).
+
 ## Platforms
 
 | Platform             | Backend      | Loader                            |
@@ -209,6 +222,7 @@ Pyodide's memory, with no compile server. Kernels work on numpy arrays in place.
 | macOS, Apple silicon | arm64        | `MAP_JIT`, W^X fallback           |
 | Windows arm64 / x64  | arm64, amd64 | `VirtualAlloc` + `VirtualProtect` |
 | Pyodide / browser    | WebAssembly  | shared-memory side module         |
+| NVIDIA GPUs          | PTX          | the driver (`libcuda`), no toolkit |
 
 ## How it works
 
@@ -226,7 +240,7 @@ differential-tested against gcc on randomly generated programs.
 ## Status
 
 Pre-release. Runs on Linux, macOS and Windows (arm64 and x86-64) and in the browser, and auto-vectorizes on
-arm64 and x86-64. Differential-tested against gcc on random programs (Csmith, YARPGen) on both architectures.
+arm64 and x86-64. Explicit GPU kernels run on NVIDIA GPUs through the driver. Differential-tested against gcc on random programs (Csmith, YARPGen) on both architectures.
 Planned:
 
 - Auto-vectorization of more loops (float `max`/`min` written as comparisons, `argmax`, 8- and 16-bit elements, outer loops), and on WebAssembly
@@ -235,6 +249,7 @@ Planned:
 - `cimo report`: which loops were optimized, and why the others weren't
 - Checking at call time that an array matches a VLA parameter's shape
 - Struct arguments by value, from a ctypes structure or a `dict`
+- GPU: launches recorded as one driver graph; other GPUs (WebGPU, Vulkan); `#pragma` parallel loops on the GPU
 
 ## Repository
 

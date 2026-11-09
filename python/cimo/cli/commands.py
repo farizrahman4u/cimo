@@ -92,6 +92,7 @@ def build_tree():
     b.opt('--compress', flag=True,
           help='Store the files zlib-compressed, decompressed in memory when first used: '
                'about a third of the size, but not readable')
+    b.opt('--gpu', flag=True, help='Include cimo.gpu (GPU kernels; left out by default)')
     b.example('cimo onefile')
     b.example('cimo onefile -o vendor/cimo.py')
     b.example('cimo onefile --compress')
@@ -388,7 +389,7 @@ def cmd_onefile(ctx):
     e = ctx.err
     with Spinner(e, 'Bundling cimo into %s' % out) as sp:
         stats = onefile.build(out, progress=sp.update, strip=not ctx.values.get('keep_comments'),
-                              compress=bool(ctx.values.get('compress')))
+                              compress=bool(ctx.values.get('compress')), gpu=bool(ctx.values.get('gpu')))
     size = os.path.getsize(out)
     e.write('%s Wrote %s (%s) in %.1f s' % (e.style(e.symbol('ok'), 'ok'), e.style(out, 'path'),
                                             _size(size), sp.elapsed))

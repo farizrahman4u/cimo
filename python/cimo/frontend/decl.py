@@ -1106,6 +1106,7 @@ def decl(s, f):
     DG.declmode = None
     DG.declvector = None
     DG.declnoinline = False
+    DG.declgpu = None
     a = Attr()
     a.kind = 0
     if A.attr(a, ATTRNORETURN) and consume(TSEMICOLON):
@@ -1187,6 +1188,10 @@ def decl(s, f):
         elif kind == DECLOBJECT:
             if align and align < t.align:
                 error(tok.loc, "object '%s' requires alignment %d, which is stricter than specified alignment %d", name, t.align, align)
+            if DG.declgpu == 'cimo_gpu_shared' and f and not sc & (SCEXTERN | SCSTATIC):
+                sc |= SCSTATIC  # cimo: shared memory in a kernel, as CUDA's __shared__: one per block, not per call
+            elif DG.declgpu == 'cimo_gpu_kernel':
+                error(tok.loc, "__gpu_kernel applies to functions, not to '%s'", name)
             d = declcommon(s, kind, name, asmname, t, tq, sc, prior)
             d.isregister = bool(sc & SCREGISTER)
             if d.align < align:
@@ -1200,6 +1205,12 @@ def decl(s, f):
                 if t.prop & PROPVM:
                     error(tok.loc, "object '%s' with %s storage duration cannot have variably modified type", name, "static" if d.storage == SDSTATIC else "thread")
                 d.value = Q.mkglobal(d)
+            if DG.declgpu == 'cimo_gpu_shared':
+                if d.storage != SDSTATIC:
+                    error(tok.loc, "__gpu_shared object '%s' must not be thread-local", name)
+                if tok.kind == TASSIGN:
+                    error(tok.loc, "__gpu_shared object '%s' cannot have an initializer", name)
+                Q.gpunote('#gpushared', Q.irname(d.value))
             if U.diagnostics and (tok.kind == TASSIGN or not (sc & SCEXTERN)):  # a definition
                 if d.storage == SDTHREAD:
                     error(tok.loc, "thread-local storage is not supported")
@@ -1238,6 +1249,14 @@ def decl(s, f):
                 error(tok.loc, "function '%s' with block scope may only have storage class 'extern'", name)
             d = declcommon(s, kind, name, asmname, t, tq, sc, prior)
             d.value = Q.mkglobal(d)
+            if DG.declgpu == 'cimo_gpu_shared':
+                error(tok.loc, "__gpu_shared applies to objects, not to function '%s'", name)
+            if DG.declgpu == 'cimo_gpu_kernel':
+                if t.base is not TY.typevoid:
+                    error(tok.loc, "GPU kernel '%s' must return void", name)
+                if d.linkage != LINKEXTERN:
+                    error(tok.loc, "GPU kernel '%s' must not be static", name)
+                Q.gpunote('#gpukernels', Q.irname(d.value))
             d.inlinedefn = bool(d.linkage == LINKEXTERN and fs & FUNCINLINE and not (sc & SCEXTERN)
                                 and (not prior or prior.inlinedefn))
             d.isnoreturn = bool(fs & FUNCNORETURN or a.kind & ATTRNORETURN)

@@ -4,44 +4,21 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Big
 
-- **Top priority: explicit GPU kernels to PTX, loaded through the NVIDIA driver alone** (moved up 2026-11-09; was the
-  compile half of GPU milestone 4, see "GPU" in `requirements.md`, whose order this changes: note it there when
-  starting). Wanted now by a kernel generator that writes explicit kernels as C for the exact shape and tunes them on
-  the user's own card ("Tuned kernels" in `requirements.md`: "could replace tables: untested"). It needs this path and
-  none of the WGSL work, and PTX needs no type recovery. Pure Python stays the rule: no toolkit, no NVRTC, `libcuda`
-  reached by `dlsym` only; `nvcc` appears in tests as an oracle and nowhere else.
-  - **Scope:** the explicit-kernel form only. Not `#pragma cimo parallel`, not type recovery, not WGSL or SPIR-V, and
-    not a tuned GEMM of our own (`gpu/kernels/`): the generator supplies the kernels.
-  - **Kernel C** (`gpu/include/cimo/gpu.h`): `__gpu_kernel` entry functions, `__gpu_shared` arrays, thread, block and
-    grid ids and sizes in up to 3 dimensions, `gpu_barrier()`, and `__gpu_asm`. `__gpu_asm` needs operands, which the
-    sketch in `requirements.md` leaves out: take gcc's extended form with CUDA's constraint letters
-    (`__gpu_asm("mma.sync... {%0,%1,%2,%3}, ..." : "=f"(d0), ... : "r"(a0), ...)`; `h`, `r`, `l` for 16-, 32- and
-    64-bit integers, `f`, `d` for floats), so the same file compiles under `nvcc` with a shim header
-    (`#define __gpu_asm asm volatile`, `__global__`, `__shared__`, `__syncthreads`). That makes `nvcc` the oracle, as
-    gcc is on the CPU. The rejections listed in `requirements.md` (recursion, `malloc`, function pointers) apply.
-  - **Types and math:** `float`, 32- and 64-bit integers, `_Float16` and `__bf16` loads and stores (bf16 is the format
-    the first kernels use). `sqrt`, `fma`, `fmax`/`fmin` as PTX instructions; `expf` first of the device math
-    (`gpu/lib/`), compiled into the same module.
-  - **Backend** (`gpu/backend/ptx/`): IR to PTX text. The lowest `.version` and `.target` that carry the instructions
-    used; the driver caps versions. Which of cimo's passes run is a measurement (each on and off: compile time against
-    kernel time), as the spec says.
-  - **Host** (`gpu/host/cuda.c`, compiled by cimo): the device's primary context, not a new one, so buffers made by
-    another library in the process are usable; `cuModuleLoadDataEx` with the error log, a rejected module raising
-    `cimo.CompileError` with the driver's text; launch with the grid, block and shared-memory size given by the caller.
-  - **Python API:** `cimo.gpu.device()`, `cimo.compile(src, device=gpu)`, `k.f(..., grid=, block=)`, `gpu.array(a)` to
-    keep data on the device across calls, and any object with `__cuda_array_interface__` accepted as a buffer without
-    a copy. A tuner times kernels, so: a launch that doesn't wait, an explicit `gpu.sync()`, and no host copy unless
-    asked. Next after that, not part of done: a sequence of launches recorded as one driver graph (`cuGraph*`), since
-    the fixed cost per launch is what a generator trades against.
-  - **Done when,** on one rented card with tensor cores (this machine has no NVIDIA GPU; PTX text is tested here,
-    running is tested there, and run tests skip without `libcuda`):
-    1. a plain explicit kernel and a blocked one using `__gpu_shared` and `gpu_barrier()` give a C reference's results;
-    2. a kernel doing `mma.sync` on bf16 through `__gpu_asm` gives the reference's results within rounding;
-    3. the same sources through `nvcc` give the same results, and the time of cimo's PTX against `nvcc`'s is recorded
-       per kernel in `requirements.md`. That settles "the driver's PTX compiler against NVIDIA's bundled one"
-       (compare `nvcc`'s PTX loaded by the driver with its cubin) and separately what cimo's own code generation costs;
-    4. source to PTX text takes under 1 s for a 100-line kernel, with the driver's load time recorded beside it;
-    5. the numbers and what was learned are in `requirements.md`, with the milestone order there updated.
+- ~~**Top priority: explicit GPU kernels to PTX, loaded through the NVIDIA driver alone**~~ **Done** (2026-11-09; see
+  "PTX: built and measured" under "GPU" in `requirements.md`, user docs `docs/docs/content/gpu.md`). `<cimo/gpu.h>`
+  (`__gpu_kernel`, `__gpu_shared` with dynamic shared memory, thread/block/grid ids and sizes, `gpu_barrier()`,
+  `__gpu_asm` with CUDA's constraint letters), `_Float16`/`__bf16` in memory, `sqrt`/`fma`/`fmax`/`fmin` as instructions
+  and `expf` from `gpu/lib/` (1 ulp), the PTX backend in `gpu/backend/ptx/`, the host in `gpu/host/cuda.c` (primary
+  context, driver log on rejection as `CompileError`), and `cimo.gpu.device()`, `cimo.compile(src, device=gpu)`,
+  `gpu.array`, `__cuda_array_interface__`, async launches with `gpu.sync()` and `gpu.time()`. On an L4 against nvcc 12.9
+  on the same files: 0.95x to 1.07x of nvcc's time on saxpy, a shared-memory matmul, an `mma.sync` bf16 loop and a
+  softmax; 1.12x on a tiled bf16 GEMM with a GELU epilogue. The driver's PTX compiler matches nvcc's cubin. A 94-line
+  kernel compiles in 0.6 to 0.8 s; the driver loads it in 160 ms. `tests/test_gpu.py` (45 pass on the L4, nvcc as the
+  oracle), `tests/gpu_bench.py`, `tests/gpu_passes.py`. Open on this path:
+  - **gemm_gelu at 1.12x of nvcc:** 154 registers to nvcc's 96 (lower occupancy). The rest of the gap is in the
+    unrolled tile loads: nvcc strength-reduces the eight row pointers into one plus a stride; cimo keeps eight live.
+  - **Launches as one driver graph** (`cuGraph*`), since the fixed cost per launch (4 µs from Python) is what a
+    generator trades against.
 
 - **Next after the PTX item, for the same kernel generator: the CPU instructions and threads its kernels need**
   (2026-11-09). Its CPU kernels are C over bf16 weights, built with `gcc -O3 -march=native -fopenmp` so far. Three

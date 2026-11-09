@@ -24,7 +24,7 @@ def isdivwl(i):
 
 
 def pinned(i):
-    return optab[i.op].pinned or isdivwl(i) or (fenv and _fpop(i))
+    return optab[i.op].pinned or (isdivwl(i) and D.T.name != 'ptx') or (fenv and _fpop(i))  # cimo.gpu: PTX division never traps
 
 
 # cimo: the function being compiled is under `#pragma STDC FENV_ACCESS ON` (fold._fenvfns, set by main.compile): its
