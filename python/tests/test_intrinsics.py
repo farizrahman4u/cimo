@@ -348,5 +348,5 @@ def test_broadcast_from_memory(monkeypatch):
     text = _x86asm(_BCAST, _X86_ALL, monkeypatch)
     body = text[text.index('\naxpy:'):text.index('end function axpy')]
     assert 'vbroadcastss (' in body and 'vmovd' not in body, body
-    z = text[text.index('\nzero16:'):text.index('end function zero16')]
+        b = asm[asm.index('axpy:\n'):asm.index('end function')]  # _axpy on macOS
     assert 'vpxor' in z and 'movl' not in z and 'movq' not in z, z
