@@ -10,28 +10,29 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   1.05x (Sapphire Rapids), 1.10x (Ice Lake), 1.18x (Zen 4), from 1.16 to 1.41x with 128 bits. Open: `vpblendvb` for selects
   (and/andn/or today), byte lanes (`rgb2gray` 3.7 to 8.2x), `nbody_acc` (1.9 to 2.6x: gcc's outer-loop vectorization).
 
-- **High priority: scavenge the test suites of other C compilers.** Miscompiles keep turning up as side findings (an
-  unpinned `qsel1`, register-slot swaps, a 64-bit compare formula, a `(int)i < n` early exit, all 2026-11-05), which isn't
-  acceptable now. cimo runs gcc's `c-torture/execute`, c-testsuite and musl's libc-test (`tests/corpora.py`, fetched at
-  pinned commits, never copied: several are GPL), plus Csmith, YARPGen, random loops and the ABI tests. Add, in this
-  order (most likely to find what's been breaking first):
-  - ~~**gcc.dg/vect** and **gcc.dg/torture**~~ **Done** (2026-11-06, corpora `gcc-vect` and `gcc-dg-torture`: 1865 of
-    2155 pass, 8 bugs fixed; see "Conformance corpora" in `requirements.md`). Not yet: vect's subdirectories
-    (`costmodel/`, `tsvc/`, ...), and the programs that include `../../c-c++-common/` files.
-  - ~~**gcc.dg** run tests and **gcc.c-torture/compile**~~ **Done** (2026-11-09, corpora `gcc-dg` and
-    `gcc-torture-compile`; see "Conformance corpora"). No known miscompile left from them. Open: non-ASCII and UCN
-    identifiers; bit-fields that `#pragma pack` or `packed` make cross a storage unit; compile time and memory of
-    huge functions (100000 case labels: 255 s, 5.5 GB); gcc.dg's subdirectories (`ipa/`, `tree-ssa/`, ... are
-    mostly dump scans, but some run).
+- **High priority: scavenge the test suites of other C compilers.** Miscompiles keep turning up as side findings, which
+  isn't acceptable. In CI now (`tests/corpora.py`, fetched at pinned commits, never copied: several are GPL): gcc's
+  `c-torture/execute`, `c-torture/compile` (compile only), `gcc.dg` run tests, `gcc.dg/torture` and `gcc.dg/vect`,
+  c-testsuite and musl's libc-test, 7587 programs with no known miscompile (2026-11-09); plus Csmith, YARPGen, random
+  loops and the ABI tests. Left, in this order:
+  - **Other targets:** the corpora run natively only, so x86-64 is covered by the linux-x64 and windows-x64 CI jobs
+    at whatever ISA level the runner has. Not yet: x86-64 baseline and AVX2 forced (`CIMO_X86`), and wasm (node).
+    The 2026-11-09 round found four bugs only other platforms ran (float constants rounded twice, two x86-64
+    backend crashes): every suite on every backend.
   - **LLVM test-suite** `SingleSource/UnitTests`, `SingleSource/Regression/C` and the small `SingleSource/Benchmarks`,
     with their reference outputs (and Benchmarks doubling as performance checks).
   - **cproc's** and **QBE's** own tests (cimo is a port of both: anything they fixed since the port), **tcc** `tests/tests2`
     (numbered programs with `.expect` files), **chibicc** and **slimcc** `test/`, **lacc**, **kefir**, **arocc**, SDCC's
     portable regression tests, and CompCert's `test/c`.
-  Each suite: a fetcher entry in `corpora.py`, an expectations file like `corpora_expect.txt` (what's known to fail and
-  why: an extension, a rejected feature), a CI step, and every new failure triaged into a bug fixed here or a recorded
-  exclusion. Run each on arm64, x86-64 (baseline and AVX2) and wasm, since the backends differ. Done when every suite
-  above runs in CI with no unexplained failure.
+  - The rest of gcc's: `gcc.dg/vect`'s subdirectories (`costmodel/`, `tsvc/`, ...) and the programs that include
+    `../../c-c++-common/` files; `gcc.dg`'s subdirectories (`ipa/`, `tree-ssa/`, ...: mostly dump scans, some run).
+  - Features the corpora reject today (clear errors, not miscompiles): non-ASCII and UCN identifiers; bit-fields that
+    `#pragma pack` or `packed` make cross a storage unit; x86-64 sibling calls (`skip:amd64`); compile time and memory
+    of huge functions (100000 case labels: 255 s, 5.5 GB; three `skip`s).
+  Each suite: a fetcher entry in `corpora.py`, entries in `corpora_expect.txt` (what's known to fail and why: an
+  extension, a rejected feature, a gcc option), CI, and every new failure triaged into a bug fixed here or a recorded
+  exclusion; a miscompile is always fixed, never recorded. Done when every suite above runs on every backend in CI with
+  no unexplained failure.
 
 0. ~~**A fault in a kernel must not kill the Python process.**~~ **Done** (`cimo/fault.py`,
    `tests/test_faults.py`; see "Hardware faults" in `requirements.md`).
