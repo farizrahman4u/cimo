@@ -343,10 +343,10 @@ def test_broadcast_from_memory(monkeypatch):
         assert list(y) == [1.0 + a[k // 4] * k for k in range(12)]
         ssa, params = driver._ir(driver._preprocess(_BCAST, 'x.c'), 'x.c')
         asm = driver._qbe(ssa, params)
-        b = asm[asm.index('\naxpy:'):asm.index('end function axpy')]
+        b = asm[asm.index('axpy:\n'):asm.index('end function')]  # _axpy on macOS
         assert 'ldr\ts' in b and '.s[0]' in b, b
     text = _x86asm(_BCAST, _X86_ALL, monkeypatch)
     body = text[text.index('\naxpy:'):text.index('end function axpy')]
     assert 'vbroadcastss (' in body and 'vmovd' not in body, body
-        b = asm[asm.index('axpy:\n'):asm.index('end function')]  # _axpy on macOS
+    z = text[text.index('\nzero16:'):text.index('end function zero16')]
     assert 'vpxor' in z and 'movl' not in z and 'movq' not in z, z
