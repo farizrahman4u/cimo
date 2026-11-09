@@ -33,6 +33,15 @@ fmaok = True
 # (pp.directive), and {id(decl): operator} for the loop it precedes, while it is parsed (stmt, expr.assignexpr)
 ompnext = None
 reduce = {}
+# cimo: OpenMP (omp.py): parallel loops being parsed (their bodies may not return, break out or nest some
+# directives), critical and atomic statements being parsed (no return), the VLA types whose size was first computed
+# in the innermost loop being parsed (None outside), parallel loops outlined so far in the unit (their functions'
+# numbers), and the names of the critical sections whose locks the unit has defined
+ompregion = 0
+ompblock = 0
+ompvla = None
+ompcount = 0
+ompcrit = set()
 
 
 class FrontendError(Exception):

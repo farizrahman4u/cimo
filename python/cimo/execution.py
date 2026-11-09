@@ -30,6 +30,8 @@ Design (requirements.md, "Execution model"):
 
       0 err   8 msg   16 file   24 line   32 func   40 pc   48 depth   56 stack limit   64 tid
       72 fault kind   80 fault address (these first 88 bytes also in cimo.fault's C)
+      88 thread number in a parallel loop   96 its team's size   104 its team (cimo.fault reads it on Ctrl-C)
+      112 omp_set_num_threads (runtime/omp.c)
       120 nonzero while a live Python thread has registered the context (State.ctx): a kernel's CPython entry
           (driver._pyentry) takes it then, and a thread reusing a finished one's key goes through Python first
       128 frames: MAXDEPTH x 176 bytes (x19-x28, x29, lr, sp, d8-d15, fpcr; x86-64 Linux: rbx,
@@ -257,6 +259,13 @@ def glue(names, apple=False, windows=False, target=None):
              '\tcmp\tw4, #0\n\tb.ne\t%scas\n\tmov\tx0, x3\n\tret\n'
              '%scasne:\n\t.word\t0xd5033f5f\n\tmov\tx0, x3\n\tret\n' % (L, L, L, L))  # clrex
     o.append(fn('__cimo_barrier') + '\t.word\t0xd5033bbf\n\tret\n')  # dmb ish
+    o.append(fn('__cimo_pause') + '\t.word\t0xd503203f\n\tret\n')  # yield: a spinning thread's hint
+    # void __cimo_call(fn, a, b, c): fn(a, b, c) through an entry frame of its own, as a trampoline calls a kernel:
+    # an error in it unwinds to here and the call returns with it in the context (a parallel loop's part, runtime/omp.c)
+    o.append(fn('__cimo_call') + '\tmov\tx14, x0\n\tmov\tx0, x1\n\tmov\tx1, x2\n\tmov\tx2, x3\n'
+             '\tmov\tx15, x30\n\tb\t%s__cimo_enter\n' % p)
+    # void __cimo_rethrow(ctx): unwind as if the error now in ctx had happened here (one a worker thread recorded)
+    o.append(fn('__cimo_rethrow') + '\tmov\tx9, x0\n\tb\t%sunwind\n' % L)
     o.append(_setjmp_arm64(fn))
     for name in names:
         o.append(fn('__cimo_entry_' + name))
@@ -404,6 +413,14 @@ def _glue_amd64(names, windows):
                                  if windows else
                                  '\tmovq\t%rsi, %rax\n\tlock cmpxchgq\t%rdx, (%rdi)\n\tret\n'))
     o.append(fn('__cimo_barrier') + '\tmfence\n\tret\n')
+    o.append(fn('__cimo_pause') + '\tpause\n\tret\n')
+    # __cimo_call(fn, a, b, c) and __cimo_rethrow(ctx): as on arm64 (the shadow space the caller made for four
+    # arguments serves the callee's three)
+    o.append(fn('__cimo_call') + ('\tmovq\t%rcx, %r11\n\tmovq\t%rdx, %rcx\n\tmovq\t%r8, %rdx\n\tmovq\t%r9, %r8\n'
+                                  if windows else
+                                  '\tmovq\t%rdi, %r11\n\tmovq\t%rsi, %rdi\n\tmovq\t%rdx, %rsi\n\tmovq\t%rcx, %rdx\n')
+             + '\tjmp\t__cimo_enter\n')
+    o.append(fn('__cimo_rethrow') + '\tmovq\t%%%s, %%r11\n\tjmp\t.Lcimo_unwind\n' % ('rcx' if windows else 'rdi'))
     o.append(_setjmp_amd64(fn, windows))
     for name in names:
         o.append(fn('__cimo_entry_' + name))
@@ -658,6 +675,9 @@ class State:
             if pre + name in sym:
                 ctypes.c_void_p.from_address(sym[pre + name]).value = \
                     ctypes.cast(cb, ctypes.c_void_p).value
+        if pre + '__cimo_hook_pool' in sym:  # runtime/omp.c: parallel loops, on cimo.parallel's threads
+            from . import parallel
+            parallel.attach(image, sym[pre + '__cimo_hook_pool'])
         self._reset_c = (ctypes.CFUNCTYPE(None, ctypes.c_void_p)(sym[pre + '__cimo_heap_reset'])
                          if pre + '__cimo_heap_reset' in sym else None)
         self._free_c = (ctypes.CFUNCTYPE(None, ctypes.c_void_p)(sym[pre + 'free'])
@@ -803,7 +823,9 @@ class State:
             self._syms = ([a for a, _ in items], [n for _, n in items])
         addrs, names = self._syms
         i = bisect.bisect_right(addrs, pc - 4) - 1  # pc is a return address: look before it
-        return names[i] if i >= 0 else None
+        if i < 0:
+            return None
+        return names[i].split('._omp_fn.')[0]  # a parallel loop's body is its function's (frontend/omp.py)
 
     # heap
 

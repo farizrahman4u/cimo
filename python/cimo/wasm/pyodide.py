@@ -14,6 +14,7 @@ import codecs
 import ctypes
 import itertools
 import sys
+import time
 
 import js  # noqa: F401  (Pyodide)
 import pyodide_js
@@ -89,7 +90,8 @@ class WasmModule(Introspection):
         self._proxies = []
         scope = js.Object.new()
         for name, fn in (('__cimo_js_write', self._write), ('__cimo_js_grow', self._grow),
-                         ('__cimo_js_release', self._release), ('__cimo_js_fail', self._fail)):
+                         ('__cimo_js_release', self._release), ('__cimo_js_fail', self._fail),
+                         ('__cimo_js_time', time.perf_counter)):  # omp_get_wtime
             p = create_proxy(fn)
             self._proxies.append(p)
             js.Reflect.set(scope, name, p)

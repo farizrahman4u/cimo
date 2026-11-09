@@ -4,7 +4,7 @@ Repo: https://github.com/farizrahman4u/cimo
 Docs (raw Markdown): https://www.cimo.dev/llms.txt
 
 ## What
-`cimo.compile` turns C11 into native code at runtime, in well under a second, and returns Python callables that run on numpy arrays in place. No gcc, clang, MSVC, LLVM, SDK, binary wheels or build step. Calls release the GIL, so threads run in parallel. Compiled code is cached on disk by content. MIT licensed.
+`cimo.compile` turns C11 into native code at runtime, in well under a second, and returns Python callables that run on numpy arrays in place. No gcc, clang, MSVC, LLVM, SDK, binary wheels or build step. `#pragma omp parallel for` runs a loop on every core; calls release the GIL, so Python threads run in parallel too. Compiled code is cached on disk by content. MIT licensed.
 
 ## Install
 pip install cimo
@@ -34,11 +34,12 @@ cimo.load(path, ...same options): compile a .c file; its directory is searched f
 defines: dict or (name, value) pairs. fma=False: no a*b+c contraction, for results bit-identical to Python. wrapv=True: signed overflow wraps (-fwrapv); otherwise it is undefined, as in C. cache=False: write nothing to disk.
 Module: each non-static function is an attribute; module(...) calls main or the only function; dir(module); module.free(ptr); module.reset_heap(); module.heap_bytes().
 Arguments: int for integer types; float or int for float, double; for pointers a numpy array, bytearray, memoryview, bytes, ctypes array or int address. Returns int, float or None; pointers as int.
-Errors: cimo.CompileError (message starts file:line:column). cimo.KernelError from abort, exit, assert and stack overflow: .kind is 'abort', 'assert', 'exit', 'trap', 'stack overflow' or 'nesting'; also .kernel, .function, .expr, .file, .line, .status. The module stays usable.
+Errors: cimo.CompileError (message starts file:line:column). cimo.KernelError from abort, exit, assert, faults and stack overflow, in any thread of a parallel loop too: .kind is 'abort', 'assert', 'exit', 'trap', 'stack overflow' or 'nesting'; also .kernel, .function, .expr, .file, .line, .status. The module stays usable.
 
 ## The C
 Full C11: structs, unions, bit-fields, pointers, function pointers, recursion, variadics, VLAs, goto. Bundled libc: stdio.h (printf, snprintf; printf reaches sys.stdout), stdlib.h (malloc, qsort, strtol...), string.h, math.h, ctype.h, inttypes.h, assert.h, plus the freestanding headers.
-Compile errors: inline asm, setjmp/longjmp, _Complex, vector_size.
+Compile errors: inline asm, 128-bit long double, setjmp/longjmp in the browser.
+OpenMP as gcc -fopenmp: `#pragma omp parallel for` (private, firstprivate, lastprivate, reduction, schedule, num_threads, if), critical, atomic, simd, <omp.h>. Other directives (parallel without for, task, collapse) are compile errors. Thread count: cimo.set_num_threads(n), else OMP_NUM_THREADS, else the CPU count.
 Files, time, threads, sockets and other hosted libc: link=['libc'], host_headers=True (not in Pyodide). Other libraries: link=['z'], a soname or a path.
 
 ## Watch out
@@ -61,4 +62,4 @@ Every command has --help.
 2. `cimo compile k.c` to check it; fix errors at their file:line:column.
 3. Compile with cimo.load or cimo.compile; pass arrays of the exact dtype.
 4. Test results against a Python or numpy version, with fma=False if floats must match bit for bit.
-5. Parallelize with Python threads, giving each a slice of the work. Kernels are safe to call concurrently.
+5. Parallelize the outer loop with `#pragma omp parallel for` (variables declared in the body are per thread; sum with reduction(+:s)), or call from Python threads, each with a slice of the work.

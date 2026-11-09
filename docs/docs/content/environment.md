@@ -10,5 +10,8 @@
 | `CIMO_MIDDLE` | `1` | `0`: turn off the loop optimizer |
 | `CIMO_WRAPV` | `0` | `1`: signed integer overflow wraps, like `-fwrapv` |
 | `CIMO_COLOR` | `auto` | the command line's colors: `auto`, `always`, `never` |
+| `OMP_NUM_THREADS` | the CPUs | how many threads a [parallel loop](threads.md#parallel-loops) runs on, unless `cimo.set_num_threads` says |
+| `OMP_STACKSIZE` | `8M` | the stack of each thread a parallel loop starts (`K`, `M`, `G`; a bare number is kilobytes) |
+| `OMP_WAIT_POLICY` | | `passive`: a parallel loop's threads sleep as soon as it ends; `active`: they keep spinning. By default they spin for 200 µs, so the next loop starts at once |
 
 Changing `CIMO_FMA`, `CIMO_X86`, `CIMO_ARM64`, `CIMO_MIDDLE` or `CIMO_WRAPV` changes the cache key, so cached code compiled with other settings isn't reused.

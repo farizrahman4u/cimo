@@ -10,7 +10,7 @@ Macro expansion follows gcc's model (a stack of expansion contexts; a macro is d
 expansion is being read, and identifiers that name a disabled macro are painted so they never
 expand again), which implements the hide-set rules of C11 6.10.3.4 and reproduces the examples in
 6.10.3.5. The predefined macros are the ones cproc's config.h passes to `cpp -undef`, plus
-__STDC__, __STDC_VERSION__ (201112L) and __STDC_HOSTED__ (0, freestanding).
+__STDC__, __STDC_VERSION__ (201112L), __STDC_HOSTED__ (0, freestanding) and _OPENMP (201511, as gcc -fopenmp).
 
 Deviations from gcc's text output, none of which change the token sequence: whitespace and line
 layout differ, digraphs are printed in their canonical spelling (cproc's scanner has no digraphs),
@@ -450,7 +450,8 @@ class Preprocessor(object):
         self.time = '"%02d:%02d:%02d"' % (t.tm_hour, t.tm_min, t.tm_sec)
         for name in _BUILTIN_MACROS:
             self.macros[name] = Macro(name, builtin=True)
-        pre = [('__STDC__', '1'), ('__STDC_VERSION__', '201112L'), ('__STDC_HOSTED__', '0')]
+        # _OPENMP: as gcc -fopenmp (cimo runs `#pragma omp parallel for` loops on several threads, frontend/omp.py)
+        pre = [('__STDC__', '1'), ('__STDC_VERSION__', '201112L'), ('__STDC_HOSTED__', '0'), ('_OPENMP', '201511')]
         pre += TARGETS[target]
         self._define_list(pre, '<built-in>')
         if defines:

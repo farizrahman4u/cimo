@@ -375,14 +375,21 @@ def directive():
         sys.stderr.write(''.join(msg) + '\n')
     elif kind == TPRAGMA:
         words = []
+        toks = []
+        loc = tok.loc
         while tok.kind != TNEWLINE and tok.kind != TEOF:
             next()
-            if tok.kind != TNEWLINE and tok.kind != TEOF and len(words) < 64:
-                words.append(tokenstr(tok.kind) if not tok.lit else tok.lit)
+            if tok.kind != TNEWLINE and tok.kind != TEOF:
+                if len(words) < 64:
+                    words.append(tokenstr(tok.kind) if not tok.lit else tok.lit)
+                toks.append(tok.copy())
         if words[:1] == ['pack']:  # cimo
             _pack(words[1:])
-        if words[:1] == ['omp'] and 'simd' in words:  # cimo: the loop's reductions, for stmt
-            U.ompnext = _reductions(words)
+        if words[:1] == ['omp']:  # cimo: for the statement after it (stmt), see omp.py
+            from . import omp as OMP
+            d = OMP.pragma(toks[1:], toks[0].loc)
+            if d is not None:
+                U.ompnext = d
         if words[:2] == ['STDC', 'FENV_ACCESS'] and len(words) == 3:  # cimo (C11 7.6.1)
             U.fenvaccess = words[2] == 'ON'
             U.fenvtouched |= U.fenvaccess

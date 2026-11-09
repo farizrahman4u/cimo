@@ -799,14 +799,16 @@ k = cimo.load("kernels.c")   # or keep kernels in a file</pre>
   <h2>Threads and error handling</h2>
   <div class="split">
     <div class="stack">
-      <p>Kernels release the GIL and are safe to call concurrently. There is no launch API; use ordinary Python threads. <code>malloc</code> is lock-free, with a heap per thread.</p>
+      <p><code>#pragma omp parallel for</code> runs a loop on every core, on a warm thread pool, as <code>gcc -fopenmp</code> does. Kernels release the GIL and are safe to call from Python threads too. <code>malloc</code> is lock-free, with a heap per thread.</p>
       <div class="code">
-        <div class="bar"><span class="dots"><i></i><i></i><i></i></span>16 threads, one kernel</div>
-<pre data-lang="py">from concurrent.futures import ThreadPoolExecutor
-
-n = 16
-with ThreadPoolExecutor() as pool:
-    list(pool.map(lambda b: k.blur(b, n, h, w, src, dst), range(n)))</pre>
+        <div class="bar"><span class="dots"><i></i><i></i><i></i></span>every core, one loop</div>
+<pre data-lang="py">k = cimo.compile(r"""
+void scale(int n, float *y, const float *x, float a) {
+    #pragma omp parallel for
+    for (int i = 0; i &lt; n; i++)
+        y[i] = a * x[i];
+}""")
+k.scale(n, y, x, 2.0)</pre>
       </div>
     </div>
     <div class="stack">

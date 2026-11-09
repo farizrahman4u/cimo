@@ -159,6 +159,23 @@ static int handle(int fault, u64 addr, char *r)
     return 1;
 }
 
+/* a parallel loop's region stopping on Ctrl-C (cimo.parallel's __cimo_pool_stop; 0 until the pool is built): 1 if
+   the team is still running */
+int (*__cimo_fault_stop)(void *team);
+/* whether this SIGINT is one the pool sent to stop a part (cimo.parallel's __cimo_pool_ack) */
+int (*__cimo_fault_ack)(void);
+
+/* The parallel loop's team this thread runs a part of, or 0 (CTX_TEAM, runtime/omp.c) */
+static void *team(char *r)
+{
+    struct mod *at;
+    struct ctx *c;
+    if (!__cimo_fault_tab || !__cimo_fault_stop)
+        return 0;
+    c = innermost(REG(r, R_SP), &at);
+    return c ? *(void **)((char *)c + CTX_TEAM) : 0;
+}
+
 /* 1 if Ctrl-C came while this thread ran a kernel's own code (not the runtime, the trampolines or anything else, which
    may be half way through updating something): it unwinds as a fault does, and Python then runs its SIGINT handler */
 static int interrupt(char *r)
@@ -225,7 +242,21 @@ void __cimo_fault_sig(int sig, char *si, char *uc)
 {
     void (*old)(int, void *, void *) = __cimo_fault_old[sig];
     if (sig == 2) {  /* SIGINT */
-        if ((u64)old == 1 || interrupt(REGS(uc)))  /* ignored: never unwinds */
+        void *t;
+        int sent;
+        if ((u64)old == 1)  /* ignored: never unwinds */
+            return;
+        /* in a parallel loop: every thread of it stops (the others are sent SIGINT, which comes back here), and the
+           region raises the interrupt once they have, so it is not passed on; nor one sent for a region now over */
+        sent = __cimo_fault_ack && __cimo_fault_ack();
+        t = team(REGS(uc));
+        if (t && __cimo_fault_stop(t)) {
+            interrupt(REGS(uc));
+            return;
+        }
+        if (sent)
+            return;
+        if (interrupt(REGS(uc)))
             return;
         if (old) {
             old(sig, si, uc);
@@ -273,6 +304,7 @@ def _defines():
     win64 = _WIN and not _jit._ARM64
     d['FRAMES'], d['FRAMESZ'] = (str(x.WFRAMES), str(x.WFRAMESZ)) if win64 else (str(x.FRAMES), str(x.FRAMESZ))
     d['FRAME_SP'] = '96' if _jit._ARM64 else '72'  # cimo.execution's glue
+    d['CTX_TEAM'] = '104'  # runtime/omp.c
     if _WIN:
         d['CIMO_WINDOWS'] = None
         if not _jit._ARM64:
@@ -349,12 +381,31 @@ def install():
                     _building = False
                 if not _WIN:
                     _fill_libc(_module)
+                    _put_stop(_module)
             if _WIN:
                 _install_windows()
             else:
                 _install_posix()
         except (OSError, AttributeError, ValueError, _jit.LoadError) as e:
             warnings.warn('cimo: faults in kernels will end the process: %s' % e, stacklevel=2)
+
+
+_stop = None  # cimo.parallel's stop and ack functions, once the pool is built
+
+
+def set_stop(stop, ack):
+    """Ctrl-C in a parallel loop stops its whole team: the pool's functions for it (cimo.parallel)."""
+    global _stop
+    with _build_lock:
+        _stop = (stop, ack)
+        if _module is not None:
+            _put_stop(_module)
+
+
+def _put_stop(m):
+    if _stop is not None and not _WIN:
+        ctypes.c_void_p.from_address(m._image.address('__cimo_fault_ack')).value = _stop[1]
+        ctypes.c_void_p.from_address(m._image.address('__cimo_fault_stop')).value = _stop[0]
 
 
 def _fill_libc(m):

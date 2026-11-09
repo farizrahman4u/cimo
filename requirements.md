@@ -257,13 +257,12 @@ security. Isolation comes from the platform (WebAssembly in the browser) or from
   (`float a[n][m]` must hold `n*m` floats).
   Debug mode also checks the arguments of runtime functions (`memcpy` ranges, `free` of a
   non-heap pointer).
-- **Multicore (v1): bring your own threads.** Kernel calls release the GIL (ctypes does this for
-  foreign calls) and are safe to make concurrently from several Python threads. cimo has no launch
-  API, no hidden block index and no `cimo.h`. The user splits the work with ordinary parameters
-  (`block`, `nblocks`) and plain `threading` / `concurrent.futures`. Reasons: kernels stay
-  ordinary C that gcc compiles too; LLMs already write this Python fluently but would not know a
-  custom API; it composes with uneven splits, queues, asyncio and free-threaded CPython; and
-  Pyodide has no threads anyway. No threading runtime inside the kernel.
+- **Multicore: parallel loops, or bring your own threads.** Kernel calls release the GIL and are safe to make
+  concurrently from several Python threads, which split the work with ordinary parameters. Inside a kernel,
+  `#pragma omp parallel for` (OpenMP, as gcc -fopenmp compiles it) runs a loop's iterations on a pool of host threads
+  started by the runtime (2026-11-09, see "Parallel loops"): a launch from Python costs too much for kernels of tens
+  of microseconds, and the pragma keeps kernels C that gcc compiles to the same results. No other launch API, no
+  hidden block index, no `cimo.h`. Pyodide runs the loop on one thread.
 
 ## Python interop API (to be designed)
 
@@ -1083,6 +1082,69 @@ by a finalizer in the thread's `threading.local`. The builtin owns its `PyMethod
 outlive them, and free-threaded 3.13 (mimalloc reuses blocks at once) crashed in GC. A `double, double, long` call 661 to 92 ns on the Snapdragon X laptop
 (a bare builtin call there 39 ns; the GIL release is most of the rest). Each new set of signatures compiles once per
 process, about 5 ms.
+
+## Parallel loops (2026-11-09)
+
+`#pragma omp parallel for` runs a loop on a team of threads, as gcc -fopenmp does (scramjit's kernel generator builds
+with it). Design (`frontend/omp.py`, `runtime/omp.c`, `cimo/parallel.py`):
+
+- **Outlining in the frontend.** The loop is parsed into its function as the loop one thread runs over its part, and
+  when the function is complete (emitfunc) those blocks move into `<f>._omp_fn.<n>(data, thread, team)` (gcc's names;
+  KernelError reports `f`), with a call `__cimo_par(fn, data, nthreads)` in their place. What the loop uses from `f`
+  goes in `data`, one word each: a local only loaded in the loop whose address `f` never lets out, by value (the
+  outlined function's copy is promoted to a register: an elementwise loop vectorizes as before); anything else by
+  address. Slots `f`'s start block gained while the loop was parsed (its locals, temporaries) move with it. The loop
+  var, private, firstprivate, lastprivate and reduction variables are declared again in the body's scope, so the
+  body's code uses the thread's own. Canonical forms only (< <= > >= !=, ++ -- += -= `v = v + s`); the trip count is
+  computed once, in 64 bits, and a thread runs `for (v = first; v < end; v += s)` (`>` counting down; `!=` for char
+  and short, or unsigned with a step other than ±1, whose end may wrap). Static schedule as libgomp's (thread t of n
+  gets run t of n, the first n % N one longer), so `omp_get_thread_num`-dependent results match gcc's; static chunked,
+  dynamic and guided too. Reductions combine under a module lock; critical (a lock per name) and atomic (one lock)
+  wrap their statement. Jumps into or out of the loop, break, return: errors. Anything of OpenMP not implemented
+  (parallel without for, tasks, threadprivate, collapse(n > 1), linear, ordered, copyin, teams, target) is a
+  CompileError, never ignored; simd and declare keep their meaning. `_OPENMP` is 201511, as gcc's.
+- **Pool.** Host threads (`pthread_create`, `CreateThread`) through function pointers ctypes fills, as cimo.fault
+  reaches sigaction. One pool per master thread busy at the time (libgomp's model); a worker takes its part from a
+  per-worker handoff word (a shared team pointer let a lagging worker run a later region's part twice), marks its own
+  `done` word with the region's generation (one countdown word under 15 threads' compare-and-swap cost 7 us a region
+  on Graviton 4), spins 200 us (time-based, with sched_yield every 1024 polls, which took 8 threads on a loaded
+  8-core laptop from 270 to 27 us), then sleeps on a futex / `__ulock_wait` / `WaitOnAddress`. Workers get their
+  module context from Python once (`__cimo_hook_ctx`), so each has its heap and stdout; a native alternate signal
+  stack and a stack limit (8 MB stacks, `OMP_STACKSIZE`). After a fork the child forgets the pools.
+- **Errors.** Each part, the master's included, runs through an entry frame of its own (`__cimo_call`), so an error
+  unwinds that thread only; the master waits for the rest, then rethrows the lowest-numbered thread's error
+  (`__cimo_rethrow`). Ctrl-C: the handler finds the thread's team (context word 104), sets its stop word and sends
+  SIGINT to every member still in its part, which unwinds those in their loop's own code; the master resends every
+  millisecond until all are back, and waits for every SIGINT it sent to arrive (a flag per thread: signals merge) so
+  none stops the next region. A region inside a region runs on one thread. Thread count: `num_threads`, then
+  `omp_set_num_threads` (per thread and module; the team sees the master's), then `cimo.set_num_threads`, then
+  `OMP_NUM_THREADS`, then the CPUs the process may use. Pyodide: a team of one (`wasm/runtime/omp.c`).
+- **gcc 13 -fopenmp miscounts** `for (signed char c = -100; c < 100; c += 9)` and `for (unsigned short h = 65000;
+  h > 100; h -= 999)` (no iterations); cimo runs them as written.
+
+Measured on EC2 (`scratch/spikes/omp_bench.py`; cimo against gcc -O3 -march=native -fopenmp, the same file, both
+through ctypes; best of 7 interleaved): an empty region, back to back,
+
+| threads | Graviton 4 (c8g.4xlarge, 16 cores) | Sapphire Rapids (c7i.4xlarge, 8 cores, 16 threads) |
+|---|---|---|
+| 8 | 0.77-0.81 us (gcc 1.22-1.32) | 1.43-1.78 us (gcc 1.88-2.29) |
+| 16 | 1.09-1.19 us (gcc 1.88-2.14) | 1.88-2.03 us (gcc 2.65-3.01) |
+
+and a memory-bound matrix-vector product, 8192 x 8192, rows split over the threads, the inner sum
+`#pragma omp simd reduction(+:s)` (GB/s of weights read, 1 / 8 / 16 threads):
+
+| | Graviton 4 | Sapphire Rapids |
+|---|---|---|
+| float, cimo | 26-28 / 157-176 / 261-277 | 11.1-11.5 / 48-85 / 93-95 |
+| float, gcc | 19.3-21 / 139-147 / 228-250 | 10.1-10.5 / 75-77 / 89-92 |
+| `__bf16`, cimo | 2.8 / 22.3 / 44.5 | 3.4 / 20.6-25.7 / 38-40 |
+| `__bf16`, gcc | 0.7 / 5.9 / 11.8 | 0.8 / 5.8 / 6.5 |
+
+Both scale with the cores to the memory's bandwidth; gcc doesn't vectorize the `__bf16` conversion (the kernel is plain C:
+neither uses a bf16 dot instruction). Open: on Sapphire Rapids at 4 and 8 threads (fewer than the
+hyperthreads) cimo's float run took 0.6x of gcc's in some runs and 1.1x in others, varying from run to run with
+where the scheduler wakes the workers (two on one core's siblings); a pool per team size and waking only a region's
+workers (both done) didn't remove it. 16 threads, and Graviton 4 at every count, ran ahead of gcc in every run.
 
 ## Compile time on large functions (2026-11-05)
 

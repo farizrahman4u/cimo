@@ -18,6 +18,12 @@ GLUE = _res.path('wasm/glue.c')
 WASM_RUNTIME = _res.path('wasm/runtime')
 # runtime members replaced for wasm: symbol -> file in WASM_RUNTIME
 OVERRIDES = {'fma': 'fma.c', 'fmaf': 'fma.c'}
+# runtime/omp.c: a team of one (Pyodide has no threads)
+OVERRIDES.update((n, 'omp.c') for n in '''__cimo_par __cimo_par_next __cimo_lock __cimo_unlock __cimo_flush_mem __cimo_crit
+    __cimo_atomic __cimo_reduce omp_get_thread_num omp_get_num_threads omp_in_parallel omp_get_max_threads
+    omp_set_num_threads omp_get_num_procs omp_get_thread_limit omp_get_level omp_get_active_level omp_get_dynamic
+    omp_set_dynamic omp_get_nested omp_set_nested omp_get_max_active_levels omp_set_max_active_levels omp_get_wtime
+    omp_get_wtick omp_init_lock omp_destroy_lock omp_set_lock omp_unset_lock omp_test_lock'''.split())
 _VERSION = b'cimo-wasm-1'
 
 

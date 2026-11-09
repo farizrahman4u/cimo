@@ -307,7 +307,7 @@ class SwitchCase(object):
 
 class Func(object):
     __slots__ = ('decl', 'namedecl', 'name', 'paramtemps', 'type', 'start', 'end', 'gotos',
-                 'lastid', 'vlas', 'vlagotos', 'gotochecks', 'retwice')
+                 'lastid', 'vlas', 'vlagotos', 'gotochecks', 'retwice', 'omp')
 
 
 ptrclass = 'l'
@@ -656,6 +656,8 @@ def calcvla(f, t, entry=False):
         length = convert(f, TY.typeulong, t.length.type, funcexpr(f, t.length))
         basesize = mkintconst(t.base.size) if t.base.size else t.base.asize
         t.asize = funcinst(f, IMUL, 'l', length, basesize)
+        if U.ompvla is not None:  # cimo: computed in a parallel loop's code, which moves to a function of its own
+            U.ompvla.append(t)
 
 
 def funcalloc(f, d):
@@ -783,6 +785,7 @@ def mkfunc(decl, name, t, s):
     f.vlagotos = []  # (block, VLAs in scope at the goto, GotoLabel) of forward gotos
     f.gotochecks = []  # (VLAs in scope, GotoLabel, location) of forward gotos, for emitfunc
     f.retwice = False  # cimo: calls setjmp (see emitfunc)
+    f.omp = []  # cimo: its parallel loops (omp.Region), outlined by emitfunc
     f.namedecl = None  # cimo: a parameter's array bound can name an identifier before __func__ is declared
     emittype(t.base)
 
@@ -3260,6 +3263,9 @@ def _recordparams(f):
 
 
 def emitfunc(f, glob):
+    if f.omp:  # cimo: its parallel loops, into functions of their own (emitted first)
+        from . import omp as OMP
+        OMP.outline(f)
     if f.end.jump_kind == JUMP_NONE:
         v = None
         # implicitly return 0 from main if we reach the end of the function
@@ -3319,7 +3325,12 @@ def emitfunc(f, glob):
             b = b.next
         if paraminfo is not None:
             paraminfo.setdefault('#noinline', set()).add(f.decl.value.name)
-    b = f.start
+    emitblocks(f.start)
+    w("}\n")
+
+
+def emitblocks(b):
+    """The blocks from b on, as emitfunc writes a function's body."""
     while b:
         emitname(b.label)
         w('\n')
@@ -3342,7 +3353,6 @@ def emitfunc(f, glob):
             i = emitinst(insts, i, n)
         emitjump(b)
         b = b.next
-    w("}\n")
 
 
 def _isprint(c):

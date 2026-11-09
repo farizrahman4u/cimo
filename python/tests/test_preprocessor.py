@@ -202,7 +202,7 @@ def test_cli(tmp_path):
 def test_bundled_headers_preprocess():
     names = sorted(os.listdir(preprocessor.BUNDLED_INCLUDE))
     expected = ['arm_neon.h', 'assert.h', 'complex.h', 'ctype.h', 'fenv.h', 'float.h', 'immintrin.h', 'inttypes.h',
-                'iso646.h', 'limits.h', 'math.h', 'setjmp.h', 'stdalign.h', 'stdarg.h', 'stdbool.h', 'stddef.h',
+                'iso646.h', 'limits.h', 'math.h', 'omp.h', 'setjmp.h', 'stdalign.h', 'stdarg.h', 'stdbool.h', 'stddef.h',
                 'stdint.h', 'stdio.h', 'stdlib.h', 'stdnoreturn.h', 'string.h']
     assert names == expected
     other = {'arm_neon.h': 'amd64', 'immintrin.h': 'arm64'}  # the CPU intrinsics: one architecture's each

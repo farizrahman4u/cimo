@@ -19,7 +19,7 @@
 - [Errors](https://www.cimo.dev/docs/content/errors.md): CompileError, KernelError and crashes
 - [Performance](https://www.cimo.dev/docs/content/performance.md): What the optimizer does, and how to write loops it can see through
 - [Measuring and profiling](https://www.cimo.dev/docs/content/profiling.md): Timing kernels and reading generated code
-- [Threads and the heap](https://www.cimo.dev/docs/content/threads.md): Parallel kernels, malloc and the module heap
+- [Threads and the heap](https://www.cimo.dev/docs/content/threads.md): Parallel loops (#pragma omp parallel for), kernels on Python threads, malloc and the module heap
 
 ## Going further
 

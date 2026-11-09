@@ -103,6 +103,9 @@ including the browser.
 - `restrict`, used by the loop optimizer
 - The dot-product intrinsics of `arm_neon.h` and `immintrin.h` under gcc's names (`vbfdotq_f32`, `vdotq_s32`,
   `_mm512_dpbf16_ps`, `_mm256_dpbusd_epi32`, ...), on CPUs that have them (`cimo.cpu_features()`)
+- `#pragma omp parallel for`: a loop's iterations on every core, on a warm thread pool, as `gcc -fopenmp` runs them
+  (private, firstprivate, lastprivate and reduction clauses, static, dynamic and guided schedules, `critical`, `atomic`,
+  `<omp.h>`)
 
 To use the operating system, link the host libc or any other shared library (zlib, BLAS, the Python C
 API):
@@ -239,8 +242,8 @@ differential-tested against gcc on randomly generated programs.
 
 ## Status
 
-Pre-release. Runs on Linux, macOS and Windows (arm64 and x86-64) and in the browser, and auto-vectorizes on
-arm64 and x86-64. Explicit GPU kernels run on NVIDIA GPUs through the driver. Differential-tested against gcc on random programs (Csmith, YARPGen) on both architectures.
+Pre-release. Runs on Linux, macOS and Windows (arm64 and x86-64) and in the browser, auto-vectorizes on
+arm64 and x86-64, and runs `#pragma omp parallel for` loops on every core (one thread in the browser). Explicit GPU kernels run on NVIDIA GPUs through the driver. Differential-tested against gcc on random programs (Csmith, YARPGen) on both architectures.
 Planned:
 
 - Auto-vectorization of more loops (float `max`/`min` written as comparisons, `argmax`, 8- and 16-bit elements, outer loops), and on WebAssembly

@@ -17,6 +17,7 @@ from . import expr as E
 from . import qbe as Q
 from . import util as U
 from . import diag as DG
+from . import omp as OMP
 
 
 def label(f, s):
@@ -78,8 +79,12 @@ def labelstmt(f, s):
 def stmt(f, s):
     """6.8 Statements and blocks"""
     A.attr(None, 0)
+    OMP.pending(f)
     k = tok.kind
     omp, U.ompnext = U.ompnext, None  # cimo: `#pragma omp simd reduction(...)` before this statement, for a `for`
+    if isinstance(omp, OMP.Directive):  # cimo: a parallel loop, critical, ... (omp.py)
+        OMP.statement(f, s, omp, labelstmt)
+        return
     # 6.8.2 Compound statement
     if k == TLBRACE:
         contract = Q.contract  # cimo: `#pragma STDC FP_CONTRACT` in the block lasts to its end (C11 7.12.2)
@@ -88,8 +93,13 @@ def stmt(f, s):
         nvla = len(f.vlas)
         local = _locallabels(f)
         while tok.kind != TRBRACE:
-            if not label(f, s) and not D.decl(s, f):
+            OMP.pending(f)  # cimo: a barrier, flush, ... just read
+            if isinstance(U.ompnext, OMP.Directive):  # cimo: a statement follows it, not a declaration
+                labelstmt(f, s)
+            elif not label(f, s) and not D.decl(s, f):
                 stmt(f, s)
+        OMP.pending(f)
+        OMP.unfinished()
         _endlocallabels(f, local)
         _vlaleave(f, nvla)
         del f.vlas[nvla:]
@@ -314,10 +324,14 @@ def stmt(f, s):
         next()
         if not s.breaklabel:
             error(tok.loc, "'break' statement must be in loop or switch")
+        if s.breaklabel is OMP.NOBREAK:  # cimo
+            error(tok.loc, "'break' can't leave a parallel loop ('#pragma omp parallel for')")
         _vlaleave(f, s.breakvla)
         Q.funcjmp(f, s.breaklabel)
         expect(TSEMICOLON, "after 'break' statement")
     elif k == TRETURN:
+        if U.ompregion or U.ompblock:  # cimo: the code after it (the rest of the loop, an unlock) must run
+            error(tok.loc, "'return' in a parallel loop or an omp critical or atomic statement is not allowed")
         next()
         t = Q.functype(f)
         if t.base is not TY.typevoid:

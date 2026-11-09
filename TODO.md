@@ -27,15 +27,16 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   dot instruction took a bf16 matrix-vector product on Graviton 4 to 1.9x the speed of the fastest of numpy and torch
   there, and on Sapphire Rapids a compute-bound product without AMX ran at 0.11x of torch's, which uses it. In the order the
   generator needs them:
-  1. **A loop's iterations on several cores, started from C.** There is no launch API, and starting parts from a
-     Python pool costs too much for short kernels (scramjit: 390 us for four tiny calls through a pool, 3.8 us for one
-     direct call); these kernels run for tens of microseconds. Wanted: the outer loop of a kernel split over N threads
-     by the runtime, on a pool that stays warm, with the cost of one region a few microseconds. `#pragma omp parallel
-     for` with a static schedule is the form that keeps gcc the oracle (cimo already keeps `#pragma omp`); a runtime
-     call would do. Threads come from the host (`pthread`, Win32) through the runtime's C; wasm runs the loop
-     serially. A fault in a worker raises `cimo.KernelError` as on the calling thread, Ctrl-C stops all parts, each
-     worker has its own heap part as Python threads do, and the thread count is the caller's to set. Measure the cost
-     of an empty region on 8 and 16 cores, and a memory-bound matrix-vector product's scaling against gcc's OpenMP.
+  1. ~~**A loop's iterations on several cores, started from C.**~~ **Done** (2026-11-09; "Parallel loops" in
+     `requirements.md`): `#pragma omp parallel for` as gcc -fopenmp runs it (private, firstprivate, lastprivate,
+     reduction, static/dynamic/guided schedules, num_threads, if; critical, atomic, omp.h; the rest of OpenMP a
+     CompileError), outlined by the frontend and run on a warm pool of host threads (pthread, Win32; one thread in
+     Pyodide). Errors in any thread raise KernelError, Ctrl-C stops them all, each has its heap; the count is
+     `cimo.set_num_threads`, `OMP_NUM_THREADS`, `num_threads`, `omp_set_num_threads`. An empty region 0.8 us on 8 cores and
+     1.1 us on 16 (Graviton 4; gcc's 1.3 and 1.9), 1.4-2.0 us on Sapphire Rapids (gcc's 1.9-3.0); a memory-bound
+     matvec scales to the memory's bandwidth as gcc's does (16 threads: 1.04-1.11x gcc's on Graviton 4, 1.01-1.07x
+     on Sapphire Rapids). Open: Sapphire Rapids at 4 and 8 threads varies from 0.6x to 1.1x of gcc's from run to run
+     (where the scheduler wakes workers, hyperthread siblings).
   2. ~~**bf16 dot products as instructions.**~~ **Done** (2026-11-09; "CPU features and intrinsics" in
      `requirements.md`): `vbfdotq_f32`, `vdotq_s32`/`_u32`, `vusdotq_s32`, `_mm{,256,512}_dpbf16_ps`,
      `_mm{,256,512}_dpbusd_epi32` and the `_avx_` ones from the bundled `arm_neon.h`/`immintrin.h`, an error naming the

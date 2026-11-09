@@ -93,6 +93,15 @@ The call releases the GIL and costs about 0.2 to 0.6 µs from Python (on Sapphir
 | `kernel.__name__` | the C name |
 | `kernel.module` | its module |
 
+## cimo.set_num_threads
+
+```python
+cimo.set_num_threads(n=None)
+cimo.get_num_threads()
+```
+
+How many threads a [parallel loop](threads.md#parallel-loops) runs on, the calling thread included, unless its `num_threads` clause or `omp_set_num_threads` says otherwise. `None`: the `OMP_NUM_THREADS` environment variable's, else the number of CPUs the process may run on. `get_num_threads()` returns the count in effect.
+
 ## CompileError
 
 `cimo.CompileError(Exception)`: the source didn't compile, a header wasn't found, a symbol couldn't be linked. The message starts with `file:line:column:` when there is a position.
@@ -103,7 +112,7 @@ The call releases the GIL and costs about 0.2 to 0.6 µs from Python (on Sapphir
 
 | Attribute | |
 |---|---|
-| `kind` | `'abort'`, `'assert'`, `'exit'`, `'trap'`, `'stack overflow'`, `'nesting'` |
+| `kind` | `'abort'`, `'assert'`, `'exit'`, `'trap'`, `'stack overflow'`, `'nesting'`, `'memory fault'`, `'division fault'`, `'illegal instruction'`, `'interrupt'` |
 | `kernel` | the function Python called |
 | `function` | where it happened, if known |
 | `expr`, `file`, `line` | a failed `assert` |

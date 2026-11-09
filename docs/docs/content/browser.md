@@ -35,7 +35,7 @@ Everything runs in the page: no server compiles anything. The [demos on the home
 
 - **`long` is 64 bits, but `ctypes.c_long` is 32 bits in Pyodide.** For `long *` parameters, pass `int64` numpy arrays or `ctypes.c_int64` buffers, not `ctypes.c_long`.
 - **No host libraries:** `link=` and `host_headers=` raise a `CompileError`.
-- **No threads:** Pyodide is single-threaded.
+- **No threads:** Pyodide is single-threaded, so a `#pragma omp parallel for` loop runs on one thread (with the same results).
 - **A `goto` into the middle of a loop** is a compile error; WebAssembly needs structured control flow.
 - **The first compile** in a page also builds the parts of the C library the code uses, so it takes a second or two. After that, small kernels compile in well under a second.
 

@@ -46,6 +46,7 @@ function load(bytes) {
       return p;
     },
     __cimo_js_release: p => {},
+    __cimo_js_time: () => performance.now() / 1000,
     __cimo_js_fail: (code, expr, file, line, func) => {
       throw new Fail(JSON.stringify({ code, expr: cstr(expr), file: cstr(file), line, func: cstr(func) }));
     },

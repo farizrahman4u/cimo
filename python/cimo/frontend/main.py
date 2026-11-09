@@ -173,6 +173,8 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         U.fenvaccess = U.fenvtouched = U.cxlimited = False
         U.pack, U.packstack = 0, []
         U.ompnext, U.reduce = None, {}
+        U.ompregion = U.ompblock = U.ompcount = 0
+        U.ompvla, U.ompcrit = None, set()
         if diagnostics:
             from . import cc as _cc, diag as _diag
             _cc.exprhook = _diag.checktype
