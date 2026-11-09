@@ -47,7 +47,7 @@ Puts a module's cache entry (`module.cache_entry()`) into the cache, on disk if 
 cimo.cpu_features()   # frozenset({'avx2', 'avx512bf16', 'fma', ...})
 ```
 
-The features of this machine's CPU that compiled code may use, by gcc's `-m` names. x86-64: `popcnt`, `fma`, `avx`, `avx2`, `bmi1`, `bmi2`, `lzcnt`, `f16c`, `avx512f`, `avx512bw`, `avx512dq`, `avx512vl`, `avx512bf16`, `avx512vnni`, `avxvnni`, `amx-tile`, `amx-bf16`, `amx-int8` (each only if the OS saves its registers). arm64: `bf16`, `dotprod`, `i8mm` (NEON and FMA are always there). Empty in the browser. `CIMO_X86` and `CIMO_ARM64` override it (see [Environment variables](environment.md)). Code is compiled for these features and cached under them, and the [CPU intrinsics](c-language.md#cpu-intrinsics) a kernel calls must be among them.
+The features of this machine's CPU that compiled code may use, by gcc's `-m` names. x86-64: `popcnt`, `fma`, `avx`, `avx2`, `bmi1`, `bmi2`, `lzcnt`, `f16c`, `avx512f`, `avx512bw`, `avx512dq`, `avx512vl`, `avx512bf16`, `avx512vnni`, `avxvnni`, `amx-tile`, `amx-bf16`, `amx-int8` (each only if the OS saves its registers), and `zmm` where loops run faster 512 bits at a time than 256 (cimo then vectorizes them so: Intel's with AMX, Sapphire Rapids and later; not Zen 4). arm64: `bf16`, `dotprod`, `i8mm` (NEON and FMA are always there). Empty in the browser. `CIMO_X86` and `CIMO_ARM64` override it (see [Environment variables](environment.md)). Code is compiled for these features and cached under them, and the [CPU intrinsics](c-language.md#cpu-intrinsics) a kernel calls must be among them.
 
 ## Module
 

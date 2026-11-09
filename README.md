@@ -86,7 +86,8 @@ values fit (pixels: `rgb2gray`), and an outer loop vectorizes when its inner loo
 Float `max`/`min`, `argmax`, 16-bit elements and WebAssembly stay scalar, so the
 reference compilers are ahead where they vectorize those. Geomean over 15 kernels, against vectorized
 `gcc -O3`: 0.83 to 0.86x on Neoverse N1, V1 and V2. On x86-64 cimo compiles for the CPU it runs on (FMA, F16C, POPCNT,
-LZCNT, TZCNT, 256-bit AVX2): against `gcc -O3 -march=native`, 0.87x on Sapphire Rapids, 0.88x on Ice Lake and 0.95x on
+LZCNT, TZCNT, 256-bit AVX2, and AVX-512: 512-bit vectors for code written with them, and for loops on Sapphire Rapids):
+against `gcc -O3 -march=native`, 0.83x on Sapphire Rapids, 0.88x on Ice Lake and 0.93x on
 Zen 4, from 1.16 to 1.41x with 128-bit vectors. See [`requirements.md`](requirements.md) for the full measurements.
 
 Compiling a kernel file takes under a second, and compiled modules are cached by content hash.

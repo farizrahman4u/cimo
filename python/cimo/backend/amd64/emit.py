@@ -41,7 +41,7 @@ class E:
         # cimo (AVX2): vzeroupper before each call and the return of a function that uses ymm registers, so code
         # around it, SSE in callers and callees, doesn't pay for their dirty upper halves; and inside it, no legacy
         # SSE at all (_Vex): Sapphire Rapids ran SSE after 256-bit code up to 250x slower (nbody_acc, conv3x3, gemm)
-        self.vzu = _ext.qbytes() == 32 and _usesq(fn)
+        self.vzu = _ext.qbytes() >= 32 and _usesq(fn)
         if self.vzu:
             self.f = _Vex(f)
 
@@ -631,7 +631,8 @@ def _swap2slots(i, e):
 def _qdot(f, name, to, a, b, third, r, scratch):
     """to = third + the dot products of a and b's pairs (vdpbf16ps: AVX512-BF16) or fours of bytes (vpdpbusd, a's
     unsigned times b's signed: the VEX form with AVX-VNNI, else AVX512-VNNI's EVEX), which accumulate in place."""
-    mn = 'vdpbf16ps' if name == 'qbfdot' else '{vex} vpdpbusd' if 'avxvnni' in _ext.x86 else 'vpdpbusd'
+    mn = 'vdpbf16ps' if name == 'qbfdot' else '{vex} vpdpbusd' if 'avxvnni' in _ext.x86 and 'zmm' not in scratch \
+        else 'vpdpbusd'
     if to == third:
         f.write("\t%s %s, %s, %s\n" % (mn, r(b), r(a), r(to)))
     elif to in (a, b):
@@ -734,8 +735,207 @@ def _qins_y(i, e):
     return True
 
 
+# AVX-512, 512 bits (ext.qbytes() == 64, the frontend's choice per function): the EVEX form of each AVX2 instruction,
+# the logical ones as vpandq and friends, comparisons into k1 made a vector again by vpmovm2* (AVX512-DQ, -BW), and
+# what AVX-512 has itself (the 64-bit and unsigned conversions, truncating narrowings)
+_QZ = dict(_QY)
+_QZ.update({'qand': 'vpandq', 'qor': 'vporq', 'qxor': 'vpxorq', 'qxandn': 'vpandnq'})
+# comparisons: (mnemonic, swapped, the vpmovm2 lane)
+_QZCMP = {'qceqb': ('vpcmpeqb', 0, 'b'), 'qceqh': ('vpcmpeqw', 0, 'w'), 'qceqw': ('vpcmpeqd', 0, 'd'),
+          'qceql': ('vpcmpeqq', 0, 'q'), 'qcgtb': ('vpcmpgtb', 0, 'b'), 'qcgth': ('vpcmpgtw', 0, 'w'),
+          'qcgtw': ('vpcmpgtd', 0, 'd'), 'qcgtl': ('vpcmpgtq', 0, 'q'), 'qceqs': ('vcmpps $0,', 0, 'd'),
+          'qceqd': ('vcmppd $0,', 0, 'q'), 'qxunords': ('vcmpps $3,', 0, 'd'), 'qxunordd': ('vcmppd $3,', 0, 'q'),
+          'qcgts': ('vcmpps $1,', 1, 'd'), 'qcgtd': ('vcmppd $1,', 1, 'q'), 'qcges': ('vcmpps $2,', 1, 'd'),
+          'qcged': ('vcmppd $2,', 1, 'q')}
+_QZCVT = {'qitofs': 'vcvtdq2ps', 'qftois': 'vcvttps2dq', 'quitofs': 'vcvtudq2ps', 'qftous': 'vcvttps2udq',
+          'qitofd': 'vcvtqq2pd', 'quitofd': 'vcvtuqq2pd', 'qftoid': 'vcvttpd2qq', 'qftoud': 'vcvttpd2uqq'}
+_QZNRW = {'qnrwh': 'vpmovwb', 'qnrww': 'vpmovdw', 'qnrwl': 'vpmovqd'}
+
+
+def _qz(r):
+    return "%%zmm%d" % (rval(r) - XMM0)
+
+
+def _emitf_z(fmt, i, e):
+    """emitf, with the vector register named as a zmm."""
+    import io
+    f, e.f = e.f, io.StringIO()
+    try:
+        emitf(fmt, i, e)
+        text = e.f.getvalue()
+    finally:
+        e.f = f
+    f.write(text.replace('%xmm', '%zmm'))
+
+
+def _qcopy_z(i, e):
+    f = e.f
+    to, a = i.to, i.arg[0]
+    if to == R or a == R or to == a:
+        return
+    if rtype(to) == RSlot and rtype(a) == RSlot:
+        f.write("\tvmovups %d(%%%s), %%zmm15\n" % (slot(a, e), regtoa(e.fp, SLong)))
+        f.write("\tvmovups %%zmm15, %d(%%%s)\n" % (slot(to, e), regtoa(e.fp, SLong)))
+    elif rtype(to) == RSlot:
+        _emitf_z("vmovups %0, %M=", i, e)
+    elif rtype(a) == RSlot:
+        _emitf_z("vmovups %M0, %=", i, e)
+    else:
+        f.write("\tvmovaps %s, %s\n" % (_qz(a), _qz(to)))
+
+
+def _narrowins_z(i, e):
+    """vectorize's loops over bytes on 512 bits: 32 lanes of 16 bits, windows of 8 pixels in each 128-bit lane."""
+    from ..emit import stashvec
+    f = e.f
+    op = i.op
+    four = (lambda m: m * 4)
+    if op == D.Oqxwin:
+        base = "%%%s" % regtoa(rval(i.arg[0]), SLong)
+        off = e.fn.con[rval(i.arg[1])].i
+        f.write("\tvmovdqu %d(%s), %%xmm15\n" % (off, base))
+        for k in (1, 2, 3):
+            f.write("\tvinserti32x4 $%d, %d(%s), %%zmm15, %s\n" % (k, off + 24 * k, base, '%zmm15' if k < 3 else _qz(i.to)))
+    elif op == D.Oqxshufb:
+        m = e.fn.con[rval(i.arg[1])].i
+        f.write("\tvpshufb %s(%%rip), %s, %s\n" % (stashvec(four(_narrowmasks(m >> 1)[m & 1])), _qz(i.arg[0]), _qz(i.to)))
+    elif op == D.Oqldbh:
+        f.write("\tvpmovzxbw %s, %s\n" % (_memtext(i.arg[0], e), _qz(i.to)))
+    elif op == D.Oqld3bh:
+        base = "%%%s" % regtoa(rval(i.arg[0]), SLong)
+        ma, mb = _narrowmasks(e.fn.con[rval(i.arg[1])].i)
+        for off, m, dst in ((0, ma, _qz(i.to)), (8, mb, '%zmm15')):
+            f.write("\tvmovdqu %d(%s), %%xmm15\n" % (off, base))
+            for k in (1, 2, 3):
+                f.write("\tvinserti32x4 $%d, %d(%s), %%zmm15, %%zmm15\n" % (k, off + 24 * k, base))
+            f.write("\tvpshufb %s(%%rip), %%zmm15, %s\n" % (stashvec(four(m)), dst))
+        f.write("\tvporq %%zmm15, %s, %s\n" % (_qz(i.to), _qz(i.to)))
+    else:  # qstbh: each lane's low byte
+        f.write("\tvpmovwb %s, %s\n" % (_qz(i.arg[0]), _memtext(i.arg[1], e)))
+    return True
+
+
+def _qins_z(i, e):
+    """_qins on 512 bits (AVX-512 F, BW, DQ, VL; ext.qbytes() == 64)."""
+    f = e.f
+    op = i.op
+    if op == Ocopy and i.cls == D.Kq:
+        _qcopy_z(i, e)
+        return True
+    if op == Oswap and i.cls == D.Kq:
+        if rtype(i.arg[0]) == RSlot or rtype(i.arg[1]) == RSlot:  # a cycle of moves through a spilled phi
+            _qswapslot(i, e, _qcopy_z)
+            return True
+        a, b = _qz(i.arg[0]), _qz(i.arg[1])
+        f.write("\tvmovaps %s, %%zmm15\n\tvmovaps %s, %s\n\tvmovaps %%zmm15, %s\n" % (a, b, a, b))
+        return True
+    if op in (D.Oqldbh, D.Oqld3bh, D.Oqstbh, D.Oqxwin, D.Oqxshufb):
+        return _narrowins_z(i, e)
+    if (op == Oload and i.cls == D.Kq) or op == D.Oqload:
+        _emitf_z("vmovups %M0, %=", i, e)
+        return True
+    if op == D.Oqload16:  # 16 bytes in each 128-bit lane
+        _emitf_z("vbroadcasti32x4 %M0, %=", i, e)
+        return True
+    if op == D.Oqload32:  # 32 bytes in both halves
+        _emitf_z("vbroadcasti64x4 %M0, %=", i, e)
+        return True
+    if D.Oqdupmb <= op <= D.Oqdupmd:  # a broadcast from memory (isel._dupfold)
+        mn = {'b': 'vpbroadcastb', 'h': 'vpbroadcastw', 'w': 'vpbroadcastd', 'l': 'vpbroadcastq', 's': 'vbroadcastss',
+              'd': 'vbroadcastsd'}[optab[op].name[-1]]
+        _emitf_z(mn + " %M0, %=", i, e)
+        return True
+    if op == D.Oqldh:  # 16 halves to floats
+        _emitf_z("vcvtph2ps %M0, %=", i, e)
+        return True
+    if op == D.Oqsth:
+        f.write("\tvcvtps2ph $4, %s, %s\n" % (_qz(i.arg[0]), _memtext(i.arg[1], e)))
+        return True
+    if op == D.Oqstore16:  # the lowest 128 bits
+        emitf("vmovups %0, %M1", i, e)
+        return True
+    if op == D.Oqstore32:  # the lower half
+        _emitf_y("vmovups %0, %M1", i, e)
+        return True
+    if op == D.Oqstore:
+        _emitf_z("vmovups %0, %M1", i, e)
+        return True
+    if not D.isqop(op):
+        return False
+    name = optab[op].name
+    to, a, b = i.to, i.arg[0], i.arg[1]
+    if name == 'qfma0':
+        e.qthird = a
+        return True
+    if name in ('qfma1s', 'qfma1d'):
+        _fma3(f, 'p' + name[-1], to, a, b, e.qthird, y='z')
+        return True
+    if name in ('qxfmams', 'qxfmamd'):
+        _fma3(f, 'p' + name[-1], to, a, _memtext(b, e), e.qthird, y='z')
+        return True
+    if name in ('qbfdot', 'qusdot'):
+        _qdot(f, name, to, a, b, e.qthird, _qz, '%zmm15')
+        return True
+    if name in _QZCMP:
+        mn, swap, x = _QZCMP[name]
+        if swap:
+            a, b = b, a
+        f.write("\t%s %s, %s, %%k1\n\tvpmovm2%s %%k1, %s\n" % (mn, _qz(b), _qz(a), x, _qz(to)))
+    elif name in _QZCVT:
+        f.write("\t%s %s, %s\n" % (_QZCVT[name], _qz(a), _qz(to)))
+    elif name in _QZNRW or name == 'qfcvtn':  # b's lanes into the upper half, a's into the lower
+        mn = _QZNRW.get(name, 'vcvtpd2ps')
+        ins = 'vinsertf64x4' if name == 'qfcvtn' else 'vinserti64x4'
+        f.write("\t%s %s, %%ymm15\n\t%s %s, %s\n\t%s $1, %%ymm15, %s, %s\n"
+                % (mn, _qz(b), mn, _qz(a), _qy(to), ins, _qz(to), _qz(to)))
+    elif name in ('qfcvtl', 'qfcvth') or name[:3] in ('qsx', 'qux'):
+        src = _qy(a)
+        if name[-2] == 'h' or name == 'qfcvth':  # the upper half first
+            f.write("\tvextracti64x4 $1, %s, %%ymm15\n" % _qz(a))
+            src = '%ymm15'
+        mn = 'vcvtps2pd' if name[1] == 'f' else ('vpmovsx' if name[1] == 's' else 'vpmovzx') + _QYW[name[-1]]
+        f.write("\t%s %s, %s\n" % (mn, src, _qz(to)))
+    elif name in _QZ:
+        f.write("\t%s %s, %s, %s\n" % (_QZ[name], _qz(b), _qz(a), _qz(to)))
+    elif name in _QSHIFT:
+        f.write("\tv%s $%d, %s, %s\n" % (_QSHIFT[name], e.fn.con[rval(b)].i, _qz(a), _qz(to)))
+    elif name == 'qxshufd':
+        f.write("\tvpshufd $%d, %s, %s\n" % (e.fn.con[rval(b)].i, _qz(a), _qz(to)))
+    elif name in ('qsqrts', 'qsqrtd'):
+        f.write("\tvsqrtp%s %s, %s\n" % (name[-1], _qz(a), _qz(to)))
+    elif name in ('qxtruncd', 'qxfloord'):
+        f.write("\tvrndscalepd $%d, %s, %s\n" % (3 if name == 'qxtruncd' else 1, _qz(a), _qz(to)))
+    elif name.startswith('qdup'):
+        x = name[-1]
+        z = _qz(to)
+        if rtype(a) == RCon:  # isel: 0 and -1 only
+            if e.fn.con[rval(a)].i == 0:  # a VEX write of the xmm clears the rest
+                f.write("\tvpxor %s, %s, %s\n" % (_qx(to), _qx(to), _qx(to)))
+            else:
+                f.write("\tvpternlogd $0xff, %s, %s, %s\n" % (z, z, z))
+        elif x in 'sd':
+            f.write("\tvbroadcasts%s %s, %s\n" % (x, _qx(a), z))
+        else:
+            f.write("\t%s %s, %%xmm15\n" % (("vmovq", _qr(a, SLong)) if x == 'l' else ("vmovd", _qr(a, SWord))))
+            f.write("\tvpbroadcast%s %%xmm15, %s\n" % ({'b': 'b', 'h': 'w', 'w': 'd', 'l': 'q'}[x], z))
+    elif name.startswith('qget'):
+        x = name[-1]
+        n = e.fn.con[rval(b)].i
+        per = 16 // {'b': 1, 'h': 2, 'w': 4, 'l': 8, 's': 4, 'd': 8}[x]
+        if n >= per:  # its 128 bits first
+            f.write("\tvextracti32x4 $%d, %s, %%xmm15\n" % (n // per, _qz(a)))
+            _qget(x, i, e, "%xmm15", n % per)
+        else:
+            _qget(x, i, e, _qx(a), n)
+    else:
+        die("no AVX-512 instruction for %s", name)
+    return True
+
+
 def _qins(i, e):
     """cimo (ext.vector): one instruction on 128 bits; amd64/qlower.py has left only those SSE2 has. True if it was one."""
+    if _ext.qbytes() == 64:
+        return _qins_z(i, e)
     if _ext.qbytes() == 32:
         return _qins_y(i, e)
     f = e.f
@@ -1183,8 +1383,10 @@ def _fma(i, e):
 
 def _fma3(f, x, to, a, b, c, mn='vfmadd', y=False):
     """to = ±(a*b) ± c in x ('ss', 'sd', 'ps', 'pd'), whichever of them to shares a register with: the 231 form
-    computes src1*src2 ± dst, the 213 form src1*dst ± src2, so the sign of each part is the mnemonic's either way."""
-    q = lambda r: r if isinstance(r, str) else "%%%smm%d" % ('y' if y else 'x', rval(r) - XMM0)
+    computes src1*src2 ± dst, the 213 form src1*dst ± src2, so the sign of each part is the mnemonic's either way.
+    y: ymm (True) or zmm ('z') registers."""
+    w = 'z' if y == 'z' else 'y' if y else 'x'
+    q = lambda r: r if isinstance(r, str) else "%%%smm%d" % (w, rval(r) - XMM0)
     if isinstance(b, str):  # b is memory (qxfmam): only the last source can be
         if to == a:
             f.write("\t%s132%s %s, %s, %s\n" % (mn, x, b, q(c), q(to)))  # to = to * b + c

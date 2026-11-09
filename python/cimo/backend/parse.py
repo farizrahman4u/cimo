@@ -45,7 +45,7 @@ _KQTEXT = 99  # what parsecls says for it: Kq's number means something else amon
 Tq = Ntok + 6  # cimo extension: class q and its instructions, keywords when ext.vector is on
 Tp = Ntok + 9  # cimo extension: class p, a pointer (an l everywhere; i32 at a WebAssembly function's boundary)
 Tvector = Ntok + 8  # cimo extension: "type :v = align 16 vector { s 4 }", a GNU vector type (ext.vector)
-_QNAMES = {optab[o].name: o for o in list(range(D.Oqaddb, D.Oqstore + 1)) + [D.Oqload16, D.Oqstore16] if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
+_QNAMES = {optab[o].name: o for o in list(range(D.Oqaddb, D.Oqstore + 1)) + [D.Oqload16, D.Oqstore16, D.Oqload32, D.Oqstore32] if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
 _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
 Tassoc = Ntok + 10  # cimo extension: a float add, sub or mul of a `#pragma omp simd reduction`, in any order
@@ -584,7 +584,7 @@ def parseline(ps):
         r = R
         k = Kl if S.mathop == D.Osetsp else Kw
         op = Tsp
-    elif t == Tq and S.mathop in (D.Oqstore, D.Oqstore16):
+    elif t == Tq and S.mathop in (D.Oqstore, D.Oqstore16, D.Oqstore32):
         r = R
         k = _KQTEXT
         op = Tq
@@ -1104,6 +1104,10 @@ def parselnk(lnk):
             lnk.thread = 1
         elif t == Tcommon:
             lnk.common = 1
+        elif t == Tvector:  # cimo (ext.vector): the function's q width, "vector 64 function $f()"
+            if nextnl() != Tint or S.tokval_num not in (16, 32, 64):
+                err("vector 16, 32 or 64 expected")
+            lnk.qbytes = S.tokval_num
         elif t == Tsection:
             if lnk.sec:
                 err("only one section allowed")

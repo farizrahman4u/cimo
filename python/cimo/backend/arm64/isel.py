@@ -1558,7 +1558,7 @@ def _elems(bs):
 def _writes(op):
     """Whether op may write memory (dupfold)."""
     return D.isstore(op) or op in (Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Oqstore, D.Oqstbh, D.Oqsth, D.Oqstshrn,
-                                   D.Oqstore16)
+                                   D.Oqstore16, D.Oqstore32)
 
 
 def _dupfolds(fn):

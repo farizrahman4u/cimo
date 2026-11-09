@@ -51,7 +51,7 @@ class _L:
         return self.op('qor', self.op('qand', a, m), self.op('qxandn', m, b))
 
     def cgt(self, x, a, b):
-        if x != 'l' or _ext.qbytes() == 32:  # AVX2 has vpcmpgtq
+        if x != 'l' or _ext.qbytes() >= 32:  # AVX2 has vpcmpgtq
             return self.op('qcgt' + x, a, b)
         # a > b is b < a: the sign of d ^ ((b ^ a) & (d ^ b)), d = b - a (Hacker's Delight 2-12)
         d = self.op('qsubl', b, a)
@@ -108,9 +108,11 @@ def _cvt(L, name, a, to):
 def _lower(L, i, third):
     """Writes i in L if it has to be; False if it has an instruction."""
     name = optab[i.op].name
-    if name in _AVX2 and _ext.qbytes() == 32:
+    if name in _AVX2 and _ext.qbytes() >= 32:
         return False
-    if name in _CVT and _ext.qbytes() == 32:
+    if name in _CVT and _ext.qbytes() >= 32:
+        if _ext.qbytes() == 64:  # AVX-512 has them
+            return False
         _cvt(L, name, i.arg[0], i.to)
         return True
     a, b, to = i.arg[0], i.arg[1], i.to

@@ -434,8 +434,8 @@ def _bytes(fast, rts):
     brighten's `a[i] = (uint8_t)(a[i] + k)`. Then lanes as wide as the stores (16 bytes a vector, 8 shorts; twice that
     with AVX2) give the bits C stores, whatever the values in between, k included (its low bits, on every lane). Returns
     vf, or 0 (cimo.middle.vectorize._narrow then tries 16-bit lanes with value ranges)."""
-    if _ext.qbytes() == 32 or D.T.name.startswith('amd64'):
-        if 'avx' not in _ext.x86 and _ext.qbytes() == 32:
+    if _ext.qbytes() >= 32 or D.T.name.startswith('amd64'):
+        if 'avx' not in _ext.x86 and _ext.qbytes() >= 32:
             return 0
     elif not D.T.name.startswith('arm64'):
         return 0
@@ -873,7 +873,7 @@ def _narrow(fast, rts):
     computes can leave [0, 65535]: then its low 16 bits are all of it, and a store keeps the low 8 of those as C's does.
     Ranges: a byte [0, 255], constants themselves, and the operation's on its operands'. The vf iterations a vector
     does read and write exactly the bytes the scalar ones did (all three of a pixel's). Returns vf, or 0."""
-    if _ext.qbytes() == 32 or D.T.name.startswith('amd64'):
+    if _ext.qbytes() >= 32 or D.T.name.startswith('amd64'):
         if 'avx' not in _ext.x86:  # vpshufb and vpmovzxbw: VEX
             return 0
     elif not D.T.name.startswith('arm64'):

@@ -1046,6 +1046,12 @@ def _h_vfma(a, ops, sz, arg):
     """vfmadd{132,213,231}{ss,sd,ps,pd} %xmm or %ymm (packed), src2 a register or memory: VEX.128 or .256 (FMA3)."""
     _nops(ops, 3)
     w, op = arg
+    if a.mask != (0, 0) or a.pref == 'evex' or any(o[0] == 'z' or o[0] in ('x', 'y') and o[2] > 15 for o in ops):
+        src2, src1, dst = _vk(ops[0], True), _vk(ops[1]), _vk(ops[2])
+        L = _EVEXL[dst[0]]
+        aaa, z = a.mask
+        n = (16 << L) if not op & 1 else (8 if w else 4)
+        return _enc(a, bytes([op]), dst, src2, evex=(1, 2, w, L, src1[2], aaa, z, 0, n))
     if ops[0][0] == 'm':  # a load folded in (vfmadd231ps (%rax), %ymm1, %ymm2): VEX 66 0F38, as the rvm forms
         src1, dst = _vr(ops[1]), _vr(ops[2])
         if src1[0] != dst[0]:
@@ -1121,7 +1127,10 @@ def _h_avx(a, ops, sz, arg):
       ld    src, dst / st: the load and store opcodes as (load, store)
       vmi   $imm, src, dst                    shifts by an immediate: /digit in the opcode's place, vvvv = dst
       mri   $imm, src, dst(reg/mem)           vextract*128: rm = dst
-      gm    src, dst(general register)        vpmovmskb, vmovmsk*"""
+      gm    src, dst(general register)        vpmovmskb, vmovmsk*
+    With a %zmm, a mask register, a register past 15 or a {%k} decoration, the EVEX form (_h_avx512)."""
+    if a.mask != (0, 0) or a.pref == 'evex' or any(o[0] in ('z', 'k') or o[0] in ('x', 'y') and o[2] > 15 for o in ops):
+        return _h_avx512(a, ops, sz, arg)
     pfx, mm, op, W, form = arg
     pp = _PP[pfx]
     imm = None
@@ -1146,6 +1155,10 @@ def _h_avx(a, ops, sz, arg):
     if form == 'rmn':  # narrowing: the source's length (vcvtpd2ps %ymm, %xmm)
         _nops(ops, 2)
         src, dst = _vr(ops[0], True), _vr(ops[1])
+        if src[0] == 'm':  # the source's length from the destination's, as GNU as: a %ymm is 512 bits narrowed
+            if dst[0] == 'y':
+                return _h_avx512(a, ops, sz, arg)
+            raise AssemblerError('ambiguous memory operand size')
         return _enc(a, bytes([op]), dst, src, vex=(pp, mm, W, src[0] == 'y', 0))
     if form in ('rm', 'rmi'):
         _nops(ops, 2)
@@ -1287,6 +1300,163 @@ def _decorations(a, strs):
     a.mask = (aaa, z)
 
 
+# AVX-512 forms of the AVX and AVX2 mnemonics (and the ones only EVEX has): mnemonic -> (W, tuple). The tuple gives
+# the N of a disp8*N: fv, the vector's bytes; hv, half of them (and hvm: half, a memory operand of narrower lanes);
+# qv, a quarter; t1s<k>, one element of k bytes; t4/t8, 16 or 32 bytes (the 32x4 and 64x4 forms)
+_P0, _P66, _PF3, _PF2 = b'', b'\x66', b'\xf3', b'\xf2'
+_EVX = {}
+
+
+def _evx(names, W, tup):
+    for n in names.split():
+        _EVX[n] = (W, tup)
+
+
+_evx('vaddps vmulps vsubps vminps vdivps vmaxps vsqrtps vcmpps vmovups vmovaps vcvtdq2ps vcvttps2dq vandps vorps '
+     'vxorps vandnps', 0, 'fv')
+_evx('vaddpd vmulpd vsubpd vminpd vdivpd vmaxpd vsqrtpd vcmppd vmovupd vmovapd vcvtpd2ps vandpd vorpd vxorpd vandnpd',
+     1, 'fv')
+_evx('vpaddb vpaddw vpsubb vpsubw vpmullw vpmulhw vpminub vpmaxub vpminsw vpmaxsw vpcmpeqb vpcmpeqw vpcmpgtb '
+     'vpcmpgtw vpunpcklbw vpunpcklwd vpunpckhbw vpunpckhwd vpshufb vpminsb vpmaxsb vpminuw vpmaxuw vpackuswb '
+     'vpacksswb vpsllw vpsrlw vpsraw', 0, 'fv')
+_evx('vpaddd vpsubd vpmulld vpcmpeqd vpcmpgtd vpminsd vpmaxsd vpminud vpmaxud vpunpckldq vpunpckhdq vpsllvd vpsrlvd '
+     'vpsravd vpshufd vpslld vpsrld vpsrad vpackusdw vpackssdw', 0, 'fv')
+_evx('vpaddq vpsubq vpmuludq vpcmpeqq vpcmpgtq vpunpcklqdq vpunpckhqdq vpsllvq vpsrlvq vpsllq vpsrlq', 1, 'fv')
+_evx('vpbroadcastb', 0, 't1s1')
+_evx('vpbroadcastw', 0, 't1s2')
+_evx('vpbroadcastd vbroadcastss', 0, 't1s4')
+_evx('vpbroadcastq vbroadcastsd', 1, 't1s8')
+_evx('vpmovsxbw vpmovsxwd vpmovsxdq vpmovzxbw vpmovzxwd vpmovzxdq vcvtph2ps vcvtps2ph', 0, 'hvm')
+_evx('vcvtps2pd', 0, 'hv')
+# only EVEX has these: (mnemonic, prefix, map, opcode, W, form, tuple). Forms as _h_avx's, and: mk, a mask register
+# (rm) into a vector; km, a vector's lane signs into a mask register; mrn, a narrowing store (vpmovwb: the source
+# in reg, the destination register or memory in rm)
+_EVEX_ONLY = [('vpandd', _P66, 1, 0xdb, 0, 'rvm', 'fv'), ('vpandq', _P66, 1, 0xdb, 1, 'rvm', 'fv'),
+              ('vpandnd', _P66, 1, 0xdf, 0, 'rvm', 'fv'), ('vpandnq', _P66, 1, 0xdf, 1, 'rvm', 'fv'),
+              ('vpord', _P66, 1, 0xeb, 0, 'rvm', 'fv'), ('vporq', _P66, 1, 0xeb, 1, 'rvm', 'fv'),
+              ('vpxord', _P66, 1, 0xef, 0, 'rvm', 'fv'), ('vpxorq', _P66, 1, 0xef, 1, 'rvm', 'fv'),
+              ('vpternlogd', _P66, 3, 0x25, 0, 'rvmi', 'fv'), ('vpternlogq', _P66, 3, 0x25, 1, 'rvmi', 'fv'),
+              ('vpmovm2b', _PF3, 2, 0x28, 0, 'mk', 'fv'), ('vpmovm2w', _PF3, 2, 0x28, 1, 'mk', 'fv'),
+              ('vpmovm2d', _PF3, 2, 0x38, 0, 'mk', 'fv'), ('vpmovm2q', _PF3, 2, 0x38, 1, 'mk', 'fv'),
+              ('vpmovb2m', _PF3, 2, 0x29, 0, 'km', 'fv'), ('vpmovw2m', _PF3, 2, 0x29, 1, 'km', 'fv'),
+              ('vpmovd2m', _PF3, 2, 0x39, 0, 'km', 'fv'), ('vpmovq2m', _PF3, 2, 0x39, 1, 'km', 'fv'),
+              ('vextracti32x4', _P66, 3, 0x39, 0, 'mri', 't4'), ('vextracti64x4', _P66, 3, 0x3b, 1, 'mri', 't8'),
+              ('vextractf32x4', _P66, 3, 0x19, 0, 'mri', 't4'), ('vextractf64x4', _P66, 3, 0x1b, 1, 'mri', 't8'),
+              ('vinserti32x4', _P66, 3, 0x38, 0, 'rvmi', 't4'), ('vinserti64x4', _P66, 3, 0x3a, 1, 'rvmi', 't8'),
+              ('vinsertf32x4', _P66, 3, 0x18, 0, 'rvmi', 't4'), ('vinsertf64x4', _P66, 3, 0x1a, 1, 'rvmi', 't8'),
+              ('vbroadcasti32x4', _P66, 2, 0x5a, 0, 'rm', 't4'), ('vbroadcasti64x4', _P66, 2, 0x5b, 1, 'rm', 't8'),
+              ('vpmovwb', _PF3, 2, 0x30, 0, 'mrn', 'hvm'), ('vpmovdw', _PF3, 2, 0x33, 0, 'mrn', 'hvm'),
+              ('vpmovqd', _PF3, 2, 0x35, 0, 'mrn', 'hvm'),
+              ('vrndscaleps', _P66, 3, 0x08, 0, 'rmi', 'fv'), ('vrndscalepd', _P66, 3, 0x09, 1, 'rmi', 'fv'),
+              ('vcvtudq2ps', _PF2, 1, 0x7a, 0, 'rm', 'fv'), ('vcvttps2udq', _P0, 1, 0x78, 0, 'rm', 'fv'),
+              ('vcvtqq2pd', _PF3, 1, 0xe6, 1, 'rm', 'fv'), ('vcvtuqq2pd', _PF3, 1, 0x7a, 1, 'rm', 'fv'),
+              ('vcvttpd2qq', _P66, 1, 0x7a, 1, 'rm', 'fv'), ('vcvttpd2uqq', _P66, 1, 0x78, 1, 'rm', 'fv'),
+              ('vpsraq', _P66, 1, (0x72, 4), 1, 'vmi', 'fv'), ('vpsravq', _P66, 2, 0x46, 1, 'rvm', 'fv'),
+              ('vpmullq', _P66, 2, 0x40, 1, 'rvm', 'fv'), ('vpminsq', _P66, 2, 0x39, 1, 'rvm', 'fv'),
+              ('vpmaxsq', _P66, 2, 0x3d, 1, 'rvm', 'fv'), ('vpminuq', _P66, 2, 0x3b, 1, 'rvm', 'fv'),
+              ('vpmaxuq', _P66, 2, 0x3f, 1, 'rvm', 'fv')]
+
+
+def _tupn(tup, L):
+    vl = 16 << L
+    return {'fv': vl, 'hv': vl // 2, 'hvm': vl // 2, 'qv': vl // 4, 't1s1': 1, 't1s2': 2, 't1s4': 4, 't1s8': 8,
+            't4': 16, 't8': 32}[tup]
+
+
+def _vk(o, mem=False):
+    """An %xmm, %ymm or %zmm register (or memory, if mem), EVEX's: any of the 32."""
+    if o[0] not in ('x', 'y', 'z') and not (mem and o[0] == 'm'):
+        raise AssemblerError('expected an %%xmm, %%ymm or %%zmm register%s' % (' or memory' if mem else ''))
+    return o
+
+
+def _kreg(o):
+    if o[0] != 'k':
+        raise AssemblerError('expected a mask register')
+    return o
+
+
+def _h_avx512(a, ops, sz, arg):
+    """The EVEX form of an _h_avx instruction (arg as there; the W and tuple from _EVX), or of one only AVX-512 has
+    (arg with its own W and tuple). The length is the widest vector operand's."""
+    if len(arg) == 6:
+        pfx, mm, op, W, form, tup = arg
+    else:
+        pfx, mm, op, _, form = arg
+        e = _EVX.get(a.mnemonic)
+        if e is None:
+            raise AssemblerError('%s has no AVX-512 form here' % a.mnemonic)
+        W, tup = e
+    pp = _PP[pfx]
+    aaa, z = a.mask
+    imm = None
+    if form in ('rvmi', 'rmi', 'vmi', 'mri'):
+        if ops[0][0] != 'i' or ops[0][1] is not None or not 0 <= ops[0][2] <= 255:
+            raise AssemblerError('expected a constant from 0 to 255')
+        imm = (1, None, ops[0][2], None)
+        ops = ops[1:]
+    vec = [o for o in ops if o[0] in ('x', 'y', 'z')]
+    if not vec:
+        raise AssemblerError('expected a vector register')
+    L = max(_EVEXL[o[0]] for o in vec)
+
+    def enc(reg, rm, vvvv=0, LL=L):
+        n = _tupn(tup, LL)
+        return _enc(a, bytes([op if not isinstance(op, tuple) else op[0]]), reg, rm, imm=imm,
+                    evex=(pp, mm, W, LL, vvvv, aaa, z, 0, n))
+    if form in ('rvm', 'rvmi'):
+        _nops(ops, 3)
+        src2, src1, dst = ops
+        _vk(src2, True), _vk(src1)
+        if dst[0] == 'k':  # a comparison into a mask register: the length is the sources'
+            return enc(dst, src2, src1[2], _EVEXL[src1[0]])
+        _vk(dst)
+        if form == 'rvmi' and tup in ('t4', 't8'):  # vinsert*: the length is the destination's
+            return enc(dst, src2, src1[2], _EVEXL[dst[0]])
+        return enc(dst, src2, src1[2], _EVEXL[dst[0]])
+    if form in ('rm', 'rmi', 'rmw'):
+        _nops(ops, 2)
+        src, dst = _vk(ops[0], True), _vk(ops[1])
+        return enc(dst, src, 0, _EVEXL[dst[0]])
+    if form == 'rmn':  # narrowing conversions: the source's length
+        _nops(ops, 2)
+        src, dst = _vk(ops[0], True), _vk(ops[1])
+        return enc(dst, src, 0, _EVEXL[src[0]] if src[0] != 'm' else _EVEXL[dst[0]] + 1)
+    if form == 'ld':
+        _nops(ops, 2)
+        src, dst = ops
+        if dst[0] == 'm':
+            _vk(src)
+            op = op[1]
+            return enc(src, dst, 0, _EVEXL[src[0]])
+        _vk(dst)
+        _vk(src, True)
+        op = op[0]
+        return enc(dst, src, 0, _EVEXL[dst[0]])
+    if form == 'vmi':
+        _nops(ops, 2)
+        src, dst = _vk(ops[0], True), _vk(ops[1])
+        return _enc(a, bytes([op[0]]), op[1], src, imm=imm,
+                    evex=(pp, mm, W, _EVEXL[dst[0]], dst[2], aaa, z, 0, _tupn(tup, _EVEXL[dst[0]])))
+    if form == 'mri':  # extracts and vcvtps2ph: the source's length, the destination in rm
+        _nops(ops, 2)
+        src, dst = _vk(ops[0]), _vk(ops[1], True)
+        return enc(src, dst, 0, _EVEXL[src[0]])
+    if form == 'mrn':  # vpmovwb: the source's length, the destination in rm
+        _nops(ops, 2)
+        src, dst = _vk(ops[0]), _vk(ops[1], True)
+        return enc(src, dst, 0, _EVEXL[src[0]])
+    if form == 'mk':
+        _nops(ops, 2)
+        src, dst = _kreg(ops[0]), _vk(ops[1])
+        return enc(dst, src, 0, _EVEXL[dst[0]])
+    if form == 'km':
+        _nops(ops, 2)
+        src, dst = _vk(ops[0]), _kreg(ops[1])
+        return enc(dst, src, 0, _EVEXL[src[0]])
+    raise AssemblerError('no AVX-512 form of %s' % a.mnemonic)
+
+
 # mnemonic table: name -> (handler, suffix size, argument)
 
 _SFX = {'b': 1, 'w': 2, 'l': 4, 'q': 8}
@@ -1406,7 +1576,6 @@ for _e in _EVEX:
     _INSNS[_e[0]] = (_h_evex, 0, _e[1:])
 _INSNS['vzeroupper'] = (_h_fixed, 0, b'\xc5\xf8\x77')
 # AVX and AVX2: (mnemonic, prefix, map (1 0F, 2 0F38, 3 0F3A), opcode, W, form)
-_P0, _P66, _PF3, _PF2 = b'', b'\x66', b'\xf3', b'\xf2'
 _AVX = []
 for _n, _o in (('add', 0x58), ('mul', 0x59), ('sub', 0x5c), ('min', 0x5d), ('div', 0x5e), ('max', 0x5f),
                ('and', 0x54), ('andn', 0x55), ('or', 0x56), ('xor', 0x57)):
@@ -1472,6 +1641,8 @@ for _k, _p in (('ss', _PF3), ('sd', _PF2)):
         for _sfx, _sz in (('', 0), ('l', 4), ('q', 8)):
             _INSNS['%s%s2si%s' % (_t, _k, _sfx)] = (_h_avx, _sz, (_p, 1, _o, 0, 'cvtf'))
 _INSNS['vpextrw'] = (_h_avx, 0, (_P66, 1, 0xc5, 0, 'gmi'))
+for _e in _EVEX_ONLY:
+    _INSNS[_e[0]] = (_h_avx512, 0, _e[1:])
 _INSNS['xgetbv'] = (_h_fixed, 0, b'\x0f\x01\xd0')
 for _n, _p, _ld, _st in (('movss', b'\xf3', 0x10, 0x11), ('movsd', b'\xf2', 0x10, 0x11),
                          ('movups', b'', 0x10, 0x11), ('movupd', b'\x66', 0x10, 0x11),
@@ -1555,6 +1726,7 @@ class _Asm(_arm._Asm):
         self.lock = False
         self.mask = (0, 0)  # an EVEX instruction's {%kN} and {z}
         self.pref = None  # {vex} or {evex}: the encoding asked for
+        self.mnemonic = None
         self.fixups = []
         _arm._Asm.__init__(self, syntax)
 
@@ -1709,13 +1881,14 @@ class _Asm(_arm._Asm):
                     if ent is None:
                         raise AssemblerError('unsupported instruction %r' % parts[0])
                     h, sz, arg = ent
+                    self.mnemonic = mn
                     strs = _split(rest) if rest else []
                     if strs and '{' in strs[-1]:
                         _decorations(self, strs)
                     ops = [_operand(o) for o in strs]
                     if self.lock and not any(o[0] == 'm' for o in ops):
                         raise AssemblerError('lock needs a memory destination')
-                    if (self.mask != (0, 0) or self.pref == 'evex') and h is not _h_evex:
+                    if (self.mask != (0, 0) or self.pref == 'evex') and h not in (_h_evex, _h_avx, _h_avx512, _h_vfma):
                         raise AssemblerError('not an AVX-512 instruction')
                     if self.pref == 'vex' and h is not _h_evex and h is not _h_avx:
                         raise AssemblerError('{vex} on a non-VEX instruction')

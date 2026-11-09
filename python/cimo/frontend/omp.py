@@ -984,6 +984,7 @@ def _outline(f, r):
     # the outlined function: its start loads what the loop uses
     f2 = Q.Func()
     f2.lastid = f.lastid
+    f2.vecq, f2.qsizes = getattr(f, 'vecq', 0), None
     data = Q.Value()
     Q.functemp(f2, data)
     s2 = Q.mkblock('start')
@@ -1058,6 +1059,8 @@ def _emit(f2, blocks, params):
                     i.kind = Q.IVOL + i.kind - Q.ISTORED
         if Q.paraminfo is not None:
             Q.paraminfo.setdefault('#noinline', set()).add(f2.name)
+    if Q.vecwidths is not None:  # the loop's code: its function's q width
+        Q.w('vector %d ' % f2.vecq)
     Q.w('function ')
     Q.emitname(fn)
     Q.w('(')

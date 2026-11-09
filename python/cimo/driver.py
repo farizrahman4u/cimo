@@ -219,7 +219,7 @@ _CTYPE = {'w': ctypes.c_int32, 'l': ctypes.c_int64, 's': ctypes.c_float, 'd': ct
           'sb': ctypes.c_int8, 'ub': ctypes.c_uint8, 'sh': ctypes.c_int16, 'uh': ctypes.c_uint16,
           # a pointer parameter (class l; see _sigs): a buffer or an address
           'p': ctypes.c_int64}
-_SIG = re.compile(r'^export\s*\nfunction\s+(?:([wlsd]|:[\w.]+)\s+)?\$(\w+)\(([^)]*)\)', re.M)
+_SIG = re.compile(r'^export\s*\n(?:vector \d+ )?function\s+(?:([wlsd]|:[\w.]+)\s+)?\$(\w+)\(([^)]*)\)', re.M)
 
 
 class CompileError(Exception):
@@ -557,6 +557,12 @@ def _vecq(target=None):
     return 32 if _is_amd64(target) and 'avx2' in _x86(target) else 16
 
 
+def _zmm(target=None):
+    """Whether class q may be AVX-512's 64 bytes: x86-64 with avx512f, bw, dq and vl (the frontend then picks each
+    function's width, _ir)."""
+    return _is_amd64(target) and {'avx512f', 'avx512bw', 'avx512dq', 'avx512vl'} <= _x86(target)
+
+
 def _vecops(target=None):
     """What else the frontend may do in one instruction (frontend vecops): arm64 converts, shuffles, halves and shifts by a
     variable; x86-64 halves with F16C, and with AVX2's 32-byte q computes 16-byte vectors in its lower half."""
@@ -569,11 +575,22 @@ def _vecops(target=None):
 def _ir(pp, filename='<string>', host_headers=False):
     """Preprocessed text -> (QBE IR text, parameter info for the middle end)."""
     from .frontend import FrontendError
+    kw = dict(fma=_contract(), nowrap=not _wraps(), builtins=True, diagnostics=True, prune=True, vecq=_vecq(),
+              vecops=_vecops(), vecabi=True, halfabi=True, cpufeat=_cpu())
     try:
-        return _frontend(pp, filename, fma=_contract(), nowrap=not _wraps(), builtins=True,
-                         diagnostics=True, prune=True, vecq=_vecq(),
-                         vecops=_vecops(),
-                         vecabi=True, halfabi=True, cpufeat=_cpu())
+        if not _zmm():
+            return _frontend(pp, filename, **kw)
+        # AVX-512: a q width per function. First every function at 64 bytes, noting the vectors each computes; then,
+        # if any wants another width, again with each function's: 64 for one with 64-byte vectors, 32 for one with
+        # narrower ones, and for one with none what this CPU runs loops fastest at ('zmm': 512 bits, else 256)
+        pref = 64 if 'zmm' in _x86() else 32
+        sizes = {}
+        out = _frontend(pp, filename, **dict(kw, vecq=64, vecwidths={None: 64}, qsizes=sizes))
+        widths = {name: 64 if s & {64, 128, 256} else 32 if s else pref for name, s in sizes.items()}
+        if all(w == 64 for w in widths.values()):
+            return out
+        widths[None] = pref
+        return _frontend(pp, filename, **dict(kw, vecq=64, vecwidths=widths))
     except FrontendError as e:
         raise CompileError(_hint(str(e), host_headers)) from None
 

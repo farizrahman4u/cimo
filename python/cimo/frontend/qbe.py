@@ -245,6 +245,12 @@ instname += ['gpuid']
 # cimo extension: bytes in the backend's class q (16; 32 on x86-64 with AVX2), so GNU vector types of that size or twice
 # it compute in vector registers; 0 (stock cproc output, and wasm): lane by lane. Set by compile(vecq=)
 vecq = 0
+# cimo extension: a q width per function (compile(vecwidths=)): None, or {function name: bytes, None: the others'}.
+# Each function's width is printed before it ("vector 64 function ..."), and the sizes of the vectors each computes
+# go into qsizes ({name: set}), from which the driver picks the widths (x86-64 with AVX-512: 64 for a function of
+# 64-byte vectors, 32 for one of 32-byte ones, the CPU's preference for one with none)
+vecwidths = None
+qsizes = None
 # cimo extension: what else the target does in one instruction (compile(vecops=)): 'convert', __builtin_convertvector;
 # 'shuffle', __builtin_shufflevector; 'half', _Float16 to and from float
 vecops = frozenset()
@@ -307,7 +313,7 @@ class SwitchCase(object):
 
 class Func(object):
     __slots__ = ('decl', 'namedecl', 'name', 'paramtemps', 'type', 'start', 'end', 'gotos',
-                 'lastid', 'vlas', 'vlagotos', 'gotochecks', 'retwice', 'omp')
+                 'lastid', 'vlas', 'vlagotos', 'gotochecks', 'retwice', 'omp', 'vecq', 'qsizes')
 
 
 ptrclass = 'l'
@@ -787,6 +793,13 @@ def mkfunc(decl, name, t, s):
     f.retwice = False  # cimo: calls setjmp (see emitfunc)
     f.omp = []  # cimo: its parallel loops (omp.Region), outlined by emitfunc
     f.namedecl = None  # cimo: a parameter's array bound can name an identifier before __func__ is declared
+    f.qsizes = None
+    if vecwidths is not None:  # cimo: this function's q width
+        global vecq
+        vecq = f.vecq = vecwidths.get(name, vecwidths[None])
+        f.qsizes = set()
+        if qsizes is not None:
+            qsizes[name] = f.qsizes
     emittype(t.base)
 
     # allocate space for parameters
@@ -1416,7 +1429,7 @@ def _libcall(f, e, name, d):
         c = _stripcast(e.args.next.next)
         if c.kind != EXPRCONST or not c.type.prop & PROPINT or not 0 <= c.u <= _INLINEMEM:
             return None
-        vec = vecq and (c.u in (vecq, 2 * vecq, 4 * vecq) or c.u == 16 and vecq == 32 and 'q16' in vecops) and any(
+        vec = vecq and (c.u in (vecq, 2 * vecq, 4 * vecq) or _qsmall(c.u)) and any(
             x.type.kind == TYPEPOINTER and TY.isvec(x.type.base) and x.type.base.size == c.u
             for x in (_stripcast(e.args), _stripcast(e.args.next)))
         dst = funcexpr(f, e.args)
@@ -1952,17 +1965,28 @@ def _qlane(el):
 
 def _qchunks(t):
     """How many q values a vector type is computed in (0: lane by lane). A 16-byte vector with AVX2's 32-byte q is one
-    (vecops 'q16': loaded into both halves, its lower half stored; _qls)."""
+    (vecops 'q16': loaded into both halves, its lower half stored; _qls), and a 16- or 32-byte one with AVX-512's 64."""
+    if curfunc is not None and curfunc.qsizes is not None:
+        curfunc.qsizes.add(t.size)
     if vecq and t.size in (vecq, 2 * vecq, 4 * vecq) and t.base.size in (1, 2, 4, 8):
         return t.size // vecq
-    if vecq == 32 and t.size == 16 and 'q16' in vecops and t.base.size in (1, 2, 4, 8):
+    if _qsmall(t.size) and t.base.size in (1, 2, 4, 8):
         return 1
     return 0
 
 
+def _qsmall(size):
+    """A vector of size bytes is one q value of a wider q (vecops 'q16'): 16 bytes in AVX2's 32 or AVX-512's 64, or 32
+    in 64."""
+    return size in (16, 32) and size < vecq and 'q16' in vecops
+
+
 def _qls(size):
-    """The q load and store for size bytes of vector: qload16/qstore16 for 16 bytes with a 32-byte q."""
-    return ('qload16', 'qstore16') if size < vecq else ('qload', 'qstore')
+    """The q load and store for size bytes of vector: qload16/qstore16 or qload32/qstore32 for a vector narrower
+    than q (the load repeats it across the q value, the store writes its lowest part)."""
+    if size >= vecq:
+        return ('qload', 'qstore')
+    return ('qload16', 'qstore16') if size == 16 else ('qload32', 'qstore32')
 
 
 _QCMP = {TEQL: ('qceq', 0, 0), TNEQ: ('qceq', 0, 1), TGREATER: ('qcgt', 0, 0), TLESS: ('qcgt', 1, 0),
@@ -2170,7 +2194,7 @@ def _qconvert(f, a, st, t, res):
     s, d = st.base, t.base
 
     def fits(n):
-        return n <= 4 * vecq and (n % vecq == 0 or n == 16 and vecq == 32 and 'q16' in vecops)
+        return n <= 4 * vecq and (n % vecq == 0 or _qsmall(n))
 
     if not fits(st.size) or not fits(t.size):
         return False
@@ -2217,10 +2241,9 @@ def _qconvert(f, a, st, t, res):
         while size > d.size:
             steps.append(('narrow', size, False))
             size //= 2
-    ld16, st16 = _qls(16)
     off = (lambda p, k: funcinst(f, IADD, ptrclass, p, mkintconst(k * vecq)) if k else p)
     if st.size < vecq:
-        vals = [(_qop(f, ld16, a), 16)]
+        vals = [(_qop(f, _qls(st.size)[0], a), st.size)]
     else:
         vals = [(_qop(f, 'qload', off(a, k)), vecq) for k in range(st.size // vecq)]
     for step in steps:
@@ -2240,11 +2263,11 @@ def _qconvert(f, a, st, t, res):
             _, sz, isfl = step
             name = 'qfcvtn' if isfl else 'qnrw' + 'bhwl'[sz.bit_length() - 1]
             if len(vals) == 1:  # one value into its lower half (the upper repeats it)
-                vals = [(_qop(f, name, vals[0][0], vals[0][0]), 16)]
+                vals = [(_qop(f, name, vals[0][0], vals[0][0]), vals[0][1] // 2)]
             else:
                 vals = [(_qop(f, name, vals[k][0], vals[k + 1][0]), vecq) for k in range(0, len(vals), 2)]
     if t.size < vecq:
-        _qop(f, st16, vals[0][0], res, res=False)
+        _qop(f, _qls(t.size)[1], vals[0][0], res, res=False)
     else:
         for k, (v, n) in enumerate(vals):
             _qop(f, 'qstore', v, off(res, k), res=False)
@@ -2331,7 +2354,7 @@ def _qperm(f, a, b, es, n, idx):
 def _qpieces(*sizes):
     """Whether vectors of these sizes can be shuffled in 16-byte pieces (vecops 'shuffle': arm64 tbl on q values;
     'shuffle16': x86-64 AVX2's vpshufb on 16 bytes in both halves of a ymm), and the pieces' load and store."""
-    if not vecq or not ('shuffle' in vecops and vecq == 16 or 'shuffle16' in vecops and vecq == 32):
+    if not vecq or not ('shuffle' in vecops and vecq == 16 or 'shuffle16' in vecops and vecq in (32, 64)):
         return None
     if any(n % 16 or n > 64 for n in sizes):
         return None
@@ -3288,6 +3311,8 @@ def emitfunc(f, glob):
         funcjmp(f, g.label)
     if glob:
         w("export\n")
+    if vecwidths is not None:  # on the function's line, which prune reads
+        w("vector %d " % f.vecq)
     w("function ")
     if f.type.base is not TY.typevoid:
         emitclass('s' if halfabi and TY.ishalf(f.type.base) else 'p' if wasmptr and f.type.base.kind == TYPEPOINTER

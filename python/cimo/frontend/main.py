@@ -93,7 +93,8 @@ def _opset(v):
 
 def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=False,
             builtins=False, diagnostics=False, prune=False, volatile=False, vlafree=False, vastruct=None, bitops=False, bigcopy=None, nowrap=False,
-            vecq=0, vecops=(), vecabi=False, halfabi=False, wasmptr=False, fmaok=True, cpufeat=(), gpu=False):
+            vecq=0, vecops=(), vecabi=False, halfabi=False, wasmptr=False, fmaok=True, cpufeat=(), gpu=False,
+            vecwidths=None, qsizes=None):
     """Compile preprocessed C (str or bytes) to QBE IR text.
 
     fma=True (cimo extension, off by default): contract a*b+c within one expression into
@@ -137,6 +138,9 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
     (N = its size: 16, or 32 on x86-64 with AVX2) instead of lane by lane. vecops: what else the target's q does
     ('convert': __builtin_convertvector).
 
+    vecwidths (cimo extension, None by default): a q width per function, {name: bytes, None: the default}, printed
+    before each function ("vector 64"); qsizes, a dict that gets {name: the vector sizes it computes}.
+
     cpufeat (cimo extension, empty by default): the CPU features the code may use (cimo.cpu's names), for the
     intrinsics of the bundled arm_neon.h and immintrin.h (intrin.py); a call of one this lacks is an error.
     gpu=True (cimo extension, off by default): GPU kernel C (cimo.gpu): the attributes cimo_gpu_kernel and
@@ -169,6 +173,8 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.wasmptr = bool(wasmptr)
         _intrin.cpufeat = frozenset(cpufeat)
         _qbe.gpu = bool(gpu)
+        _qbe.vecwidths = vecwidths
+        _qbe.qsizes = qsizes
         U.diagnostics = bool(diagnostics)
         U.fenvaccess = U.fenvtouched = U.cxlimited = False
         U.pack, U.packstack = 0, []
@@ -202,6 +208,8 @@ def compile(text, filename='<stdin>', target=DEFAULT_TARGET, pponly=False, fma=F
         _qbe.wasmptr = False
         _intrin.cpufeat = frozenset()
         _qbe.gpu = False
+        _qbe.vecwidths = None
+        _qbe.qsizes = None
         U.diagnostics = False
         from . import cc as _cc
         _cc.exprhook = None

@@ -121,6 +121,14 @@ class _Driver:
                 ssa.filluse(fn)
 
     def compile(self, fn):
+        from . import ext
+        ext.curq = fn.lnk.qbytes  # cimo (ext.vector): this function's q width ("vector 64 function")
+        try:
+            self._compile(fn)
+        finally:
+            ext.curq = 0
+
+    def _compile(self, fn):
         T = D.T
         err = sys.stderr
         if self.dbg:
@@ -306,7 +314,7 @@ class _Driver:
             cfg.fillcfg(fn)
             ssa.filluse(fn)
         # a call keeps 64 bits of an FP register on arm64, and 128 of xmm6-xmm15 on Windows x64: not a ymm's 256
-        if ext.vector and (T.name.startswith('arm64') or (T.name == 'amd64_windows' and ext.qbytes() == 32)):
+        if ext.vector and (T.name.startswith('arm64') or (T.name == 'amd64_windows' and ext.qbytes() >= 32)):
             from .arm64.isel import qacrosscalls
             qacrosscalls(fn)
             cfg.fillcfg(fn)

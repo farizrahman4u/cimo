@@ -163,6 +163,9 @@ def main(argv=None):
     ap.add_argument('--cimo', action='append', default=[], metavar='NAME=FLAGS',
                     help='extra cimo build with explicit flags (fma,ldp,layout or none)')
     ap.add_argument('--no-default', action='store_true', help='skip plain cimo.compile')
+    ap.add_argument('--x86', action='append', default=[], metavar='NAME=FEATURES',
+                    help='extra cimo build for other x86-64 features: a CIMO_X86 list, or +f,-g for what is '
+                    'detected with f and without g (--x86 c512=+zmm: loops at 512 bits)')
     ap.add_argument('--gen-opt', action='store_true',
                     help='--cimo builds use the hand-optimized IR of scratch/qbe_eval/gen_opt.py '
                     'for saxpy, gemm, jacobi2d, conv3x3 (gen_opt never emits fma)')
@@ -193,6 +196,24 @@ def main(argv=None):
         mod, dt = build_cimo_flags(src, flags, args.gen_opt)
         print('%s (%s): compiled in %.2f s' % (name, ','.join(sorted(flags)) or 'none', dt),
               file=sys.stderr)
+        configs.append((name, {k: getattr(mod, k).address for k in KERNELS}, mod))
+        cimo_names.append(name)
+    for v in args.x86:
+        name, _, spec = v.partition('=')
+        from cimo import cpu, linker
+        detected = cpu.x86_features()
+        feats = set(detected) if spec[:1] in '+-' else set()
+        for f in spec.split(','):
+            if f.startswith('-'):
+                feats.discard(f[1:])
+            elif f:
+                feats.add(f.lstrip('+'))
+        cpu._cached, linker._keys = frozenset(feats), {}
+        try:
+            mod, dt = build_cimo_default(src)
+        finally:
+            cpu._cached, linker._keys = detected, {}
+        print('%s (%s): compiled in %.2f s' % (name, ','.join(sorted(feats)), dt), file=sys.stderr)
         configs.append((name, {k: getattr(mod, k).address for k in KERNELS}, mod))
         cimo_names.append(name)
     want = set('gcc-' + g for g in args.gcc.split(',') if g)

@@ -195,12 +195,12 @@ def _vecret(type):
 
 def _qload(to, addr):
     from .. import ext as _ext
-    emit(D.Oqload16 if _ext.qbytes() == 32 else Oload, D.Kq, to, addr, R)
+    emit(D.Oqload16 if _ext.qbytes() >= 32 else Oload, D.Kq, to, addr, R)
 
 
 def _qstore(v, addr):
     from .. import ext as _ext
-    emit(D.Oqstore16 if _ext.qbytes() == 32 else D.Oqstore, 0, R, v, addr)
+    emit(D.Oqstore16 if _ext.qbytes() >= 32 else D.Oqstore, 0, R, v, addr)
 
 
 def type_is_by_copy(type):

@@ -46,7 +46,8 @@ _BITS = {
 }
 _AVX512 = frozenset(('avx512f', 'avx512dq', 'avx512bw', 'avx512vl', 'avx512vnni', 'avx512bf16'))
 _AMX = frozenset(('amx-tile', 'amx-bf16', 'amx-int8'))
-KNOWN = frozenset(('popcnt', 'fma', 'avx', 'avx2', 'bmi1', 'bmi2', 'lzcnt', 'f16c', 'avxvnni')) | _AVX512 | _AMX
+# not a feature but a choice: zmm, this CPU runs loops faster 512 bits at a time than 256 (cimo then vectorizes them so)
+KNOWN = frozenset(('popcnt', 'fma', 'avx', 'avx2', 'bmi1', 'bmi2', 'lzcnt', 'f16c', 'avxvnni', 'zmm')) | _AVX512 | _AMX
 ARM64_KNOWN = frozenset(('bf16', 'dotprod', 'i8mm'))
 
 # (leaf, subleaf, out) -> stores eax, ebx, ecx, edx at out; and xgetbv(0) -> XCR0. Assembled by
@@ -86,6 +87,8 @@ def _consistent(have, xcr0):
         have -= _AVX512
     if 'osxsave' not in have or (xcr0 & 0x60000) != 0x60000 or 'amx-tile' not in have:  # XTILECFG, XTILEDATA
         have -= _AMX
+    if not {'avx512f', 'avx512bw', 'avx512dq', 'avx512vl'} <= have:
+        have.discard('zmm')
     have.discard('osxsave')
     return frozenset(have)
 
@@ -126,9 +129,19 @@ def _detect():
                 continue
             if leaf(n, sub)[r] >> bit & 1:
                 have.add(name)
+        if _prefer512(leaf):
+            have.add('zmm')
         return _consistent(have, g(0) if 'osxsave' in have else 0)
     finally:
         loader._unmap(mem, page)
+
+
+def _prefer512(leaf):
+    """Whether this CPU runs loops faster with 512-bit vectors than with 256-bit ones ("512-bit vectors" in
+    requirements.md): Intel's with AMX (Sapphire Rapids and later: the 15 kernels 0.86 to 0.83x of gcc), not Zen 4
+    (0.93 to 0.97x) and not what wasn't measured."""
+    intel = leaf(0)[1] == 0x756e6547  # "Genu"ineIntel
+    return intel and leaf(0)[0] >= 7 and bool(leaf(7)[3] >> 24 & 1)  # amx-tile
 
 
 def _override(env, known, arch):

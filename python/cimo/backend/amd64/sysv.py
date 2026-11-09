@@ -131,7 +131,7 @@ def _load(k, to, addr, cls):
     """to = the eightbyte (or a vector's 16 bytes, class q) at addr; cls: the load's class otherwise."""
     if k == D.Kq:  # 16 bytes: with AVX2's 32-byte q, into both halves (qload16)
         from .. import ext as _ext
-        emit(D.Oqload16 if _ext.qbytes() == 32 else Oload, D.Kq, to, addr, R)
+        emit(D.Oqload16 if _ext.qbytes() >= 32 else Oload, D.Kq, to, addr, R)
     else:
         emit(Oload, cls, to, addr, R)
 
@@ -139,7 +139,7 @@ def _load(k, to, addr, cls):
 def _store(k, v, addr):
     if k == D.Kq:
         from .. import ext as _ext
-        emit(D.Oqstore16 if _ext.qbytes() == 32 else D.Oqstore, 0, R, v, addr)
+        emit(D.Oqstore16 if _ext.qbytes() >= 32 else D.Oqstore, 0, R, v, addr)
     else:
         emit(Ostorel, 0, R, v, addr)
 

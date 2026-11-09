@@ -1507,6 +1507,25 @@ gcc's intrinsics.
   Sapphire Rapids (c7i.2xlarge), 256-bit: dot with 4 accumulators 1.01-1.07x, 64x64x512 matrix block 1.51x, 1.00x
   after the broadcasts; 512-bit at two ymm a zmm: dot 0.88-1.08x, block 2.4-2.6x (gcc: zmm). Graviton 4 (c8g.2xlarge):
   dot 1.04-1.05x, block 1.91x, 1.08x after the broadcasts.
+- **512-bit vectors (AVX-512 F, BW, DQ, VL; 2026-11-09):** class q is 64 bytes per function, not per module, so
+  `__m256` code isn't doubled into zmm next to `__m512` code: the frontend compiles once at 64 noting each function's
+  vector sizes (`qsizes`), then, if any wants another, again with each one's (`vecwidths`): 64 for 64-byte vectors or
+  more, 32 for narrower ones (16- and 32-byte vectors in a wider q are loaded repeated, `qload16`/`qload32`:
+  `vbroadcasti32x4`/`vbroadcasti64x4`, and their lowest part stored), the CPU's choice for none. The IR carries it
+  (`vector 64 function $f`, `Lnk.qbytes`), the backend sets `ext.curq` per function, and a callee with q values is
+  inlined only into a caller of its width. `amd64.emit._qins_z`: the EVEX forms; logical ops as `vpandq` and friends;
+  comparisons into k1, a vector again by `vpmovm2d`/`q`/`b`/`w`; AVX-512's own unsigned and 64-bit conversions, and
+  truncating narrowings (`vpmovwb`, `vpmovdw`, `vpmovqd`) for the vectorizer's mixed widths and byte loops; zero as a
+  VEX `vpxor` of the xmm, ones by `vpternlogd $0xff`. `sroa` splits a vector of several q values into q slots.
+  The assembler has the EVEX forms of what the emitter writes (570 of them byte-identical to GNU as, in
+  `data/amd64_forms.s`). Correctness: the whole suite and corpora with loops forced to 512 bits on Sapphire Rapids
+  and Zen 4.
+- **Which CPU vectorizes loops at 512 (`cpu._prefer512`, the feature `zmm`):** the 15 kernels, `bench/run.py --x86
+  c512=+zmm`, against `gcc -O3 -march=native`: Sapphire Rapids (c7i) 0.86x at 256, 0.83x at 512 (saxpy 0.94 to 0.68x,
+  gemm 0.49 to 0.43x, rgb2gray 0.61 to 0.56x; conv3x3 0.93 to 0.96x); Zen 4 (c7a) 0.93x at 256, 0.97x at 512 (saxpy
+  0.91 to 1.01x, jacobi2d 0.95 to 1.09x, isum 0.69 to 0.89x; only nbody_acc gains, 1.10 to 1.00x). So Intel's with
+  AMX take 512, the rest 256; code written with 64-byte vectors gets zmm everywhere. bf16 kernels with zmm: Sapphire
+  Rapids dot 1.04x, block 1.00x (was 2.4-2.6x at two ymm a zmm); Zen 4 dot 1.00x, block 0.71x (256-bit: 1.00x, 1.00x).
 
 ## Conformance corpora (2026-10-31)
 

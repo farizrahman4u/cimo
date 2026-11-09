@@ -49,7 +49,10 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
      naming the feature otherwise. Detection (`cimo/cpu.py`, arm64 from the OS's feature bits) and the cache key gain
      the features, and a public query of what this CPU has, since a generator picks its kernel by it. Overlaps
      Adoption #6 (int8 `sdot`/`udot`, VNNI): the same mechanism, do them together if cheap.
-  3. **512-bit vectors on x86-64.** `zmm` registers, EVEX and mask registers in the assembler and backend; class `q`
+  3. ~~**512-bit vectors on x86-64.**~~ **Done** (2026-11-09; "512-bit vectors" in `requirements.md`): zmm, EVEX and
+     k registers in the assembler and backend, class `q` at 64 bytes per function (64-byte vectors and `_mm512_`
+     intrinsics on zmm, `__m256` code on ymm), loops at 512 bits on Intel's with AMX (Sapphire Rapids 0.86 to 0.83x
+     of gcc) and at 256 on Zen 4 (0.93x; 0.97x at 512). Was: `zmm` registers, EVEX and mask registers in the assembler and backend; class `q`
      at 64 bytes in the vectorizer and for GNU vector types; `_mm512_dpbf16_ps` with it. Whether 512 beats 256 is per
      CPU (frequency, port use): measure on Sapphire Rapids and Zen 4 against 256 and against gcc, and choose by CPU.
   4. **AMX tiles on x86-64** (`amx-tile`, `amx-bf16`; Sapphire Rapids and later): configure, load, `tdpbf16ps`, store,

@@ -18,7 +18,7 @@ from .parse import printfn
 
 
 # cimo (ext.vector): the vector stores, and which argument is the address
-_QSTORES = {D.Oqstore: 1, D.Oqstbh: 1, D.Oqstshrn: 0, D.Oqsth: 1, D.Oqstore16: 1}
+_QSTORES = {D.Oqstore: 1, D.Oqstbh: 1, D.Oqstshrn: 0, D.Oqsth: 1, D.Oqstore16: 1, D.Oqstore32: 1}
 
 def MASK(w):
     """must work when w==8"""

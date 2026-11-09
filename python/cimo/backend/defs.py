@@ -433,6 +433,9 @@ _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0
          # the lower half
          ('qload16', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qstore16', ((Kq,) * 6, (Km,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         # the same for 32 bytes with AVX-512's 64-byte q (vbroadcasti64x4, and a ymm stored)
+         ('qload32', ((Ke, Ke, Ke, Ke, Ke, Km), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('qstore32', ((Kq,) * 6, (Km,) * 6), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          # x86-64's own (amd64 isel, with fma): qfma1 with its second operand loaded from memory, %r =q qxfmams %a, %addr
          ('qxfmams', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Km)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
          ('qxfmamd', ((Ke, Ke, Ke, Ke, Ke, Kq), (Ke, Ke, Ke, Ke, Ke, Km)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
@@ -534,8 +537,8 @@ def INRANGE(x, l, u):
 
 def isstore(o): return Ostoreb <= o <= Ostored
 def isload(o): return Oloadsb <= o <= Oload
-def isvload(o): return Ovloadsb <= o <= Ovload or o in (Oqload, Oqldbh, Oqld3bh, Oqld3x, Oqxwin, Oqld3x16, Oqldh, Oqload16)  # vector memory: as careful as volatile, for now
-def isvstore(o): return Ovstoreb <= o <= Ovstored or o in (Oqstore, Oqstbh, Oqstshrn, Oqsth, Oqstore16)
+def isvload(o): return Ovloadsb <= o <= Ovload or o in (Oqload, Oqldbh, Oqld3bh, Oqld3x, Oqxwin, Oqld3x16, Oqldh, Oqload16, Oqload32)  # vector memory: as careful as volatile, for now
+def isvstore(o): return Ovstoreb <= o <= Ovstored or o in (Oqstore, Oqstbh, Oqstshrn, Oqsth, Oqstore16, Oqstore32)
 def isqop(o): return Oqaddb <= o <= Oqwmla3h
 
 
@@ -905,9 +908,10 @@ Mem = Addr
 
 
 class Lnk:
-    __slots__ = ('export', 'thread', 'common', 'align', 'sec', 'secf')
+    __slots__ = ('export', 'thread', 'common', 'align', 'sec', 'secf', 'qbytes')
 
     def __init__(self):
+        self.qbytes = 0  # cimo (ext.vector): "vector 64 function": the bytes of this function's q values (0: ext's)
         self.export = 0
         self.thread = 0
         self.common = 0

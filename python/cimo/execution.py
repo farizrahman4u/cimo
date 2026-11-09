@@ -503,7 +503,7 @@ def stack_checked(ssa):
     taken = set()
     cur = None
     for line in ssa.splitlines():
-        m = re.match(r'(?:export\s+)?function\s+(?:\S+\s+)?\$([\w.]+)\(', line)
+        m = re.match(r'(?:export\s+)?(?:vector \d+ )?function\s+(?:\S+\s+)?\$([\w.]+)\(', line)
         if m:
             cur = m.group(1)
             funcs[cur] = [set(), False]

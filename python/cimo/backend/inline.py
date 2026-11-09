@@ -41,8 +41,9 @@ class Body:
     """A function's body, copied: blocks [(name, phis, ins, jmp type, jmp arg, s1, s2)] with
     successors as indices (phis [(to, cls, args, block indices)]), its temporaries
     [(name, cls)] from Tmp0 on, constants, parameters [(op, cls, to)], the return value's
-    class (None: void) and the instruction count."""
-    __slots__ = ('name', 'blocks', 'tmps', 'cons', 'pars', 'retk', 'size')
+    class (None: void) and the instruction count; with q values (ext.vector), their width (Lnk.qbytes), so a
+    callee goes only into callers of that width."""
+    __slots__ = ('name', 'blocks', 'tmps', 'cons', 'pars', 'retk', 'size', 'qbytes')
 
 
 def _symname(fn, r):
@@ -205,6 +206,8 @@ def snapshot(fn, limit):
     body.pars = pars
     body.retk = retk
     body.size = size
+    hasq = any(c == D.Kq for _, c in body.tmps) or any(D.isqop(i.op) for blk in blocks for i in blk[2])
+    body.qbytes = fn.lnk.qbytes if hasq else None
     return body
 
 
@@ -437,7 +440,7 @@ def expand(fn, bodies, cap=None, once=None):
                 if i.op == D.Ocall:
                     s = _symname(fn, i.arg[0])
                     body = bodies.get(s) if s is not None else None
-                    if body is not None and body.name != fn.name and \
+                    if body is not None and body.name != fn.name and body.qbytes in (None, fn.lnk.qbytes) and \
                             not (s in once and (once[s] != me or small is not None and small + body.size > cap)):
                         k = _args(b, j, body)
                         free = k is not None and body.size <= j - k + 1  # no bigger than the call and its args

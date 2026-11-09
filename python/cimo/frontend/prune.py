@@ -32,6 +32,8 @@ def prune(ir):
         if line == 'export' and i + 1 < n:  # cproc puts `export` alone before a function
             i += 1
             head = 'export ' + lines[i]
+        if head.startswith(('vector ', 'export vector ')):  # cimo: a function's q width, "vector 64 function"
+            head = re.sub(r'vector \d+ ', '', head, count=1)
         words = head.split(' ', 3)
         kind = next((w for w in words if w in ('function', 'data')), None)
         if kind == 'function':

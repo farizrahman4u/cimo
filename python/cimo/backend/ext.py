@@ -83,6 +83,7 @@ bigcopy = None
 inline = 0
 stkchk = None
 x86 = frozenset()
+curq = 0  # the function being compiled's q width, from its "vector N" (backend main), or 0 for qbytes()'s default
 
 # alias hook for ldp scheduling: disjoint(fn, base1, base2) -> True if accesses off the two
 # base temps (SSA, after isel) can never overlap, e.g. distinct restrict pointers. None: they
@@ -117,8 +118,11 @@ def options(**kw):
 
 
 def qbytes():
-    """Bytes in a q value on the target being compiled for: 32 (AVX2's ymm) on x86-64 CPUs with avx2, else 16
-    (NEON, SSE2, wasm SIMD)."""
+    """Bytes in a q value on the target being compiled for: the function's own (curq: 64 for AVX-512's zmm, the
+    frontend's choice per function), else 32 (AVX2's ymm) on x86-64 CPUs with avx2, else 16 (NEON, SSE2, wasm
+    SIMD)."""
+    if curq:
+        return curq
     from . import defs as D
     T = D.T
     return 32 if T is not None and T.name.startswith('amd64') and 'avx2' in x86 else 16

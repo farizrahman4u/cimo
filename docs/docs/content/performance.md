@@ -13,7 +13,7 @@ cimo is an optimizing compiler. On loops it can analyze it runs close to gcc and
 - adds runtime checks where two pointers might overlap, with a fast path when they don't
 - contracts `a * b + c` into fused multiply-adds (arm64, and x86-64 CPUs with FMA)
 - on x86-64, compiles for the CPU it runs on: FMA, POPCNT, LZCNT and TZCNT where present (`CIMO_X86=baseline` for SSE2 only)
-- auto-vectorizes straight counted loops, 128 bits at a time (arm64, x86-64), 256 on x86-64 CPUs with AVX2; loops over bytes in 16-bit lanes when their values fit; an outer loop, one lane per iteration, when the inner loop's sums must stay in order
+- auto-vectorizes straight counted loops, 128 bits at a time (arm64, x86-64), 256 on x86-64 CPUs with AVX2 (512 where `cimo.cpu_features()` has `zmm`); loops over bytes in 16-bit lanes when their values fit; an outer loop, one lane per iteration, when the inner loop's sums must stay in order
 - selects arm64 or x86-64 instructions with their addressing modes; on arm64 it also pairs adjacent loads and stores
 
 ## Write loops it can see through

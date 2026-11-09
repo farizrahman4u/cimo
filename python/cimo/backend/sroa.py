@@ -12,13 +12,13 @@ _STORESIZE = {D.Ostoreb: 1, D.Ostoreh: 2, D.Ostorew: 4, D.Ostorel: 8, D.Ostores:
 _STORECLS = {D.Ostoreb: Kw, D.Ostoreh: Kw, D.Ostorew: Kw, D.Ostorel: Kl, D.Ostores: Ks, D.Ostored: Kd}
 _STOREOF = {Kw: D.Ostorew, Kl: D.Ostorel, Ks: D.Ostores, Kd: D.Ostored}
 MAXSIZE = 256
-_QLOADS = (D.Oqload, D.Oqload16)
-_QSTORES = (D.Oqstore, D.Oqstore16)
+_QLOADS = (D.Oqload, D.Oqload16, D.Oqload32)
+_QSTORES = (D.Oqstore, D.Oqstore16, D.Oqstore32)
 
 
 def _qsize(op):
     from . import ext
-    return 16 if op in (D.Oqload16, D.Oqstore16) else ext.qbytes()
+    return 16 if op in (D.Oqload16, D.Oqstore16) else 32 if op in (D.Oqload32, D.Oqstore32) else ext.qbytes()
 
 
 def _loadsize(i):

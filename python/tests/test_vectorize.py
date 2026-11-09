@@ -20,8 +20,9 @@ def vectorized(src):
     return bool(re.search(r'\t(ldr|str)\tq\d+|\tv?movups ', driver._build(src)[0]))
 
 
-# lanes of int in a vector here: 8 with AVX2, else 4
-INTLANES = 8 if hosts.RUNS and hosts.AMD64 and 'avx2' in driver._x86() else 4
+# lanes of int in a vector here: 16 where loops vectorize at 512 bits (AVX-512 and cimo.cpu's zmm), 8 with AVX2, else 4
+INTLANES = (16 if hosts.RUNS and driver._zmm() and 'zmm' in driver._x86() else
+            8 if hosts.RUNS and hosts.AMD64 and 'avx2' in driver._x86() else 4)
 
 
 _n = [0]
@@ -976,7 +977,7 @@ def test_float16_arrays(name):
     an in-order float sum, which _worth may leave scalar."""
     src, kinds = HALVES[name]
     if name != 'dot':
-        assert re.search(r'\tfcvt[ln]\t|\tvcvtph2ps [(%]|\tvcvtps2ph \$4, %[xy]mm\d+, [-0-9(]', driver._build(src)[0]), name
+        assert re.search(r'\tfcvt[ln]\t|\tvcvtph2ps [(%]|\tvcvtps2ph \$4, %[xyz]mm\d+, [-0-9(]', driver._build(src)[0]), name
     on, off = both(src)
     r = random.Random(name)
     for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 17, 64, 65):

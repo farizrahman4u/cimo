@@ -231,11 +231,16 @@ void us256(const unsigned char *a, const signed char *b, int *acc) {
 
 
 def test_x86_code(monkeypatch):
-    """vdpbf16ps on ymm, accumulating in place in the loop; vpdpbusd as EVEX, or VEX with AVX-VNNI."""
+    """vdpbf16ps accumulating in place in the loop, on zmm for 64-byte vectors (on ymm without AVX512-BW and -DQ,
+    two a vector); vpdpbusd as EVEX, or VEX with AVX-VNNI."""
     text = _x86asm(_X86, _X86_ALL, monkeypatch)
     body = text[text.index('\nbf512:'):text.index('end function bf512')]
     loop = body[body.index('.p2align 6'):body.index('jmp')]
-    assert loop.count('vdpbf16ps') == 4 and 'vmovaps' not in loop and '(%rsp)' not in loop, loop
+    assert loop.count('vdpbf16ps %zmm') == 2 and 'vmovaps' not in loop and '(%rsp)' not in loop, loop
+    text = _x86asm(_X86, _X86_ALL - {'avx512bw', 'avx512dq'}, monkeypatch)
+    body = text[text.index('\nbf512:'):text.index('end function bf512')]
+    loop = body[body.index('.p2align 6'):body.index('jmp')]
+    assert loop.count('vdpbf16ps %ymm') == 4 and 'vmovaps' not in loop and '(%rsp)' not in loop, loop
     assert '\tvpdpbusd %ymm' in text  # 16-byte vectors too: in a ymm's lower half (AVX2's q)
     text = _x86asm(_X86_AVXVNNI, frozenset(('avx', 'avx2', 'fma', 'avxvnni')), monkeypatch)
     assert '{vex} vpdpbusd %ymm' in text
