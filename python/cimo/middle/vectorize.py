@@ -489,8 +489,8 @@ def _bytes(fast, rts):
         made.add(rval(i.to))
     if width is None or not any(st for _, _, _, st in mem):
         return 0
-    if x86 and any(i.op == D.Omul or i.op == D.Oshl for i in fast.cloned) and width == 1:
-        return 0  # no byte multiply or shift on x86-64
+    # x86-64 has no byte multiply or shift: bytes in 16-bit lanes there, widened after loading and narrowed to store
+    lw = 2 if x86 and width == 1 and any(i.op in (D.Omul, D.Oshl) for i in fast.cloned) else width
     vf = _ext.qbytes() // width
     far = set()
     for i, f, n, isstore in mem:
@@ -513,7 +513,7 @@ def _bytes(fast, rts):
         return 0
     fast.vchecks = _checks(mem, far)
     fast.vmem = mem
-    fast.vnarrow = ('bytes', width)
+    fast.vnarrow = ('bytes', width, lw)
     return vf
 
 
@@ -521,47 +521,54 @@ def _bytes_body(fast, em, state, copy):
     """body() for _bytes: each value a vector of lanes as wide as the stores."""
     fn = fast.fn
     k0 = copy * fast.vf
-    w = fast.vnarrow[1]
-    x = 'b' if w == 1 else 'h'
-    dup = D.Oqdupb if w == 1 else D.Oqduph
+    w, lw = fast.vnarrow[1], fast.vnarrow[2]
+    x = 'b' if lw == 1 else 'h'
+    dup = D.Oqdupb if lw == 1 else D.Oqduph
+    wide = lw != w  # bytes in halfword lanes: two vectors each, in order
     env = {}
 
     def vec(a):
         if ir.istmp(a) and rval(a) in env:
             return env[rval(a)]
-        key = ('lowdup', w, a)
+        key = ('lowdup', lw, a)
         if key not in fast.memo:
             c = ir.conval(fn, a)
             if c is not None:
-                s = fast.fp.con(c & (0xff if w == 1 else 0xffff))
+                s = fast.fp.con(c & (0xff if lw == 1 else 0xffff))
             else:
                 em0, fast.em = fast.em, fast.fp
                 s = fast.opmap(a, 0, {}, state, None)
                 fast.em = em0
             fast.memo[key] = fast.fp.raw(dup, Kq, s)
-        return fast.memo[key]
+        return [fast.memo[key]] * (2 if wide else 1)
+
+    def each(op, *vs):
+        return [em.raw(op, Kq, *xs) for xs in zip(*vs)]
 
     for i in fast.cloned:
         if i.op in (D.Onop, D.Odbgloc):
             continue
         if i.op in _NARROWLD[w]:
-            env[rval(i.to)] = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], _at(fast, k0), env, state, None))
+            v = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], _at(fast, k0), env, state, None))
+            env[rval(i.to)] = [em.raw(D.Oquxlb, Kq, v), em.raw(D.Oquxhb, Kq, v)] if wide else [v]
             continue
         if i.op == _NARROWST[w]:
-            em.ins(Ins(D.Oqstore, Kq, R, vec(i.arg[0]), fast.opmap(i.arg[1], _at(fast, k0), env, state, None)))
+            vs = vec(i.arg[0])
+            v = em.raw(D.Oqnrwh, Kq, vs[0], vs[1]) if wide else vs[0]
+            em.ins(Ins(D.Oqstore, Kq, R, v, fast.opmap(i.arg[1], _at(fast, k0), env, state, None)))
             continue
         if i.op in _IDENT:
             env[rval(i.to)] = vec(i.arg[0])
             continue
         name = _LOWBITS[i.op]
         if i.op == D.Oneg:
-            env[rval(i.to)] = em.raw(getattr(D, 'Oqsub' + x), Kq, _zero(fast, dup), vec(i.arg[0]))
+            env[rval(i.to)] = each(getattr(D, 'Oqsub' + x), [_zero(fast, dup)] * len(vec(i.arg[0])), vec(i.arg[0]))
         elif i.op == D.Oshl:
-            env[rval(i.to)] = em.raw(getattr(D, 'Oqshl' + x), Kq, vec(i.arg[0]), i.arg[1])
+            env[rval(i.to)] = [em.raw(getattr(D, 'Oqshl' + x), Kq, v, i.arg[1]) for v in vec(i.arg[0])]
         elif i.op in (D.Oand, D.Oor, D.Oxor):
-            env[rval(i.to)] = em.raw(getattr(D, 'O' + name), Kq, vec(i.arg[0]), vec(i.arg[1]))
+            env[rval(i.to)] = each(getattr(D, 'O' + name), vec(i.arg[0]), vec(i.arg[1]))
         else:
-            env[rval(i.to)] = em.raw(getattr(D, 'O' + name + x), Kq, vec(i.arg[0]), vec(i.arg[1]))
+            env[rval(i.to)] = each(getattr(D, 'O' + name + x), vec(i.arg[0]), vec(i.arg[1]))
     return dict(state)
 
 

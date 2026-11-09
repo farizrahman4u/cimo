@@ -748,7 +748,17 @@ def selsel(fn, b, i, tn):
     isel1 = i
     while isel0 < isel1:
         ins[isel1].op = Oxsel + c
-        sel(ins[isel1].copy(), tn, fn)
+        x = ins[isel1].copy()
+        consts = []
+        if KBASE(x.cls) == 1:  # cimo: a float select's constants in registers (emit moves them: no immediates)
+            for n in (0, 1):
+                if rtype(x.arg[n]) == RCon:
+                    t = newtmp("isel", x.cls, fn)
+                    consts.append(Ins(Ocopy, x.cls, t, x.arg[n], R))
+                    x.arg[n] = t
+        sel(x, tn, fn)
+        for cp in consts:  # before it (emission runs backwards); loads leave the flags as they are
+            sel(cp, tn, fn)
         isel1 -= 1
     assert not gencmp or not gencpy
     if gencmp:

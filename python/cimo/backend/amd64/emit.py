@@ -1065,10 +1065,10 @@ def emitins(i, e):
         _, yes, no = _CMP[[c for c, _, _ in _CMP].index(op - Oxsel)]
         _fsel[0] += 1
         lbl = '.Lfsel%d' % _fsel[0]
-        if rval(i.to) == rval(i.arg[1]):
+        if i.to == i.arg[1]:  # whole refs: a constant's index can be a register's number
             e.f.write("\tj%s %s\n" % (no, lbl))
             emitcopy(i.to, i.arg[0], i.cls, e)
-        elif rval(i.to) == rval(i.arg[0]):
+        elif i.to == i.arg[0]:
             e.f.write("\tj%s %s\n" % (yes, lbl))
             emitcopy(i.to, i.arg[1], i.cls, e)
         else:
