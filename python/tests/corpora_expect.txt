@@ -735,6 +735,7 @@ gcc-dg/flex-array-counted-by-pr121000.c               unsupported  struct member
 gcc-dg/float-exact-1.c                                unsupported  long double is not supported
 gcc-dg/fold-cstring.c                                 unsupported  _Complex of a type other than float, double or long double is not supported
 gcc-dg/fold-cvect.c                                   unsupported  undefined symbol 'blah': cimo's runtime does not provide it
+gcc-dg/fshort-wchar.c                                 skip         -fshort-wchar
 gcc-dg/fwrapv-2.c                                     skip         expects -fno-wrapv to fold (2*x)/2 to x, an optimization cimo doesn't do
 gcc-dg/fwrite-2.c                                     unsupported  undeclared identifier: FILE
 gcc-dg/gcov-info-to-gcda.c                            unsupported  inline assembly is not supported
@@ -847,8 +848,8 @@ gcc-dg/pr41935.c                                      unsupported  not an intege
 gcc-dg/pr44606.c                                      unsupported  undeclared identifier: fprintf
 gcc-dg/pr46921.c                                      unsupported  empty structs and unions (a GNU extension) are not supported
 gcc-dg/pr48774.c                                      unsupported  'asm' output operand is not an lvalue
-gcc-dg/pr48784-1.c                                    unsupported  bit-field 'a' in packed struct is not supported
-gcc-dg/pr48784-2.c                                    unsupported  bit-field 'a' in packed struct is not supported
+gcc-dg/pr48784-1.c                                    unsupported  bit-field 'b' crossing a storage unit under '#pragma pack' is not supported
+gcc-dg/pr48784-2.c                                    unsupported  bit-field 'b' crossing a storage unit under '#pragma pack' is not supported
 gcc-dg/pr55430.c                                      unsupported  sys/mman.h: No such file or directory
 gcc-dg/pr56078.c                                      unsupported  initializer specified for incomplete type
 gcc-dg/pr56997-1.c                                    unsupported  no type in parameter declaration
@@ -861,10 +862,11 @@ gcc-dg/pr65345-2.c                                    unsupported  _Atomic type 
 gcc-dg/pr65408.c                                      unsupported  sys/mman.h: No such file or directory
 gcc-dg/pr68835-2.c                                    unsupported  bit-field 'a' of type __int128 is not supported
 gcc-dg/pr69896.c                                      unsupported  vector_size applied to a type that is not an integer or floating type
-gcc-dg/pr69990.c                                      unsupported  bit-field 'f0' in packed struct is not supported
+gcc-dg/pr69990.c                                      unsupported  bit-field 'f0' under '#pragma pack' reaches past the end of its struct, not supported
 gcc-dg/pr76783.c                                      unsupported  vector_size applied to a type that is not an integer or floating type
 gcc-dg/pr78185.c                                      unsupported  unistd.h: No such file or directory
 gcc-dg/pr78468.c                                      unsupported  built-in function '__builtin_alloca_with_align' is not supported
+gcc-dg/pr82274-1.c                                    skip         -ftrapv
 gcc-dg/pr83047.c                                      unsupported  sys/mman.h: No such file or directory
 gcc-dg/pr84309.c                                      unsupported  built-in function '__builtin_log2' is not supported
 gcc-dg/pr84614.c                                      unsupported  undeclared identifier: __SIZEOF_INT128__
@@ -878,7 +880,6 @@ gcc-dg/pr85388-4.c                                    unsupported  sys/types.h: 
 gcc-dg/pr85388-6.c                                    unsupported  undeclared identifier: alloca
 gcc-dg/pr86314.c                                      unsupported  built-in function '__atomic_fetch_or' is not supported
 gcc-dg/pr86835.c                                      unsupported  built-in function '__builtin_sin' is not supported
-gcc-dg/pr82274-1.c                                    skip         -ftrapv
 gcc-dg/pr88598-3.c                                    skip         -fno-signed-zeros
 gcc-dg/pr89037.c                                      unsupported  bit-field 'y' of type __int128 is not supported
 gcc-dg/pr95694.c                                      unsupported  bit-field 'a' of type __int128 is not supported
@@ -893,8 +894,12 @@ gcc-dg/range-test-1.c                                 unsupported  array of unkn
 gcc-dg/setjmp-2.c                                     unsupported  signal.h: No such file or directory
 gcc-dg/setjmp-3.c                                     unsupported  built-in function '__builtin_longjmp' is not supported
 gcc-dg/setjmp-4.c                                     unsupported  built-in function '__builtin_longjmp' is not supported
+gcc-dg/sibcall-10.c                                   skip:amd64   checks for a tail call: x86-64 has no sibling calls yet
+gcc-dg/sibcall-3.c                                    skip:amd64   checks for a tail call: x86-64 has no sibling calls yet
+gcc-dg/sibcall-4.c                                    skip:amd64   checks for a tail call: x86-64 has no sibling calls yet
 gcc-dg/sibcall-6.c                                    unsupported  no type in parameter declaration
 gcc-dg/sibcall-7.c                                    skip         checks that -fno-optimize-sibling-calls keeps a frame per call
+gcc-dg/sibcall-9.c                                    skip:amd64   checks for a tail call: x86-64 has no sibling calls yet
 gcc-dg/signbit-6.c                                    skip         expects gcc's results for -INT_MIN, different at -O1 and -O0
 gcc-dg/sinatan-1.c                                    unsupported  long double is not supported
 gcc-dg/single-precision-constant.c                    unsupported  sys/types.h: No such file or directory
@@ -1030,7 +1035,7 @@ gcc-torture-compile/20031112-1.c                      unsupported  function '__f
 gcc-torture-compile/20031113-1.c                      unsupported  undeclared identifier: simple_cst_equal
 gcc-torture-compile/20031208-1.c                      unsupported  long double is not supported
 gcc-torture-compile/20031220-2.c                      unsupported  undeclared identifier: expm1f
-gcc-torture-compile/20040130-1.c                      unsupported  bit-field '(null)' in packed struct is not supported
+gcc-torture-compile/20040130-1.c                      unsupported  bit-field 'G938' crossing a storage unit under '#pragma pack' is not supported
 gcc-torture-compile/20040202-1.c                      unsupported  built-in function '__builtin_extract_return_addr' is not supported
 gcc-torture-compile/20040214-2.c                      unsupported  too many arguments for function call
 gcc-torture-compile/20040309-1.c                      unsupported  expected declaration or function definition
@@ -1042,6 +1047,7 @@ gcc-torture-compile/20040709-1.c                      unsupported  long double i
 gcc-torture-compile/20040817-1.c                      unsupported  undeclared identifier: bar1
 gcc-torture-compile/20040907-1.c                      unsupported  no type in parameter declaration
 gcc-torture-compile/20041026-1.c                      unsupported  long double is not supported
+gcc-torture-compile/20041119-1.c                      skip:amd64   a global register variable, on x86 only
 gcc-torture-compile/20050105-1.c                      unsupported  base types of pointer assignment must be compatible or void
 gcc-torture-compile/20050119-1.c                      unsupported  nested functions (a GNU extension) are not supported
 gcc-torture-compile/20050122-2.c                      unsupported  nested functions (a GNU extension) are not supported
@@ -1120,7 +1126,6 @@ gcc-torture-compile/920723-1.c                        unsupported  expected decl
 gcc-torture-compile/920808-1.c                        unsupported  expected declaration or function definition
 gcc-torture-compile/920809-1.c                        unsupported  expected declaration or function definition
 gcc-torture-compile/920817-1.c                        unsupported  declaration has no type specifier
-gcc-torture-compile/920825-1.c                        unsupported  bit-field 'f1' in packed struct is not supported
 gcc-torture-compile/920826-1.c                        unsupported  computed goto ('goto *p', a GNU extension) is not supported
 gcc-torture-compile/920831-1.c                        unsupported  expected declaration or function definition
 gcc-torture-compile/920902-1.c                        unsupported  no type in parameter declaration

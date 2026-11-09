@@ -738,3 +738,31 @@ def test_vla_bounds_in_type_names_follow_the_expression():
                      'static int h(int n, char (*x)[sizeof (*(++n, (char (*)[n])&tmp))]) { return sizeof *x; }\n'
                      'int f7(void) { return h(1, &tmp); }\n')
     assert (m.f1(), m.f2(), m.f3(), m.f4(0), m.f5(3), m.f6(3), m.f7()) == (202, 101, 11, 12, 12, 24, 2)
+
+
+def test_float_constants_round_once():
+    # a float constant was rounded to double, then to float: the wrong neighbor next to a halfway value
+    # (gcc.dg float-exact-1.c); and _Float16's (f16)
+    m = cimo.compile('float f(int k) { float t[] = {\n'
+                     '    7.0064923216240853546186479164495806564013097093825788587853414194489554134293030074331909418106079101'
+                     '5624999e-46f,\n'
+                     '    170141193601674033557522515689509748735.0f, 170141193601674033557522515689509748736.0f,\n'
+                     '    170141193601674033557522515689509748737.0f,\n'
+                     '    0x1.000001p0f, 0x1.0000010000000000001p0f, 1e39f }; return t[k]; }\n')
+    import struct
+    bits = [struct.unpack('<I', struct.pack('<f', m.f(k)))[0] for k in range(7)]
+    # halfway between 0x7f000000 and 0x7f000001: below, on (to even), above; then the same in hex
+    assert bits == [0, 0x7f000000, 0x7f000000, 0x7f000001, 0x3f800000, 0x3f800001, 0x7f800000]
+
+
+@pytest.mark.parametrize('target', ['amd64_sysv', 'amd64_windows'])
+def test_amd64_call_to_an_address_plus_offset_and_shift_by_an_address(target):
+    # `callq x+16@plt` is no operand (gcc.c-torture/compile 20010107-1.c); a shift count that is an address skipped
+    # %cl and failed the 2-address assertion (pr65014.c)
+    from cimo import assembler_amd64
+    from test_amd64_fixes import _asm86
+    text = _asm86('unsigned long x[4];\nvoid foo(void) { ((void (*)())(x + 2))(); }\n'
+                  'extern int y;\nunsigned g(unsigned v) { return (v << ((__INTPTR_TYPE__)&y)) | (v >> (32 - (__INTPTR_TYPE__)&y)); }\n',
+                  target)
+    assert 'x+16@plt' not in text and '%cl' in text
+    assembler_amd64.assemble(text)

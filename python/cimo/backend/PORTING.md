@@ -103,6 +103,8 @@ output for these is broken, so no comparison test depends on it):
   tree; it now walks to `idom(s)` and stops at a runner that already has `s` in its frontier (same frontiers, same
   order). `gvn.zeroval` looks at 128 dominating `jnz` at most (unknown, past that), and `load.def` gives up
   (keeps the load) after 20,000 instructions and blocks for one load. Now 99 s; the rest is linear-ish.
+- amd64: a call to a symbol plus an offset was written `callq x+16@plt` (no operand); a shift whose count is an
+  address constant skipped `%cl` (gcc.c-torture/compile `20010107-1.c`, `pr65014.c`).
 - `cse.reassoc` (`_adddef`) took `x - $sym` for a subtraction of an integer constant and crashed
   (`gcc.c-torture/compile/pr34029-2.c`).
 - `load.load`: `rebase` moves a load's constant offset into `Slice.off`, which the address of

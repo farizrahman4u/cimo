@@ -5,7 +5,8 @@ processes so that a crash or hang fails one test only.
 corpora_expect.txt lists the programs that are not expected to pass:
   unsupported  uses something cimo rejects (GNU extensions, long double, ...): a compile
                error is expected; passing is fine too (other targets accept some).
-  skip         not run: relies on gcc-specific behavior, or too slow (the note says which).
+  skip         not run: relies on gcc-specific behavior, or too slow (the note says which); `skip:amd64`
+               on targets whose name starts with amd64 only.
   bug          a known cimo bug: must still fail (an unexpected pass asks to update the list).
 Every other program must pass.
 
@@ -32,14 +33,20 @@ EXPECT = os.path.join(HERE, 'corpora_expect.txt')
 TIMEOUT = 120  # seconds per program, compile and run
 
 
-def read_expect():
-    """{'corpus/file': (category, note)}"""
+def read_expect(all_targets=False):
+    """{'corpus/file': (category, note)}. A category `skip:amd64` holds only where cimo's target starts with amd64
+    (all_targets: every entry, as written)."""
+    from cimo import driver
     out = {}
     with open(EXPECT, encoding='utf-8') as f:
         for line in f:
             line = line.rstrip('\n')
             if line and not line.startswith('#'):
                 key, cat, note = (line.split(None, 2) + [''])[:3]
+                if ':' in cat and not all_targets:
+                    cat, target = cat.split(':', 1)
+                    if not driver.TARGET.startswith(target):
+                        continue
                 out[key] = (cat, note)
     return out
 
@@ -166,9 +173,10 @@ def _note(res):
 
 def update(names=(), jobs=None):
     """names: only these corpora are run; the others' entries stay as they are."""
-    old = read_expect() if os.path.exists(EXPECT) else {}
+    old = read_expect(True) if os.path.exists(EXPECT) else {}
     mine = [k for k in KEYS if not names or k.split('/', 1)[0] in names]
-    keys = [k for k in mine if old.get(k, ('',))[0] != 'skip']
+    here = read_expect() if os.path.exists(EXPECT) else {}
+    keys = [k for k in mine if here.get(k, ('',))[0] != 'skip']
     res = run_all(keys, jobs)
     lines = []
     triage = []
@@ -178,7 +186,7 @@ def update(names=(), jobs=None):
         if k not in mine:
             if k in old:
                 lines.append((k, cat, note))
-        elif cat in ('skip', 'bug'):
+        elif cat.split(':')[0] in ('skip', 'bug'):
             lines.append((k, cat, note))
         elif r.startswith('COMPILE '):
             lines.append((k, 'unsupported', _note(r)))

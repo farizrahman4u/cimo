@@ -325,10 +325,11 @@ def sel(i, tn, fn):
                 emit(Ocopy, k, r0, i.arg[1], R)
     elif op in (Osar, Oshr, Oshl):
         r0 = i.arg[1]
-        if rtype(r0) == RCon:
+        # cimo: a count that is an address (`y << (intptr_t)&x`, gcc.c-torture/compile pr65014.c) goes through %cl too
+        if rtype(r0) == RCon and fn.con[rval(r0)].type == CBits:
             _emit_fix(i, fn)
         else:
-            if fn.tmp[rval(r0)].slot != -1:
+            if rtype(r0) == RTmp and fn.tmp[rval(r0)].slot != -1:
                 err("unlikely argument %%%s in %s",
                     fn.tmp[rval(r0)].name, optab[op].name)
             i.arg[1] = TMP(RCX)

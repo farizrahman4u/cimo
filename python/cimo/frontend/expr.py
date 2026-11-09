@@ -750,6 +750,45 @@ def strtod(s):
     return 0.0, 0
 
 
+# cimo: (precision, minimum normal exponent, maximum exponent) of the formats narrower than double
+_NARROW = {'typefloat': (24, -126, 127), 'typehalf': (11, -14, 15), 'typebf16': (8, -126, 127)}
+
+
+def _exact(txt):
+    """The exact value of a floating constant's digits (no suffix), as a Fraction."""
+    from fractions import Fraction
+    if txt[:2] in ('0x', '0X'):
+        m = re.match(r'0[xX]([0-9a-fA-F]*)\.?([0-9a-fA-F]*)(?:[pP]([+-]?[0-9]+))?$', txt)
+        whole, frac, exp = m.group(1), m.group(2), int(m.group(3) or 0)
+        return Fraction(int(whole + frac or '0', 16)) * Fraction(2) ** (exp - 4 * len(frac))
+    m = re.match(r'([0-9]*)\.?([0-9]*)(?:[eE]([+-]?[0-9]+))?$', txt)
+    whole, frac, exp = m.group(1), m.group(2), int(m.group(3) or 0)
+    return Fraction(int(whole + frac or '0')) * Fraction(10) ** (exp - len(frac))
+
+
+def _narrow(txt, fmt):
+    """cimo: a constant of a type narrower than double rounded once, from its exact value (strtod's double rounded
+    again to float gave the wrong neighbor next to a halfway value: gcc.dg float-exact-1.c), as the double that holds
+    it exactly."""
+    from fractions import Fraction
+    p, emin, emax = _NARROW[fmt]
+    x = _exact(txt)
+    if not x:
+        return 0.0
+    e = x.numerator.bit_length() - x.denominator.bit_length()
+    if Fraction(2) ** e > x:
+        e -= 1
+    q = max(e, emin) - (p - 1)  # the exponent of an ulp at x
+    y = x / Fraction(2) ** q
+    m = y.numerator // y.denominator
+    r = y - m
+    if r > Fraction(1, 2) or (r == Fraction(1, 2) and m & 1):
+        m += 1
+    if m * Fraction(2) ** q >= Fraction(2) ** (emax + 1):
+        return float('inf')
+    return float(m * Fraction(2) ** q)
+
+
 _DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz'
 
 
@@ -857,10 +896,13 @@ def primaryexpr(s):
                 e.type = TY.typedouble
             elif (end[0] == 'f' or end[0] == 'F') and len(end) == 1:
                 e.type = TY.typefloat
+                e.f = _narrow(lit[:n], 'typefloat')
             elif (end[0] == 'l' or end[0] == 'L') and len(end) == 1:
                 e.type = TY.typeldouble
             elif U.diagnostics and end in _FLOATSUFFIX:  # cimo: C23's f16, f32, f64, f32x, f64x; GNU's bf16
                 e.type = getattr(TY, _FLOATSUFFIX[end])
+                if _FLOATSUFFIX[end] in _NARROW:
+                    e.f = _narrow(lit[:n], _FLOATSUFFIX[end])
                 EV.cast(e)
             else:
                 if U.diagnostics:

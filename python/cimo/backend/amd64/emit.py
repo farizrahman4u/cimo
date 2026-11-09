@@ -963,8 +963,8 @@ def emitins(i, e):
                 f.write("\tvzeroupper\n")
             f.write("\tcallq ")
             emitcon(con, e)
-            if con.type == CAddr and (con.sym.type & SExt) and not D.T.apple:
-                f.write("@plt")
+            if con.type == CAddr and (con.sym.type & SExt) and not D.T.apple and not con.i:  # cimo: x+16@plt is no
+                f.write("@plt")  # operand (gcc.c-torture/compile 20010107-1.c: a call to an address in an array)
             f.write("\n")
         elif t == RTmp:
             if e.vzu:
