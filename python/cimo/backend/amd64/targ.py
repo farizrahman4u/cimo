@@ -16,7 +16,9 @@ class Amd64Op:
 
 
 # the X(nmem, zflag, lflag) column of QBE ops.h; ops not listed (cimo's own among them) are
-# X(0, 0, 0)
+# X(0, 0, 0). Fix over C QBE: stoui, dtoui and ultof are 0 0 0, not 0 0 1: isel lowers them to and, or, shifts and
+# adds, which set the flags, so a branch on a comparison before one tested the lowering's flags (scramjit:
+# `y == 0.0 ? fmod((double)u64, y) : ...` took the wrong way on x86-64)
 _X = """
 add 2 1 0;sub 2 1 0;neg 1 1 0;mul 2 0 0;and 2 1 0;or 2 1 0;xor 2 1 0;sar 1 1 0;shr 1 1 0;
 shl 1 1 0;ceqw 0 1 0;cnew 0 1 0;csgew 0 1 0;csgtw 0 1 0;cslew 0 1 0;csltw 0 1 0;cugew 0 1 0;
@@ -27,7 +29,7 @@ cged 0 1 0;cgtd 0 1 0;cled 0 1 0;cltd 0 1 0;cned 0 1 0;cod 0 1 0;cuod 0 1 0;stor
 storeh 0 0 1;storew 0 0 1;storel 0 0 1;stores 0 0 1;stored 0 0 1;loadsb 0 0 1;loadub 0 0 1;
 loadsh 0 0 1;loaduh 0 0 1;loadsw 0 0 1;loaduw 0 0 1;load 0 0 1;extsb 0 0 1;extub 0 0 1;
 extsh 0 0 1;extuh 0 0 1;extsw 0 0 1;extuw 0 0 1;exts 0 0 1;truncd 0 0 1;stosi 0 0 1;
-stoui 0 0 1;dtosi 0 0 1;dtoui 0 0 1;swtof 0 0 1;uwtof 0 0 1;sltof 0 0 1;ultof 0 0 1;
+stoui 0 0 0;dtosi 0 0 1;dtoui 0 0 0;swtof 0 0 1;uwtof 0 0 1;sltof 0 0 1;ultof 0 0 0;
 cast 0 0 1;copy 0 0 1;dbgloc 0 0 1;nop 0 0 1;addr 0 0 1;blit0 0 1 0;blit1 0 1 0;swap 1 0 0;
 xidiv 1 0 0;xdiv 1 0 0;xcmp 1 1 0;xcmpe 1 1 0;xtest 1 1 0;flagieq 0 0 1;flagine 0 0 1;flagisge 0 0 1;
 flagisgt 0 0 1;flagisle 0 0 1;flagislt 0 0 1;flagiuge 0 0 1;flagiugt 0 0 1;flagiule 0 0 1;

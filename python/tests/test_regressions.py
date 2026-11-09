@@ -766,3 +766,31 @@ def test_amd64_call_to_an_address_plus_offset_and_shift_by_an_address(target):
                   target)
     assert 'x+16@plt' not in text and '%cl' in text
     assembler_amd64.assemble(text)
+
+
+def test_branch_after_unsigned_conversion():
+    # x86-64: a branch on a comparison made before a uint64-to-double conversion (or a double-to-uint64 one) tested
+    # the flags of the conversion's lowering (and, shifts, add), so `y == 0.0 ? ... : ...` took the wrong way
+    # (scramjit, tests/test_uint64.py)
+    src = '''#include <math.h>
+#include <stdint.h>
+static inline double fmod_py(double a, double b) {
+    double m = fmod(a, b);
+    if (m != 0.0) { if ((b < 0) != (m < 0)) m += b; }
+    else m = copysign(0.0, b);
+    return m;
+}
+double k1(uint64_t *a, double y) { uint64_t t = a[0]; return y == 0.0 ? fmod((double)t, y) : fmod_py((double)t, y); }
+double k2(uint64_t *a, double y) { return fmod_py((double)a[0], y); }
+double k4(int64_t *a, double y) { int64_t t = a[0]; return y == 0.0 ? fmod((double)t, y) : fmod_py((double)t, y); }
+uint64_t k5(double *a, int y) { double t = a[0]; return y == 0 ? (uint64_t)t + 1 : (uint64_t)t * 2; }
+float k6(uint64_t *a, float y) { uint64_t t = a[0]; return y == 0.0f ? (float)t + 1 : (float)t * 2; }
+'''
+    import array
+    m = cimo.compile(src, cache=False)
+    u, s = array.array('Q', [1]), array.array('q', [1])
+    assert m.k1(u, -1.5) == -0.5 and m.k2(u, -1.5) == -0.5 and m.k4(s, -1.5) == -0.5
+    big = array.array('d', [2.0 ** 63 + 2048])
+    assert m.k5(big, 0) == (1 << 63) + 2049 and m.k5(big, 1) == ((1 << 63) + 2048) * 2 % (1 << 64)
+    big_u = array.array('Q', [(1 << 63) + (1 << 40)])
+    assert m.k6(big_u, 0.0) == float((1 << 63) + (1 << 40)) and m.k6(big_u, 1.0) == 2.0 * ((1 << 63) + (1 << 40))
