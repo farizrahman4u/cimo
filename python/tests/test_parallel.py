@@ -699,6 +699,10 @@ for f in (m.spin, m.heavy):
     except KeyboardInterrupt:
         print('stopped', time.time() - t0 < 10)
 print(m.ok(1000))
+for _ in range(20):  # SIGURG (which stops a stopping region's threads) does nothing to a region that isn't stopping
+    threading.Timer(0.01, lambda: os.kill(os.getpid(), signal.SIGURG)).start()
+    assert m.ok(3000000) == 3000000 * 2999999 // 2
+print('urg ok')
 '''
 
 
@@ -709,7 +713,7 @@ def test_ctrl_c_stops_every_thread():
     r = subprocess.run([sys.executable, '-c', CTRL_C], capture_output=True, text=True, timeout=120, cwd=PY,
                        env=dict(os.environ, PYTHONPATH=PY))
     assert r.returncode == 0, r.stderr
-    assert r.stdout.split('\n')[:3] == ['stopped True', 'stopped True', '499500'], r.stdout + r.stderr
+    assert r.stdout.split('\n')[:4] == ['stopped True', 'stopped True', '499500', 'urg ok'], r.stdout + r.stderr
 
 
 @pytest.mark.parametrize('src, msg', [

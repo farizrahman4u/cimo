@@ -41,6 +41,9 @@ _APPLE = sys.platform == 'darwin'
 _SIGNALS = (11, 10 if _APPLE else 7, 8, 4)  # SIGSEGV, SIGBUS, SIGFPE, SIGILL
 # SIGINT, so Ctrl-C stops a kernel: only in the main interpreter's main thread, where Python has its handler
 _INTERRUPT = (2,) if os.environ.get('CIMO_INTERRUPT', '1') != '0' else ()
+# SIGURG: what a parallel loop's threads are sent to stop when Ctrl-C stops their region (cimo.parallel). Not SIGINT:
+# one sent to a thread whose part had ended can arrive in the next region (macOS), where it would stop that one too
+_URG = 16 if _APPLE else 23
 _ALTSTACK = 128 << 10  # the kernel's signal frame alone is tens of KB with SME
 _GUARANTEE = 64 << 10  # Windows, what the kernel's exception dispatch and the handler may use
 _SLOT = 48
@@ -162,8 +165,6 @@ static int handle(int fault, u64 addr, char *r)
 /* a parallel loop's region stopping on Ctrl-C (cimo.parallel's __cimo_pool_stop; 0 until the pool is built): 1 if
    the team is still running */
 int (*__cimo_fault_stop)(void *team);
-/* whether this SIGINT is one the pool sent to stop a part (cimo.parallel's __cimo_pool_ack) */
-int (*__cimo_fault_ack)(void);
 
 /* The parallel loop's team this thread runs a part of, or 0 (CTX_TEAM, runtime/omp.c) */
 static void *team(char *r)
@@ -241,21 +242,25 @@ static char dfl[256];
 void __cimo_fault_sig(int sig, char *si, char *uc)
 {
     void (*old)(int, void *, void *) = __cimo_fault_old[sig];
+    if (sig == URG) {  /* a parallel loop's region stopping: this thread's part too, if it is that region's */
+        void *t = team(REGS(uc));
+        if (t && *(volatile u64 *)t)
+            interrupt(REGS(uc));
+        else if ((u64)old > 1)
+            old(sig, si, uc);
+        return;  /* one sent for a region that has ended does nothing (SIGURG's default) */
+    }
     if (sig == 2) {  /* SIGINT */
         void *t;
-        int sent;
         if ((u64)old == 1)  /* ignored: never unwinds */
             return;
-        /* in a parallel loop: every thread of it stops (the others are sent SIGINT, which comes back here), and the
-           region raises the interrupt once they have, so it is not passed on; nor one sent for a region now over */
-        sent = __cimo_fault_ack && __cimo_fault_ack();
+        /* in a parallel loop: every thread of it stops (the others are sent SIGURG), and the region raises the
+           interrupt once they have, so it is not passed on */
         t = team(REGS(uc));
         if (t && __cimo_fault_stop(t)) {
             interrupt(REGS(uc));
             return;
         }
-        if (sent)
-            return;
         if (interrupt(REGS(uc)))
             return;
         if (old) {
@@ -305,6 +310,7 @@ def _defines():
     d['FRAMES'], d['FRAMESZ'] = (str(x.WFRAMES), str(x.WFRAMESZ)) if win64 else (str(x.FRAMES), str(x.FRAMESZ))
     d['FRAME_SP'] = '96' if _jit._ARM64 else '72'  # cimo.execution's glue
     d['CTX_TEAM'] = '104'  # runtime/omp.c
+    d['URG'] = str(_URG)
     if _WIN:
         d['CIMO_WINDOWS'] = None
         if not _jit._ARM64:
@@ -393,19 +399,18 @@ def install():
 _stop = None  # cimo.parallel's stop and ack functions, once the pool is built
 
 
-def set_stop(stop, ack):
+def set_stop(stop):
     """Ctrl-C in a parallel loop stops its whole team: the pool's functions for it (cimo.parallel)."""
     global _stop
     with _build_lock:
-        _stop = (stop, ack)
+        _stop = stop
         if _module is not None:
             _put_stop(_module)
 
 
 def _put_stop(m):
     if _stop is not None and not _WIN:
-        ctypes.c_void_p.from_address(m._image.address('__cimo_fault_ack')).value = _stop[1]
-        ctypes.c_void_p.from_address(m._image.address('__cimo_fault_stop')).value = _stop[0]
+        ctypes.c_void_p.from_address(m._image.address('__cimo_fault_stop')).value = _stop
 
 
 def _fill_libc(m):
@@ -429,7 +434,7 @@ def _install_posix():
     ours = img.address('__cimo_fault_sig')
     old = img.address('__cimo_fault_old')
     call = _sigaction()
-    for sig in _SIGNALS + (_INTERRUPT if _default_int() else ()):
+    for sig in _SIGNALS + (_INTERRUPT + (_URG,) if _INTERRUPT and _default_int() else ()):
         cur = _Sigaction()
         if call(sig, None, ctypes.byref(cur)) != 0:
             raise OSError(ctypes.get_errno(), 'sigaction failed')

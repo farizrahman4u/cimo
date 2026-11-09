@@ -12,7 +12,7 @@ after a region (`OMP_WAIT_POLICY`; 200 us by default), then sleep on their word:
 `sigaction`, so the code itself imports nothing.
 
 Ctrl-C (cimo.fault's SIGINT handler, POSIX only) calls `stop(team)`: the team's stop word is set and every
-thread of the team still running its part is sent SIGINT, which unwinds it if it is in the loop's own code;
+thread of the team still running its part is sent SIGURG, which unwinds it if it is in the loop's own code;
 the master sends it again every millisecond to those that were elsewhere (the runtime, a host library) until
 all are back. The region then raises the interrupt.
 
@@ -56,7 +56,6 @@ struct worker {
     u64 handle;
     struct team *volatile task;  /* its part of the region to start, from the master; taken once */
     volatile long busy;          /* running it */
-    volatile long kick;          /* sent SIGINT to stop its part, not yet delivered (see ack) */
     volatile long done;          /* the generation of the last region whose part it finished */
     long pad[8];                 /* done on a cache line of its own, as far as the next worker's */
     u64 limit;
@@ -68,7 +67,6 @@ struct pool {
     volatile long wakes;     /* bumped by a worker that finds the master asleep; it waits on the low 32 bits */
     volatile long claimed;   /* a master's */
     volatile long mwait;     /* the master is asleep on wakes */
-    volatile long mkick;     /* the master was sent SIGINT, not yet delivered */
     u64 master;              /* the master's handle, while claimed */
     long nw;
     struct pool *next;
@@ -95,6 +93,7 @@ int (*__cimo_pool_attr_destroy)(void *);
 u64 (*__cimo_pool_self)(void);
 int (*__cimo_pool_kill)(u64, int);
 int (*__cimo_pool_altstack)(void *, void *);
+int (*__cimo_pool_sigmask)(int, void *, void *);
 int (*__cimo_pool_yield)(void);
 int (*__cimo_pool_clock)(int, long *);
 #ifdef CIMO_APPLE
@@ -159,7 +158,8 @@ static double now(void)
 #endif
 }
 
-/* the master and the workers of the team still in their parts, except the calling thread: SIGINT */
+/* the master and the workers of the team still in their parts, except the calling thread: SIGURG (cimo.fault's
+   handler unwinds a thread in its loop's own code if the thread's region is stopping; a late one does nothing) */
 static void kick(struct team *t)
 {
 #ifndef CIMO_WINDOWS
@@ -167,42 +167,11 @@ static void kick(struct team *t)
     u64 me = __cimo_pool_self();
     long i;
     for (i = 0; i < t->n - 1; i++)
-        if (p->w[i]->busy && p->w[i]->handle != me) {
-            p->w[i]->kick = 1;
-            __cimo_barrier();
-            __cimo_pool_kill(p->w[i]->handle, 2);
-        }
-    if (t->master != me) {
-        p->mkick = 1;
-        __cimo_barrier();
-        __cimo_pool_kill(t->master, 2);
-    }
+        if (p->w[i]->busy && p->w[i]->handle != me)
+            __cimo_pool_kill(p->w[i]->handle, SIGURG);
+    if (t->master != me)
+        __cimo_pool_kill(t->master, SIGURG);
 #endif
-}
-
-/* SIGINT on this thread (cimo.fault's handler): 1 if the pool sent it to stop a part (the region has seen to it,
-   or will: so it is not Python's), and it has now arrived. Signals of one number merge while pending, so a flag. */
-int __cimo_pool_ack(void)
-{
-#ifndef CIMO_WINDOWS
-    struct pool *p;
-    u64 me = __cimo_pool_self();
-    long i;
-    for (p = __cimo_pool_list; p; p = p->next) {
-        if (p->claimed && p->master == me && p->mkick) {
-            p->mkick = 0;
-            return 1;
-        }
-        for (i = 0; i < p->nw; i++)
-            if (p->w[i]->handle == me) {
-                if (!p->w[i]->kick)
-                    return 0;
-                p->w[i]->kick = 0;
-                return 1;
-            }
-    }
-#endif
-    return 0;
 }
 
 /* Ctrl-C in a thread of team t (cimo.fault's handler, so async-signal-safe only): 1 if the region is still
@@ -287,6 +256,13 @@ static void setup(struct worker *w)
 #endif
             __cimo_pool_altstack(ss, 0);
         }
+    }
+    {
+        /* Ctrl-C goes to the threads Python has (macOS gives a process's signal to any thread that takes it); a
+           region's workers are stopped by SIGURG from the thread that got it */
+        u64 set[16] = {0};
+        set[0] = 1UL << (2 - 1);
+        __cimo_pool_sigmask(SIG_BLOCK, set, 0);
     }
 #endif
 }
@@ -432,16 +408,6 @@ static void end(struct team *t)
             wait32(&p->wakes, v, 100);  /* woken by Ctrl-C too (EINTR); the timeout is a backstop */
         p->mwait = 0;
     }
-    if (t->stop) {  /* the SIGINTs sent arrive before the region ends, so none is left for the next one */
-        for (;;) {
-            long k = p->mkick;
-            for (n = 0; n < t->n - 1; n++)
-                k |= p->w[n]->kick;
-            if (!k)
-                break;
-            wait32(&p->wakes, p->wakes, 1);
-        }
-    }
     __cimo_barrier();
     t->pool = 0;  /* a late Ctrl-C (cimo.fault) finds no team to stop */
     __cimo_barrier();
@@ -480,9 +446,13 @@ def _defines():
         d['CIMO_WINDOWS'] = None
     elif _APPLE:
         d['CIMO_APPLE'] = None
+        d['SIGURG'] = '16'
+        d['SIG_BLOCK'] = '1'
         d['CLOCK_MONOTONIC'] = '6'
     else:
         d['SYS_FUTEX'] = '98' if _jit._ARM64 else '202'
+        d['SIGURG'] = '23'
+        d['SIG_BLOCK'] = '0'
         d['CLOCK_MONOTONIC'] = '1'
     return d
 
@@ -543,6 +513,7 @@ def _fill(img):
     for name, sym in (('calloc', 'calloc'), ('create', 'pthread_create'), ('attr_init', 'pthread_attr_init'),
                       ('attr_stack', 'pthread_attr_setstacksize'), ('attr_destroy', 'pthread_attr_destroy'),
                       ('self', 'pthread_self'), ('kill', 'pthread_kill'), ('altstack', 'sigaltstack'),
+                      ('sigmask', 'pthread_sigmask'),
                       ('yield', 'sched_yield'), ('clock', 'clock_gettime')):
         put('__cimo_pool_' + name, getattr(libc, sym))
     if _APPLE:
@@ -568,7 +539,7 @@ def _module_():
             _module = m
             _apply()
             from . import fault
-            fault.set_stop(m._image.address('__cimo_pool_stop'), m._image.address('__cimo_pool_ack'))
+            fault.set_stop(m._image.address('__cimo_pool_stop'))
             if hasattr(os, 'register_at_fork'):
                 os.register_at_fork(after_in_child=_forget)
     return _module

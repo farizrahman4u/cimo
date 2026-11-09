@@ -1114,9 +1114,10 @@ with it). Design (`frontend/omp.py`, `runtime/omp.c`, `cimo/parallel.py`):
 - **Errors.** Each part, the master's included, runs through an entry frame of its own (`__cimo_call`), so an error
   unwinds that thread only; the master waits for the rest, then rethrows the lowest-numbered thread's error
   (`__cimo_rethrow`). Ctrl-C: the handler finds the thread's team (context word 104), sets its stop word and sends
-  SIGINT to every member still in its part, which unwinds those in their loop's own code; the master resends every
-  millisecond until all are back, and waits for every SIGINT it sent to arrive (a flag per thread: signals merge) so
-  none stops the next region. A region inside a region runs on one thread. Thread count: `num_threads`, then
+SIGURG to every member still in its part, which unwinds those in their loop's own code; the master resends every
+millisecond until all are back. Not SIGINT: one sent to a thread whose part had just ended arrived during the next
+region on macOS and stopped it too, where a late SIGURG finds no stopping region and does nothing. Workers block
+SIGINT, so Ctrl-C goes to Python's threads. A region inside a region runs on one thread. Thread count: `num_threads`, then
   `omp_set_num_threads` (per thread and module; the team sees the master's), then `cimo.set_num_threads`, then
   `OMP_NUM_THREADS`, then the CPUs the process may use. Pyodide: a team of one (`wasm/runtime/omp.c`).
 - **gcc 13 -fopenmp miscounts** `for (signed char c = -100; c < 100; c += 9)` and `for (unsigned short h = 65000;
