@@ -766,13 +766,21 @@ def _exact(txt):
     return Fraction(int(whole + frac or '0')) * Fraction(10) ** (exp - len(frac))
 
 
-def _narrow(txt, fmt):
-    """cimo: a constant of a type narrower than double rounded once, from its exact value (strtod's double rounded
-    again to float gave the wrong neighbor next to a halfway value: gcc.dg float-exact-1.c), as the double that holds
-    it exactly."""
+def _narrow(txt, fmt, v):
+    """cimo: a constant of a type narrower than double rounded once, from its exact value (strtod's double v rounded
+    again to float gave the wrong neighbor next to a halfway value: gcc.dg float-exact-1.c): v where that rounds to
+    the same (the IR then reads as cproc's), else the double that holds the right value exactly."""
+    from fractions import Fraction
+    if v != v or v in (float('inf'), float('-inf')):
+        return v
+    r = _round(_exact(txt), fmt)
+    return v if _round(Fraction(v), fmt) == r else r
+
+
+def _round(x, fmt):
+    """Fraction x >= 0 rounded to nearest, ties to even, in format fmt, as a float."""
     from fractions import Fraction
     p, emin, emax = _NARROW[fmt]
-    x = _exact(txt)
     if not x:
         return 0.0
     e = x.numerator.bit_length() - x.denominator.bit_length()
@@ -896,13 +904,13 @@ def primaryexpr(s):
                 e.type = TY.typedouble
             elif (end[0] == 'f' or end[0] == 'F') and len(end) == 1:
                 e.type = TY.typefloat
-                e.f = _narrow(lit[:n], 'typefloat')
+                e.f = _narrow(lit[:n], 'typefloat', e.f)
             elif (end[0] == 'l' or end[0] == 'L') and len(end) == 1:
                 e.type = TY.typeldouble
             elif U.diagnostics and end in _FLOATSUFFIX:  # cimo: C23's f16, f32, f64, f32x, f64x; GNU's bf16
                 e.type = getattr(TY, _FLOATSUFFIX[end])
                 if _FLOATSUFFIX[end] in _NARROW:
-                    e.f = _narrow(lit[:n], _FLOATSUFFIX[end])
+                    e.f = _narrow(lit[:n], _FLOATSUFFIX[end], e.f)
                 EV.cast(e)
             else:
                 if U.diagnostics:

@@ -104,7 +104,7 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   (`Type.vlasite`) and computed where the cast, compound literal, `sizeof` or `va_arg` is evaluated (a `?:` still
   computes its type's before either arm); `sizeof (type-name)` dropped what a `typeof` in it evaluates, and a
   declaration evaluated its `typeof` operand once per declarator; a `float` constant was converted to double, then
-  rounded again to float (`_narrow` rounds the exact value once; also `f16` and `bf16`).
+  rounded again to float (`_narrow` rounds the exact value once; also `f16` and `bf16`; the IR keeps cproc's double where both give the same value).
 - Bugs fixed (marked `cimo:` in the code; found by gcc's torture tests): a block-scope `extern`
   that hides a local took the local's absent linkage and crashed (C11 6.2.2p4); the size of a
   variably modified typedef was computed at its first use, which need not dominate the others
