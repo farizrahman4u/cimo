@@ -3,7 +3,7 @@
 from .driver import compile, load, Module, CompileError, KernelError, add_cache_entry
 from .cpu import features as cpu_features
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 
 
 def __getattr__(name):
