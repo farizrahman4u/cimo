@@ -883,6 +883,10 @@ Through cimo's public API only:
 
 ### Milestones
 
+**Order changed (2026-11-09):** the compile half of milestone 4 comes first: explicit kernels (`__gpu_kernel`,
+`__gpu_shared`, `__gpu_asm`) to PTX, loaded through the driver, without a tuned GEMM of our own. It needs none of
+milestones 1 to 3. Scope and acceptance are in `TODO.md` ("Big", first item). Milestones 1 to 3 keep their order after it.
+
 1. **WGSL, plain.** The `matmul` above compiles and runs on WebGPU in a tab. Results match the CPU within rounding. Same GPU,
    against hand-written WGSL: speed, and compile time with passes on and off. Target: a 50-line kernel edit to dispatch
    in under 1 s. Proves type recovery, and how far plain loops get.

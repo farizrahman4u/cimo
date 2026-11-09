@@ -4,6 +4,82 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Big
 
+- **Top priority: explicit GPU kernels to PTX, loaded through the NVIDIA driver alone** (moved up 2026-11-09; was the
+  compile half of GPU milestone 4, see "GPU" in `requirements.md`, whose order this changes: note it there when
+  starting). Wanted now by a kernel generator that writes explicit kernels as C for the exact shape and tunes them on
+  the user's own card ("Tuned kernels" in `requirements.md`: "could replace tables: untested"). It needs this path and
+  none of the WGSL work, and PTX needs no type recovery. Pure Python stays the rule: no toolkit, no NVRTC, `libcuda`
+  reached by `dlsym` only; `nvcc` appears in tests as an oracle and nowhere else.
+  - **Scope:** the explicit-kernel form only. Not `#pragma cimo parallel`, not type recovery, not WGSL or SPIR-V, and
+    not a tuned GEMM of our own (`gpu/kernels/`): the generator supplies the kernels.
+  - **Kernel C** (`gpu/include/cimo/gpu.h`): `__gpu_kernel` entry functions, `__gpu_shared` arrays, thread, block and
+    grid ids and sizes in up to 3 dimensions, `gpu_barrier()`, and `__gpu_asm`. `__gpu_asm` needs operands, which the
+    sketch in `requirements.md` leaves out: take gcc's extended form with CUDA's constraint letters
+    (`__gpu_asm("mma.sync... {%0,%1,%2,%3}, ..." : "=f"(d0), ... : "r"(a0), ...)`; `h`, `r`, `l` for 16-, 32- and
+    64-bit integers, `f`, `d` for floats), so the same file compiles under `nvcc` with a shim header
+    (`#define __gpu_asm asm volatile`, `__global__`, `__shared__`, `__syncthreads`). That makes `nvcc` the oracle, as
+    gcc is on the CPU. The rejections listed in `requirements.md` (recursion, `malloc`, function pointers) apply.
+  - **Types and math:** `float`, 32- and 64-bit integers, `_Float16` and `__bf16` loads and stores (bf16 is the format
+    the first kernels use). `sqrt`, `fma`, `fmax`/`fmin` as PTX instructions; `expf` first of the device math
+    (`gpu/lib/`), compiled into the same module.
+  - **Backend** (`gpu/backend/ptx/`): IR to PTX text. The lowest `.version` and `.target` that carry the instructions
+    used; the driver caps versions. Which of cimo's passes run is a measurement (each on and off: compile time against
+    kernel time), as the spec says.
+  - **Host** (`gpu/host/cuda.c`, compiled by cimo): the device's primary context, not a new one, so buffers made by
+    another library in the process are usable; `cuModuleLoadDataEx` with the error log, a rejected module raising
+    `cimo.CompileError` with the driver's text; launch with the grid, block and shared-memory size given by the caller.
+  - **Python API:** `cimo.gpu.device()`, `cimo.compile(src, device=gpu)`, `k.f(..., grid=, block=)`, `gpu.array(a)` to
+    keep data on the device across calls, and any object with `__cuda_array_interface__` accepted as a buffer without
+    a copy. A tuner times kernels, so: a launch that doesn't wait, an explicit `gpu.sync()`, and no host copy unless
+    asked. Next after that, not part of done: a sequence of launches recorded as one driver graph (`cuGraph*`), since
+    the fixed cost per launch is what a generator trades against.
+  - **Done when,** on one rented card with tensor cores (this machine has no NVIDIA GPU; PTX text is tested here,
+    running is tested there, and run tests skip without `libcuda`):
+    1. a plain explicit kernel and a blocked one using `__gpu_shared` and `gpu_barrier()` give a C reference's results;
+    2. a kernel doing `mma.sync` on bf16 through `__gpu_asm` gives the reference's results within rounding;
+    3. the same sources through `nvcc` give the same results, and the time of cimo's PTX against `nvcc`'s is recorded
+       per kernel in `requirements.md`. That settles "the driver's PTX compiler against NVIDIA's bundled one"
+       (compare `nvcc`'s PTX loaded by the driver with its cubin) and separately what cimo's own code generation costs;
+    4. source to PTX text takes under 1 s for a 100-line kernel, with the driver's load time recorded beside it;
+    5. the numbers and what was learned are in `requirements.md`, with the milestone order there updated.
+
+- **Next after the PTX item, for the same kernel generator: the CPU instructions and threads its kernels need**
+  (2026-11-09). Its CPU kernels are C over bf16 weights, built with `gcc -O3 -march=native -fopenmp` so far. Three
+  things in them cimo can't compile yet. Without them a generated kernel runs on one core at 256 bits where the
+  machine's libraries use every core and its matrix instructions. Measured through gcc (November 2026): one wrapped bf16
+  dot instruction took a bf16 matrix-vector product on Graviton 4 to 1.9x the speed of the fastest of numpy and torch
+  there, and on Sapphire Rapids a compute-bound product without AMX ran at 0.11x of torch's, which uses it. In the order the
+  generator needs them:
+  1. **A loop's iterations on several cores, started from C.** There is no launch API, and starting parts from a
+     Python pool costs too much for short kernels (scramjit: 390 us for four tiny calls through a pool, 3.8 us for one
+     direct call); these kernels run for tens of microseconds. Wanted: the outer loop of a kernel split over N threads
+     by the runtime, on a pool that stays warm, with the cost of one region a few microseconds. `#pragma omp parallel
+     for` with a static schedule is the form that keeps gcc the oracle (cimo already keeps `#pragma omp`); a runtime
+     call would do. Threads come from the host (`pthread`, Win32) through the runtime's C; wasm runs the loop
+     serially. A fault in a worker raises `cimo.KernelError` as on the calling thread, Ctrl-C stops all parts, each
+     worker has its own heap part as Python threads do, and the thread count is the caller's to set. Measure the cost
+     of an empty region on 8 and 16 cores, and a memory-bound matrix-vector product's scaling against gcc's OpenMP.
+  2. **bf16 dot products as instructions.** arm64 `bfdot` (FEAT_BF16; 128 bits, so it fits class `q` now) and x86-64
+     `vdpbf16ps` (AVX512-BF16; the 256-bit form with AVX512-VL first, which needs EVEX encoding but not `zmm`). Not
+     inline assembly, which stays out of CPU code: the intrinsics' own names on the vector types cimo has
+     (`vbfdotq_f32`, `_mm256_dpbf16_ps`, `_mm512_dpbf16_ps`, from a bundled header declaring only what is implemented),
+     so the same file compiles under gcc and clang. A kernel using one builds only for a CPU that has it, with an error
+     naming the feature otherwise. Detection (`cimo/cpu.py`, arm64 from the OS's feature bits) and the cache key gain
+     the features, and a public query of what this CPU has, since a generator picks its kernel by it. Overlaps
+     Adoption #6 (int8 `sdot`/`udot`, VNNI): the same mechanism, do them together if cheap.
+  3. **512-bit vectors on x86-64.** `zmm` registers, EVEX and mask registers in the assembler and backend; class `q`
+     at 64 bytes in the vectorizer and for GNU vector types; `_mm512_dpbf16_ps` with it. Whether 512 beats 256 is per
+     CPU (frequency, port use): measure on Sapphire Rapids and Zen 4 against 256 and against gcc, and choose by CPU.
+  4. **AMX tiles on x86-64** (`amx-tile`, `amx-bf16`; Sapphire Rapids and later): configure, load, `tdpbf16ps`, store,
+     release, through their intrinsics' names as in 2. Linux grants tile state per process on request
+     (`arch_prctl(ARCH_REQ_XCOMP_PERM)`): the runtime asks at load when a module uses tiles, and says so clearly when
+     refused. Tile state across a fault's unwind and a signal: check. This is the instruction torch's bf16 products use
+     there.
+  **Done when,** on rented Sapphire Rapids and Graviton 4 (or 3) machines: a bf16 dot kernel with several
+  accumulators and a bf16 matrix product block give gcc's results on the same file on each, with cimo's time against
+  gcc's recorded per kernel and per step above in `requirements.md`; and the same kernels split over all cores scale
+  as gcc's OpenMP build does, with the region's start cost recorded.
+
 - ~~**Before the next release: a custom SIGINT handler mustn't unwind a kernel**~~ **Done** (2026-11-09, found by
   scramjit): cimo takes SIGINT over only when Python's handler is `signal.default_int_handler` (looked at each module
   load); under a handler of the program's own or SIG_IGN the kernel finishes and the handler runs after it. A handler
@@ -99,7 +175,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    `long double _Complex` on Linux (no `long double` there).
 10. **GPU.** Plain C on any GPU with no vendor toolkit; tuned kernels as C in `python/cimo/gpu/`. WGSL, then SPIR-V, PTX, HIP
    source, Metal source. Start with one `matmul` on WebGPU, which proves type recovery and compile time. See
-   "GPU" in `requirements.md`.
+   "GPU" in `requirements.md`. **Explicit kernels to PTX come first now** (2026-11-09, top of "Big"); the order here
+   stands for the parallel-loop form.
 
 ## Directions (priority order; weeks each; no C original to diff against)
 
@@ -118,7 +195,8 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
    index-space launch, WebGPU in the browser and wgpu natively, no vendor toolkit. First
    milestone: one matmul and one stencil from `kernels.c`, compiled to WGSL by a new backend over
    the same IR, with type recovery (QBE IR loses C types; WGSL needs them) as the first problem.
-   SPIR-V, PTX, HIP and Metal source only after WGSL works end to end.
+   SPIR-V, HIP and Metal source only after WGSL works end to end. PTX for explicit kernels no longer waits for it
+   (2026-11-09, top of "Big").
 4. **Autotuning in-process.** Because a compile is milliseconds and nothing leaves the process:
    compile a kernel in N variants over the middle end's existing knobs (unroll factor, jam depth,
    vector width, alias-check vs. versioned, inline limit), time each on the host CPU, keep the
