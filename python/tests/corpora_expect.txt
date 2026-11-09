@@ -823,7 +823,6 @@ gcc-dg/pr123356-1.c                                   unsupported  empty structs
 gcc-dg/pr123356-2.c                                   unsupported  empty structs and unions (a GNU extension) are not supported
 gcc-dg/pr123544.c                                     unsupported  array of unknown size has empty initializer
 gcc-dg/pr123569.c                                     unsupported  expected ',' or '
-gcc-dg/pr124576.c                                     bug          a VLA bound in a type name is computed where it is parsed, before the expression's side effects (cproc)
 gcc-dg/pr124671.c                                     unsupported  long double is not supported
 gcc-dg/pr124809.c                                     unsupported  qbe:<cimo>:98: invalid class specifier
 gcc-dg/pr125252.c                                     unsupported  empty structs and unions (a GNU extension) are not supported
@@ -929,8 +928,6 @@ gcc-dg/sync-2.c                                       unsupported  built-in func
 gcc-dg/sync-3.c                                       unsupported  built-in function '__sync_fetch_and_add' is not supported
 gcc-dg/trampoline-1.c                                 unsupported  nested functions (a GNU extension) are not supported
 gcc-dg/transparent-union-5.c                          unsupported  attribute 'transparent_union' is not supported
-gcc-dg/typename-vla-1.c                               bug          a VLA bound in a type name is computed where it is parsed, before the expression's side effects (cproc)
-gcc-dg/typename-vla-2.c                               bug          a VLA bound in a type name is computed where it is parsed, before the expression's side effects (cproc)
 gcc-dg/typename-vla-3.c                               unsupported  struct member 'x' has variably modified type
 gcc-dg/typename-vla-4.c                               unsupported  declaration does not declare anything
 gcc-dg/typename-vla-5.c                               unsupported  struct member 'x' has variably modified type
@@ -956,8 +953,6 @@ gcc-dg/utf8-1.c                                       skip         -fexec-charse
 gcc-dg/va-arg-pack-len-1.c                            unsupported  built-in function '__builtin_va_arg_pack_len' is not supported
 gcc-dg/var-expand3.c                                  unsupported  altivec.h: No such file or directory
 gcc-dg/visibility-22.c                                unsupported  undefined symbol 'foo': cimo's runtime does not provide it
-gcc-dg/vla-13.c                                       bug          a VLA bound in a type name is computed where it is parsed, before the expression's side effects (cproc)
-gcc-dg/vla-15.c                                       bug          typeof of a variably modified expression doesn't evaluate it
 gcc-dg/vla-16.c                                       unsupported  expected primary expression
 gcc-dg/vla-stexp-1.c                                  unsupported  struct member 'x' has variably modified type
 gcc-dg/vla-stexp-2.c                                  unsupported  struct member 'a' has variably modified type

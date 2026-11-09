@@ -414,7 +414,7 @@ class Type(object):
     members). Fields that C leaves uninitialized default to zero/None."""
     __slots__ = ('fieldalign', 'kind', 'prop', 'align', 'size', 'value', 'base', 'link', 'qual', 'incomplete',
                  'issigned', 'iscomplex', 'width', 'length', 'ptrqual', 'asize',
-                 'isvararg', 'params', 'nparam', 'tag', 'members', 'origin', 'vlanes')
+                 'isvararg', 'params', 'nparam', 'tag', 'members', 'origin', 'vlanes', 'vlasite')
 
     def __init__(self, kind=TYPENONE, prop=0, size=0, align=0, issigned=False, width=0,
                  base=None, incomplete=False, tag=None):
@@ -423,6 +423,9 @@ class Type(object):
         self.fieldalign = None  # cimo: a struct's alignment before `aligned(N)` after its body
         self.origin = None  # cimo: the type an `aligned(N)` typedef's type is a variant of (for compatibility)
         self.vlanes = 0  # cimo: a GNU vector type's number of elements (base: the element type)
+        # cimo: a variably modified type written in a type name in an expression (a cast, a compound literal, sizeof,
+        # typeof, va_arg): its array sizes are computed where that expression is evaluated (qbe.calcvla)
+        self.vlasite = False
         self.align = align
         self.size = size
         self.value = None

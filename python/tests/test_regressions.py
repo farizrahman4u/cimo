@@ -718,3 +718,23 @@ def test_universal_character_names_in_literals():
     for bad in ('"\\u0041"', '"\\ud800"', '"\\u12"'):
         with pytest.raises(cimo.CompileError):
             cimo.compile('const char *s = %s;\n' % bad)
+
+
+def test_vla_bounds_in_type_names_follow_the_expression():
+    # cproc computed a type name's array sizes as soon as an expression of that type started, before the side
+    # effects before the type name: sizeof (*(++a, (char (*)[a])0)) used a's old value; typeof didn't evaluate a
+    # variably modified operand, and evaluated it once per declarator (gcc.dg typename-vla-1.c, vla-13.c, vla-15.c,
+    # pr124576.c)
+    m = cimo.compile('char g[1]; void *p; int i;\n'
+                     'int f1(void) { int a = 1; int s = sizeof (*(++a, (char (*)[a])0)); return a * 100 + s; }\n'
+                     'int f2(void) { int i = 0; int j = sizeof (typeof (*(++i, (char (*)[i])g))); return i * 100 + j; }\n'
+                     'int f3(void) { int i = 0, j = 0; __typeof__((__typeof__(int[i++]) *)(j++, (void *)0)) a, b, c;\n'
+                     '    return i * 10 + j; }\n'
+                     'int f4(int j) { i = 10; (++i, (void)j, (int (*)[++i]){p}); return i; }\n'
+                     'int f5(int n) { int a[20]; int (*q)[n] = 0;\n'
+                     '    return (int)((char *)((n ? (int (*)[n])a : q) + 1) - (char *)a); }\n'
+                     'int f6(int n) { int s = 0; for (int k = 1; k <= n; k++) s += sizeof(*(int (*)[k])0); return s; }\n'
+                     'static char tmp[2];\n'
+                     'static int h(int n, char (*x)[sizeof (*(++n, (char (*)[n])&tmp))]) { return sizeof *x; }\n'
+                     'int f7(void) { return h(1, &tmp); }\n')
+    assert (m.f1(), m.f2(), m.f3(), m.f4(0), m.f5(3), m.f6(3), m.f7()) == (202, 101, 11, 12, 12, 24, 2)

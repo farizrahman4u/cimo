@@ -630,8 +630,13 @@ def convert(f, dst, src, l):
     return funcinst(f, op, cls, l, r)
 
 
-def calcvla(f, t):
+def calcvla(f, t, entry=False):
+    """entry: from funcexpr, for the type of any expression: not a type name's (Type.vlasite), whose sizes are
+    computed where the type name is (a cast, sizeof, ...), after what comes before it in the expression (cproc
+    computed them as an expression of that type started: `sizeof (*(++a, (char (*)[a])0))` used a's old value)"""
     if not (t.prop & PROPVM):
+        return
+    if entry and t.vlasite:
         return
     if t.base:
         calcvla(f, t.base)
@@ -2367,8 +2372,8 @@ def _vbuiltin(f, e):
 def funcexpr(f, e):
     if U.diagnostics:
         DG.checktype(e.type)
-    calcvla(f, e.type)
     k = e.kind
+    calcvla(f, e.type, entry=k != EXPRCOND)  # cimo: both arms may use the type: computed before either
     if k == EXPRIDENT:
         d = e.decl
         if d.kind == DECLOBJECT:
@@ -2536,6 +2541,7 @@ def funcexpr(f, e):
     elif k == EXPRCAST:
         if e.toeval:
             funcexpr(f, e.toeval)
+        calcvla(f, e.type)  # cimo: here (Type.vlasite)
         if TY.isvec(e.type) or TY.isvec(e.base.type):
             return _vcast(f, e.type, e.base.type, e.base)
         if (e.type.iscomplex or e.base.type.iscomplex) and e.type is not TY.typevoid:
@@ -2663,6 +2669,7 @@ def funcexpr(f, e):
         elif bk == BUILTINVAARG:
             if e.toeval:
                 funcexpr(f, e.toeval)
+            calcvla(f, e.type)  # cimo: here (Type.vlasite)
             # https://todo.sr.ht/~mcf/cproc/52
             if not (e.type.prop & PROPSCALAR):
                 if vastruct and e.type.kind in (TYPESTRUCT, TYPEUNION):
@@ -2685,10 +2692,13 @@ def funcexpr(f, e):
     elif k == EXPRSIZEOF:
         t = e.sztype
         assert t.kind == TYPEARRAY
-        calcvla(f, t)
-        # if the sizeof operand has VLA type, we must evaluate it
+        # if the sizeof operand has VLA type, we must evaluate it (cimo: first, then the size: its own sizes come
+        # after what it computes; a type name's typeof operand too, e.toeval)
+        if e.toeval:
+            funcexpr(f, e.toeval)
         if e.base:
             funcexpr(f, e.base)
+        calcvla(f, t)
         return t.asize
     U.fatal("unimplemented expression %d", e.kind)
 

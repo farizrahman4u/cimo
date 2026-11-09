@@ -1276,8 +1276,9 @@ def unaryexpr(s):
         e = mkbinaryexpr(tok.loc, TEQL, e, mkconstexpr(TY.typeint, 0))
     elif op == TSIZEOF or op == TALIGNOF or op == T__ALIGNOF__:
         next()
+        szeval = Ref(None)  # cimo: what the type name evaluates (a VLA's typeof operand), for a VLA's sizeof
         if consume(TLPAREN):
-            t = D.typename(s, None, None)
+            t = D.typename(s, None, szeval)
             if t:
                 expect(TRPAREN, "after type name")
                 # might be part of a compound literal
@@ -1307,6 +1308,7 @@ def unaryexpr(s):
         if t.kind == TYPEARRAY and t.size == 0 and op == TSIZEOF:
             e = Expr(EXPRSIZEOF, TY.typeulong, e)
             e.sztype = t
+            e.toeval = szeval.v
         else:
             # XXX: __alignof__ is not the same as alignof on 32-bit archs
             # this needs to be considered if we gain support for those archs

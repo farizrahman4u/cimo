@@ -98,10 +98,12 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   designated subobject kept what earlier designators put in it (C11 6.7.9p19: it initializes all of it);
   `__attribute__((mode(M)))` was ignored in a type name; `#pragma pack` was dropped; `\u` and `\U`
   escapes were rejected; `*p` of a `void *` as a statement emitted a load of no type; a parameter's array bound
-  naming an identifier read `__func__`'s declaration before it existed; `int (*)[][n]` asserted. Still open: a VLA
-  bound in a type name is computed where the type name is parsed, before side effects of the expression around
-  it (`sizeof (*(++a, (char (*)[a])0))` is 1, not 2), and `typeof` of a variably modified expression doesn't
-  evaluate it.
+  naming an identifier read `__func__`'s declaration before it existed; `int (*)[][n]` asserted; a type name's
+  array sizes were computed as soon as an expression of that type started (`calcvla` from `funcexpr`), before the
+  side effects ahead of the type name (`sizeof (*(++a, (char (*)[a])0))` was 1, not 2): such types are now marked
+  (`Type.vlasite`) and computed where the cast, compound literal, `sizeof` or `va_arg` is evaluated (a `?:` still
+  computes its type's before either arm); `sizeof (type-name)` dropped what a `typeof` in it evaluates, and a
+  declaration evaluated its `typeof` operand once per declarator.
 - Bugs fixed (marked `cimo:` in the code; found by gcc's torture tests): a block-scope `extern`
   that hides a local took the local's absent linkage and crashed (C11 6.2.2p4); the size of a
   variably modified typedef was computed at its first use, which need not dominate the others

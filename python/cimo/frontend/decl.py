@@ -1023,6 +1023,10 @@ def typename(s, tq, toeval):
                 toeval.v = t.expr
             if DG.declvector is not None:
                 return DG.vectortype(t.type, DG.declvector)
+            vt = t.type
+            while vt is not None and vt.prop & PROPVM:  # cimo: see Type.vlasite
+                vt.vlasite = True
+                vt = vt.base
         return t.type
     finally:
         DG.declvector = outer
@@ -1203,6 +1207,7 @@ def decl(s, f):
 
             if base.expr:
                 Q.funcexpr(f, base.expr)
+                base.expr = None  # cimo: the specifiers' once, not for each declarator (`typeof(e) a, b;`)
             init = None
             hasinit = False
             if consume(TASSIGN):

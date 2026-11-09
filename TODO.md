@@ -19,8 +19,7 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
     2155 pass, 8 bugs fixed; see "Conformance corpora" in `requirements.md`). Not yet: vect's subdirectories
     (`costmodel/`, `tsvc/`, ...), and the programs that include `../../c-c++-common/` files.
   - ~~**gcc.dg** run tests and **gcc.c-torture/compile**~~ **Done** (2026-11-09, corpora `gcc-dg` and
-    `gcc-torture-compile`; see "Conformance corpora"). Open from them: VLA bounds in type names evaluated in
-    expression order and `typeof` evaluating a variably modified operand (5 `bug` entries); non-ASCII and UCN
+    `gcc-torture-compile`; see "Conformance corpora"). No known miscompile left from them. Open: non-ASCII and UCN
     identifiers; bit-fields that `#pragma pack` or `packed` make cross a storage unit; compile time and memory of
     huge functions (100000 case labels: 255 s, 5.5 GB); gcc.dg's subdirectories (`ipa/`, `tree-ssa/`, ... are
     mostly dump scans, but some run).
