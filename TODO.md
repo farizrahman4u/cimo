@@ -4,6 +4,19 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
 
 ## Big
 
+- **Before the next release: a custom SIGINT handler mustn't unwind a kernel** (found by scramjit, 2026-11-09). Since
+  Ctrl-C stops kernels (2026-11-07), SIGINT during a kernel unwinds it whatever Python's handler is. With a handler of
+  the program's own that doesn't raise (`signal.signal(SIGINT, lambda *a: seen.append(1))`), plain Python would keep
+  going; the call now dies with `KernelError: interrupted in sj_kernel()`, and no handler can resume an unwound kernel.
+  Proposed rule, for every caller: if Python's SIGINT handler is `signal.default_int_handler`, unwind and raise
+  `KeyboardInterrupt` as now (the program gets the exception it was getting, sooner); otherwise (a handler of its own,
+  or `SIG_IGN`) record the signal as Python's C handler does and let the kernel finish, so the handler runs when the
+  call returns, as after any slow C call. Snapshot the handler at kernel entry: `signal.signal()` works only on the main
+  thread, and while a kernel runs there no Python code can change it, so the snapshot is exact and the signal handler
+  needs no Python. Reproduce: scramjit's `tests/test_interrupt.py::test_a_custom_handler_doesnt_stop_the_kernel`
+  (and `test_a_handler_set_after_the_first_compile_is_respected` must stay passing). scramjit needs no change: its own
+  stop flag stays as the fallback where cimo can't unwind (Windows, time spent in the runtime).
+
 - **High priority: x86-64 for this machine's CPU.** Detection, the cache key, FMA (scalar and vector, negations
   folded, none on a recurrence through its addend) and `popcnt`/`lzcnt`/`tzcnt` **done** (`cimo/cpu.py`; see "x86-64
   for this CPU" in `requirements.md`). 256-bit AVX2 vectors **done** (`ext.qbytes()`; see "AVX2" in `requirements.md`): against gcc `-O3 -march=native`
