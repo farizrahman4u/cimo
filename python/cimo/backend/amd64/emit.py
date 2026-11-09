@@ -1103,6 +1103,30 @@ def _qget(x, i, e, a=None, n=None):
             f.write("\tmovzbl %s, %s\n" % (_qr(i.to, SByte), _qr(i.to, SWord)))
 
 
+_TDP = ('tdpbf16ps', 'tdpbssd', 'tdpbsud', 'tdpbusd', 'tdpbuud')
+
+
+def _amx(i, e):
+    f = e.f
+    name = optab[i.op].name
+    con = (lambda r: e.fn.con[rval(r)].i)
+    reg = (lambda r: "%%%s" % regtoa(rval(r), SLong))
+    if name in ('xtilecfg', 'xtilecfgst'):
+        f.write("\t%s (%s)\n" % ('ldtilecfg' if name == 'xtilecfg' else 'sttilecfg', reg(i.arg[0])))
+    elif name == 'xtilerel':
+        f.write("\ttilerelease\n")
+    elif name == 'xtilezero':
+        f.write("\ttilezero %%tmm%d\n" % con(i.arg[0]))
+    elif name == 'xtdp':
+        n = con(i.arg[0])
+        f.write("\t%s %%tmm%d, %%tmm%d, %%tmm%d\n" % (_TDP[n >> 9], n & 7, n >> 3 & 7, n >> 6 & 7))
+    elif name.startswith('xtilest'):
+        f.write("\ttilestored %%tmm%s, (%s,%s,1)\n" % (name[-1], reg(i.arg[0]), reg(i.arg[1])))
+    else:
+        mn = 'tileloaddt1' if name.startswith('xtileldt') else 'tileloadd'
+        f.write("\t%s (%s,%s,1), %%tmm%s\n" % (mn, reg(i.arg[0]), reg(i.arg[1]), name[-1]))
+
+
 def emitins(i, e):
     """i: passed by value (copied here)."""
     i = i.copy()
@@ -1312,6 +1336,8 @@ def emitins(i, e):
         emitf("movq %%rsp, %L=", i, e)
     elif op == Osetsp:
         emitf("movq %L0, %%rsp", i, e)
+    elif D.isamx(op):  # cimo: AMX tiles
+        _amx(i, e)
     elif op in (D.Ordfpcr, D.Ordfpsr):  # cimo (<fenv.h>): MXCSR through 8 bytes below the stack pointer; lea
         f.write("\tleaq -8(%rsp), %rsp\n\tstmxcsr (%rsp)\n")  # keeps the flags
         emitf("movl (%%rsp), %W=", i, e)

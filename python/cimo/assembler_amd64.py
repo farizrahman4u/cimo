@@ -1457,6 +1457,44 @@ def _h_avx512(a, ops, sz, arg):
     raise AssemblerError('no AVX-512 form of %s' % a.mnemonic)
 
 
+def _tmm(o):
+    if o[0] != 't':
+        raise AssemblerError('expected a tile register')
+    return o
+
+
+def _h_amx(a, ops, sz, arg):
+    """AMX (VEX.128, map 0F38, W0): arg = (prefix, opcode, form). Forms: cfg, ldtilecfg/sttilecfg (memory); rel,
+    tilerelease; zero, tilezero %tmm; ld, tileloadd (base, index, scale), %tmm (the memory operand needs an index:
+    a SIB); st, tilestored %tmm, (base, index, scale); dp, the dot products %tmm(src2), %tmm(src1), %tmm(dst), dst
+    in reg, src1 in rm, src2 in vvvv."""
+    pfx, op, form = arg
+    pp = _PP[pfx]
+    if form == 'rel':
+        _nops(ops, 0)
+        return a.put(bytes((0xc4, 0xe2, 0x78, op, 0xc0)), ())
+    if form == 'cfg':
+        _nops(ops, 1)
+        if ops[0][0] != 'm':
+            raise AssemblerError('expected memory')
+        return _enc(a, bytes([op]), 0, ops[0], vex=(pp, 2, 0, 0, 0))
+    if form == 'zero':
+        _nops(ops, 1)
+        t = _tmm(ops[0])
+        return _enc(a, bytes([op]), t, ('t', 1024, 0, 0), vex=(pp, 2, 0, 0, 0))
+    if form in ('ld', 'st'):
+        _nops(ops, 2)
+        m, t = (ops[0], _tmm(ops[1])) if form == 'ld' else (ops[1], _tmm(ops[0]))
+        if m[0] != 'm' or m[6] is None or m[5] in (None, _RIP):
+            raise AssemblerError('a tile load or store needs a base and an index register')
+        return _enc(a, bytes([op]), t, m, vex=(pp, 2, 0, 0, 0))
+    if form == 'dp':
+        _nops(ops, 3)
+        src2, src1, dst = (_tmm(o) for o in ops)
+        return _enc(a, bytes([op]), dst, src1, vex=(pp, 2, 0, 0, src2[2]))
+    raise AssertionError(form)
+
+
 # mnemonic table: name -> (handler, suffix size, argument)
 
 _SFX = {'b': 1, 'w': 2, 'l': 4, 'q': 8}
@@ -1643,6 +1681,12 @@ for _k, _p in (('ss', _PF3), ('sd', _PF2)):
 _INSNS['vpextrw'] = (_h_avx, 0, (_P66, 1, 0xc5, 0, 'gmi'))
 for _e in _EVEX_ONLY:
     _INSNS[_e[0]] = (_h_avx512, 0, _e[1:])
+# AMX: (mnemonic, prefix, opcode, form)
+for _n, _p, _o, _f in (('ldtilecfg', _P0, 0x49, 'cfg'), ('sttilecfg', _P66, 0x49, 'cfg'), ('tilerelease', _P0, 0x49, 'rel'),
+                       ('tilezero', _PF2, 0x49, 'zero'), ('tileloadd', _PF2, 0x4b, 'ld'), ('tileloaddt1', _P66, 0x4b, 'ld'),
+                       ('tilestored', _PF3, 0x4b, 'st'), ('tdpbf16ps', _PF3, 0x5c, 'dp'), ('tdpbssd', _PF2, 0x5e, 'dp'),
+                       ('tdpbsud', _PF3, 0x5e, 'dp'), ('tdpbusd', _P66, 0x5e, 'dp'), ('tdpbuud', _P0, 0x5e, 'dp')):
+    _INSNS[_n] = (_h_amx, 0, (_p, _o, _f))
 _INSNS['xgetbv'] = (_h_fixed, 0, b'\x0f\x01\xd0')
 for _n, _p, _ld, _st in (('movss', b'\xf3', 0x10, 0x11), ('movsd', b'\xf2', 0x10, 0x11),
                          ('movups', b'', 0x10, 0x11), ('movupd', b'\x66', 0x10, 0x11),

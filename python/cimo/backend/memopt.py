@@ -110,7 +110,7 @@ def sink(fn):
 def _reads(i):
     """i can read memory or do anything else that lets a store be seen."""
     o = i.op
-    if D.isload(o) or o in (D.Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Ovaarg) or D.isvload(o) or D.isvstore(o):
+    if D.isload(o) or o in (D.Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Ovaarg) or D.isvload(o) or D.isvstore(o) or D.isamx(o):
         return True
     return o in (D.Ogetsp, D.Osetsp, D.Osalloc) or D.isalloc(o)
 
@@ -266,7 +266,7 @@ def merge(fn):
     return changed
 
 
-_CLOBBER = frozenset((D.Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Ovaarg))
+_CLOBBER = frozenset((D.Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Ovaarg)) | D.AMXOPS
 _STOREOF = {Kw: D.Ostorew, Kl: D.Ostorel, Ks: D.Ostores, Kd: D.Ostored}
 
 

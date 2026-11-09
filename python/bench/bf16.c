@@ -113,4 +113,31 @@ GEMM(gemm256, 8, __m256, __m256bh, _mm256_setzero_ps(), _mm256_loadu_si256, _mm2
      _mm256_set1_epi32)
 GEMM(gemm512, 16, __m512, __m512bh, _mm512_setzero_ps(), _mm512_loadu_si512, _mm512_dpbf16_ps, _mm512_storeu_ps,
      _mm512_set1_epi32)
+
+/* AMX (amx-tile, amx-bf16): blocks of 16 rows by 32 columns in tiles 0 and 1, 16 rows by 32 of k of A in tile 2,
+   16 pairs of k by 16 columns of B in tiles 3 and 4; m % 16, n % 32, k % 32 zero */
+void gemm_amx(long m, long n, long k, const uint16_t *A, const uint16_t *Bp, float *C)
+{
+    unsigned char cfg[64] = {1};
+    for (int t = 0; t < 5; t++) {
+        cfg[16 + 2 * t] = 64;  /* bytes a row */
+        cfg[48 + t] = 16;      /* rows */
+    }
+    _tile_loadconfig(cfg);
+    for (long i = 0; i < m; i += 16)
+        for (long j = 0; j < n; j += 32) {
+            _tile_zero(0);
+            _tile_zero(1);
+            for (long p = 0; p < k; p += 32) {
+                _tile_loadd(2, A + i * k + p, 2 * k);
+                _tile_loadd(3, Bp + (p / 2 * n + j) * 2, 4 * n);
+                _tile_loadd(4, Bp + (p / 2 * n + j + 16) * 2, 4 * n);
+                _tile_dpbf16ps(0, 2, 3);
+                _tile_dpbf16ps(1, 2, 4);
+            }
+            _tile_stored(0, C + i * n + j, 4 * n);
+            _tile_stored(1, C + i * n + j + 16, 4 * n);
+        }
+    _tile_release();
+}
 #endif

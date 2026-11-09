@@ -50,6 +50,7 @@ KERNELS = {
     'bfdot': (('bf16',), 'dot'), 'gemm': (('bf16',), 'gemm'),
     'bfdot256': (('avx512bf16', 'avx512vl'), 'dot'), 'gemm256': (('avx512bf16', 'avx512vl'), 'gemm'),
     'bfdot512': (('avx512bf16',), 'dot'), 'gemm512': (('avx512bf16',), 'gemm'),
+    'gemm_amx': (('amx-tile', 'amx-bf16'), 'gemm'),
 }
 DOT_N, DOT_REPS = 1 << 14, 2000  # 32 KB a vector: L1/L2
 GEMM_M, GEMM_N, GEMM_K, GEMM_REPS = 64, 64, 512, 50

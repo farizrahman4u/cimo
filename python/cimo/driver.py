@@ -663,6 +663,8 @@ def _compile(pp, filename, host_headers):
         ssa, params = _ir(pp, filename, host_headers)
         text = _qbe(ssa, params, stkchk=_exe.stack_checked(ssa))
         sigs = _sigs(ssa, params)
+        if re.search(r'^\txtile', ssa, re.M):  # AMX tiles: the module needs the OS's tile state (Module._setup)
+            sigs += ('\n' if sigs else '') + '#amx'
         if _WINDOWS:
             from .frontend.diag import longexterns
             names = longexterns()
@@ -1064,7 +1066,14 @@ class Module(Introspection):
                                       ())) & set(libsyms))
         self._libsyms = libsyms
         sigs = '\n'.join(l for l in lines if l and not l.startswith('#'))
+        if '#amx' in lines:
+            from . import cpu
+            try:
+                cpu.request_tiles()
+            except RuntimeError as e:
+                raise CompileError(str(e)) from None
         self._state = _exe.State(self._image)
+        self._state.tiles = '#amx' in lines
         self._out = _link.Stdout.attach(self._image)
         self._kernels = {}
         for line in sigs.splitlines():

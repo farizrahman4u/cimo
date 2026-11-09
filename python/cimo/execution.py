@@ -765,6 +765,9 @@ class State:
     def error(self, c, kernel):
         """Raise KernelError for the error recorded in context c (and clear it)."""
         code, pc, fault, addr = c.err, c.pc, c.fault, c.addr
+        if getattr(self, 'tiles', False):  # an AMX kernel stopped midway: its tiles released (cimo.cpu)
+            from . import cpu
+            cpu.release_tiles()
         if code == E_INTERRUPT:  # Ctrl-C stopped the kernel (cimo.fault): Python's SIGINT handler, as if it came now
             c.err = c.pc = 0
             _interrupted()  # KeyboardInterrupt, normally; a handler that doesn't raise still has the kernel stopped

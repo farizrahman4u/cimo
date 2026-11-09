@@ -280,7 +280,8 @@ def def_(sl, msk, b, i, il):
     while i > 0:
         i -= 1
         ins = b.ins[i]
-        if killsl(ins.to, sl) or (ins.op == Ocall and not _nomem(ins) and escapes(sl.ref, curf)):
+        if killsl(ins.to, sl) or (ins.op == Ocall and not _nomem(ins) and escapes(sl.ref, curf)) or \
+                (D.isamx(ins.op) and escapes(sl.ref, curf)):  # cimo: AMX tiles store rows a pointer reaches
             return Load()
         if ins.op in (Ovaarg, Ovastart) and \
                 alias(sl.ref, sl.off, sl.sz, ins.arg[0], 32, curf)[0] != NoAlias:

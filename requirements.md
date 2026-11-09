@@ -1527,6 +1527,19 @@ gcc's intrinsics.
   0.91 to 1.01x, jacobi2d 0.95 to 1.09x, isum 0.69 to 0.89x; only nbody_acc gains, 1.10 to 1.00x). So Intel's with
   AMX take 512, the rest 256; code written with 64-byte vectors gets zmm everywhere. bf16 kernels with zmm: Sapphire
   Rapids dot 1.04x, block 1.00x (was 2.4-2.6x at two ymm a zmm); Zen 4 dot 1.00x, block 0.71x (256-bit: 1.00x, 1.00x).
+- **AMX tiles (2026-11-09):** gcc's `_tile_*` intrinsics, declared in `immintrin.h`; the tile numbers are constants
+  checked where the call is parsed (0 to 7; a dot product's three distinct, or the CPU faults), so the IR ops carry
+  them: `xtileld<t> %base, %stride`, `xtilest<t>`, `xtileldt<t>`, `xtilezero t`, `xtdp kind<<9|dst<<6|src1<<3|src2`,
+  `xtilecfg`, `xtilecfgst`, `xtilerel` (`defs.AMXOPS`), pinned, and calls to the memory passes (a store a tile store
+  covers isn't forwarded past it; the pointers escape). The memory operand is (base, stride, 1): a constant stride
+  goes in a register. Tiles live in no register class: what a kernel keeps in a tile across a call of its own is its
+  business, as in C with gcc. Linux grants tile state per process on request: a module whose IR has tile ops says so
+  in its signatures (`#amx`, cached with it), and loading it calls `arch_prctl(ARCH_REQ_XCOMP_PERM, 18)` once
+  (`cpu.request_tiles`; a refusal is a `CompileError` naming it; our 128 KB alternate signal stacks are big enough for
+  the larger frame). A fault or Ctrl-C in such a module's kernel runs `tilerelease` on that thread before
+  `KernelError` (`cpu.release_tiles`), so the tiles don't stay in use; checked on Sapphire Rapids: a fault with tiles
+  loaded, then Ctrl-C in a loop of `tdpbf16ps`, then a correct product (`tests/test_amx.py`). Measured, 64x64x512 bf16
+  block (`bench/bf16.py gemm_amx`): 0.456 ms, gcc 0.410 (1.11x), same bits; the zmm one 2.02 ms.
 
 ## Conformance corpora (2026-10-31)
 

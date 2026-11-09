@@ -37,6 +37,22 @@ __m128i _mm_dpbusd_avx_epi32(__m128i __w, __m128i __a, __m128i __b) __asm__("__c
 __m256i _mm256_dpbusd_avx_epi32(__m256i __w, __m256i __a, __m256i __b)
     __asm__("__cimo_intrin__mm256_dpbusd_avx_epi32");
 
+/* AMX (amx-tile; amx-bf16 for _tile_dpbf16ps, amx-int8 for the byte ones): tiles by number, a constant from 0 to 7.
+   A kernel configures them (64 bytes: palette 1, then each tile's bytes a row and its rows), works, and releases
+   them; cimo asks the OS for the tile state when it loads a module that uses them. */
+void _tile_loadconfig(const void *__config) __asm__("__cimo_intrin__tile_loadconfig");
+void _tile_storeconfig(void *__config) __asm__("__cimo_intrin__tile_storeconfig");
+void _tile_release(void) __asm__("__cimo_intrin__tile_release");
+void _tile_zero(int __tile) __asm__("__cimo_intrin__tile_zero");
+void _tile_loadd(int __dst, const void *__base, long __stride) __asm__("__cimo_intrin__tile_loadd");
+void _tile_stream_loadd(int __dst, const void *__base, long __stride) __asm__("__cimo_intrin__tile_stream_loadd");
+void _tile_stored(int __src, void *__base, long __stride) __asm__("__cimo_intrin__tile_stored");
+void _tile_dpbf16ps(int __dst, int __a, int __b) __asm__("__cimo_intrin__tile_dpbf16ps");
+void _tile_dpbssd(int __dst, int __a, int __b) __asm__("__cimo_intrin__tile_dpbssd");
+void _tile_dpbsud(int __dst, int __a, int __b) __asm__("__cimo_intrin__tile_dpbsud");
+void _tile_dpbusd(int __dst, int __a, int __b) __asm__("__cimo_intrin__tile_dpbusd");
+void _tile_dpbuud(int __dst, int __a, int __b) __asm__("__cimo_intrin__tile_dpbuud");
+
 /* macros, not functions: cimo copies functions with vector arguments or results into their callers only as calls */
 #define __CIMO_LD(vt, p) ({ vt __v; __builtin_memcpy(&__v, (p), sizeof __v); __v; })
 #define __CIMO_ST(vt, p, v) ({ vt __v = (v); __builtin_memcpy((p), &__v, sizeof __v); (void)0; })

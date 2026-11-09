@@ -293,6 +293,25 @@ def sel(i, tn, fn):
     op = i.op
     if D.isqop(op):
         _qsel(i, tn, fn)
+    elif D.isamx(op):  # cimo: pointers and strides in registers, tile numbers stay constants
+        if argcls(i, 0) == Kl:  # registers even for constants: (base, index, 1) has no immediate
+            cons = []
+            for n in (0, 1):
+                if i.arg[n] != R and rtype(i.arg[n]) == RCon:
+                    r = newtmp("isel", Kl, fn)
+                    cons.append((r, i.arg[n]))
+                    i.arg[n] = r
+            emiti(i)
+            i1 = D.insb[D.curi]
+            for n in (0, 1):
+                if i1.arg[n] != R:
+                    fixarg(i1.arg, n, Kl, i1, fn)
+            for r, c in cons:  # emitted after: before it in the block (selection goes backwards)
+                emit(Ocopy, Kl, r, c, R)
+                ci = D.insb[D.curi]
+                fixarg(ci.arg, 0, Kl, ci, fn)
+        else:
+            emiti(i)
     elif op in (Odiv, Orem, Oudiv, Ourem):
         if KBASE(k) == 1:
             _emit_fix(i, fn)
@@ -1065,7 +1084,7 @@ _ZEXT = {D.Oextub: ((D.Oloadub,), D.Oloadub), D.Oextuh: ((D.Oloaduh,), D.Oloaduh
 def _writes(op):
     """Whether op may write memory."""
     return isstore(op) or op in _RMW.values() or op in (Ocall, D.Oblit0, D.Oblit1, D.Ovastart, D.Oqstore, D.Oqstbh,
-                                                        D.Oqstore16, D.Oqstore32, D.Oqsth)
+                                                        D.Oqstore16, D.Oqstore32, D.Oqsth) or D.isamx(op)
 
 
 _FMAM = {D.Oqfma1s: D.Oqxfmams, D.Oqfma1d: D.Oqxfmamd}

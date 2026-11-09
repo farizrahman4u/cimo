@@ -1985,6 +1985,27 @@ zero2:
 	vpandq %ymm3, %ymm4, %ymm5
 	vpaddd %ymm17, %ymm4, %ymm5
 	vaddps %xmm17, %xmm4, %xmm5
+	# AMX tiles
+	ldtilecfg (%rdi)
+	ldtilecfg 64(%rsp)
+	sttilecfg (%rax)
+	sttilecfg -64(%rbp)
+	tilerelease
+	tilezero %tmm0
+	tilezero %tmm7
+	tileloadd (%rdi,%rsi,1), %tmm0
+	tileloadd (%r8,%r9,1), %tmm7
+	tileloadd 64(%rbp,%rax,1), %tmm3
+	tileloadd (%rsp,%rcx,1), %tmm2
+	tileloaddt1 (%rdi,%rsi,1), %tmm1
+	tilestored %tmm0, (%rdi,%rsi,1)
+	tilestored %tmm5, (%r13,%r12,1)
+	tdpbf16ps %tmm2, %tmm1, %tmm0
+	tdpbf16ps %tmm7, %tmm6, %tmm5
+	tdpbssd %tmm2, %tmm1, %tmm0
+	tdpbsud %tmm3, %tmm4, %tmm5
+	tdpbusd %tmm2, %tmm1, %tmm0
+	tdpbuud %tmm6, %tmm1, %tmm7
 .Lx:
 .Lmask:
 	.byte 0

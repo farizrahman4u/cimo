@@ -1000,6 +1000,27 @@ def designator(s, t, offset):
             return
 
 
+def _tileargs(d, call):
+    """cimo: an AMX intrinsic's tile numbers are constants from 0 to 7 (they're in the instruction), and a dot
+    product's three tiles differ (the CPU faults otherwise)."""
+    spec = _intrin.lookup(d)
+    which = _intrin.TILEARGS.get(spec[1])
+    if not which:
+        return
+    args, a = [], call.args
+    while a:
+        args.append(a)
+        a = a.next
+    tiles = []
+    for n in which:
+        c = EV.eval(args[n])
+        if c.kind != EXPRCONST or not c.type.prop & PROPINT or not 0 <= c.u <= 7:
+            error(tok.loc, "%s: a tile number must be a constant from 0 to 7", d.name)
+        tiles.append(c.u)
+    if len(set(tiles)) != len(tiles):
+        error(tok.loc, "%s: the destination and the sources must be different tiles", d.name)
+
+
 def builtinfunc(s, kind):
     if kind == BUILTINALLOCA:
         e = exprassign(assignexpr(s), TY.typeulong)
@@ -1192,6 +1213,9 @@ def postfixexpr(s, r):
                     p = p.next
             if p and not t.isvararg:
                 error(tok.loc, "not enough arguments for function call")
+            if r.kind == EXPRUNARY and r.op == TBAND and r.base.kind == EXPRIDENT and r.base.decl.asmname \
+                    and r.base.decl.asmname.startswith(_intrin.PREFIX) and _intrin.lookup(r.base.decl):
+                _tileargs(r.base.decl, e)
             e = decay(e)
             next()
         elif k == TPERIOD or k == TARROW:

@@ -1503,7 +1503,27 @@ def funcintrinsic(f, e):
             acc, a, b = [_qop(f, ld, off(p)) for p in args]
             _qop(f, st, _qop(f, (op, acc), a, b), off(res), res=False)
         return res
-    U.fatal("internal error; unknown intrinsic kind %s" % kind)
+    args = []
+    a = e.args
+    while a:
+        args.append(a)
+        a = a.next
+    tile = (lambda n: EV.eval(args[n]).u)  # expr.py checked: constants from 0 to 7
+    if kind == 'tilecfg':
+        _qop(f, op, funcexpr(f, args[0]), res=False)
+    elif kind == 'tilerel':
+        _qop(f, op, mkintconst(0), res=False)
+    elif kind == 'tilezero':
+        _qop(f, op, mkintconst(tile(0)), res=False)
+    elif kind in ('tileld', 'tilest'):
+        base = funcexpr(f, args[1])
+        stride = convert(f, TY.typelong, args[2].type, funcexpr(f, args[2]))
+        _qop(f, op + str(tile(0)), base, stride, res=False)
+    elif kind == 'tiledp':
+        _qop(f, 'xtdp', mkintconst(op << 9 | tile(0) << 6 | tile(1) << 3 | tile(2)), res=False)
+    else:
+        U.fatal("internal error; unknown intrinsic kind %s" % kind)
+    return mkintconst(0)
 
 
 def funcbuiltin(f, e):

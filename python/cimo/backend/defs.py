@@ -480,6 +480,18 @@ _OPS += [('qsel0', ((Ke, Ke, Ke, Ke, Ke, Kq), (Kx,) * 6), 0, 0, 0, 0, 0, 0, 0, 0
 # is add %v to the word or long at %a, of the instruction's class
 _OPS += [('x%sm' % n, ((Kw, Kl, Ke, Ke, Ke, Ke), (Km, Km, Ke, Ke, Ke, Ke)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
          for n in ('add', 'sub', 'and', 'or', 'xor')]
+# cimo: AMX tiles (x86-64 amx-tile, amx-bf16, amx-int8; the intrinsics of the bundled immintrin.h), pinned, writing
+# or reading memory as a call may: "xtilecfg %p" (ldtilecfg), "xtilecfgst %p" (sttilecfg), "xtilerel 0" (tilerelease),
+# "xtilezero t" (tilezero %tmm<t>), "xtileld<t> %base, %stride" (tileloadd), xtileldt<t> (tileloaddt1), "xtilest<t>
+# %base, %stride" (tilestored), "xtdp n": the dot product kind << 9 | dst << 6 | src1 << 3 | src2 (kinds: tdpbf16ps,
+# tdpbssd, tdpbsud, tdpbusd, tdpbuud)
+_AMXP = ((Kl, Kl, Ke, Ke), (Kl, Kl, Ke, Ke))
+_AMXC = ((Kw, Kw, Ke, Ke), (Kx, Kx, Kx, Kx))
+_OPS += [('xtilecfg', ((Kl, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('xtilecfgst', ((Kl, Kl, Ke, Ke), (Kx, Kx, Kx, Kx)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('xtilerel', _AMXC, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1), ('xtilezero', _AMXC, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+         ('xtdp', _AMXC, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)]
+_OPS += [(n + str(t), _AMXP, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1) for n in ('xtileld', 'xtileldt', 'xtilest') for t in range(8)]
 # cimo: the floating-point environment (ext.math, <fenv.h>): "%r =w rdfpcr" reads the control register, rdfpsr the
 # status (arm64 FPCR and FPSR; x86-64 MXCSR for both), "wrfpcr %v" and "wrfpsr %v" write them; pinned. xcmpe (x86-64
 # comis) and afcmpq (arm64 fcmp): the float comparisons, signaling and quiet, beside xcmp (quiet) and afcmp (signaling)
@@ -540,6 +552,13 @@ def isload(o): return Oloadsb <= o <= Oload
 def isvload(o): return Ovloadsb <= o <= Ovload or o in (Oqload, Oqldbh, Oqld3bh, Oqld3x, Oqxwin, Oqld3x16, Oqldh, Oqload16, Oqload32)  # vector memory: as careful as volatile, for now
 def isvstore(o): return Ovstoreb <= o <= Ovstored or o in (Oqstore, Oqstbh, Oqstshrn, Oqsth, Oqstore16, Oqstore32)
 def isqop(o): return Oqaddb <= o <= Oqwmla3h
+
+
+# cimo: the AMX ops, which memory passes treat as calls (they read and write what their pointers reach)
+AMXOPS = frozenset(o for o in range(len(optab)) if (optab[o].name or '').startswith(('xtile', 'xtdp')))
+
+
+def isamx(o): return o in AMXOPS
 
 
 # cimo: the second of a qfma0 pair, which reads its destination too (isel made it a copy of the accumulator)

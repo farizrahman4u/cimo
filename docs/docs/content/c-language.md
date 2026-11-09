@@ -55,8 +55,13 @@ The dot-product instructions have their intrinsics, under the names gcc and clan
 | `immintrin.h` | `_mm_dpbf16_ps`, `_mm256_dpbf16_ps`, `_mm512_dpbf16_ps` | `avx512bf16`, `avx512vl` |
 | | `_mm_dpbusd_epi32`, `_mm256_dpbusd_epi32`, `_mm512_dpbusd_epi32` | `avx512vnni`, `avx512vl` |
 | | `_mm_dpbusd_avx_epi32`, `_mm256_dpbusd_avx_epi32` | `avxvnni` |
+| | AMX tiles: `_tile_loadconfig`, `_tile_storeconfig`, `_tile_zero`, `_tile_loadd`, `_tile_stream_loadd`, `_tile_stored`, `_tile_release` | `amx-tile` |
+| | `_tile_dpbf16ps` | `amx-bf16` |
+| | `_tile_dpbssd`, `_tile_dpbsud`, `_tile_dpbusd`, `_tile_dpbuud` | `amx-int8` |
 
-Each needs its CPU feature: on a CPU without it, the call is a compile error that names the feature. `cimo.cpu_features()` says what this CPU has, so a program can pick its kernel before compiling it, and the feature macros gcc defines with `-march=native` are defined too (`__ARM_FEATURE_BF16_VECTOR_ARITHMETIC`, `__ARM_FEATURE_DOTPROD`, `__ARM_FEATURE_MATMUL_INT8`, `__AVX512BF16__`, `__AVX512VNNI__`, `__AVXVNNI__`).
+Each needs its CPU feature: on a CPU without it, the call is a compile error that names the feature. `cimo.cpu_features()` says what this CPU has, so a program can pick its kernel before compiling it, and the feature macros gcc defines with `-march=native` are defined too (`__ARM_FEATURE_BF16_VECTOR_ARITHMETIC`, `__ARM_FEATURE_DOTPROD`, `__ARM_FEATURE_MATMUL_INT8`, `__AVX512BF16__`, `__AVX512VNNI__`, `__AVXVNNI__`, `__AMX_TILE__`, `__AMX_BF16__`, `__AMX_INT8__`).
+
+A tile number is a constant from 0 to 7, as in gcc, and a tile dot product's three tiles must differ; either mistake is a compile error. On Linux the process needs the OS's permission for the tiles' state: cimo asks for it when it loads a module that uses them, and raises `CompileError` saying so if the OS refuses. A kernel stopped by a fault or Ctrl-C has its tiles released.
 
 The headers also have the vector types (`float32x4_t`, `bfloat16x8_t`, `__m256`, `__m512bh`, ...) and the loads, stores, broadcasts, additions and sums that a dot-product kernel needs around them (`vld1q_bf16`, `vdupq_n_f32`, `vaddvq_f32`, `_mm512_loadu_si512`, `_mm512_set1_epi32`, `_mm512_reduce_add_ps`, ...), with gcc's results. They declare nothing else: `__ARM_NEON`, `__AVX2__` and `__AVX512F__` stay undefined.
 

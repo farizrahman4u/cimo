@@ -23,7 +23,22 @@ INTRINSICS = {
     '_mm512_dpbusd_epi32': (('avx512vnni', 'avx512vl'), 'dot', 'qusdot'),
     '_mm_dpbusd_avx_epi32': (('avxvnni',), 'dot', 'qusdot'),
     '_mm256_dpbusd_avx_epi32': (('avxvnni',), 'dot', 'qusdot'),
+    # AMX tiles: the tile numbers are constants (TILEARGS), the instructions backend/defs.py's x* ones
+    '_tile_loadconfig': (('amx-tile',), 'tilecfg', 'xtilecfg'),
+    '_tile_storeconfig': (('amx-tile',), 'tilecfg', 'xtilecfgst'),
+    '_tile_release': (('amx-tile',), 'tilerel', 'xtilerel'),
+    '_tile_zero': (('amx-tile',), 'tilezero', 'xtilezero'),
+    '_tile_loadd': (('amx-tile',), 'tileld', 'xtileld'),
+    '_tile_stream_loadd': (('amx-tile',), 'tileld', 'xtileldt'),
+    '_tile_stored': (('amx-tile',), 'tilest', 'xtilest'),
+    '_tile_dpbf16ps': (('amx-tile', 'amx-bf16'), 'tiledp', 0),
+    '_tile_dpbssd': (('amx-tile', 'amx-int8'), 'tiledp', 1),
+    '_tile_dpbsud': (('amx-tile', 'amx-int8'), 'tiledp', 2),
+    '_tile_dpbusd': (('amx-tile', 'amx-int8'), 'tiledp', 3),
+    '_tile_dpbuud': (('amx-tile', 'amx-int8'), 'tiledp', 4),
 }
+# the arguments that are tile numbers, by kind
+TILEARGS = {'tilezero': (0,), 'tileld': (0,), 'tilest': (0,), 'tiledp': (0, 1, 2)}
 
 # the features of the CPU being compiled for (compile(cpufeat=)); empty: no intrinsic is available
 cpufeat = frozenset()

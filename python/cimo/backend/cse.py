@@ -634,7 +634,7 @@ def _combineor(fn, b, n):
         return None  # loaded in another block
     at = [pos[id(s[3])] for s in src[:w]]
     for x in b.ins[min(at):max(at)]:
-        if D.isstore(x.op) or x.op in (D.Ocall, D.Oblit0, D.Oblit1) or D.isvstore(x.op) or D.isvload(x.op):
+        if D.isstore(x.op) or x.op in (D.Ocall, D.Oblit0, D.Oblit1) or D.isvstore(x.op) or D.isvload(x.op) or D.isamx(x.op):
             return None
     last = max(at) + 1
     pre = []

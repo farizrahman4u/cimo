@@ -46,6 +46,7 @@ Tq = Ntok + 6  # cimo extension: class q and its instructions, keywords when ext
 Tp = Ntok + 9  # cimo extension: class p, a pointer (an l everywhere; i32 at a WebAssembly function's boundary)
 Tvector = Ntok + 8  # cimo extension: "type :v = align 16 vector { s 4 }", a GNU vector type (ext.vector)
 _QNAMES = {optab[o].name: o for o in list(range(D.Oqaddb, D.Oqstore + 1)) + [D.Oqload16, D.Oqstore16, D.Oqload32, D.Oqstore32] if optab[o].name not in ('qsel0', 'qfma0') and not (optab[o].name.startswith('qx') and optab[o].name != 'qxor')}
+_AMXNAMES = {optab[o].name: o for o in D.AMXOPS}
 Tnsw = Ntok + 5  # cimo extension: add, sub and mul with C's promise, keywords when ext.nowrap is on
 _NSWOPS = {'addnsw': D.Oadd, 'subnsw': D.Osub, 'mulnsw': D.Omul}
 Tassoc = Ntok + 10  # cimo extension: a float add, sub or mul of a `#pragma omp simd reduction`, in any order
@@ -269,6 +270,9 @@ def lex():
             return Tqc
         if _ext.vector and S.tokval_str in _QNAMES:
             S.mathop = _QNAMES[S.tokval_str]
+            return Tq
+        if _ext.vector and S.tokval_str in _AMXNAMES:  # cimo: AMX tiles (defs.AMXOPS)
+            S.mathop = _AMXNAMES[S.tokval_str]
             return Tq
         if _ext.nowrap and S.tokval_str in _NSWOPS:
             S.mathop = _NSWOPS[S.tokval_str]
@@ -587,6 +591,10 @@ def parseline(ps):
     elif t == Tq and S.mathop in (D.Oqstore, D.Oqstore16, D.Oqstore32):
         r = R
         k = _KQTEXT
+        op = Tq
+    elif t == Tq and S.mathop in D.AMXOPS:
+        r = R
+        k = Kw
         op = Tq
     else:
         err("label, instruction or jump expected")

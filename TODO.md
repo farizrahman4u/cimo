@@ -55,7 +55,10 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
      of gcc) and at 256 on Zen 4 (0.93x; 0.97x at 512). Was: `zmm` registers, EVEX and mask registers in the assembler and backend; class `q`
      at 64 bytes in the vectorizer and for GNU vector types; `_mm512_dpbf16_ps` with it. Whether 512 beats 256 is per
      CPU (frequency, port use): measure on Sapphire Rapids and Zen 4 against 256 and against gcc, and choose by CPU.
-  4. **AMX tiles on x86-64** (`amx-tile`, `amx-bf16`; Sapphire Rapids and later): configure, load, `tdpbf16ps`, store,
+  4. ~~**AMX tiles on x86-64**~~ **Done** (2026-11-09; "AMX tiles" in `requirements.md`): `_tile_loadconfig` to
+     `_tile_release`, `_tile_dpbf16ps` and the int8 ones from the bundled `immintrin.h`; Linux's tile permission asked at
+     load (a clear error when refused), tiles released when a fault or Ctrl-C stops a kernel. A 64x64x512 bf16 block
+     on Sapphire Rapids: 0.46 ms, gcc 0.41 (1.11x), same bits; 4.5x faster than the zmm one. Was: **AMX tiles on x86-64** (`amx-tile`, `amx-bf16`; Sapphire Rapids and later): configure, load, `tdpbf16ps`, store,
      release, through their intrinsics' names as in 2. Linux grants tile state per process on request
      (`arch_prctl(ARCH_REQ_XCOMP_PERM)`): the runtime asks at load when a module uses tiles, and says so clearly when
      refused. Tile state across a fault's unwind and a signal: check. This is the instruction torch's bf16 products use

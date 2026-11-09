@@ -103,7 +103,8 @@ including the browser.
   `printf` writes to `sys.stdout`, so output appears in notebooks
 - `restrict`, used by the loop optimizer
 - The dot-product intrinsics of `arm_neon.h` and `immintrin.h` under gcc's names (`vbfdotq_f32`, `vdotq_s32`,
-  `_mm512_dpbf16_ps`, `_mm256_dpbusd_epi32`, ...), on CPUs that have them (`cimo.cpu_features()`)
+  `_mm512_dpbf16_ps`, `_mm256_dpbusd_epi32`, ...) and AMX's tiles (`_tile_loadd`, `_tile_dpbf16ps`, ...), on CPUs that have
+  them (`cimo.cpu_features()`)
 - `#pragma omp parallel for`: a loop's iterations on every core, on a warm thread pool, as `gcc -fopenmp` runs them
   (private, firstprivate, lastprivate and reduction clauses, static, dynamic and guided schedules, `critical`, `atomic`,
   `<omp.h>`)

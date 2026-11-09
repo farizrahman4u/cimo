@@ -271,3 +271,44 @@ def features():
 def key():
     """The features as bytes, for cache keys."""
     return ','.join(sorted(features())).encode()
+
+
+_tiles = None  # None: not asked yet; else the error, or ''
+
+
+def request_tiles():
+    """AMX's tile state for this process, which Linux grants on request (arch_prctl(ARCH_REQ_XCOMP_PERM,
+    XFEATURE_XTILEDATA)); asked once, when a module that uses tiles loads. Windows and others give it without asking.
+    Raises RuntimeError, saying so, when the OS refuses."""
+    global _tiles
+    if _tiles is None:
+        _tiles = ''
+        if sys.platform.startswith('linux'):
+            libc = ctypes.CDLL(None, use_errno=True)
+            libc.syscall.restype = ctypes.c_long
+            # SYS_arch_prctl 158, ARCH_REQ_XCOMP_PERM 0x1023, XFEATURE_XTILEDATA 18
+            if libc.syscall(ctypes.c_long(158), ctypes.c_long(0x1023), ctypes.c_long(18)) != 0:
+                e = ctypes.get_errno()
+                _tiles = ('the OS refused AMX tile state (arch_prctl(ARCH_REQ_XCOMP_PERM, XTILEDATA): %s)%s'
+                          % (os.strerror(e), '; a sigaltstack too small for the larger signal frame refuses it'
+                             if e == 28 else ''))
+    if _tiles:
+        raise RuntimeError(_tiles)
+
+
+_release = None  # (function, its page)
+
+
+def release_tiles():
+    """tilerelease on this thread: a kernel stopped by a fault or Ctrl-C (cimo.execution) leaves its tiles
+    configured otherwise, which every context switch then saves and restores."""
+    global _release
+    if _release is None:
+        from . import loader
+        code = _code('tilerelease\nret\n')
+        page = loader._PAGE_SIZE if hasattr(loader, '_PAGE_SIZE') else 4096
+        mem = loader._map(page, loader.PROT_READ | loader.PROT_WRITE)
+        ctypes.memmove(mem, code, len(code))
+        loader._protect(mem, page, loader.PROT_READ | loader.PROT_EXEC)
+        _release = (ctypes.CFUNCTYPE(None)(mem), mem)
+    _release[0]()
