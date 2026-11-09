@@ -1056,3 +1056,77 @@ def test_fmin_fmax_reductions_in_any_order(op, t):
             x = (ctype * (n + 1))(*[r.choice(pick) for _ in range(n + 1)])
             a, b = on.f(ctypes.addressof(x) + ctypes.sizeof(ctype), n), off.f(ctypes.addressof(x) + ctypes.sizeof(ctype), n)
             assert struct.pack('d', a) == struct.pack('d', b) or (a != a and b != b), (n, list(x), a, b)
+
+
+NARROW = {
+    'addk': ('void f(uint8_t *o, const uint8_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = (uint8_t)(a[i] + k); }', ctypes.c_uint8),
+    'inplace': ('void f(uint8_t *o, const uint8_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = (uint8_t)((uint32_t)o[i] + (uint32_t)k); }', ctypes.c_uint8),
+    'mix8': ('void f(uint8_t *o, const uint8_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = (uint8_t)((a[i] * k - o[i]) ^ (a[i] << 3) | 1); }', ctypes.c_uint8),
+    'neg8': ('void f(int8_t *o, const int8_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = -a[i] & 0x7f; }', ctypes.c_int8),
+    'add16': ('void f(int16_t *o, const int16_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = a[i] + o[i] + (short)k; }', ctypes.c_int16),
+    'scale16': ('void f(uint16_t *o, const uint16_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = (uint16_t)(a[i] * k + 7); }', ctypes.c_uint16),
+    'shl16': ('void f(int16_t *o, const int16_t *a, long n, long k) { for (long i = 0; i < n; i++) o[i] = (int16_t)((a[i] << 5) - k); }', ctypes.c_int16),
+}
+
+
+@pytest.mark.parametrize('name', sorted(NARROW))
+def test_byte_and_short_lanes_bit_for_bit(name):
+    """Values that only reach their byte or short stores through +, -, *, &, |, ^, << and negation: lanes as wide as
+    the stores (16 bytes a vector), whatever the values in between and the invariant's (its low bits on each lane); the
+    output may overlap the input at any distance (run-time checks)."""
+    src, ctype = NARROW[name]
+    src = '#include <stdint.h>\n' + src
+    mulshift = name in ('mix8',) and hosts.AMD64  # no byte multiply or shift on x86-64
+    if not mulshift:
+        assert vectorized(src), driver._build(src)[0]
+    on, off = both(src)
+    size = ctypes.sizeof(ctype)
+    r = random.Random(len(name))
+    for n in (0, 1, 2, 7, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100, 257):
+        for k in (0, 1, 255, 256, -1, 2 ** 31 - 1, -2 ** 63, r.randint(-10 ** 9, 10 ** 9)):
+            for shift in (None, 0, 1, 5, -1):  # o separate from a, or a + shift elements
+                vals = bytes(r.randrange(256) for _ in range((n + 80) * size))
+                b1, b2 = (ctypes.c_uint8 * len(vals)).from_buffer_copy(vals), (ctypes.c_uint8 * len(vals)).from_buffer_copy(vals)
+                o1, o2 = (ctypes.c_uint8 * len(vals)).from_buffer_copy(vals), (ctypes.c_uint8 * len(vals)).from_buffer_copy(vals)
+
+                def args(b, o):
+                    a = ctypes.addressof(b) + 8 * size
+                    out = ctypes.addressof(o) if shift is None else a + shift * size
+                    return out, a
+                on.f(*args(b1, o1), n, k)
+                off.f(*args(b2, o2), n, k)
+                assert bytes(b1) == bytes(b2) and bytes(o1) == bytes(o2), (n, k, shift)
+
+
+LEAVING = {
+    # scramjit's brighten: an argument checked every iteration, inside a loop over chunks
+    'check': '''int f(uint8_t *a, long n, long k) {
+        long i = 0, end = n;
+        for (;;) {
+            long stop = end > i && (unsigned long)end - (unsigned long)i > 64 ? i + 64 : end;
+            for (; i < stop; i++) { uint8_t x = a[i]; if (k < 0 || k > 255) return 7; a[i] = (uint8_t)(x + k); }
+            if (i >= end) break;
+        }
+        return 0; }''',
+    # what leaves reads a value of the loop; a value of it used after
+    'values': '''int f(uint8_t *a, long n, long k) {
+        long i; int s = 0;
+        for (i = 0; i < n; i++) { if (k == 3) return (int)i + 100; s += a[i]; a[i] = (uint8_t)(a[i] + k); }
+        return s * 1000 + (int)i; }''',
+}
+
+
+@pytest.mark.parametrize('name', sorted(LEAVING))
+def test_a_check_that_leaves_the_loop_is_unswitched(name):
+    """An invariant condition that leaves the loop (LLVM's trivial unswitching): the loop as written runs when it might
+    leave, a copy without the check otherwise, which then vectorizes."""
+    src = '#include <stdint.h>\n' + LEAVING[name]
+    on, off = both(src)
+    r = random.Random(3)
+    for n in (0, 1, 5, 16, 63, 64, 65, 200):
+        for k in (0, 3, 10, 255, 256, -1):
+            vals = bytes(r.randrange(256) for _ in range(max(n, 1)))
+            a, b = (ctypes.c_uint8 * len(vals)).from_buffer_copy(vals), (ctypes.c_uint8 * len(vals)).from_buffer_copy(vals)
+            assert on.f(a, n, k) == off.f(b, n, k) and bytes(a) == bytes(b), (n, k)
+    if name == 'check' and hosts.ARM64:
+        assert vectorized(src), driver._build(src)[0]

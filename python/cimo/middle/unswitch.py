@@ -53,7 +53,7 @@ def transform(fn, lp):
     c, hoist = c
     g = shape(lp)
     if g is None:
-        return False
+        return _leaving(fn, lp, c, hoist, n)
     P, E, exits = g
     H = lp.header
     copy = clone(fn, lp, E, exits)
@@ -69,6 +69,111 @@ def transform(fn, lp):
     _count[fn.name] = n + 1
     M.count('unswitch')
     return True
+
+
+def _invcond(fn, lp, b):
+    """(the condition of b's jnz, the instruction to compute it before the loop or None) if it doesn't change in lp."""
+    ids = {x.id for x in lp.blocks}
+    if b.jmp.type != D.Jjnz or b.s1 is b.s2 or not ir.istmp(b.jmp.arg):
+        return None
+    t = fn.tmp[rval(b.jmp.arg)]
+    if t.def_ is None:
+        return None
+    if t.bid not in ids:
+        return b.jmp.arg, None
+    d = t.def_
+    if d.op in ir.PURE_SAFE and all(not ir.istmp(a) or fn.tmp[rval(a)].bid not in ids for a in d.arg):
+        return b.jmp.arg, d
+    return None
+
+
+def _leaving(fn, lp, c, hoist, n):
+    """LLVM's trivial unswitching, by copying: branches on conditions the loop doesn't change that leave it, all to one
+    block X (`if (k < 0 || k > 255) return 7;`, a check of an argument scramjit's kernels do each iteration). The loop
+    as it is runs when one of them would leave; a copy of it in which none does (each a jump to its other side),
+    otherwise. X is reached from the original only, so its values need no phis; the loop's other ways out must lead to
+    one block E, and values of the loop used after it only where E dominates (clone joins them at E)."""
+    X = c.s1 if c.s1 not in lp.blocks else c.s2 if c.s2 not in lp.blocks else None
+    if X is None:
+        return False
+    checks = []  # (block, (cond, hoist), whether true leaves)
+    for p in X.pred[:X.npred]:
+        if p not in lp.blocks:
+            return False
+        ic = _invcond(fn, lp, p)
+        if ic is None or (p.s1 is X) == (p.s2 is X):
+            return False
+        checks.append((p, ic, p.s1 is X))
+    exits = [(b, e) for b, e in lp.exits() if e is not X]
+    targets = list(dict.fromkeys(e for _, e in exits))
+    if len(targets) != 1:
+        return False
+    E = targets[0]
+    if any(p not in lp.blocks for p in E.pred[:E.npred]):
+        return False
+    outs = lp.outside_preds()
+    if len(outs) != 1:
+        return False
+    defined = set()
+    for b in lp.blocks:
+        defined.update(rval(p.to) for p in ir.phis(b))
+        defined.update(rval(i.to) for i in ir.ins(b) if ir.istmp(i.to))
+    for b in ir.blocks(fn):  # each use of a loop value after it, where E dominates (a phi's: on its edge)
+        if b in lp.blocks:
+            continue
+        refs = [b.jmp.arg] + [a for i in ir.ins(b) for a in i.arg[:2]]
+        if any(ir.istmp(r) and rval(r) in defined for r in refs) and not _dominates(E, b):
+            return False
+        for p in ir.phis(b):
+            for x, a in zip(p.blk[:p.narg], p.arg[:p.narg]):
+                if ir.istmp(a) and rval(a) in defined and x not in lp.blocks and not _dominates(E, x):
+                    return False
+    H = lp.header
+    P = outs[0]
+    if P.jmp.type != D.Jjmp:  # a block of its own to choose in
+        Pn = ir.newblock(fn, P, 'us')
+        ir.setjmp(Pn, H)
+        if P.s1 is H:
+            P.s1 = Pn
+        if P.s2 is H:
+            P.s2 = Pn
+        for p in ir.phis(H):
+            p.blk[:p.narg] = [Pn if x is P else x for x in p.blk[:p.narg]]
+        P = Pn
+    copy = clone(fn, lp, E, exits)
+    # before the loop: whether any of them leaves
+    new = []
+    leave = None
+    for b, (cond, h), tl in checks:
+        if h is not None:
+            cond = ir.newtmp('us', h.cls, fn)
+            new.append(Ins(h.op, h.cls, cond, h.arg[0], h.arg[1]))
+        if not tl:
+            x = ir.newtmp('us', D.Kw, fn)
+            new.append(Ins(D.Oceqw, D.Kw, x, cond, D.CON_Z))
+            cond = x
+        if leave is None:
+            leave = cond
+        else:
+            x = ir.newtmp('us', D.Kw, fn)
+            new.append(Ins(D.Oor, D.Kw, x, leave, cond))
+            leave = x
+    ir.setins(P, ir.ins(P) + new)
+    ir.setjnz(P, leave, H, copy[H])
+    for b, _, tl in checks:
+        ir.setjmp(copy[b], copy[b.s2 if tl else b.s1])
+    _count[fn.name] = n + 1
+    M.count('unswitch')
+    return True
+
+
+def _dominates(a, b):
+    """Whether block a dominates b (idoms as filldom left them)."""
+    while b is not None:
+        if b is a:
+            return True
+        b = b.idom
+    return False
 
 
 def shape(lp, many=False, fn=None):

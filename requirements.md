@@ -1309,6 +1309,20 @@ select, about 5 cycles, per chain; 4 gave 196); `qsel1` became `bit d, a, mask` 
 versioning's copy dropped `reassoc` (a strided `#pragma omp simd` sum stayed scalar), and load elimination's
 `phi(x, itself)` of a value carried past the loop refused vectorization.
 
+## Byte and short lanes (2026-11-09)
+
+`vectorize._bytes`: loops whose memory accesses are all bytes or all shorts at unit stride and whose values only reach
+the stores through operations whose low bits depend only on their operands' low bits (`+ - * & | ^`, `<<` a constant,
+negation; extensions and copies change none of them) run in lanes as wide as the stores: 16 a vector (8 shorts; twice
+with AVX2), whatever the values in between and an invariant's (its low bits on every lane). Arrays that may overlap get
+the wide path's run-time checks (`_checks`). x86-64 has no byte multiply or shift: refused there. Anything else (a
+right shift, a comparison) falls to `_narrow`'s 16-bit lanes with value ranges. scramjit's `brighten` (`uint8`
+`image[i] + amount`, 1M): 207 to 17 us (numpy 22), 0.24 to 0.018 ns per element through scramjit. Its loop also checks
+`amount` every iteration (`return` from inside): `unswitch._leaving`, LLVM's trivial unswitching by copying, runs the
+loop as written when any invariant condition leaving the loop to one block would, a copy without those branches
+otherwise; values of the loop used after it must be where its other exit dominates (a phi's use: on its edge), and a
+preheader is made when the block before the loop ends in a branch.
+
 ## Conformance corpora (2026-10-31)
 
 Most tests compare a port with its reference (cproc, QBE, gcc's cpp, gas); they show fidelity,

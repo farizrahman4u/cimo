@@ -399,6 +399,156 @@ def _widening(fast, r, cloned):
     return None
 
 
+_LOWBITS = {D.Oadd: 'qadd', D.Osub: 'qsub', D.Omul: 'qmul', D.Oand: 'qand', D.Oor: 'qor', D.Oxor: 'qxor', D.Oshl: 'qshl',
+            D.Oneg: 'qneg'}
+_IDENT = (D.Ocopy, D.Oextub, D.Oextsb, D.Oextuh, D.Oextsh, D.Oextuw, D.Oextsw)
+_NARROWLD = {1: (D.Oloadub, D.Oloadsb), 2: (D.Oloaduh, D.Oloadsh)}
+_NARROWST = {1: D.Ostoreb, 2: D.Ostoreh}
+
+
+def _bytes(fast, rts):
+    """Loops over bytes or shorts whose values only reach their stores through operations whose low bits depend only on
+    their operands' low bits (+, -, *, &, |, ^, << a constant, negation; extensions and copies change none of them):
+    brighten's `a[i] = (uint8_t)(a[i] + k)`. Then lanes as wide as the stores (16 bytes a vector, 8 shorts; twice that
+    with AVX2) give the bits C stores, whatever the values in between, k included (its low bits, on every lane). Returns
+    vf, or 0 (cimo.middle.vectorize._narrow then tries 16-bit lanes with value ranges)."""
+    if _ext.qbytes() == 32 or D.T.name.startswith('amd64'):
+        if 'avx' not in _ext.x86 and _ext.qbytes() == 32:
+            return 0
+    elif not D.T.name.startswith('arm64'):
+        return 0
+    if fast.vreds or any(rval(p.to) not in fast.A.biv for p in ir.phis(fast.sh.H)):
+        return 0
+    A = fast.A
+    fn = fast.fn
+    width = None
+    made = set()
+    mem = []
+    x86 = D.T.name.startswith('amd64')
+    for n, i in enumerate(fast.cloned):
+        if i.op in (D.Onop, D.Odbgloc):
+            continue
+        w = next((w for w, ops in _NARROWLD.items() if i.op in ops), None)
+        st = next((w for w, op in _NARROWST.items() if i.op == op), None)
+        if w or st:
+            w = w or st
+            if width not in (None, w):
+                return 0
+            width = w
+            f = A.form(i.arg[1] if st else i.arg[0], 64)
+            if f is None or not f.S.isconst() or f.S.c != w or A.avlevel(f) == 'X':
+                return 0
+            if st and not _operand(fast, i.arg[0], made):
+                return 0
+            mem.append((i, f, n, bool(st)))
+            if not st:
+                made.add(rval(i.to))
+            continue
+        if not ir.istmp(i.to) or i.cls not in (Kw, Kl):
+            return 0
+        if i.op in _IDENT:
+            if not _operand(fast, i.arg[0], made):
+                return 0
+            made.add(rval(i.to))
+            continue
+        name = _LOWBITS.get(i.op)
+        if name is None:
+            return 0
+        if i.op == D.Oshl:
+            c = ir.conval(fn, i.arg[1])
+            if c is None or not 0 <= c < 16:
+                return 0
+            args = [i.arg[0]]
+        else:
+            args = [i.arg[0]] if i.arg[1] == R else i.arg[:2]
+        for a in args:
+            if not _operand(fast, a, made):
+                return 0
+        made.add(rval(i.to))
+    if width is None or not any(st for _, _, _, st in mem):
+        return 0
+    if x86 and any(i.op == D.Omul or i.op == D.Oshl for i in fast.cloned) and width == 1:
+        return 0  # no byte multiply or shift on x86-64
+    vf = _ext.qbytes() // width
+    far = set()
+    for i, f, n, isstore in mem:
+        if not isstore:
+            continue
+        for j, g, m, other in mem:
+            if j is i or (other and m < n):
+                continue
+            if not rts.may_alias(i.arg[1], j.arg[1] if other else j.arg[0]):
+                continue
+            if f.L.noconst().ident() != g.L.noconst().ident():
+                far.add(tuple(sorted((f.L.noconst().ident(), g.L.noconst().ident()), key=str)))
+            elif other:
+                d = f.L.c - g.L.c
+                if d != 0 and abs(d) < vf * f.S.c:
+                    return 0
+            elif not _distance(f, g, vf, n, m):
+                return 0
+    if len(far) > MAXCHECKS:
+        return 0
+    fast.vchecks = _checks(mem, far)
+    fast.vmem = mem
+    fast.vnarrow = ('bytes', width)
+    return vf
+
+
+def _bytes_body(fast, em, state, copy):
+    """body() for _bytes: each value a vector of lanes as wide as the stores."""
+    fn = fast.fn
+    k0 = copy * fast.vf
+    w = fast.vnarrow[1]
+    x = 'b' if w == 1 else 'h'
+    dup = D.Oqdupb if w == 1 else D.Oqduph
+    env = {}
+
+    def vec(a):
+        if ir.istmp(a) and rval(a) in env:
+            return env[rval(a)]
+        key = ('lowdup', w, a)
+        if key not in fast.memo:
+            c = ir.conval(fn, a)
+            if c is not None:
+                s = fast.fp.con(c & (0xff if w == 1 else 0xffff))
+            else:
+                em0, fast.em = fast.em, fast.fp
+                s = fast.opmap(a, 0, {}, state, None)
+                fast.em = em0
+            fast.memo[key] = fast.fp.raw(dup, Kq, s)
+        return fast.memo[key]
+
+    for i in fast.cloned:
+        if i.op in (D.Onop, D.Odbgloc):
+            continue
+        if i.op in _NARROWLD[w]:
+            env[rval(i.to)] = em.raw(D.Oqload, Kq, fast.opmap(i.arg[0], k0, env, state, None))
+            continue
+        if i.op == _NARROWST[w]:
+            em.ins(Ins(D.Oqstore, Kq, R, vec(i.arg[0]), fast.opmap(i.arg[1], k0, env, state, None)))
+            continue
+        if i.op in _IDENT:
+            env[rval(i.to)] = vec(i.arg[0])
+            continue
+        name = _LOWBITS[i.op]
+        if i.op == D.Oneg:
+            env[rval(i.to)] = em.raw(getattr(D, 'Oqsub' + x), Kq, _zero(fast, dup), vec(i.arg[0]))
+        elif i.op == D.Oshl:
+            env[rval(i.to)] = em.raw(getattr(D, 'Oqshl' + x), Kq, vec(i.arg[0]), i.arg[1])
+        elif i.op in (D.Oand, D.Oor, D.Oxor):
+            env[rval(i.to)] = em.raw(getattr(D, 'O' + name), Kq, vec(i.arg[0]), vec(i.arg[1]))
+        else:
+            env[rval(i.to)] = em.raw(getattr(D, 'O' + name + x), Kq, vec(i.arg[0]), vec(i.arg[1]))
+    return dict(state)
+
+
+def _zero(fast, dup):
+    if ('zero', dup) not in fast.memo:
+        fast.memo[('zero', dup)] = fast.fp.raw(dup, Kq, fast.fp.con(0))
+    return fast.memo[('zero', dup)]
+
+
 def _narrow(fast, rts):
     """Loops over bytes (rgb2gray): unsigned byte loads, one after another or the three bytes of each pixel, arithmetic
     C does in int, and byte stores, in lanes of 16 bits, 8 a vector (16 with AVX2). Exact when no value the loop
@@ -498,8 +648,14 @@ def plan(fast, rts):
     A = fast.A
     sh = fast.sh
     fast.vnarrow = None
-    if any(i.op in (D.Oloadub, D.Ostoreb) for i in fast.cloned):
-        return _narrow(fast, rts)
+    if any(i.op in (D.Oloadub, D.Oloadsb, D.Ostoreb, D.Oloaduh, D.Oloadsh, D.Ostoreh) for i in fast.cloned):
+        vf = _bytes(fast, rts)
+        if vf:
+            return vf
+        fast.vnarrow = None
+        if any(i.op in (D.Oloadub, D.Ostoreb) for i in fast.cloned):
+            return _narrow(fast, rts)
+        # shorts that _bytes didn't take: _Float16 arrays (_halves) go on below
     fast.vreds = []
     skip = set()
     rest = []
@@ -907,6 +1063,8 @@ def body(fast, em, state, copy=0):
                 em.ins(Ins(D.Oqstore, Kq, R, fast.memo[('dupb', c)],
                            fast.opmap(i.arg[1], copy * fast.vf, {}, state, None)))
         return dict(state)
+    if isinstance(fast.vnarrow, tuple) and fast.vnarrow[0] == 'bytes':
+        return _bytes_body(fast, em, state, copy)
     if fast.vnarrow is not None:
         return _narrow_body(fast, em, state, copy)
     fn = fast.fn
