@@ -78,7 +78,7 @@ Other fault handlers keep working. cimo passes on any fault that isn't a kernel'
 
 ## Ctrl-C
 
-On Linux and macOS, Ctrl-C stops a running kernel and raises `KeyboardInterrupt`, even in an endless loop. It takes effect while the kernel runs its own code; if it lands inside a C library function the kernel called (`malloc`, `sqrt`, ...), the kernel carries on and `KeyboardInterrupt` comes when it returns, so press again to stop it sooner. If your program set its own SIGINT handler, that handler runs instead, and the call raises `KernelError` with `kind == 'interrupt'`. As with a fault, what the kernel was writing may be half-written. `CIMO_INTERRUPT=0` leaves Ctrl-C as before. On Windows, `KeyboardInterrupt` still waits until the kernel returns.
+On Linux and macOS, Ctrl-C stops a running kernel and raises `KeyboardInterrupt`, even in an endless loop. It takes effect while the kernel runs its own code; if it lands inside a C library function the kernel called (`malloc`, `sqrt`, ...), the kernel carries on and `KeyboardInterrupt` comes when it returns, so press again to stop it sooner. If your program set its own SIGINT handler, or ignores SIGINT, Ctrl-C doesn't stop the kernel: it finishes, and your handler runs when the call returns, as after any slow C call. As with a fault, what the kernel was writing may be half-written. `CIMO_INTERRUPT=0` leaves Ctrl-C as before. On Windows, `KeyboardInterrupt` still waits until the kernel returns.
 
 In the browser, a memory fault is an access beyond the end of WebAssembly memory. Low addresses are ordinary memory there: reading through a null pointer returns what's at address 0.
 

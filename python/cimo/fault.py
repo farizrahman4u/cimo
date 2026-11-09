@@ -225,7 +225,7 @@ void __cimo_fault_sig(int sig, char *si, char *uc)
 {
     void (*old)(int, void *, void *) = __cimo_fault_old[sig];
     if (sig == 2) {  /* SIGINT */
-        if (interrupt(REGS(uc)) || (u64)old == 1)  /* or ignored */
+        if ((u64)old == 1 || interrupt(REGS(uc)))  /* ignored: never unwinds */
             return;
         if (old) {
             old(sig, si, uc);
@@ -378,7 +378,7 @@ def _install_posix():
     ours = img.address('__cimo_fault_sig')
     old = img.address('__cimo_fault_old')
     call = _sigaction()
-    for sig in _SIGNALS + _INTERRUPT:
+    for sig in _SIGNALS + (_INTERRUPT if _default_int() else ()):
         cur = _Sigaction()
         if call(sig, None, ctypes.byref(cur)) != 0:
             raise OSError(ctypes.get_errno(), 'sigaction failed')
@@ -390,6 +390,18 @@ def _install_posix():
         new.flags = _SA_SIGINFO | _SA_ONSTACK | _SA_NODEFER
         if call(sig, ctypes.byref(new), None) != 0:
             raise OSError(ctypes.get_errno(), 'sigaction failed')
+
+
+def _default_int():
+    """Whether Ctrl-C may unwind a kernel: Python's SIGINT handler is its own, which raises KeyboardInterrupt. A handler
+    of the program's own, or SIG_IGN, means it keeps going after Ctrl-C, as Python does after a slow C call: SIGINT is
+    then left to Python (recorded, its handler run when the kernel returns). A handler set later replaces ours anyway
+    (signal.signal installs Python's C handler), and each module load looks again."""
+    import signal
+    try:
+        return signal.getsignal(signal.SIGINT) is signal.default_int_handler
+    except (ValueError, OSError):
+        return False
 
 
 def _install_windows():

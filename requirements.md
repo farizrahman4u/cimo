@@ -600,7 +600,7 @@ Neoverse N1, V1, V2), `-O3` is 1.55 to 1.73x ahead of it, and that's vectorizati
 - **`#pragma STDC FP_CONTRACT` (2026-11-07):** ON, OFF, DEFAULT (the compile's `fma=`) set the frontend's
   contraction from there on; a compound statement restores the value it started with (C11 7.12.2). ON does nothing
   without a fused multiply-add (wasm, x86-64 without FMA: `fmaok`).
-- **Ctrl-C (2026-11-07, POSIX):** cimo.fault's handler also takes SIGINT. A pc in a module's own code (before
+- **Ctrl-C (2026-11-07, POSIX):** cimo.fault's handler also takes SIGINT, only while Python's handler is `signal.default_int_handler` (2026-11-09: looked at each module load; a handler of the program's own or SIG_IGN means the program keeps going after Ctrl-C, so the kernel finishes and Python runs the handler after it; a handler set later replaces cimo's, as signal.signal reinstalls Python's C handler). A pc in a module's own code (before
   `__cimo_enter`: not the runtime, trampolines or entries, which may be mid-update) inside a kernel unwinds the innermost
   entry frame with `E_INTERRUPT`; `State.error` then runs Python's handler (`signal.raise_signal`), and raises
   `KernelError('interrupt')` if it doesn't raise. Elsewhere SIGINT goes to Python's handler. No polling in loops. Windows

@@ -398,24 +398,37 @@ try:  # Ctrl-C in Python code is as before
     time.sleep(5)
 except KeyboardInterrupt:
     print('python')
+# a handler of the program's own, or SIG_IGN, set before the module: Ctrl-C doesn't stop the kernel, which finishes;
+# the handler runs when it returns, as after any slow C call (scramjit's test_a_custom_handler_doesnt_stop_the_kernel)
 got = []
 signal.signal(signal.SIGINT, lambda s, f: got.append(s))
-m2 = cimo.compile('long spin2(void) { volatile long i = 0; for (;;) i++; }', cache=False)
+m2 = cimo.compile('long spin2(long n) { volatile long i = 0; while (i < n) i++; return i; }', cache=False)
+threading.Timer(0.2, kill).start()
+r = m2.spin2(3000000000)
+print('custom', r, got)
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+m3 = cimo.compile('long spin3(long n) { volatile long i = 0; while (i < n) i++; return i; }', cache=False)
+threading.Timer(0.2, kill).start()
+print('ignored', m3.spin3(3000000000))
+signal.signal(signal.SIGINT, signal.default_int_handler)
+m4 = cimo.compile('long spin4(void) { volatile long i = 0; for (;;) i++; }', cache=False)
 threading.Timer(0.2, kill).start()
 try:
-    m2.spin2()
-except cimo.KernelError as e:
-    print(e.kind, e.function, got)
+    m4.spin4()
+except KeyboardInterrupt:
+    print('default again')
 '''
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='POSIX signals')
 def test_ctrl_c_stops_a_kernel():
-    """SIGINT while a kernel runs its own code unwinds it and runs Python's handler: KeyboardInterrupt, or a handler
-    of the program's own, after which the call raises KernelError('interrupt')."""
+    """SIGINT while a kernel runs its own code unwinds it when Python's handler is its own: KeyboardInterrupt. Under a
+    handler of the program's own, or SIG_IGN, the kernel finishes and the handler runs after it, as after a slow C
+    call; a module loaded once the default handler is back stops again."""
     if os.environ.get('CIMO_FAULTS') == '0':
         pytest.skip('CIMO_FAULTS=0')
     r = subprocess.run([sys.executable, '-c', INTERRUPT], capture_output=True, text=True, timeout=120,
                        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     assert r.returncode == 0, r.stderr
-    assert r.stdout.split('\n')[:3] == ['1000', 'python', 'interrupt spin2 [2]'], r.stdout
+    assert r.stdout.split('\n')[:5] == ['1000', 'python', 'custom 3000000000 [2]', 'ignored 3000000000',
+                                         'default again'], r.stdout
