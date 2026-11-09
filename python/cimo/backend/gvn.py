@@ -294,13 +294,20 @@ def domzero(fn, d, b):
     return None
 
 
+ZEROWALK = 128  # cimo: dominating jnz looked at, at most (QBE: all, quadratic in a long chain of ifs)
+
+
 def zeroval(fn, b, r, cls):
     """infer 0/non-0 value from dominating jnz; returns z or None"""
     d = b.idom
+    n = ZEROWALK
     while d:
         if d.jmp.type != Jjnz:
             d = d.idom
             continue
+        n -= 1
+        if n < 0:
+            return None
         if r == d.jmp.arg and cls == Kw:
             z = domzero(fn, d, b)
             if z is not None:

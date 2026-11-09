@@ -19,6 +19,10 @@ diagnostics = False
 # parsed: the backend then leaves floating-point operations whose result is inexact to run (cimo.backend.fold)
 fenvaccess = False
 fenvtouched = False
+# cimo: `#pragma pack(n)` in effect (gcc's and MSVC's): a struct or union member's alignment is at most pack (0: no
+# limit), and the stack of push/pop as (name or None, pack) (pp.directive, decl.addmember)
+pack = 0
+packstack = []
 # cimo: `#pragma STDC CX_LIMITED_RANGE ON` in effect: complex * and / by the usual formulas, inline (qbe._cxbinary)
 cxlimited = False
 # cimo: `#pragma STDC FP_CONTRACT` (C11 7.12.2) sets qbe.contract: DEFAULT is the compile's fma=, ON is honored only

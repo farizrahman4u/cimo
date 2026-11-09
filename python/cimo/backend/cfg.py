@@ -182,16 +182,17 @@ def fillfron(fn):
         b = b.link
     b = fn.start
     while b:
-        if b.s1:
-            a = b
-            while not sdom(a, b.s1):
-                addfron(a, b.s1)
-                a = a.idom
-        if b.s2:
-            a = b
-            while not sdom(a, b.s2):
-                addfron(a, b.s2)
-                a = a.idom
+        for s in (b.s1, b.s2):
+            if s:
+                # cimo: the blocks from b up to (not including) idom(s) are those that don't strictly dominate s
+                # (QBE asked sdom of each, a walk each: quadratic in a long chain of ifs); a runner that has s
+                # already had it from an earlier walk, which went on to idom(s) from there
+                a, top = b, s.idom
+                while a is not top:
+                    if a.nfron and any(f is s for f in a.fron[:a.nfron]):
+                        break
+                    addfron(a, s)
+                    a = a.idom
         b = b.link
 
 

@@ -6,6 +6,10 @@
   gcc-vect     gcc's gcc.dg/vect run tests (the vectorizer's: loops whose results the program checks,
                abort() on a wrong one), with tree-vect.h's check_vect (signals, cpuid) made a no-op.
   gcc-dg-torture  gcc's gcc.dg/torture run tests (`dg-do run`).
+  gcc-dg       gcc's gcc.dg run tests (`dg-do run`, the top directory; its subdirectories are mostly
+               compile-only tests of gcc's own dumps).
+  gcc-torture-compile  gcc's gcc.c-torture/compile: compiled and assembled, not linked or run (crashes,
+               assertions and assembler errors in the compiler; a program cimo rejects is listed).
   libc-test    musl's libc-test: math/ (results against tables of correctly rounded values,
                within each table's ulp bound) and functional/ (string, stdio, stdlib, ...),
                which test cimo's runtime library and the compiler compiling it. A harness
@@ -31,11 +35,14 @@ DIR = os.environ.get('CIMO_CORPORA') or os.path.join(HERE, 'corpora')
 GCC = ('https://github.com/gcc-mirror/gcc', '99126c684223cabab03e41e806616160b4058f73')
 
 # name: (repository, commit, directory with the tests, glob patterns under it[, which files are run
-# tests: 'dg-run' for those saying `dg-do run`, 'dg-default' for all but compile-only ones])
+# tests: 'dg-run' for those saying `dg-do run`, 'dg-default' for all but compile-only ones, 'compile' for every
+# file, compiled only])
 CORPORA = {
     'gcc-torture': GCC + ('gcc/testsuite/gcc.c-torture/execute', ['*.c', 'ieee/*.c']),
     'gcc-vect': GCC + ('gcc/testsuite/gcc.dg/vect', ['*.c'], 'dg-default'),
     'gcc-dg-torture': GCC + ('gcc/testsuite/gcc.dg/torture', ['*.c'], 'dg-run'),
+    'gcc-dg': GCC + ('gcc/testsuite/gcc.dg', ['*.c'], 'dg-run'),
+    'gcc-torture-compile': GCC + ('gcc/testsuite/gcc.c-torture/compile', ['*.c'], 'compile'),
     'c-testsuite': ('https://github.com/c-testsuite/c-testsuite',
                     '5c7275656d751de0e68b2d340a95b5681858ed07', 'tests/single-exec', ['*.c']),
     'libc-test': ('https://repo.or.cz/libc-test.git', '7b95dfa5f5d5ca4d949221e0228ccc290bacc14e',
@@ -133,7 +140,11 @@ _NOTC = re.compile(rb'dg-additional-sources|__GIMPLE|__RTL|-fgimple')
 def _is_run(path, kind):
     with open(path, 'rb') as f:
         text = f.read()
-    if _NOTC.search(text) or not _MAIN.search(text):
+    if _NOTC.search(text):
+        return False
+    if kind == 'compile':
+        return True
+    if not _MAIN.search(text):
         return False
     if kind == 'dg-run':
         return b'dg-do run' in text
@@ -162,6 +173,10 @@ static void check_vect (void) {}
 #define VECTOR_BITS 128
 #undef OFFSET
 '''
+
+
+def compile_only(name):
+    return len(CORPORA[name]) > 4 and CORPORA[name][4] == 'compile'
 
 
 def fetch(name):

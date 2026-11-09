@@ -237,6 +237,12 @@ def tagspec(s):
             if ta.kind & ATTRALIGNED and ta.align > t.align:
                 t.align = ta.align
         t.size = ALIGNUP(t.size, t.align)  # packed: align is 1, unless an attribute raised it
+        m = t.members
+        while m:  # cimo: #pragma pack can leave a bit-field's unit, which its accesses load and store, past the end
+            if m.bits != BITS0 and m.offset + m.type.size > t.size:
+                error(tok.loc, "bit-field '%s' under '#pragma pack' reaches past the end of its struct, not supported",
+                      m.name)
+            m = m.next
     elif t.kind == TYPEENUM:
         enumconsts = None
         if et:
@@ -843,6 +849,8 @@ def addmember(b, mt, name, align, width):
             if align:
                 error(tok.loc, "specified alignment of struct member '%s' is less strict than is required by type", name)
             align = 1 if b.pack else mt.type.align
+            if U.pack and align > U.pack:  # cimo: #pragma pack(n)
+                align = U.pack
         if t.kind == TYPESTRUCT:
             m.offset = ALIGNUP(t.size, align)
             t.size = m.offset + mt.type.size
@@ -860,15 +868,22 @@ def addmember(b, mt, name, align, width):
             error(tok.loc, "alignment specified for bit-field '%s'", name)
         if b.pack:
             error(tok.loc, "bit-field '%s' in packed struct is not supported", name)
+        if U.pack and not width:
+            error(tok.loc, "zero-width bit-field under '#pragma pack' is not supported")
         if not width and name:
             error(tok.loc, "bit-field '%s' with zero width must not have declarator", name)
         if width > mt.type.width:
             error(tok.loc, "bit-field '%s' exceeds width of underlying type", name)
         align = mt.type.align
+        if U.pack and align > U.pack:  # cimo: #pragma pack(n)
+            align = U.pack
         if t.kind == TYPESTRUCT:
             # calculate end of the storage-unit for this bit-field
             end = ALIGNUP(t.size, mt.type.size)
             if not width or width > (end - t.size) * 8 + b.bits:
+                # cimo: under #pragma pack, gcc puts the field at the next bit, across the unit: not supported
+                if U.pack and t.size * 8 - b.bits != end * 8:
+                    error(tok.loc, "bit-field '%s' crossing a storage unit under '#pragma pack' is not supported", name)
                 # no room, allocate a new storage-unit
                 t.size = end
                 b.bits = 0
@@ -994,10 +1009,13 @@ def _structdecl(s, b):
 def typename(s, tq, toeval):
     """6.7.7 Type names. tq and toeval are Refs or None."""
     outer = DG.declvector  # cimo: a vector_size in the type name (a cast, a compound literal) is its own
-    DG.declvector = None
+    outermode = DG.declmode  # cimo: so is a mode, `(__attribute__((mode(QI))) int)x` (gcc.dg 20011214-1.c)
+    DG.declvector = DG.declmode = None
     try:
         t = declspecs(s, None, None, None)
         if t.type:
+            if DG.declmode is not None:
+                t.type = DG.modetype(t.type, DG.declmode)
             t = declarator(s, t, None, None, None, True)
             if tq:
                 tq.v |= t.qual
@@ -1008,6 +1026,7 @@ def typename(s, tq, toeval):
         return t.type
     finally:
         DG.declvector = outer
+        DG.declmode = outermode
 
 
 def getlinkage(kind, sc, prior, filescope):
@@ -1268,7 +1287,9 @@ def decl(s, f):
 
 def stringdecl(expr):
     assert expr.kind == EXPRSTRING
-    key = bytes(expr.sdata[:expr.ssize])
+    # cimo: all of it, ssize is in elements (cproc's key took ssize bytes: L"ab" and L"ac" were one string)
+    bs = expr.type.base.size
+    key = (bs, bytes(expr.sdata[:expr.ssize * bs]))
     d = strings.get(key)
     if d is None:
         d = mkdecl("string", DECLOBJECT, expr.type, QUALNONE, LINKNONE)

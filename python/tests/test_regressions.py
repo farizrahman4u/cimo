@@ -590,3 +590,131 @@ def test_constant_integer_to_float_rounds_once():
     assert m.get(0) == 2.0 ** 62 + 2.0 ** 39
     assert m.get(1) == 2.0 ** 63 + 2.0 ** 40
     assert m.get(2) == -(2.0 ** 62 + 2.0 ** 39)
+
+
+def test_dereferenced_void_pointer_as_a_statement():
+    # cproc emitted a load of no type for `*p` (gcc.c-torture/compile 20000701-1.c)
+    m = cimo.compile('int f(void *p, volatile void *q, int i) { *p; i ? *p : *p; *q, *q; (void)*p; return i; }\n')
+    assert m.f(0, 0, 7) == 7
+
+
+def test_sum_with_an_address_subtracted():
+    # cse's reassociation took `x - $t` for a subtraction of an integer constant and crashed
+    # (gcc.c-torture/compile pr34029-2.c)
+    m = cimo.compile('static const char s[] = "ab.cd", t[] = "abcde";\n'
+                     'long f(void) { const char *a = __builtin_strchr(s, \'.\'); return (long)a + (1 - (long)t); }\n'
+                     'long g(void) { return (long)__builtin_strchr(s, \'.\') - (long)t; }\n')
+    assert m.f() == m.g() + 1
+
+
+def test_parameter_array_bound_calls_a_function():
+    # cproc read __func__'s declaration before making it (gcc.c-torture/compile pr77754-5.c)
+    m = cimo.compile('int n, calls;\n'
+                     'int fn3(void) { calls++; return n; }\n'
+                     'long f(int x[][fn3()]) { return sizeof x[0]; }\n'
+                     'long g(void) { n = 5; long r = f(0); n = 7; return r * 100 + f(0) + calls * 10000; }\n')
+    assert m.g() == 22028
+
+
+def test_pointer_to_an_array_of_unknown_size_of_vlas():
+    # cproc asserted on `int (*)[][n]` (gcc.c-torture/compile pr94621.c)
+    m = cimo.compile('struct S { int c, e[]; };\n'
+                     'static int foo(struct S *m, int r, int c) {\n'
+                     '    int (*a)[][m->c] = (int (*)[][m->c])&m->e; return (*a)[r][c]; }\n'
+                     'int g(void) { static struct { int c; int e[12]; } s = {4, {0,1,2,3,4,5,6,7,8,9,10,11}};\n'
+                     '    return foo((struct S *)&s, 2, 1); }\n')
+    assert m.g() == 9
+
+
+def test_huge_static_array():
+    # the assembler wrote the .bss array's zeros out (MemoryError); it is now a size, and a module whose static
+    # data can't be mapped is a CompileError (gcc.c-torture/compile pr65680.c)
+    from cimo import assembler
+    o = assembler.assemble('.bss\n.globl a\na:\n.zero 1200000000000000012\n')
+    assert [s.size for s in o.sections if s.name == '.bss'] == [1200000000000000012]
+    with pytest.raises(cimo.CompileError):
+        cimo.compile('char a[1L << 60]; long f(void) { return (long)a; }')
+
+
+def test_wide_strings_that_share_a_first_character_stay_apart():
+    # cproc's string table keyed a literal by its first ssize bytes, ssize counting elements: L"ab" was L"ac"
+    # (gcc.dg utf32-2.c)
+    m = cimo.compile('typedef __WCHAR_TYPE__ wchar_t; typedef __CHAR16_TYPE__ c16;\n'
+                     'const wchar_t *a = L"ab", *b = L"ac"; const c16 *c = u"ab", *d = u"ad";\n'
+                     'long f(int k) { return k == 0 ? a[1] : k == 1 ? b[1] : k == 2 ? c[1] : d[1]; }\n')
+    assert [chr(m.f(k)) for k in range(4)] == ['b', 'c', 'b', 'd']
+
+
+def test_designators_into_a_string_initialized_array():
+    # a designator past the literal's end was dropped, and one ending where the array ends replaced the string
+    # (gcc.dg c99-init-1.c, pr67410.c)
+    m = cimo.compile('typedef __WCHAR_TYPE__ wchar_t;\n'
+                     'struct H { char I[6]; int J; } k[] = { { { "foo" }, 1 }, [0].I[2] = \'x\', [0].I[4] = \'y\' };\n'
+                     'struct K { wchar_t L[6]; int M; } l[] = { { { L"foo" }, 1 }, [0].L[2] = L\'x\', [0].L[5] = L\'y\' };\n'
+                     'int g(int w, int i) { return w ? l[0].L[i] : k[0].I[i]; }\n'
+                     'void h(int *o) { char c[6] = { "f", [5] = \'y\', [1] = \'q\' }; for (int i = 0; i < 6; i++) o[i] = c[i]; }\n')
+    assert [m.g(0, i) for i in range(6)] == [102, 111, 120, 0, 121, 0]
+    assert [m.g(1, i) for i in range(6)] == [102, 111, 120, 0, 0, 121]
+    import ctypes
+    o = (ctypes.c_int * 6)()
+    m.h(o)
+    assert list(o) == [102, 113, 0, 0, 0, 121]
+
+
+def test_braces_for_a_designated_subobject_initialize_all_of_it():
+    # C11 6.7.9p19, as gcc: `[0] = {.a = 9}` after `[0].b = 5` leaves b 0 (gcc.dg c99-init-1.c)
+    m = cimo.compile('struct P { int a, b; } p[2] = { [0] = {1, 2}, [0].b = 5, [1] = {3, 4}, [0] = {.a = 9} };\n'
+                     'struct P q[2] = { [0].b = 5, [1] = {3, 4}, [0] = {} };\n'
+                     'int a3[2][2] = { {1, 2}, [0][1] = 7, {3} };\n'
+                     'struct Q { int x[2]; int y; } r = { .x[1] = 5, .y = 6, .x = {1} };\n'
+                     'int g(int k, int i) { int *t[] = {(int *)p, (int *)q, (int *)a3, (int *)&r}; return t[k][i]; }\n'
+                     'void h(int *o) { struct P l[2] = { [0] = {1, 2}, [0].b = 5, [1] = {3, 4}, [0] = {.a = 9} };\n'
+                     '    for (int i = 0; i < 4; i++) o[i] = ((int *)l)[i]; }\n')
+    assert [m.g(0, i) for i in range(4)] == [9, 0, 3, 4]
+    assert [m.g(1, i) for i in range(4)] == [0, 0, 3, 4]
+    assert [m.g(2, i) for i in range(4)] == [1, 7, 3, 0]
+    assert [m.g(3, i) for i in range(3)] == [1, 0, 6]
+    import ctypes
+    o = (ctypes.c_int * 4)()
+    m.h(o)
+    assert list(o) == [9, 0, 3, 4]
+
+
+def test_mode_attribute_in_a_type_name():
+    # ignored in casts and sizeof (gcc.dg 20011214-1.c)
+    m = cimo.compile('long f(void) { return sizeof(__attribute__((mode(QI))) int); }\n'
+                     'long g(int y) { return (__attribute__((mode(QI))) int)y; }\n'
+                     'long h(void) { return sizeof(int __attribute__((mode(HI)))); }\n')
+    assert (m.f(), m.g(0x401), m.h()) == (1, 1, 2)
+
+
+def test_pragma_pack():
+    # dropped by the preprocessor: struct layouts silently differed from gcc's (gcc.dg pragma-pack-3.c)
+    m = cimo.compile('#pragma pack(1)\nstruct A { char b; int c; };\n#pragma pack()\n'
+                     '#pragma pack(push, 2)\nstruct B { char b; int c; double d; };\n#pragma pack(pop)\n'
+                     'struct C { char b; int c; };\n'
+                     '#define N 4\n#pragma pack(push, r1, N)\n#pragma pack(push, 1)\n#pragma pack(pop, r1)\n'
+                     'struct D { char b; double c; };\n'
+                     'struct S { char a[3];\n#pragma pack(1)\n struct T { char b; int c; } d;\n#pragma pack /*/ */ () // x\n int e; };\n'
+                     '#pragma pack(2)\nunion U { char b[3]; int c; };\n#pragma pack()\n'
+                     'long f(int k) { long s[] = { sizeof(struct A), sizeof(struct B), sizeof(struct C), sizeof(struct D),\n'
+                     '    sizeof(struct S), sizeof(union U), _Alignof(union U), __builtin_offsetof(struct B, d) }; return s[k]; }\n')
+    assert [m.f(k) for k in range(8)] == [5, 14, 8, 16, 12, 4, 2, 6]
+    with pytest.raises(cimo.CompileError, match='1, 2, 4, 8 or 16'):
+        cimo.compile('#pragma pack(3)\nstruct T { int a; };\n')
+    with pytest.raises(cimo.CompileError, match='bit-field'):
+        cimo.compile('#pragma pack(1)\nstruct T { int a : 3; };\n')
+
+
+def test_universal_character_names_in_literals():
+    # rejected as invalid escapes (gcc.dg utf16-1.c, utf32-1.c)
+    m = cimo.compile('typedef __CHAR16_TYPE__ char16_t; typedef __CHAR32_TYPE__ char32_t;\n'
+                     'const char *s = "h\\u00e1\\U0000010Dk"; char16_t c = u\'\\u2029\'; char32_t d = U\'\\U0001F600\';\n'
+                     'const char16_t w[] = u"\\U0001F600x";\n'
+                     'long f(int k, int i) { return k == 0 ? (unsigned char)s[i] : k == 1 ? c : k == 2 ? d : w[i]; }\n')
+    assert [m.f(0, i) for i in range(6)] == [104, 195, 161, 196, 141, 107]
+    assert (m.f(1, 0), m.f(2, 0)) == (0x2029, 0x1f600)
+    assert [m.f(3, i) for i in range(4)] == [0xd83d, 0xde00, 0x78, 0]
+    for bad in ('"\\u0041"', '"\\ud800"', '"\\u12"'):
+        with pytest.raises(cimo.CompileError):
+            cimo.compile('const char *s = %s;\n' % bad)

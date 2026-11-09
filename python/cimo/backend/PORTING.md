@@ -98,6 +98,13 @@ output for these is broken, so no comparison test depends on it):
 - `util.newcon`/`getcon`: QBE searches the constants linearly, quadratic in their number; the
   port keeps an index (`Fn.concache`), same results (constants are only appended). A 125 KB
   local initializer took 223 s, now 18 s.
+- Quadratic in a long chain of ifs (gcc's `gcc.c-torture/compile/20001226-1.c`, 8192 compare-and-branch pairs in
+  one function, over 120 s): `cfg.fillfron` asked `sdom` (a walk) at every step of each walk up the dominator
+  tree; it now walks to `idom(s)` and stops at a runner that already has `s` in its frontier (same frontiers, same
+  order). `gvn.zeroval` looks at 128 dominating `jnz` at most (unknown, past that), and `load.def` gives up
+  (keeps the load) after 20,000 instructions and blocks for one load. Now 99 s; the rest is linear-ish.
+- `cse.reassoc` (`_adddef`) took `x - $sym` for a subtraction of an integer constant and crashed
+  (`gcc.c-torture/compile/pr34029-2.c`).
 - `load.load`: `rebase` moves a load's constant offset into `Slice.off`, which the address of
   an inserted load ignored (as it did a blit source's offset), so a load of `p+24` hoisted out
   of a loop read `p`. Reachable once

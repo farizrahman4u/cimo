@@ -323,6 +323,7 @@ gcc-torture/pr57344-1.c                               unsupported  bit-field 'a'
 gcc-torture/pr57344-2.c                               unsupported  bit-field 'a' in packed struct is not supported
 gcc-torture/pr57344-3.c                               unsupported  bit-field 'a' in packed struct is not supported
 gcc-torture/pr57344-4.c                               unsupported  bit-field 'a' in packed struct is not supported
+gcc-torture/pr58570.c                                 unsupported  bit-field 'f1' crossing a storage unit under '#pragma pack' is not supported
 gcc-torture/pr58943.c                                 skip         unspecified order: x[0] |= f() where f writes x[0]; checks gcc's choice
 gcc-torture/pr60003.c                                 unsupported  built-in function '__builtin_longjmp' is not supported
 gcc-torture/pr64242.c                                 unsupported  expected declaration or function definition
@@ -331,6 +332,8 @@ gcc-torture/pr70460.c                                 unsupported  labels as val
 gcc-torture/pr70602.c                                 unsupported  bit-field 's' in packed struct is not supported
 gcc-torture/pr71494.c                                 unsupported  labels as values ('&&label', a GNU extension) are not supported
 gcc-torture/pr79286.c                                 unsupported  array of unknown size has empty initializer
+gcc-torture/pr79737-1.c                               unsupported  bit-field 'd' crossing a storage unit under '#pragma pack' is not supported
+gcc-torture/pr79737-2.c                               unsupported  bit-field 'd' crossing a storage unit under '#pragma pack' is not supported
 gcc-torture/pr80692.c                                 unsupported  expected primary expression
 gcc-torture/pr82210.c                                 unsupported  struct member 'a' has variably modified type
 gcc-torture/pr84521.c                                 unsupported  built-in function '__builtin_longjmp' is not supported
@@ -452,6 +455,7 @@ gcc-dg-torture/neon-sve-bridge.c                      unsupported  arm_neon_sve_
 gcc-dg-torture/pr100778.c                             unsupported  undeclared identifier: feenableexcept
 gcc-dg-torture/pr110228.c                             unsupported  inline assembly is not supported
 gcc-dg-torture/pr110799.c                             unsupported  unistd.h: No such file or directory
+gcc-dg-torture/pr111916.c                             unsupported  bit-field 'b' under '#pragma pack' reaches past the end of its struct, not supported
 gcc-dg-torture/pr112639.c                             unsupported  built-in function '__builtin_clzg' is not supported
 gcc-dg-torture/pr112736.c                             unsupported  sys/mman.h: No such file or directory
 gcc-dg-torture/pr113703-2.c                           unsupported  sys/mman.h: No such file or directory
@@ -518,6 +522,1168 @@ gcc-dg-torture/pr98219-1.c                            unsupported  x86gprintrin.
 gcc-dg-torture/pr98219-2.c                            unsupported  x86gprintrin.h: No such file or directory
 gcc-dg-torture/sso-fre-1.c                            unsupported  attribute 'scalar_storage_order' is not supported
 gcc-dg-torture/type-generic-1.c                       unsupported  long double is not supported
+gcc-dg/20001012-1.c                                   unsupported  mode 'SI' applied to a non-integer type
+gcc-dg/20001012-2.c                                   unsupported  mode 'SI' applied to a non-integer type
+gcc-dg/20020219-1.c                                   unsupported  base types of pointer assignment must be compatible or void
+gcc-dg/20020312-2.c                                   unsupported  computed goto ('goto *p', a GNU extension) is not supported
+gcc-dg/20020607-1.c                                   unsupported  no type in parameter declaration
+gcc-dg/20021014-1.c                                   unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/20030711-1.c                                   unsupported  sys/mman.h: No such file or directory
+gcc-dg/20041106-1.c                                   unsupported  sys/types.h: No such file or directory
+gcc-dg/20050527-1.c                                   unsupported  struct member 'e' has variably modified type
+gcc-dg/20050826-1.c                                   unsupported  sys/mman.h: No such file or directory
+gcc-dg/20061124-1.c                                   unsupported  built-in function '__sync_add_and_fetch' is not supported
+gcc-dg/20150306-1.c                                   unsupported  bit-field 'y' in packed struct is not supported
+gcc-dg/addr_equal-1.c                                 unsupported  attribute 'alias' is not supported
+gcc-dg/alias-14.c                                     unsupported  base types of pointer assignment must be compatible or void
+gcc-dg/alias-7.c                                      unsupported  attribute 'alias' is not supported
+gcc-dg/align-1.c                                      unsupported  expected ',' or '
+gcc-dg/anon-struct-12.c                               unsupported  struct declaration must declare at least one member
+gcc-dg/array-13.c                                     unsupported  initializer specified for incomplete type
+gcc-dg/array-4.c                                      unsupported  initializer specified for incomplete type
+gcc-dg/asm-b.c                                        skip         x86 and PowerPC inline assembly; on other targets the check it guards still runs
+gcc-dg/atomic-compare-exchange-1.c                    unsupported  built-in function '__atomic_compare_exchange_n' is not supported
+gcc-dg/atomic-compare-exchange-2.c                    unsupported  built-in function '__atomic_compare_exchange_n' is not supported
+gcc-dg/atomic-compare-exchange-3.c                    unsupported  built-in function '__atomic_compare_exchange_n' is not supported
+gcc-dg/atomic-compare-exchange-4.c                    unsupported  built-in function '__atomic_compare_exchange_n' is not supported
+gcc-dg/atomic-compare-exchange-5.c                    unsupported  built-in function '__atomic_compare_exchange_n' is not supported
+gcc-dg/atomic-exchange-1.c                            unsupported  built-in function '__atomic_exchange_n' is not supported
+gcc-dg/atomic-exchange-2.c                            unsupported  built-in function '__atomic_exchange_n' is not supported
+gcc-dg/atomic-exchange-3.c                            unsupported  built-in function '__atomic_exchange_n' is not supported
+gcc-dg/atomic-exchange-4.c                            unsupported  built-in function '__atomic_exchange_n' is not supported
+gcc-dg/atomic-exchange-5.c                            unsupported  built-in function '__atomic_exchange_n' is not supported
+gcc-dg/atomic-fence.c                                 unsupported  built-in function '__atomic_thread_fence' is not supported
+gcc-dg/atomic-flag.c                                  unsupported  built-in function '__atomic_clear' is not supported
+gcc-dg/atomic-load-1.c                                unsupported  built-in function '__atomic_load_n' is not supported
+gcc-dg/atomic-load-2.c                                unsupported  built-in function '__atomic_load_n' is not supported
+gcc-dg/atomic-load-3.c                                unsupported  built-in function '__atomic_load_n' is not supported
+gcc-dg/atomic-load-4.c                                unsupported  built-in function '__atomic_load_n' is not supported
+gcc-dg/atomic-load-5.c                                unsupported  built-in function '__atomic_load_n' is not supported
+gcc-dg/atomic-op-1.c                                  unsupported  built-in function '__atomic_fetch_add' is not supported
+gcc-dg/atomic-op-2.c                                  unsupported  built-in function '__atomic_fetch_add' is not supported
+gcc-dg/atomic-op-3.c                                  unsupported  built-in function '__atomic_fetch_add' is not supported
+gcc-dg/atomic-op-4.c                                  unsupported  built-in function '__atomic_fetch_add' is not supported
+gcc-dg/atomic-op-5.c                                  unsupported  built-in function '__atomic_fetch_add' is not supported
+gcc-dg/atomic-store-1.c                               unsupported  built-in function '__atomic_store_n' is not supported
+gcc-dg/atomic-store-2.c                               unsupported  built-in function '__atomic_store_n' is not supported
+gcc-dg/atomic-store-3.c                               unsupported  built-in function '__atomic_store_n' is not supported
+gcc-dg/atomic-store-4.c                               unsupported  built-in function '__atomic_store_n' is not supported
+gcc-dg/atomic-store-5.c                               unsupported  built-in function '__atomic_store_n' is not supported
+gcc-dg/atomic-store-6.c                               unsupported  built-in function '__atomic_store_16' is not supported
+gcc-dg/attr-ifunc-1.c                                 unsupported  attribute 'ifunc' is not supported
+gcc-dg/attr-ifunc-3.c                                 unsupported  attribute 'ifunc' is not supported
+gcc-dg/attr-ifunc-4.c                                 unsupported  attribute 'ifunc' is not supported
+gcc-dg/attr-ifunc-5.c                                 unsupported  attribute 'ifunc' is not supported
+gcc-dg/attr-ms_struct-1.c                             unsupported  attribute 'ms_struct' is not supported
+gcc-dg/attr-ms_struct-2.c                             unsupported  attribute 'ms_struct' is not supported
+gcc-dg/attr-ms_struct-packed1.c                       unsupported  attribute 'ms_struct' is not supported
+gcc-dg/auto-type-1.c                                  unsupported  '__auto_type' is not supported
+gcc-dg/bf-ms-attrib.c                                 unsupported  attribute 'gcc_struct' is not supported
+gcc-dg/bf-ms-layout-2.c                               unsupported  object 'ATTR' redeclared with incompatible type
+gcc-dg/bf-ms-layout-3.c                               unsupported  attribute 'ms_struct' is not supported
+gcc-dg/bf-ms-layout-5.c                               unsupported  alignment specified for bit-field 'b'
+gcc-dg/bf-ms-layout.c                                 skip         -mms-bitfields (x86 only)
+gcc-dg/bf-no-ms-layout.c                              skip         -mno-ms-bitfields on mingw, cygwin and i386 darwin only
+gcc-dg/bf-spl1.c                                      unsupported  expected ',' or '
+gcc-dg/bitfld-3.c                                     unsupported  expected ',' or '
+gcc-dg/bitfld-9.c                                     unsupported  declaration has no type specifier
+gcc-dg/bitint-106.c                                   unsupported  built-in function '__builtin_stdc_first_leading_one' is not supported
+gcc-dg/bitint-109.c                                   unsupported  built-in function '__builtin_stdc_first_leading_one' is not supported
+gcc-dg/bitint-135.c                                   unsupported  undeclared identifier: f
+gcc-dg/bitint-139.c                                   unsupported  invalid unsigned _BitInt width 129
+gcc-dg/bitint-142.c                                   unsupported  built-in function '__builtin_popcountg' is not supported
+gcc-dg/builtin-addc-1.c                               unsupported  built-in function '__builtin_addc' is not supported
+gcc-dg/builtin-apply2.c                               unsupported  built-in function '__builtin_apply' is not supported
+gcc-dg/builtin-apply3.c                               unsupported  built-in function '__builtin_apply' is not supported
+gcc-dg/builtin-apply4.c                               unsupported  built-in function '__builtin_return' is not supported
+gcc-dg/builtin-bitreverse-1.c                         unsupported  built-in function '__builtin_bitreverse8' is not supported
+gcc-dg/builtin-bitreverse-3.c                         unsupported  built-in function '__builtin_bitreverse32' is not supported
+gcc-dg/builtin-bswap-11.c                             unsupported  built-in function '__builtin_bswap128' is not supported
+gcc-dg/builtin-bswap-12.c                             unsupported  built-in function '__builtin_bswap128' is not supported
+gcc-dg/builtin-bswap-5.c                              unsupported  undefined symbol 'link_error': cimo's runtime does not provide it
+gcc-dg/builtin-call-info-1.c                          unsupported  built-in function '__builtin_call_with_static_chain' is not supported
+gcc-dg/builtin-call-info-2.c                          unsupported  built-in function '__builtin_call_code_address' is not supported
+gcc-dg/builtin-choose-expr.c                          unsupported  '__builtin_choose_expr' is not supported
+gcc-dg/builtin-counted-by-ref-1.c                     unsupported  expected ',' or '
+gcc-dg/builtin-counted-by-ref-3.c                     unsupported  expected ',' or '
+gcc-dg/builtin-dynamic-object-size-0.c                unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/builtin-dynamic-object-size-20.c               unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/builtin-dynamic-object-size-pr120780.c         unsupported  pointer operand to '-' must be to complete object type
+gcc-dg/builtin-object-size-1.c                        unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-11.c                       unsupported  initializer specified for incomplete type
+gcc-dg/builtin-object-size-12.c                       unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-13.c                       unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-14.c                       unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-15.c                       unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-16.c                       unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-2.c                        unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-3.c                        unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-4.c                        unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-6.c                        unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-7.c                        unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-8.c                        unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-9.c                        unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-object-size-pr101832.c                 unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/builtin-return-1.c                             unsupported  built-in function '__builtin_return' is not supported
+gcc-dg/builtin-stdc-bit-1.c                           unsupported  #error __builtin_stdc_leading_zeros not implemented
+gcc-dg/builtin-stdc-rotate-1.c                        unsupported  #error __builtin_stdc_rotate_left not implemented
+gcc-dg/builtin-stdc-rotate-4.c                        unsupported  built-in function '__builtin_stdc_rotate_left' is not supported
+gcc-dg/builtin-tgmath-1.c                             unsupported  long double is not supported
+gcc-dg/builtin-tgmath-2.c                             unsupported  long double is not supported
+gcc-dg/builtin-tgmath-3.c                             unsupported  expected ',' or '
+gcc-dg/builtins-32.c                                  unsupported  long double is not supported
+gcc-dg/builtins-64.c                                  unsupported  built-in function '__builtin___clear_cache' is not supported
+gcc-dg/c11-align-2.c                                  unsupported  long double is not supported
+gcc-dg/c11-align-6.c                                  unsupported  long double is not supported
+gcc-dg/c11-complex-1.c                                unsupported  long double is not supported
+gcc-dg/c11-float-7.c                                  unsupported  long double is not supported
+gcc-dg/c11-true_min-1.c                               unsupported  long double is not supported
+gcc-dg/c11-typeof-2.c                                 unsupported  declaration has no type specifier
+gcc-dg/c11-uni-string-1.c                             unsupported  #error "__STDC_UTF_16__ not defined"
+gcc-dg/c23-auto-2.c                                   unsupported  declaration has no type specifier
+gcc-dg/c23-bool-1.c                                   unsupported  generic selector matches no associations and no default was specified
+gcc-dg/c23-bool-2.c                                   unsupported  #error "true not 1 in #if"
+gcc-dg/c23-complit-2.c                                unsupported  storage class not allowed in this declaration
+gcc-dg/c23-complit-4.c                                unsupported  pthread.h: No such file or directory
+gcc-dg/c23-digit-separators-1.c                       unsupported  invalid filename "'123"
+gcc-dg/c23-empty-init-1.c                             unsupported  initializer specified for variable length array type
+gcc-dg/c23-enum-6.c                                   unsupported  _Atomic type qualifier is not yet supported
+gcc-dg/c23-float-1.c                                  unsupported  #error "FLT_NORM_MAX undefined"
+gcc-dg/c23-float-12.c                                 unsupported  long double is not supported
+gcc-dg/c23-float-2.c                                  unsupported  #error "INFINITY undefined"
+gcc-dg/c23-float-3.c                                  unsupported  #error "INFINITY undefined"
+gcc-dg/c23-float-4.c                                  unsupported  #error "NAN undefined"
+gcc-dg/c23-float-5.c                                  unsupported  #error "NAN undefined"
+gcc-dg/c23-float-6.c                                  unsupported  #error "FLT_SNAN undefined"
+gcc-dg/c23-float-7a.c                                 unsupported  #error "FLT_SNAN undefined"
+gcc-dg/c23-float-7b.c                                 unsupported  #error "DBL_SNAN undefined"
+gcc-dg/c23-float-7c.c                                 unsupported  #error "LDBL_SNAN undefined"
+gcc-dg/c23-imaginary-constants-1.c                    unsupported  long double is not supported
+gcc-dg/c23-imaginary-constants-3.c                    unsupported  expected ',' or '
+gcc-dg/c23-imaginary-constants-5.c                    unsupported  expected ',' or '
+gcc-dg/c23-imaginary-constants-7.c                    unsupported  expected ',' or '
+gcc-dg/c23-imaginary-constants-9.c                    unsupported  expected ',' or '
+gcc-dg/c23-nullptr-1.c                                unsupported  '__auto_type' is not supported
+gcc-dg/c23-register-array-2.c                         unsupported  storage class not allowed in this declaration
+gcc-dg/c23-register-array-3.c                         unsupported  storage class not allowed in this declaration
+gcc-dg/c23-register-array-4.c                         unsupported  storage class not allowed in this declaration
+gcc-dg/c23-stdarg-4.c                                 unsupported  macro "va_start" requires 2 arguments, but only 1 given
+gcc-dg/c23-stdarg-6.c                                 unsupported  macro "va_start" requires 2 arguments, but only 1 given
+gcc-dg/c23-stdarg-9.c                                 unsupported  macro "va_start" requires 2 arguments, but only 1 given
+gcc-dg/c23-tag-5.c                                    unsupported  redefinition of tag 'product_iSfd_'
+gcc-dg/c23-tag-alias-4.c                              unsupported  base types of pointer assignment must be compatible or void
+gcc-dg/c23-tag-alias-6.c                              unsupported  operands of conditional operator must have compatible types
+gcc-dg/c23-tag-alias-7.c                              unsupported  operands of conditional operator must have compatible types
+gcc-dg/c23-tag-composite-10.c                         unsupported  operands of conditional operator must have compatible types
+gcc-dg/c23-tag-composite-7.c                          unsupported  operands of conditional operator must have compatible types
+gcc-dg/c23-typeof-1.c                                 unsupported  object 'i' redeclared with incompatible type
+gcc-dg/c23-unreachable-1.c                            unsupported  #error "unreachable not defined"
+gcc-dg/c2y-complex-1.c                                unsupported  long double is not supported
+gcc-dg/c2y-if-decls-1.c                               unsupported  expected primary expression
+gcc-dg/c2y-if-decls-11.c                              unsupported  expected primary expression
+gcc-dg/c2y-if-decls-4.c                               unsupported  expected primary expression
+gcc-dg/c2y-if-decls-5.c                               unsupported  expected primary expression
+gcc-dg/c2y-if-decls-6.c                               unsupported  expected primary expression
+gcc-dg/c2y-if-decls-8.c                               unsupported  expected primary expression
+gcc-dg/c2y-imaginary-constants-11.c                   unsupported  long double is not supported
+gcc-dg/c2y-named-loops-4.c                            unsupported  expected '
+gcc-dg/c2y-register-array-2.c                         unsupported  storage class not allowed in this declaration
+gcc-dg/c2y-register-array-3.c                         unsupported  storage class not allowed in this declaration
+gcc-dg/c90-digraph-1.c                                skip         -std=iso9899:1990 preprocessing (no digraphs)
+gcc-dg/c90-hexfloat-2.c                               skip         -std=iso9899:1990 preprocessing (no hexadecimal floats)
+gcc-dg/c90-scope-1.c                                  skip         C90 scoping (a struct declared in an if's condition)
+gcc-dg/c99-math-long-double-1.c                       unsupported  long double is not supported
+gcc-dg/cdce1.c                                        unsupported  errno.h: No such file or directory
+gcc-dg/cdce2.c                                        unsupported  errno.h: No such file or directory
+gcc-dg/cleanup-10.c                                   unsupported  unwind.h: No such file or directory
+gcc-dg/cleanup-11.c                                   unsupported  unwind.h: No such file or directory
+gcc-dg/cleanup-12.c                                   unsupported  unwind.h: No such file or directory
+gcc-dg/cleanup-13.c                                   unsupported  unwind.h: No such file or directory
+gcc-dg/cleanup-2.c                                    unsupported  attribute 'cleanup' is not supported
+gcc-dg/cleanup-3.c                                    unsupported  attribute 'cleanup' is not supported
+gcc-dg/cleanup-4.c                                    unsupported  attribute 'cleanup' is not supported
+gcc-dg/cleanup-5.c                                    unsupported  unwind.h: No such file or directory
+gcc-dg/cleanup-7.c                                    unsupported  function 'xyzzy' with block scope may only have storage class 'extern'
+gcc-dg/cleanup-8.c                                    unsupported  unwind.h: No such file or directory
+gcc-dg/cleanup-9.c                                    unsupported  unwind.h: No such file or directory
+gcc-dg/complex-3.c                                    unsupported  expected declaration or function definition
+gcc-dg/constructor-1.c                                unsupported  GNU attribute 'constructor' is not supported here
+gcc-dg/counted-by-anonymous-2.c                       unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/countof-stdcountof.c                           unsupported  stdcountof.h: No such file or directory
+gcc-dg/countof-vmt.c                                  unsupported  undeclared identifier: _Countof
+gcc-dg/countof-zero.c                                 unsupported  undeclared identifier: _Countof
+gcc-dg/countof.c                                      unsupported  undeclared identifier: _Countof
+gcc-dg/cwsc1.c                                        unsupported  built-in function '__builtin_call_with_static_chain' is not supported
+gcc-dg/darwin-segaddr.c                               unsupported  GNU attribute 'section' is not supported here
+gcc-dg/di-longlong64-sync-1.c                         unsupported  built-in function '__sync_val_compare_and_swap' is not supported
+gcc-dg/di-sync-multithread.c                          unsupported  pthread.h: No such file or directory
+gcc-dg/empty1.c                                       unsupported  struct/union has no members
+gcc-dg/enum-alias-4.c                                 unsupported  attribute 'hardbool' is not supported
+gcc-dg/errno-2.c                                      unsupported  errno.h: No such file or directory
+gcc-dg/errno-3.c                                      unsupported  errno.h: No such file or directory
+gcc-dg/errno-4.c                                      unsupported  errno.h: No such file or directory
+gcc-dg/field-merge-1.c                                unsupported  attribute 'scalar_storage_order' is not supported
+gcc-dg/field-merge-10.c                               unsupported  'asm' output operand is not an lvalue
+gcc-dg/field-merge-3.c                                unsupported  initializer is not a constant expression
+gcc-dg/field-merge-9.c                                unsupported  initializer is not a constant expression
+gcc-dg/flex-array-counted-by-2.c                      unsupported  initializer specified for incomplete type
+gcc-dg/flex-array-counted-by-3.c                      unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/flex-array-counted-by-4.c                      unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/flex-array-counted-by-5.c                      unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/flex-array-counted-by-6.c                      unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/flex-array-counted-by-pr121000.c               unsupported  struct member 'a' has variably modified type
+gcc-dg/float-exact-1.c                                unsupported  long double is not supported
+gcc-dg/fold-cstring.c                                 unsupported  _Complex of a type other than float, double or long double is not supported
+gcc-dg/fold-cvect.c                                   unsupported  undefined symbol 'blah': cimo's runtime does not provide it
+gcc-dg/fwrapv-2.c                                     skip         expects -fno-wrapv to fold (2*x)/2 to x, an optimization cimo doesn't do
+gcc-dg/fwrite-2.c                                     unsupported  undeclared identifier: FILE
+gcc-dg/gcov-info-to-gcda.c                            unsupported  inline assembly is not supported
+gcc-dg/gnu-compoundlit-2.c                            unsupported  struct member 'a' has variably modified type
+gcc-dg/gnu11-typeof-3.c                               unsupported  declaration has no type specifier
+gcc-dg/gnu23-empty-init-1.c                           unsupported  struct member 'x' has variably modified type
+gcc-dg/gnu23-tag-alias-1.c                            unsupported  base types of pointer assignment must be compatible or void
+gcc-dg/gnu23-tag-alias-2.c                            skip         expects type-based alias analysis to fold a load
+gcc-dg/gnu23-tag-alias-3.c                            skip         expects type-based alias analysis to fold a load
+gcc-dg/gnu23-tag-alias-5.c                            skip         expects type-based alias analysis to fold a load
+gcc-dg/gnu23-tag-alias-6.c                            unsupported  struct member 'f' has variably modified type
+gcc-dg/gnu23-tag-alias-7.c                            skip         expects type-based alias analysis to fold a load
+gcc-dg/gnu23-tag-alias-8.c                            unsupported  struct member 'a' has variably modified type
+gcc-dg/gnu23-tag-composite-3.c                        unsupported  struct member 'y' has variably modified type
+gcc-dg/gnu23-tag-composite-4.c                        unsupported  struct member 'buf' has variably modified type
+gcc-dg/gnu23-varmod-2.c                               unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/gnu89-init-1.c                                 unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-dg/gnu99-init-1.c                                 unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-dg/heap-trampoline-1.c                            unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/ia64-sync-1.c                                  unsupported  built-in function '__sync_val_compare_and_swap' is not supported
+gcc-dg/ia64-sync-2.c                                  unsupported  built-in function '__sync_val_compare_and_swap' is not supported
+gcc-dg/ia64-sync-3.c                                  unsupported  built-in function '__sync_val_compare_and_swap' is not supported
+gcc-dg/ia64-sync-5.c                                  unsupported  built-in function '__sync_val_compare_and_swap' is not supported
+gcc-dg/inline-28.c                                    unsupported  function 'f1' with block scope may only have storage class 'extern'
+gcc-dg/inline-29.c                                    unsupported  function 'f1' with block scope may only have storage class 'extern'
+gcc-dg/inline-30.c                                    unsupported  function 'f1' with block scope may only have storage class 'extern'
+gcc-dg/maxof-bitint575.c                              unsupported  invalid unsigned _BitInt width 500
+gcc-dg/nest.c                                         unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/nested-func-11.c                               unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/nested-func-12.c                               unsupported  struct member 'a' has variably modified type
+gcc-dg/nested-func-15.c                               unsupported  struct member 'a' has variably modified type
+gcc-dg/nested-func-16.c                               unsupported  struct member 'a' has variably modified type
+gcc-dg/nested-func-4.c                                unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/nested-func-8.c                                unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/nested-func-9.c                                unsupported  struct member 'a' has variably modified type
+gcc-dg/nested-vla-1.c                                 unsupported  struct member 'x' has variably modified type
+gcc-dg/nested-vla-2.c                                 unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/nested-vla-3.c                                 unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/nextafter-1.c                                  unsupported  built-in function '__builtin_isnanf' is not supported
+gcc-dg/non-local-goto-1.c                             unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/non-local-goto-2.c                             unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/noreturn-8.c                                   unsupported  undefined symbol 'noreturn_autodetection_failed': cimo's runtime does not provide it
+gcc-dg/pack-test-4.c                                  unsupported  bit-field 'flag1' in packed struct is not supported
+gcc-dg/packed-vla.c                                   unsupported  struct member 'b' has variably modified type
+gcc-dg/pic-macro-define.c                             unsupported  expected declaration or function definition
+gcc-dg/pointer-counted-by-4.c                         unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/pointer-counted-by-5.c                         unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/pointer-counted-by-6.c                         unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/pointer-counted-by-7.c                         unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/pointer-counted-by-8.c                         unsupported  built-in function '__builtin_dynamic_object_size' is not supported
+gcc-dg/pr101836.c                                     unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/pr101836_1.c                                   unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/pr101836_2.c                                   unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/pr101836_3.c                                   unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/pr101836_4.c                                   unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/pr101836_5.c                                   unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/pr103222.c                                     unsupported  too many arguments for function call
+gcc-dg/pr103431.c                                     unsupported  undeclared identifier: __SIZEOF_INT128__
+gcc-dg/pr103721-2.c                                   unsupported  built-in function '__atomic_thread_fence' is not supported
+gcc-dg/pr104380.c                                     unsupported  long double is not supported
+gcc-dg/pr104389.c                                     unsupported  long double is not supported
+gcc-dg/pr105414.c                                     unsupported  undeclared identifier: issignaling
+gcc-dg/pr106465.c                                     unsupported  struct member 'p' has variably modified type
+gcc-dg/pr107131.c                                     unsupported  assignment to arithmetic type must be from arithmetic type
+gcc-dg/pr107385.c                                     unsupported  expected ')' after 'asm' operands, saw identifier 'lab'
+gcc-dg/pr108787.c                                     unsupported  undeclared identifier: __SIZEOF_INT128__
+gcc-dg/pr108947.c                                     unsupported  assignment to arithmetic type must be from arithmetic type
+gcc-dg/pr109450-1.c                                   unsupported  struct member 'buf' has variably modified type
+gcc-dg/pr109450-2.c                                   unsupported  struct member 'buf' has variably modified type
+gcc-dg/pr110731.c                                     unsupported  bit-field 'f' of type __int128 is not supported
+gcc-dg/pr111015.c                                     unsupported  bit-field 'c' of type __int128 is not supported
+gcc-dg/pr112740.c                                     unsupported  vector_size applied to a type that is not an integer or floating type
+gcc-dg/pr113722.c                                     unsupported  built-in function '__builtin_bswap128' is not supported
+gcc-dg/pr114052-1.c                                   unsupported  unistd.h: No such file or directory
+gcc-dg/pr114211.c                                     unsupported  vector_size applied to a type that is not an integer or floating type
+gcc-dg/pr114713.c                                     unsupported  redefinition of tag 'foo'
+gcc-dg/pr116034.c                                     unsupported  _Complex of a type other than float, double or long double is not supported
+gcc-dg/pr116588.c                                     unsupported  invalid signed _BitInt width 129
+gcc-dg/pr116891.c                                     unsupported  built-in function '__builtin_nextafter' is not supported
+gcc-dg/pr116906-1.c                                   unsupported  unistd.h: No such file or directory
+gcc-dg/pr116906-2.c                                   unsupported  unistd.h: No such file or directory
+gcc-dg/pr117433.c                                     unsupported  built-in function '__builtin_assoc_barrier' is not supported
+gcc-dg/pr119001-1.c                                   unsupported  initializer specified for incomplete type
+gcc-dg/pr119151.c                                     unsupported  GNU attribute 'aligned' is not supported here
+gcc-dg/pr123356-1.c                                   unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-dg/pr123356-2.c                                   unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-dg/pr123544.c                                     unsupported  array of unknown size has empty initializer
+gcc-dg/pr123569.c                                     unsupported  expected ',' or '
+gcc-dg/pr124576.c                                     bug          a VLA bound in a type name is computed where it is parsed, before the expression's side effects (cproc)
+gcc-dg/pr124671.c                                     unsupported  long double is not supported
+gcc-dg/pr124809.c                                     unsupported  qbe:<cimo>:98: invalid class specifier
+gcc-dg/pr125252.c                                     unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-dg/pr126464.c                                     unsupported  long double is not supported
+gcc-dg/pr127336.c                                     unsupported  built-in function '__atomic_add_fetch' is not supported
+gcc-dg/pr127492.c                                     unsupported  built-in function '__atomic_add_fetch' is not supported
+gcc-dg/pr127965-1.c                                   unsupported  built-in function '__atomic_fetch_or' is not supported
+gcc-dg/pr127965-2.c                                   unsupported  built-in function '__atomic_fetch_or' is not supported
+gcc-dg/pr17112-1.c                                    unsupported  expected ',' or '
+gcc-dg/pr18963-1.c                                    unsupported  function 'barf' with block scope may only have storage class 'extern'
+gcc-dg/pr19402-2.c                                    unsupported  built-in function '__builtin_powif' is not supported
+gcc-dg/pr19633-1.c                                    unsupported  undefined symbol 'link_error': cimo's runtime does not provide it
+gcc-dg/pr25805.c                                      unsupported  initializer specified for incomplete type
+gcc-dg/pr26427.c                                      unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-dg/pr28796-2.c                                    unsupported  long double is not supported
+gcc-dg/pr33919.c                                      unsupported  undeclared identifier: pre_inc_base_file
+gcc-dg/pr35045.c                                      unsupported  expected declaration or function definition
+gcc-dg/pr36015.c                                      unsupported  too many arguments for function call
+gcc-dg/pr37908.c                                      unsupported  built-in function '__sync_nand_and_fetch' is not supported
+gcc-dg/pr39343.c                                      unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/pr41935.c                                      unsupported  not an integer constant expression
+gcc-dg/pr44606.c                                      unsupported  undeclared identifier: fprintf
+gcc-dg/pr46921.c                                      unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-dg/pr48774.c                                      unsupported  'asm' output operand is not an lvalue
+gcc-dg/pr48784-1.c                                    unsupported  bit-field 'a' in packed struct is not supported
+gcc-dg/pr48784-2.c                                    unsupported  bit-field 'a' in packed struct is not supported
+gcc-dg/pr55430.c                                      unsupported  sys/mman.h: No such file or directory
+gcc-dg/pr56078.c                                      unsupported  initializer specified for incomplete type
+gcc-dg/pr56997-1.c                                    unsupported  no type in parameter declaration
+gcc-dg/pr56997-2.c                                    unsupported  no type in parameter declaration
+gcc-dg/pr56997-3.c                                    unsupported  no type in parameter declaration
+gcc-dg/pr58981.c                                      unsupported  long double is not supported
+gcc-dg/pr59833.c                                      unsupported  undeclared identifier: issignaling
+gcc-dg/pr61441.c                                      unsupported  undeclared identifier: issignaling
+gcc-dg/pr65345-2.c                                    unsupported  _Atomic type qualifier is not yet supported
+gcc-dg/pr65408.c                                      unsupported  sys/mman.h: No such file or directory
+gcc-dg/pr68835-2.c                                    unsupported  bit-field 'a' of type __int128 is not supported
+gcc-dg/pr69896.c                                      unsupported  vector_size applied to a type that is not an integer or floating type
+gcc-dg/pr69990.c                                      unsupported  bit-field 'f0' in packed struct is not supported
+gcc-dg/pr76783.c                                      unsupported  vector_size applied to a type that is not an integer or floating type
+gcc-dg/pr78185.c                                      unsupported  unistd.h: No such file or directory
+gcc-dg/pr78468.c                                      unsupported  built-in function '__builtin_alloca_with_align' is not supported
+gcc-dg/pr83047.c                                      unsupported  sys/mman.h: No such file or directory
+gcc-dg/pr84309.c                                      unsupported  built-in function '__builtin_log2' is not supported
+gcc-dg/pr84614.c                                      unsupported  undeclared identifier: __SIZEOF_INT128__
+gcc-dg/pr84877.c                                      unsupported  no type in parameter declaration
+gcc-dg/pr85257.c                                      unsupported  vector_size applied to a type that is not an integer or floating type
+gcc-dg/pr85376.c                                      unsupported  vector_size applied to a type that is not an integer or floating type
+gcc-dg/pr85388-1.c                                    unsupported  sys/types.h: No such file or directory
+gcc-dg/pr85388-2.c                                    unsupported  pthread.h: No such file or directory
+gcc-dg/pr85388-3.c                                    unsupported  sys/types.h: No such file or directory
+gcc-dg/pr85388-4.c                                    unsupported  sys/types.h: No such file or directory
+gcc-dg/pr85388-6.c                                    unsupported  undeclared identifier: alloca
+gcc-dg/pr86314.c                                      unsupported  built-in function '__atomic_fetch_or' is not supported
+gcc-dg/pr86835.c                                      unsupported  built-in function '__builtin_sin' is not supported
+gcc-dg/pr82274-1.c                                    skip         -ftrapv
+gcc-dg/pr88598-3.c                                    skip         -fno-signed-zeros
+gcc-dg/pr89037.c                                      unsupported  bit-field 'y' of type __int128 is not supported
+gcc-dg/pr95694.c                                      unsupported  bit-field 'a' of type __int128 is not supported
+gcc-dg/pr97986-1.c                                    unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/pr98793.c                                      unsupported  assignment to arithmetic type must be from arithmetic type
+gcc-dg/pr98807.c                                      unsupported  assignment to arithmetic type must be from arithmetic type
+gcc-dg/pragma-align-2.c                               skip         Solaris pragmas
+gcc-dg/pragma-align.c                                 unsupported  expected declaration or function definition
+gcc-dg/pragma-init-fini.c                             skip         Solaris pragmas
+gcc-dg/pragma-pack-2.c                                unsupported  expected declaration or function definition
+gcc-dg/range-test-1.c                                 unsupported  array of unknown size has empty initializer
+gcc-dg/setjmp-2.c                                     unsupported  signal.h: No such file or directory
+gcc-dg/setjmp-3.c                                     unsupported  built-in function '__builtin_longjmp' is not supported
+gcc-dg/setjmp-4.c                                     unsupported  built-in function '__builtin_longjmp' is not supported
+gcc-dg/sibcall-6.c                                    unsupported  no type in parameter declaration
+gcc-dg/sibcall-7.c                                    skip         checks that -fno-optimize-sibling-calls keeps a frame per call
+gcc-dg/signbit-6.c                                    skip         expects gcc's results for -INT_MIN, different at -O1 and -O0
+gcc-dg/sinatan-1.c                                    unsupported  long double is not supported
+gcc-dg/single-precision-constant.c                    unsupported  sys/types.h: No such file or directory
+gcc-dg/spec-options.c                                 skip         gcc driver spec files
+gcc-dg/split-1.c                                      unsupported  sys/types.h: No such file or directory
+gcc-dg/split-2.c                                      unsupported  pthread.h: No such file or directory
+gcc-dg/split-3.c                                      unsupported  sys/types.h: No such file or directory
+gcc-dg/split-4.c                                      unsupported  sys/types.h: No such file or directory
+gcc-dg/split-5.c                                      unsupported  pthread.h: No such file or directory
+gcc-dg/split-7.c                                      unsupported  undeclared identifier: alloca
+gcc-dg/sso-12.c                                       unsupported  attribute 'scalar_storage_order' is not supported
+gcc-dg/sso-16.c                                       unsupported  attribute 'scalar_storage_order' is not supported
+gcc-dg/sso-17.c                                       unsupported  attribute 'scalar_storage_order' is not supported
+gcc-dg/sso-6.c                                        unsupported  attribute 'scalar_storage_order' is not supported
+gcc-dg/sso-7.c                                        skip         -fsso-struct=big-endian
+gcc-dg/sso-8.c                                        skip         -fsso-struct=little-endian on a big-endian struct
+gcc-dg/ssp-1.c                                        skip         -fstack-protector: overwrites its own return address
+gcc-dg/ssp-2.c                                        skip         -fstack-protector: overwrites its own return address
+gcc-dg/stackprotectexplicit1.c                        skip         -fstack-protector: overwrites its own return address
+gcc-dg/stdckdint-1.c                                  unsupported  stdckdint.h: No such file or directory
+gcc-dg/strict-flex-array-2.c                          unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/strict-flex-array-3.c                          unsupported  built-in function '__builtin_object_size' is not supported
+gcc-dg/strlenopt-14g.c                                unsupported  undefined symbols 'mempcpy', 'stpcpy': cimo's runtime does not provide it
+gcc-dg/strlenopt-29.c                                 unsupported  pointer operand to '+' must be to complete object type
+gcc-dg/strlenopt-64.c                                 unsupported  base types of pointer assignment must be compatible or void
+gcc-dg/strlenopt-81.c                                 unsupported  undefined symbols 'test_on_line_102_not_eliminated', 'test_on_line_161_not_eliminated', 'test_on_line_177_not_eliminated
+gcc-dg/strncmp-2.c                                    unsupported  sys/mman.h: No such file or directory
+gcc-dg/struct-alias-2.c                               unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-dg/struct-ret-3.c                                 unsupported  sys/mman.h: No such file or directory
+gcc-dg/sync-2.c                                       unsupported  built-in function '__sync_fetch_and_add' is not supported
+gcc-dg/sync-3.c                                       unsupported  built-in function '__sync_fetch_and_add' is not supported
+gcc-dg/trampoline-1.c                                 unsupported  nested functions (a GNU extension) are not supported
+gcc-dg/transparent-union-5.c                          unsupported  attribute 'transparent_union' is not supported
+gcc-dg/typename-vla-1.c                               bug          a VLA bound in a type name is computed where it is parsed, before the expression's side effects (cproc)
+gcc-dg/typename-vla-2.c                               bug          a VLA bound in a type name is computed where it is parsed, before the expression's side effects (cproc)
+gcc-dg/typename-vla-3.c                               unsupported  struct member 'x' has variably modified type
+gcc-dg/typename-vla-4.c                               unsupported  declaration does not declare anything
+gcc-dg/typename-vla-5.c                               unsupported  struct member 'x' has variably modified type
+gcc-dg/typename-vla-6.c                               unsupported  struct member 'x' has variably modified type
+gcc-dg/ucnid-1-utf8.c                                 unsupported  expected '(' or identifier
+gcc-dg/ucnid-1.c                                      unsupported  expected '(' or identifier
+gcc-dg/ucnid-14-utf8.c                                unsupported  expected '(' or identifier
+gcc-dg/ucnid-14.c                                     unsupported  expected '(' or identifier
+gcc-dg/ucnid-15-utf8.c                                unsupported  expected '(' or identifier
+gcc-dg/ucnid-2-utf8.c                                 unsupported  expected '(' or identifier
+gcc-dg/ucnid-2.c                                      unsupported  expected '(' or identifier
+gcc-dg/ucnid-3-utf8.c                                 unsupported  expected '(' or identifier
+gcc-dg/ucnid-3.c                                      unsupported  expected '(' or identifier
+gcc-dg/ucnid-4-utf8.c                                 unsupported  expected '(' or identifier
+gcc-dg/ucnid-4.c                                      unsupported  expected '(' or identifier
+gcc-dg/ucnid-5-utf8.c                                 unsupported  expected ',' or '
+gcc-dg/ucnid-5.c                                      unsupported  expected ',' or '
+gcc-dg/ucnid-6-utf8.c                                 unsupported  expected '(' or identifier
+gcc-dg/ucnid-6.c                                      unsupported  expected '(' or identifier
+gcc-dg/ucnid-9-utf8.c                                 unsupported  expected '(' or identifier
+gcc-dg/ucnid-9.c                                      unsupported  expected '(' or identifier
+gcc-dg/utf8-1.c                                       skip         -fexec-charset=ISO-8859-2
+gcc-dg/va-arg-pack-len-1.c                            unsupported  built-in function '__builtin_va_arg_pack_len' is not supported
+gcc-dg/var-expand3.c                                  unsupported  altivec.h: No such file or directory
+gcc-dg/visibility-22.c                                unsupported  undefined symbol 'foo': cimo's runtime does not provide it
+gcc-dg/vla-13.c                                       bug          a VLA bound in a type name is computed where it is parsed, before the expression's side effects (cproc)
+gcc-dg/vla-15.c                                       bug          typeof of a variably modified expression doesn't evaluate it
+gcc-dg/vla-16.c                                       unsupported  expected primary expression
+gcc-dg/vla-stexp-1.c                                  unsupported  struct member 'x' has variably modified type
+gcc-dg/vla-stexp-2.c                                  unsupported  struct member 'a' has variably modified type
+gcc-dg/vla-stexp-5.c                                  unsupported  struct member 'x' has variably modified type
+gcc-dg/vla-stexp-7.c                                  unsupported  '__auto_type' is not supported
+gcc-dg/vla-tert-1.c                                   unsupported  sizeof operator applied to incomplete type
+gcc-dg/vrp-overflow-1.c                               unsupported  undefined symbol 'unreachable': cimo's runtime does not provide it
+gcc-torture-compile/20000120-2.c                      unsupported  function 'odd' redefined
+gcc-torture-compile/20000211-1.c                      unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/20000224-1.c                      unsupported  undeclared identifier: gu
+gcc-torture-compile/20000326-2.c                      unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/20000403-1.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20000420-1.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20000511-1.c                      unsupported  undeclared identifier: f
+gcc-torture-compile/20000518-1.c                      unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/20000804-1.c                      unsupported  expected declaration or function definition
+gcc-torture-compile/20000818-1.c                      unsupported  long double is not supported
+gcc-torture-compile/20001018-1.c                      unsupported  sizeof operator applied to incomplete type
+gcc-torture-compile/20001116-1.c                      unsupported  initializer is not a constant expression
+gcc-torture-compile/20001212-1.c                      unsupported  long double is not supported
+gcc-torture-compile/20001221-1.c                      unsupported  pointer operand to '+' must be to complete object type
+gcc-torture-compile/20001222-1.c                      unsupported  expected ',' or '
+gcc-torture-compile/20001226-1.c                      skip         too slow: 8192 compare-and-branch pairs in one function, 100 s and 500 MB
+gcc-torture-compile/20010102-1.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20010226-1.c                      unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/20010313-1.c                      unsupported  mode 'SI' applied to a non-integer type
+gcc-torture-compile/20010320-1.c                      unsupported  undeclared identifier: f
+gcc-torture-compile/20010327-1.c                      unsupported  initializer is not a constant expression
+gcc-torture-compile/20010408-1.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20010421-1.c                      unsupported  long double is not supported
+gcc-torture-compile/20010518-1.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20010605-1.c                      unsupported  struct member 'val' has variably modified type
+gcc-torture-compile/20010605-2.c                      unsupported  cast to union type from a type that is not one of its members'
+gcc-torture-compile/20010611-1.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20010714-1.c                      unsupported  expected '(' or identifier
+gcc-torture-compile/20010903-2.c                      unsupported  function 'try' with block scope may only have storage class 'extern'
+gcc-torture-compile/20011023-1.c                      unsupported  function 'baz' with block scope may only have storage class 'extern'
+gcc-torture-compile/20011029-1.c                      unsupported  built-in function '__builtin_setjmp' is not supported
+gcc-torture-compile/20011114-1.c                      unsupported  initializer is not a constant expression
+gcc-torture-compile/20011119-1.c                      unsupported  attribute 'alias' is not supported
+gcc-torture-compile/20011119-2.c                      unsupported  attribute 'alias' is not supported
+gcc-torture-compile/20011217-2.c                      unsupported  undeclared identifier: __d
+gcc-torture-compile/20020210-1.c                      unsupported  struct member 'b' has variably modified type
+gcc-torture-compile/20020309-1.c                      unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/20020318-1.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20020418-1.c                      unsupported  expected primary expression
+gcc-torture-compile/20020927-1.c                      unsupported  expected primary expression
+gcc-torture-compile/20021008-1.c                      unsupported  long double is not supported
+gcc-torture-compile/20021015-2.c                      unsupported  built-in function '__builtin_bcmp' is not supported
+gcc-torture-compile/20021108-1.c                      unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/20021110.c                        unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/20021120-1.c                      unsupported  function 'bar' redeclared with different linkage
+gcc-torture-compile/20021120-2.c                      unsupported  function 'bar' redeclared with different linkage
+gcc-torture-compile/20021204-1.c                      unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/20030109-1.c                      unsupported  undeclared identifier: bar
+gcc-torture-compile/20030224-1.c                      unsupported  struct member 'a' has variably modified type
+gcc-torture-compile/20030305-1.c                      unsupported  initializer specified for incomplete type
+gcc-torture-compile/20030410-1.c                      unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/20030415-1.c                      unsupported  undeclared identifier: fabs
+gcc-torture-compile/20030418-1.c                      unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/20030518-1.c                      unsupported  built-in function '__builtin_stpcpy' is not supported
+gcc-torture-compile/20030530-3.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20030612-1.c                      unsupported  undeclared identifier: bar
+gcc-torture-compile/20030716-1.c                      unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/20030902-1.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20030903-1.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20030910-1.c                      unsupported  undeclared identifier: __complex
+gcc-torture-compile/20030917-1.c                      unsupported  expected declaration or function definition
+gcc-torture-compile/20031011-1.c                      unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/20031023-1.c                      unsupported  qbe:<cimo>:121: invalid alloc size 1099511627776
+gcc-torture-compile/20031023-2.c                      unsupported  qbe:<cimo>:121: invalid alloc size 68719476736
+gcc-torture-compile/20031023-3.c                      unsupported  qbe:<cimo>:121: invalid alloc size 4294967296
+gcc-torture-compile/20031023-4.c                      unsupported  qbe:<cimo>:121: invalid alloc size 2147483648
+gcc-torture-compile/20031112-1.c                      unsupported  function '__finite' redeclared with different assembler name
+gcc-torture-compile/20031113-1.c                      unsupported  undeclared identifier: simple_cst_equal
+gcc-torture-compile/20031208-1.c                      unsupported  long double is not supported
+gcc-torture-compile/20031220-2.c                      unsupported  undeclared identifier: expm1f
+gcc-torture-compile/20040130-1.c                      unsupported  bit-field '(null)' in packed struct is not supported
+gcc-torture-compile/20040202-1.c                      unsupported  built-in function '__builtin_extract_return_addr' is not supported
+gcc-torture-compile/20040214-2.c                      unsupported  too many arguments for function call
+gcc-torture-compile/20040309-1.c                      unsupported  expected declaration or function definition
+gcc-torture-compile/20040310-1.c                      unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/20040317-3.c                      unsupported  expected declaration or function definition
+gcc-torture-compile/20040323-1.c                      unsupported  attribute 'alias' is not supported
+gcc-torture-compile/20040614-1.c                      unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/20040709-1.c                      unsupported  long double is not supported
+gcc-torture-compile/20040817-1.c                      unsupported  undeclared identifier: bar1
+gcc-torture-compile/20040907-1.c                      unsupported  no type in parameter declaration
+gcc-torture-compile/20041026-1.c                      unsupported  long double is not supported
+gcc-torture-compile/20050105-1.c                      unsupported  base types of pointer assignment must be compatible or void
+gcc-torture-compile/20050119-1.c                      unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/20050122-2.c                      unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/20050215-1.c                      unsupported  function 'f2' redefined
+gcc-torture-compile/20050215-2.c                      unsupported  function 'f2' redefined
+gcc-torture-compile/20050215-3.c                      unsupported  function 'f2' redefined
+gcc-torture-compile/20050510-1.c                      unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/20050801-2.c                      unsupported  struct member 't' has variably modified type
+gcc-torture-compile/20060202-1.c                      unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/20061005-1.c                      unsupported  built-in function '__sync_fetch_and_add' is not supported
+gcc-torture-compile/20070419-1.c                      unsupported  invalid operands to '<=' operator
+gcc-torture-compile/20070905-1.c                      unsupported  assignment to pointer discards qualifiers
+gcc-torture-compile/20070915-1.c                      unsupported  built-in function '__builtin___memset_chk' is not supported
+gcc-torture-compile/20071117-1.c                      unsupported  built-in function '__builtin_stack_save' is not supported
+gcc-torture-compile/20080628-1.c                      unsupported  long double is not supported
+gcc-torture-compile/20080704-1.c                      unsupported  expected declaration or function definition
+gcc-torture-compile/20080910-1.c                      unsupported  undeclared identifier: addlit
+gcc-torture-compile/20090907-1.c                      unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/20090917-1.c                      unsupported  invalid operands to '==' operator
+gcc-torture-compile/20091215-1.c                      unsupported  too many arguments for function call
+gcc-torture-compile/20100915-1.c                      unsupported  undeclared identifier: buffer_uptodate
+gcc-torture-compile/20101216-1.c                      unsupported  expected declaration or function definition
+gcc-torture-compile/20111209-1.c                      unsupported  mode 'SI' applied to a non-integer type
+gcc-torture-compile/20121027-1.c                      unsupported  undeclared identifier: ff
+gcc-torture-compile/20161123-1.c                      unsupported  long double is not supported
+gcc-torture-compile/20180309-1.c                      unsupported  built-in function '__builtin_frame_address' is not supported
+gcc-torture-compile/20180605-1.c                      unsupported  expected '
+gcc-torture-compile/20190827-1.c                      unsupported  pointer operand to '-' must be to complete object type
+gcc-torture-compile/386.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/86.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/900216-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/900313-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/900407-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/900516-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920301-1.c                        unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/920409-2.c                        unsupported  undeclared identifier: t
+gcc-torture-compile/920410-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/920415-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920428-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920428-3.c                        unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/920428-4.c                        unsupported  struct member 'p' has variably modified type
+gcc-torture-compile/920428-5.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920428-6.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/920428-7.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920501-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920501-11.c                       unsupported  expected declaration or function definition
+gcc-torture-compile/920501-13.c                       unsupported  declaration has no type specifier
+gcc-torture-compile/920501-15.c                       unsupported  expected declaration or function definition
+gcc-torture-compile/920501-16.c                       unsupported  expected declaration or function definition
+gcc-torture-compile/920501-18.c                       unsupported  expected declaration or function definition
+gcc-torture-compile/920501-20.c                       unsupported  no type in parameter declaration
+gcc-torture-compile/920501-21.c                       unsupported  no type in parameter declaration
+gcc-torture-compile/920501-22.c                       unsupported  array of unknown size has empty initializer
+gcc-torture-compile/920501-23.c                       unsupported  expected declaration or function definition
+gcc-torture-compile/920501-6.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920501-7.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920501-8.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920501-9.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/920502-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920502-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920520-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920521-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920529-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/920608-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920611-2.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/920617-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920617-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920624-1.c                        unsupported  object 'B' has incomplete type
+gcc-torture-compile/920625-1.c                        unsupported  declaration has no type specifier
+gcc-torture-compile/920625-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920626-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920701-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920706-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920710-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920723-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920808-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920809-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920817-1.c                        unsupported  declaration has no type specifier
+gcc-torture-compile/920825-1.c                        unsupported  bit-field 'f1' in packed struct is not supported
+gcc-torture-compile/920826-1.c                        unsupported  computed goto ('goto *p', a GNU extension) is not supported
+gcc-torture-compile/920831-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920902-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/920917-1.c                        unsupported  declaration has no type specifier
+gcc-torture-compile/920928-1.c                        unsupported  initializer is not a constant expression
+gcc-torture-compile/920928-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/920928-5.c                        unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/920928-6.c                        unsupported  initializer is not a constant expression
+gcc-torture-compile/921011-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/921011-2.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/921012-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/921021-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/921024-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/921103-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/921109-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/921111-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/921116-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/921118-1.c                        unsupported  declaration has no type specifier
+gcc-torture-compile/921202-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/921202-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/921203-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/921203-2.c                        unsupported  undeclared identifier: va_start
+gcc-torture-compile/921206-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930109-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930111-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930117-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930118-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930120-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/930217-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930325-1.c                        unsupported  declaration has no type specifier
+gcc-torture-compile/930326-1.c                        unsupported  initializer is not a constant expression
+gcc-torture-compile/930411-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930427-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930503-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930506-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/930506-2.c                        unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/930510-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/930513-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930529-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930530-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930602-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930618-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/930623-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/931003-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/931013-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/931013-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/931102-1.c                        unsupported  too many arguments for function call
+gcc-torture-compile/931102-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/931203-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/940718-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/941014-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/941014-2.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/941014-3.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/941014-4.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/941019-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/941111-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/941113-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/950124-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/950329-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/950612-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/950613-1.c                        unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/950618-1.c                        unsupported  undeclared identifier: g
+gcc-torture-compile/950719-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/950816-2.c                        unsupported  base types of pointer assignment must be compatible or void
+gcc-torture-compile/950910-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/950919-1.c                        unsupported  token "#" is not valid in preprocessor expressions
+gcc-torture-compile/950922-1.c                        unsupported  undeclared identifier: g
+gcc-torture-compile/951106-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/951116-1.c                        unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/951128-1.c                        unsupported  object 'a' has incomplete type
+gcc-torture-compile/951222-1.c                        unsupported  undeclared identifier: setjmp
+gcc-torture-compile/960106-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/960201-1.c                        unsupported  attribute 'transparent_union' is not supported
+gcc-torture-compile/960319-1.c                        unsupported  undeclared identifier: g
+gcc-torture-compile/960829-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/961004-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/970206-1.c                        unsupported  undeclared identifier: g
+gcc-torture-compile/980504-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/980506-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/980511-1.c                        unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/980825-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/981001-2.c                        unsupported  attribute 'alias' is not supported
+gcc-torture-compile/981006-1.c                        unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/981223-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/990107-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/990203-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/990801-1.c                        unsupported  too many arguments for function call
+gcc-torture-compile/990829-1.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/991213-1.c                        unsupported  declaration has no type specifier
+gcc-torture-compile/991213-2.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/991213-3.c                        unsupported  computed goto ('goto *p', a GNU extension) is not supported
+gcc-torture-compile/BUG1.c                            unsupported  no type in parameter declaration
+gcc-torture-compile/BUG11.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/BUG13.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/BUG16.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/BUG2.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/BUG24.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/BUG25.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/BUG3.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/DFcmp.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/HIcmp.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/HIset.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/QIcmp.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/QIset.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/SFset.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/SIcmp.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/SIset.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/UHIcmp.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/UQIcmp.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/USIcmp.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/a.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/a1.c                              unsupported  no type in parameter declaration
+gcc-torture-compile/a3.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/aa.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/aaa.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/abs.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/ac.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/acc.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/add.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/add386.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/addcc.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/andm.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/andmem.c                          unsupported  no type in parameter declaration
+gcc-torture-compile/andn.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/andok.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/andsi.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/aos.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/arr.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/as.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/ase.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/asmgoto-1.c                       unsupported  expected ')' after 'asm' operands, saw identifier 'lab'
+gcc-torture-compile/asmgoto-2.c                       unsupported  expected ')' after 'asm' operands, saw identifier 'lab'
+gcc-torture-compile/asmgoto-3.c                       unsupported  expected ')' after 'asm' operands, saw identifier 'lab'
+gcc-torture-compile/asmgoto-4.c                       unsupported  expected ')' after 'asm' operands, saw identifier 'lab'
+gcc-torture-compile/asmgoto-5.c                       unsupported  expected ')' after 'asm' operands, saw identifier 'lab'
+gcc-torture-compile/asmgoto-6.c                       unsupported  inline assembly is not supported
+gcc-torture-compile/attr-retain-1.c                   unsupported  GNU attribute 'section' is not supported here
+gcc-torture-compile/attr-retain-2.c                   unsupported  GNU attribute 'section' is not supported here
+gcc-torture-compile/attr-used-retain-1.c              unsupported  GNU attribute 'section' is not supported here
+gcc-torture-compile/attr-used-retain-2.c              unsupported  GNU attribute 'section' is not supported here
+gcc-torture-compile/b3.c                              unsupported  no type in parameter declaration
+gcc-torture-compile/bad.c                             unsupported  no type in parameter declaration
+gcc-torture-compile/band.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/bb0.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/bb1.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/bbb.c                             unsupported  object 'lkst' has incomplete type
+gcc-torture-compile/bc.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/bcopy-1.c                         unsupported  built-in function '__builtin_bcopy' is not supported
+gcc-torture-compile/bcopy.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/bfins.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/bfx.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/bge.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/bit.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/bitf.c                            unsupported  no type in parameter declaration
+gcc-torture-compile/bitfield-1.c                      unsupported  bit-field 't' of type __int128 is not supported
+gcc-torture-compile/bitfield-endian-1.c               unsupported  no type in parameter declaration
+gcc-torture-compile/bitfield-endian-2.c               unsupported  no type in parameter declaration
+gcc-torture-compile/bitw.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/blk.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/bt386.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/bug.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/bugc.c                            unsupported  no type in parameter declaration
+gcc-torture-compile/buns.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/c.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/c1.c                              unsupported  no type in parameter declaration
+gcc-torture-compile/c2.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/call.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/callind.c                         unsupported  expected declaration or function definition
+gcc-torture-compile/calls-void.c                      unsupported  expected declaration or function definition
+gcc-torture-compile/calls.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/cc.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/cmb.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/cmpsi386.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/cmul.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/comb.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/complex-1.c                       unsupported  no type in parameter declaration
+gcc-torture-compile/complex-5.c                       unsupported  no type in parameter declaration
+gcc-torture-compile/complex-6.c                       unsupported  undeclared identifier: __complex__
+gcc-torture-compile/consec.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/const.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/conv_tst.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/cp.c                              unsupported  no type in parameter declaration
+gcc-torture-compile/csebug.c                          unsupported  no type in parameter declaration
+gcc-torture-compile/cvt.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/d.c                               unsupported  no type in parameter declaration
+gcc-torture-compile/dbl_parm.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/dblbug.c                          unsupported  no type in parameter declaration
+gcc-torture-compile/dead.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/delay.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/di.c                              unsupported  no type in parameter declaration
+gcc-torture-compile/dimul.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/div.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/dll.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/dm.c                              unsupported  no type in parameter declaration
+gcc-torture-compile/dse.c                             unsupported  pointer operand to '+' must be to complete object type
+gcc-torture-compile/dshift.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/e.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/ex.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/ext.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/flo.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/float.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/foo.c                             unsupported  no type in parameter declaration
+gcc-torture-compile/forgetcc.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/g.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/gen_tst.c                         unsupported  expected declaration or function definition
+gcc-torture-compile/gronk.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/hi.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/hibug.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/i.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/icmp.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/ifreg.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/init-2.c                          unsupported  undeclared identifier: e2
+gcc-torture-compile/init-3.c                          unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/inline-1.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/jumptab.c                         unsupported  expected declaration or function definition
+gcc-torture-compile/l.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/labels-1.c                        unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/labels-2.c                        unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/labels-3.c                        unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/layout.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/limits-blockid.c                  skip         too slow: 100000 locals in one block
+gcc-torture-compile/limits-caselabels.c               skip         too slow: 100000 case labels, 255 s and 5.5 GB (assembles since far branches are relaxed)
+gcc-torture-compile/lll.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/load8.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/loadhicc.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/log2.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/logic.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/loop-1.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/loop386.c                         unsupported  expected declaration or function definition
+gcc-torture-compile/lop.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/m1.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/m2.c                              unsupported  no type in parameter declaration
+gcc-torture-compile/m5.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/m68.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/mbyte.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/mcmp.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/memtst.c                          unsupported  built-in function '__builtin_bzero' is not supported
+gcc-torture-compile/mipscop-1.c                       unsupported  external declaration must not contain 'register'
+gcc-torture-compile/mipscop-2.c                       unsupported  external declaration must not contain 'register'
+gcc-torture-compile/mipscop-3.c                       unsupported  external declaration must not contain 'register'
+gcc-torture-compile/mipscop-4.c                       unsupported  external declaration must not contain 'register'
+gcc-torture-compile/mm.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/mod.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/modcc.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/move.c                            unsupported  no type in parameter declaration
+gcc-torture-compile/move_qhi.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/mregtst.c                         unsupported  expected declaration or function definition
+gcc-torture-compile/mu.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/mword.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/mword1.c                          unsupported  no type in parameter declaration
+gcc-torture-compile/n.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/n1.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/nand.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/neg.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/nested-1.c                        unsupported  struct member 'b' has variably modified type
+gcc-torture-compile/nested-2.c                        unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/nested-3.c                        unsupported  function 'g' with block scope may only have storage class 'extern'
+gcc-torture-compile/o.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/omit.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/opout.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/opt.c                             unsupported  no type in parameter declaration
+gcc-torture-compile/or.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/or386.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/p.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/packed-aligned-1.c                unsupported  no type in parameter declaration
+gcc-torture-compile/parms.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/pass.c                            unsupported  no type in parameter declaration
+gcc-torture-compile/pmt.c                             unsupported  no type in parameter declaration
+gcc-torture-compile/pp.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/pr100241-1.c                      unsupported  too many arguments for function call
+gcc-torture-compile/pr100316.c                        unsupported  built-in function '__builtin___clear_cache' is not supported
+gcc-torture-compile/pr100576.c                        unsupported  undeclared identifier: memcmp
+gcc-torture-compile/pr101437.c                        unsupported  struct/union has no members
+gcc-torture-compile/pr101941-1.c                      unsupported  built-in function '__builtin_object_size' is not supported
+gcc-torture-compile/pr103682.c                        unsupported  built-in function '__atomic_fetch_and' is not supported
+gcc-torture-compile/pr106030.c                        unsupported  invalid operands to '<=' operator
+gcc-torture-compile/pr106101.c                        unsupported  too many arguments for function call
+gcc-torture-compile/pr106433.c                        unsupported  attribute 'simd' is not supported
+gcc-torture-compile/pr106537-1.c                      unsupported  pointer operands to '>' operator must be to compatible object types
+gcc-torture-compile/pr106537-2.c                      unsupported  pointer operands to '>' operator must be to compatible object types
+gcc-torture-compile/pr106537-3.c                      unsupported  pointer operands to '>' operator must be to compatible object types
+gcc-torture-compile/pr106751.c                        unsupported  expected ')' after 'asm' operands, saw identifier 'lab'
+gcc-torture-compile/pr107997.c                        unsupported  expected ')' after 'asm' operands, saw identifier 'l'
+gcc-torture-compile/pr108237.c                        unsupported  assignment to arithmetic type must be from arithmetic type
+gcc-torture-compile/pr108596.c                        unsupported  expected ')' after 'asm' operands, saw identifier 'l1'
+gcc-torture-compile/pr108892.c                        unsupported  built-in function '__builtin_memcmp_eq' is not supported
+gcc-torture-compile/pr110266.c                        unsupported  built-in function '__builtin_cexpi' is not supported
+gcc-torture-compile/pr110386-1.c                      unsupported  qbe:<cimo>:36: ssa temporary %.3 is used undefined in @body.2
+gcc-torture-compile/pr110386-2.c                      unsupported  immintrin.h: No such file or directory
+gcc-torture-compile/pr111059-10.c                     unsupported  no unsigned integer type can represent enumerator value
+gcc-torture-compile/pr111059-11.c                     unsupported  no unsigned integer type can represent enumerator value
+gcc-torture-compile/pr111059-12.c                     unsupported  no unsigned integer type can represent enumerator value
+gcc-torture-compile/pr111059-7.c                      unsupported  no unsigned integer type can represent enumerator value
+gcc-torture-compile/pr111059-8.c                      unsupported  no unsigned integer type can represent enumerator value
+gcc-torture-compile/pr111059-9.c                      unsupported  no unsigned integer type can represent enumerator value
+gcc-torture-compile/pr111699-1.c                      unsupported  operands to '>=' are vectors of different types
+gcc-torture-compile/pr111911-2.c                      unsupported  no unsigned integer type can represent enumerator value
+gcc-torture-compile/pr113616.c                        unsupported  pointer operand to '-' must be to complete object type
+gcc-torture-compile/pr116516.c                        unsupported  pointer operand to '+' must be to complete object type
+gcc-torture-compile/pr116600.c                        unsupported  expected ')' after 'asm' operands, saw identifier 'l'
+gcc-torture-compile/pr119226.c                        unsupported  built-in function '__builtin_strcspn' is not supported
+gcc-torture-compile/pr120250.c                        unsupported  computed goto ('goto *p', a GNU extension) is not supported
+gcc-torture-compile/pr122588-1.c                      unsupported  built-in function '__sync_nand_and_fetch' is not supported
+gcc-torture-compile/pr123365.c                        unsupported  'asm' output operand is not an lvalue
+gcc-torture-compile/pr123386.c                        unsupported  expected ')' after 'asm' operands, saw identifier 'd'
+gcc-torture-compile/pr17408.c                         unsupported  undeclared identifier: h
+gcc-torture-compile/pr17906.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr17913.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr18903.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr19121.c                         unsupported  undeclared identifier: strchr
+gcc-torture-compile/pr19357.c                         unsupported  long double is not supported
+gcc-torture-compile/pr21356.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr21728.c                         unsupported  nested functions (a GNU extension) are not supported
+gcc-torture-compile/pr21839.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr21840.c                         unsupported  pointer operands to '==' operator are to incompatible types
+gcc-torture-compile/pr23237.c                         unsupported  GNU attribute 'section' is not supported here
+gcc-torture-compile/pr25224.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr26213.c                         unsupported  undeclared identifier: foo
+gcc-torture-compile/pr26725.c                         unsupported  invalid operands to conditional operator
+gcc-torture-compile/pr27282.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr27341-2.c                       unsupported  base types of pointer assignment must be compatible or void
+gcc-torture-compile/pr27863.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr27889.c                         unsupported  _Complex of a type other than float, double or long double is not supported
+gcc-torture-compile/pr27907.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr28489.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr28776-2.c                       unsupported  base types of pointer assignment must be compatible or void
+gcc-torture-compile/pr28865.c                         unsupported  initializer specified for incomplete type
+gcc-torture-compile/pr29128.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr29201.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr30311.c                         unsupported  long double is not supported
+gcc-torture-compile/pr30984.c                         unsupported  computed goto ('goto *p', a GNU extension) is not supported
+gcc-torture-compile/pr32355.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr32584.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr32919.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr33133.c                         unsupported  undeclared identifier: memcpy
+gcc-torture-compile/pr33173.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr33382.c                         unsupported  initializer specified for incomplete type
+gcc-torture-compile/pr33855.c                         unsupported  long double is not supported
+gcc-torture-compile/pr34091.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr34334.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr34688.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr34885.c                         unsupported  attribute 'transparent_union' is not supported
+gcc-torture-compile/pr34993.c                         unsupported  expected ',' or '
+gcc-torture-compile/pr35006.c                         unsupported  function 'cl_print' redeclared with incompatible type
+gcc-torture-compile/pr35043.c                         unsupported  long double is not supported
+gcc-torture-compile/pr35431.c                         unsupported  undeclared identifier: __complex__
+gcc-torture-compile/pr35760.c                         unsupported  undeclared identifier: __complex__
+gcc-torture-compile/pr36125.c                         unsupported  long double is not supported
+gcc-torture-compile/pr36154.c                         unsupported  initializer specified for incomplete type
+gcc-torture-compile/pr37380.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr37381.c                         unsupported  expected declaration or function definition
+gcc-torture-compile/pr37418-2.c                       unsupported  assignment to pointer discards qualifiers
+gcc-torture-compile/pr37418-4.c                       unsupported  assignment to pointer discards qualifiers
+gcc-torture-compile/pr37669-2.c                       unsupported  built-in function '__builtin___snprintf_chk' is not supported
+gcc-torture-compile/pr37669.c                         unsupported  built-in function '__builtin___snprintf_chk' is not supported
+gcc-torture-compile/pr37976.c                         unsupported  built-in function '__builtin_strspn' is not supported
+gcc-torture-compile/pr38343-2.c                       unsupported  built-in function '__builtin_stpcpy' is not supported
+gcc-torture-compile/pr38343.c                         unsupported  built-in function '__builtin_stpcpy' is not supported
+gcc-torture-compile/pr38360.c                         unsupported  undeclared identifier: fputs
+gcc-torture-compile/pr38789.c                         unsupported  inline assembly is not supported
+gcc-torture-compile/pr39394.c                         unsupported  struct member 'x' has variably modified type
+gcc-torture-compile/pr40291.c                         unsupported  undeclared identifier: memcmp
+gcc-torture-compile/pr40351.c                         unsupported  bit-field 'vector' in packed struct is not supported
+gcc-torture-compile/pr40556.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr41182-1.c                       unsupported  undeclared identifier: strlen
+gcc-torture-compile/pr41987.c                         unsupported  long double is not supported
+gcc-torture-compile/pr42196-1.c                       unsupported  no type in struct member declaration
+gcc-torture-compile/pr42196-2.c                       unsupported  no type in struct member declaration
+gcc-torture-compile/pr42196-3.c                       unsupported  no type in struct member declaration
+gcc-torture-compile/pr42196-4.c                       unsupported  no type in struct member declaration
+gcc-torture-compile/pr42559.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr42717.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr42956.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr43066.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr43188.c                         unsupported  GNU attribute 'aligned' is not supported here
+gcc-torture-compile/pr43191.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr43635.c                         unsupported  base types of pointer assignment must be compatible or void
+gcc-torture-compile/pr43636.c                         unsupported  built-in function '__builtin_stpcpy' is not supported
+gcc-torture-compile/pr44043.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr44063.c                         unsupported  undeclared identifier: bswap_32
+gcc-torture-compile/pr44119.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr44197.c                         unsupported  object '__C_ctype_b' redeclared with different assembler name
+gcc-torture-compile/pr44246.c                         unsupported  undeclared identifier: strcat
+gcc-torture-compile/pr44941.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr45535.c                         unsupported  undeclared identifier: __pgd_val
+gcc-torture-compile/pr45728.c                         unsupported  dying: invalid class
+gcc-torture-compile/pr45919.c                         unsupported  initializer specified for incomplete type
+gcc-torture-compile/pr46107.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr46547-1.c                       unsupported  long double is not supported
+gcc-torture-compile/pr46866.c                         unsupported  attribute 'transparent_union' is not supported
+gcc-torture-compile/pr46934.c                         unsupported  undeclared identifier: foo
+gcc-torture-compile/pr47428.c                         unsupported  undeclared identifier: fn
+gcc-torture-compile/pr47967.c                         unsupported  too many arguments for function call
+gcc-torture-compile/pr48517.c                         unsupported  assignment to arithmetic type must be from arithmetic type
+gcc-torture-compile/pr48596.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr48641.c                         unsupported  long double is not supported
+gcc-torture-compile/pr48767.c                         unsupported  va_arg with non-scalar type is not yet supported
+gcc-torture-compile/pr49029.c                         unsupported  bit-field 'f' in packed struct is not supported
+gcc-torture-compile/pr49145.c                         unsupported  undeclared identifier: foo
+gcc-torture-compile/pr49163.c                         unsupported  bit-field 'f0' in packed struct is not supported
+gcc-torture-compile/pr49206.c                         unsupported  undeclared identifier: foo
+gcc-torture-compile/pr49474.c                         unsupported  qbe:<cimo>:54: predecessors not matched in phi %.11
+gcc-torture-compile/pr49735.c                         unsupported  attribute 'alias' is not supported
+gcc-torture-compile/pr50565-1.c                       unsupported  pointer operand to '-' must be to complete object type
+gcc-torture-compile/pr50565-2.c                       unsupported  pointer operand to '-' must be to complete object type
+gcc-torture-compile/pr51069.c                         unsupported  expected '
+gcc-torture-compile/pr51077.c                         unsupported  built-in function '__builtin___memcpy_chk' is not supported
+gcc-torture-compile/pr51354.c                         unsupported  typedef 'ai' declared with alignment specifier
+gcc-torture-compile/pr51495.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr51694.c                         unsupported  no type in parameter declaration
+gcc-torture-compile/pr51767.c                         unsupported  expected ')' after 'asm' operands, saw identifier 'lab'
+gcc-torture-compile/pr51856.c                         unsupported  built-in function '__builtin_bzero' is not supported
+gcc-torture-compile/pr52891-2.c                       unsupported  bit-field 's' in packed struct is not supported
+gcc-torture-compile/pr53410-2.c                       unsupported  assignment to struct type must be from compatible type
+gcc-torture-compile/pr53411.c                         unsupported  no type in parameter declaration
+gcc-torture-compile/pr53886.c                         unsupported  undeclared identifier: ERR_put_error
+gcc-torture-compile/pr54428.c                         unsupported  built-in function '__builtin_cpow' is not supported
+gcc-torture-compile/pr54713-1.c                       unsupported  assignment to struct type must be from compatible type
+gcc-torture-compile/pr54713-2.c                       unsupported  assignment to struct type must be from compatible type
+gcc-torture-compile/pr54713-3.c                       unsupported  assignment to struct type must be from compatible type
+gcc-torture-compile/pr58164.c                         unsupported  computed goto ('goto *p', a GNU extension) is not supported
+gcc-torture-compile/pr58344.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr59362.c                         unsupported  built-in function '__builtin___stpcpy_chk' is not supported
+gcc-torture-compile/pr61159.c                         unsupported  attribute 'alias' is not supported
+gcc-torture-compile/pr61848.c                         unsupported  GNU attribute 'section' is not supported here
+gcc-torture-compile/pr63282.c                         unsupported  expected ')' after 'asm' operands, saw identifier 'a'
+gcc-torture-compile/pr65241.c                         unsupported  no type in parameter declaration
+gcc-torture-compile/pr65540.c                         unsupported  long double is not supported
+gcc-torture-compile/pr65873.c                         unsupported  built-in function '__builtin___memcpy_chk' is not supported
+gcc-torture-compile/pr67143.c                         unsupported  built-in function '__sync_add_and_fetch' is not supported
+gcc-torture-compile/pr70190.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr70199.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr70355.c                         unsupported  vector_size applied to a type that is not an integer or floating type
+gcc-torture-compile/pr71109.c                         unsupported  too many arguments for function call
+gcc-torture-compile/pr72802.c                         unsupported  declaration has no type specifier
+gcc-torture-compile/pr77754-6.c                       unsupported  struct member 'a' has variably modified type
+gcc-torture-compile/pr78694.c                         unsupported  thread-local storage is not supported
+gcc-torture-compile/pr81262.c                         unsupported  expected ')' after 'asm' operands, saw identifier 'l1'
+gcc-torture-compile/pr81360.c                         unsupported  declaration has no type specifier
+gcc-torture-compile/pr82052.c                         unsupported  undeclared identifier: printf
+gcc-torture-compile/pr82096.c                         unsupported  built-in function '__sync_bool_compare_and_swap' is not supported
+gcc-torture-compile/pr82337.c                         unsupported  invalid operands to conditional operator
+gcc-torture-compile/pr82564.c                         unsupported  struct member 'v' has variably modified type
+gcc-torture-compile/pr83051-2.c                       unsupported  too many arguments for function call
+gcc-torture-compile/pr83222.c                         unsupported  initializer is not a constant expression
+gcc-torture-compile/pr83487.c                         unsupported  GNU attribute 'aligned' is not supported here
+gcc-torture-compile/pr83547.c                         unsupported  controlling expression of if statement must have scalar type
+gcc-torture-compile/pr84136.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr84960.c                         unsupported  labels as values ('&&label', a GNU extension) are not supported
+gcc-torture-compile/pr85704.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr86122.c                         unsupported  _Complex of a type other than float, double or long double is not supported
+gcc-torture-compile/pr86123.c                         unsupported  _Complex of a type other than float, double or long double is not supported
+gcc-torture-compile/pr87647.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr88140.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr88347.c                         unsupported  ../../gcc.target/powerpc/ppc-switch-2.c: No such file or directory
+gcc-torture-compile/pr88423.c                         unsupported  ../../gcc.dg/20030309-1.c: No such file or directory
+gcc-torture-compile/pr89280.c                         unsupported  built-in function '__builtin_setjmp' is not supported
+gcc-torture-compile/pr89663-1.c                       unsupported  too many arguments for function call
+gcc-torture-compile/pr90275-2.c                       unsupported  base types of pointer assignment must be compatible or void
+gcc-torture-compile/pr90275.c                         unsupported  expected declaration or function definition
+gcc-torture-compile/pr90840.c                         unsupported  long double is not supported
+gcc-torture-compile/pr91001.c                         unsupported  GNU attribute 'aligned' is not supported here
+gcc-torture-compile/pr92231.c                         unsupported  pointer operand to '+' must be to complete object type
+gcc-torture-compile/pr93776.c                         unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/pr94238.c                         unsupported  expected '}' to close enum specifier, saw 'false'
+gcc-torture-compile/pr96796.c                         unsupported  too many arguments for function call
+gcc-torture-compile/pr97205.c                         unsupported  typedef 'x' declared with alignment specifier
+gcc-torture-compile/pr97576.c                         unsupported  attribute 'simd' is not supported
+gcc-torture-compile/pr98087.c                         unsupported  built-in function '__builtin_clear_padding' is not supported
+gcc-torture-compile/pr98096.c                         unsupported  inline assembly is not supported
+gcc-torture-compile/pr98199.c                         unsupported  bit-field padding before member 'e' in packed struct is not supported
+gcc-torture-compile/pr98407.c                         unsupported  initializer specified for incomplete type
+gcc-torture-compile/pr99324.c                         unsupported  no type in parameter declaration
+gcc-torture-compile/pr99647.c                         unsupported  no type in parameter declaration
+gcc-torture-compile/pret-arg.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/pyr.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/pyr2.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/q.c                               unsupported  no type in parameter declaration
+gcc-torture-compile/r.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/r1.c                              unsupported  no type in parameter declaration
+gcc-torture-compile/regs-arg-size.c                   unsupported  base types of pointer assignment must be compatible or void
+gcc-torture-compile/rmsc.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/round.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/s.c                               unsupported  no type in parameter declaration
+gcc-torture-compile/sc.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/scal.c                            unsupported  no type in parameter declaration
+gcc-torture-compile/scc.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/scond.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/section.c                         unsupported  GNU attribute 'section' is not supported here
+gcc-torture-compile/seq.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/set386.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/set88.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/sh.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/shand.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/shft.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/shift.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/signext.c                         unsupported  no type in parameter declaration
+gcc-torture-compile/signext2.c                        unsupported  no type in parameter declaration
+gcc-torture-compile/simd-6.c                          unsupported  initializer is not a constant expression
+gcc-torture-compile/simple.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/sizeof-macros-1.c                 unsupported  undeclared identifier: __SIZEOF_LONG_DOUBLE__
+gcc-torture-compile/sparcbug.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/split-path-3.c                    unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/split-path-7.c                    unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/stack-check-1.c                   unsupported  qbe:<cimo>:121: invalid alloc size 1099511627776
+gcc-torture-compile/stor.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/str.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/string-large-1.c                  unsupported  built-in function '__builtin_mempcpy' is not supported
+gcc-torture-compile/structret.c                       unsupported  no type in parameter declaration
+gcc-torture-compile/structs.c                         unsupported  no type in parameter declaration
+gcc-torture-compile/sub32.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/subcc.c                           unsupported  no type in parameter declaration
+gcc-torture-compile/subcse.c                          unsupported  expected declaration or function definition
+gcc-torture-compile/sym.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/symconst.c                        unsupported  expected declaration or function definition
+gcc-torture-compile/sync-1.c                          unsupported  built-in function '__sync_fetch_and_add' is not supported
+gcc-torture-compile/sync-2.c                          unsupported  built-in function '__sync_fetch_and_add' is not supported
+gcc-torture-compile/sync-3.c                          unsupported  built-in function '__sync_fetch_and_add' is not supported
+gcc-torture-compile/t.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/test-flow.c                       unsupported  expected declaration or function definition
+gcc-torture-compile/test-loop.c                       unsupported  expected declaration or function definition
+gcc-torture-compile/test.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/tmp.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/trivial.c                         unsupported  expected declaration or function definition
+gcc-torture-compile/trunc.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/trunctfdf.c                       unsupported  long double is not supported
+gcc-torture-compile/u.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/udconvert.c                       unsupported  no type in parameter declaration
+gcc-torture-compile/udivmod4.c                        unsupported  undeclared identifier: random
+gcc-torture-compile/uns.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/uns_tst.c                         unsupported  expected declaration or function definition
+gcc-torture-compile/uuarg.c                           unsupported  expected declaration or function definition
+gcc-torture-compile/vector-align-1.c                  unsupported  array length must be non-negative
+gcc-torture-compile/vector-shift-1.c                  unsupported  assignment to struct type must be from compatible type
+gcc-torture-compile/volatile-1.c                      unsupported  undeclared identifier: exceptions_state_mc_init
+gcc-torture-compile/widechar-1.c                      unsupported  base types of pointer assignment must be compatible or void
+gcc-torture-compile/ww.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/x.c                               unsupported  expected declaration or function definition
+gcc-torture-compile/xb.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/xc.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/xdi.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/xfoo.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/xi.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/xlop.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/xneg.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/xopt.c                            unsupported  expected declaration or function definition
+gcc-torture-compile/xor.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/xorn.c                            unsupported  no type in parameter declaration
+gcc-torture-compile/xp.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/xpp.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/xs.c                              unsupported  expected declaration or function definition
+gcc-torture-compile/xsh.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/xzz.c                             unsupported  expected declaration or function definition
+gcc-torture-compile/zero-strct-1.c                    unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/zero-strct-2.c                    unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/zero-strct-3.c                    unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/zero-strct-4.c                    unsupported  empty structs and unions (a GNU extension) are not supported
+gcc-torture-compile/zero-strct-5.c                    unsupported  empty structs and unions (a GNU extension) are not supported
 c-testsuite/00144.c                                   unsupported  assignment to pointer discards qualifiers
 c-testsuite/00187.c                                   unsupported  undeclared identifier: FILE
 c-testsuite/00189.c                                   unsupported  unknown type name 'FILE'

@@ -18,8 +18,12 @@ Biggest first. `requirements.md` is the spec; this is the work queue.
   - ~~**gcc.dg/vect** and **gcc.dg/torture**~~ **Done** (2026-11-06, corpora `gcc-vect` and `gcc-dg-torture`: 1865 of
     2155 pass, 8 bugs fixed; see "Conformance corpora" in `requirements.md`). Not yet: vect's subdirectories
     (`costmodel/`, `tsvc/`, ...), and the programs that include `../../c-c++-common/` files.
-  - **gcc.dg** run tests generally (`/* { dg-do run } */`, skipping target-specific `dg-require`s and extensions cimo
-    rejects with a clear error), and **gcc.c-torture/compile** (compile-only: crashes and asserts in the compiler).
+  - ~~**gcc.dg** run tests and **gcc.c-torture/compile**~~ **Done** (2026-11-09, corpora `gcc-dg` and
+    `gcc-torture-compile`; see "Conformance corpora"). Open from them: VLA bounds in type names evaluated in
+    expression order and `typeof` evaluating a variably modified operand (5 `bug` entries); non-ASCII and UCN
+    identifiers; bit-fields that `#pragma pack` or `packed` make cross a storage unit; compile time and memory of
+    huge functions (100000 case labels: 255 s, 5.5 GB); gcc.dg's subdirectories (`ipa/`, `tree-ssa/`, ... are
+    mostly dump scans, but some run).
   - **LLVM test-suite** `SingleSource/UnitTests`, `SingleSource/Regression/C` and the small `SingleSource/Benchmarks`,
     with their reference outputs (and Benchmarks doubling as performance checks).
   - **cproc's** and **QBE's** own tests (cimo is a port of both: anything they fixed since the port), **tcc** `tests/tests2`

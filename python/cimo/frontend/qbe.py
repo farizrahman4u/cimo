@@ -638,9 +638,10 @@ def calcvla(f, t):
     if t.kind == TYPEFUNC or t.size:
         return
     assert t.kind == TYPEARRAY
+    if not t.asize and t.length is None:  # cimo: `int (*p)[][n]`: an array of unknown size has none to compute
+        return
     if not t.asize:
         assert t.base.size or t.base.kind == TYPEARRAY
-        assert t.length
         length = convert(f, TY.typeulong, t.length.type, funcexpr(f, t.length))
         basesize = mkintconst(t.base.size) if t.base.size else t.base.asize
         t.asize = funcinst(f, IMUL, 'l', length, basesize)
@@ -747,6 +748,8 @@ def funcload(f, t, lval, tq=QUALNONE):
     k = t.kind
     if k == TYPESTRUCT or k == TYPEUNION or k == TYPEARRAY:
         return lval.addr
+    if k == TYPEVOID:  # cimo: `*p` of a void * as a statement, an operand of `,` or `?:`: nothing is read
+        return None
     qt = qbetype(t)
     v = funcinst(f, _vol(qt.load, tq), qt.base, lval.addr, None)
     return funcbits(f, t, v, lval.bits)
@@ -769,6 +772,7 @@ def mkfunc(decl, name, t, s):
     f.vlagotos = []  # (block, VLAs in scope at the goto, GotoLabel) of forward gotos
     f.gotochecks = []  # (VLAs in scope, GotoLabel, location) of forward gotos, for emitfunc
     f.retwice = False  # cimo: calls setjmp (see emitfunc)
+    f.namedecl = None  # cimo: a parameter's array bound can name an identifier before __func__ is declared
     emittype(t.base)
 
     # allocate space for parameters
@@ -3343,6 +3347,9 @@ def emitdata(d, init, literal=False):
             bs = cur.expr.type.base.size
             i = (init.start - cur.start) // bs
             val = init.expr.u
+            if i >= cur.expr.ssize:  # cimo: past the literal's end (`{"foo", [4] = 'y'}` in char[6]): the zeros before
+                cur.expr.sdata = bytearray(cur.expr.sdata[:cur.expr.ssize * bs]).ljust((i + 1) * bs, b'\0')
+                cur.expr.ssize = i + 1
             cur.expr.sdata[i * bs:i * bs + bs] = (val & ((1 << (8 * bs)) - 1)).to_bytes(bs, 'little')
         start = cur.start + cur.bits[0] // 8
         end = cur.end - (cur.bits[1] + 7) // 8

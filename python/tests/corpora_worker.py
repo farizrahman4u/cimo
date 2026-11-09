@@ -1,5 +1,5 @@
-"""test_corpora.py's worker process: reads lines `path` or `path<TAB>prelude<TAB>include dirs`
-(os.pathsep-separated) from stdin; for each, compiles the C file with cimo (the prelude first,
+"""test_corpora.py's worker process: reads lines `path` or `path<TAB>prelude<TAB>include dirs<TAB>mode`
+(include dirs os.pathsep-separated; mode 'compile': compile and assemble only) from stdin; for each, compiles the C file with cimo (the prelude first,
 if any; include directories: those, then $CIMO_INCLUDE), calls main() and writes one result
 line to the original stdout:
 
@@ -38,15 +38,54 @@ long __cimo_main(int c, char **v) {
 '''
 
 
+def _wrapv(text):
+    """-fwrapv in the program's options (not -fno-wrapv)"""
+    import re
+    return re.search(rb'(?<![-\w])-fwrapv\b', text) is not None
+
+
+def compile_only(path, inc):
+    """Compiled to assembly and assembled, not linked: a compile-only test calls functions it doesn't define."""
+    from cimo import driver, linker
+    from cimo.assembler import AssemblerError
+    with open(path, 'rb') as f:
+        wrapv = _wrapv(f.read())
+    token = driver._wrapv.set(wrapv)
+    try:
+        pp = driver._preprocess('#include "%s"\n' % path.replace(os.sep, '/'), '<string>', tuple(inc), False, ())
+        text, _ = driver._compile(pp, '<string>', False)
+        linker.assemble(text, driver.TARGET)
+    except CompileError as e:
+        return 'COMPILE ' + str(e).replace(os.path.dirname(path) + os.sep, '').splitlines()[0]
+    except AssemblerError as e:
+        return 'ERROR assembler: ' + str(e).splitlines()[0]
+    finally:
+        driver._wrapv.reset(token)
+    return 'PASS'
+
+
 def run(line):
-    path, prelude, inc = (line.split('\t') + ['', ''])[:3]
+    path, prelude, inc, mode = (line.split('\t') + ['', '', ''])[:4]
     inc = [d for d in inc.split(os.pathsep) if d] + INCLUDE
+    if mode == 'compile':
+        return compile_only(path, inc)
+    res = run1(path, prelude, inc)
+    with open(path, 'rb') as f:
+        if b'dg-shouldfail' not in f.read():
+            return res
+    # gcc's dg-shouldfail: the program must fail at run time (abort, a fault, a nonzero status)
+    if res.startswith(('ABORT', 'STATUS', 'DIED')):
+        return 'PASS'
+    return res if res.startswith(('COMPILE', 'ERROR')) else 'STATUS expected to fail (dg-shouldfail), passed'
+
+
+def run1(path, prelude, inc):
     try:
         first = '#include "%s"\n' % prelude.replace(os.sep, '/') if prelude else ''
         with open(path, 'rb') as f:
             text = f.read()
-        wrapv = b'-fwrapv' in text  # the program's own dg-options
-        if b'-frounding-math' in text:  # C's way to say the same
+        wrapv = _wrapv(text)  # the program's own dg-options
+        if b'-frounding-math' in text or b'-ftrapping-math' in text:  # C's way to say the same
             first = '#pragma STDC FENV_ACCESS ON\n' + first
         m = cimo.compile(first + '#include "%s"\n' % path.replace(os.sep, '/') + WRAPPER,
                          include_dirs=inc, wrapv=wrapv)

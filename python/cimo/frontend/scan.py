@@ -168,6 +168,13 @@ def escape(s):
                 nextchar(s)
     elif s.chr and s.chr in SIMPLEESC:
         nextchar(s)
+    elif s.chr in ('u', 'U'):  # cimo: a universal character name (C11 6.4.3), decoded by expr.decodechar
+        n = 4 if s.chr == 'u' else 8
+        for _ in range(n):
+            nextchar(s)
+            if not (s.chr and s.chr in XDIGIT):
+                TK.error(s_loc(s), "universal character name needs %d hexadecimal digits", n)
+        nextchar(s)
     else:
         TK.error(s_loc(s), "invalid escape sequence")
 

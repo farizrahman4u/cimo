@@ -49,8 +49,10 @@ def initadd(p, new):
         # no overlap, insert before `old`
         if (new.end * 8 - new.bits[1]) & M64 <= (old.start * 8 + old.bits[0]) & M64:
             break
-        # replace any initializers that `new` covers
-        if (old.end * 8 - old.bits[1]) & M64 <= (new.end * 8 - new.bits[1]) & M64:
+        # replace any initializers that `new` covers (cimo: from where `old` starts: in cproc, `{"foo", [5] = 'y'}`
+        # in char[6], whose string covers the array, lost the string)
+        if ((old.end * 8 - old.bits[1]) & M64 <= (new.end * 8 - new.bits[1]) & M64
+                and (new.start * 8 + new.bits[0]) & M64 <= (old.start * 8 + old.bits[0]) & M64):
             while True:
                 old = old.next
                 if not (old and (old.end * 8 - old.bits[1]) & M64 <= (new.end * 8 - new.bits[1]) & M64):
@@ -65,6 +67,27 @@ def initadd(p, new):
     else:
         prev.next = new
     p.last = new
+
+
+def _clear(p, o):
+    """cimo: a brace-enclosed initializer for subobject o initializes all of it (C11 6.7.9p19, as gcc): what earlier
+    designators put inside it goes (`{[0].b = 5, [0] = {.a = 9}}` leaves b 0)."""
+    if o.type.incomplete or p.init is None:
+        return
+    lo, hi = o.offset, (o.offset + o.type.size) & M64
+    if p.last is not None and p.last.next is None and p.last.end <= lo:  # the list is sorted: nothing after the tail
+        return
+    prev, cur = None, p.init
+    while cur is not None:
+        if lo <= cur.start and cur.end <= hi:
+            if prev is None:
+                p.init = cur.next
+            else:
+                prev.next = cur.next
+        else:
+            prev = cur
+        cur = cur.next
+    p.last = None  # initadd searches from the start
 
 
 def subobj(p, t, off):
@@ -244,6 +267,8 @@ def parseinit(s, t):
                     # cimo: `{}` for an array's element (cproc's `{{}, {}, 5}` left the cursor on the
                     # array itself, so the 5 went to element 0)
                     focus(p)
+                if p.cur is not None:
+                    _clear(p, obj[p.sub])
                 if obj[p.sub].type.incomplete:
                     error(tok.loc, "array of unknown size has empty initializer")
                 skip_to_next = True
@@ -253,6 +278,8 @@ def parseinit(s, t):
                         error(tok.loc, "nested braces around scalar initializer")
                     assert obj[p.cur].type.kind == TYPEARRAY
                     focus(p)
+                if p.cur is not None:
+                    _clear(p, obj[p.sub])
                 p.cur = p.sub
                 obj[p.cur].iscur = True
                 afterbrace = True

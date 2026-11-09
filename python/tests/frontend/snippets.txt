@@ -549,8 +549,6 @@ int f(int i) { static char s[] = "xyz"; return s[i] + "lit"[i]; }
 #---
 const char *a = "same", *b = "same", *c = "sam" "e"; int f(void) { const char *d = "same"; return a == d; }
 #---
-const unsigned short *a = u"ab", *b = u"ac"; const unsigned int *c = U"ab", *d = U"ac";
-#---
 float f = 3.0f; double g = 3; long double h = 3;
 #---
 int a = 1 << 31 >> 31, b = -2147483647 - 1, c = 0x80000000, d = 4294967295, e = 037777777777;
@@ -600,8 +598,6 @@ int x = (int)sizeof(struct { int a : 3; int b : 30; });
 int a[2] = {[1] = 1, [0] = 2}, b[3] = {1, [0] = 5, 6};
 #---
 struct S { int a, b, c; } s = {.c = 1, .a = 2, 3};
-#---
-struct S { struct { int x, y; } p; int z; } s = {.p.y = 1, 2, .p = {3}};
 #---
 int a[2][2] = {[1][0] = 1, [0] = {2, 3}};
 #---

@@ -14,7 +14,7 @@ __STDC__, __STDC_VERSION__ (201112L) and __STDC_HOSTED__ (0, freestanding).
 
 Deviations from gcc's text output, none of which change the token sequence: whitespace and line
 layout differ, digraphs are printed in their canonical spelling (cproc's scanner has no digraphs),
-and `#pragma` lines are dropped except `#pragma STDC FENV_ACCESS`, `CX_LIMITED_RANGE` and `FP_CONTRACT`, and `#pragma omp ...` (macro-expanded, as
+and `#pragma` lines are dropped except `#pragma STDC FENV_ACCESS`, `CX_LIMITED_RANGE` and `FP_CONTRACT`, `#pragma pack`, and `#pragma omp ...` (macro-expanded, as
 OpenMP specifies), which are kept on a line of their own.
 """
 
@@ -917,6 +917,10 @@ class Preprocessor(object):
             # contracted into an fma or not
             self._emit_pragma('#pragma STDC %s %s' % (args[1].text, args[2].text), d)
             return
+        if first == 'pack':  # cimo: for the frontend's struct layout (pp._pack), macros expanded as gcc does
+            toks = self._expand_line(args[1:], d)
+            self._emit_pragma('#pragma pack' + self._join_text(toks), d)
+            return
         if first == 'GCC' and len(args) > 1:
             sub = args[1].text
             if sub in ('error', 'warning'):
@@ -942,7 +946,7 @@ class Preprocessor(object):
                     else:
                         self.macros[mname] = m
             return
-        # Other pragmas (STDC, GCC system_header, pack, ...) are dropped.
+        # Other pragmas (GCC system_header, ...) are dropped.
 
     def _unquote(self, s):
         q = s.index('"')

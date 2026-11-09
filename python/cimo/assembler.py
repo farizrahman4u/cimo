@@ -1595,6 +1595,15 @@ class _Asm:
         s.data += b
         s.size += len(b)
 
+    def fill(self, unit, n):
+        """n copies of unit: zeros in a nobits section only count (a `.zero` for a huge array in .bss)"""
+        if self.sec.nobits and not any(unit):
+            self.sec.size += len(unit) * max(n, 0)
+        elif len(unit) * n > 1 << 32:
+            raise AssemblerError('%d bytes of data: too large' % (len(unit) * n))
+        else:
+            self.emit(unit * n)
+
     def align(self, n):
         if n <= 0 or n & (n - 1):
             raise AssemblerError('alignment must be a power of 2')
@@ -1625,6 +1634,23 @@ class _Asm:
         s.value = self.sec.size
 
     # driver
+
+    far = frozenset()  # the lines whose short branch can't reach its target: see farbranch
+
+    def farbranch(self, f, mn, ops):
+        """b.cond, cbz or tbz to a target out of its reach (1 MB, 32 KB for tbz): the opposite test over a b"""
+        if f is _i_b and mn not in ('b', 'bl'):
+            c = _COND[mn[2:] if mn[1] == '.' else mn[1:]]
+            inv = 'b.' + next(k for k, v in _COND.items() if v == c ^ 1)
+        elif mn in ('cbz', 'cbnz', 'tbz', 'tbnz'):
+            inv = {'cbz': 'cbnz', 'cbnz': 'cbz', 'tbz': 'tbnz', 'tbnz': 'tbz'}[mn]
+        else:
+            raise AssemblerError('branch out of range')
+        skip = '.Lcimo_far%d' % self.lineno
+        self.sec.align = max(self.sec.align, 4)
+        self.emit(struct.pack('<I', f(self, inv, list(ops[:-1]) + [skip])))  # each fixup at its own offset
+        self.emit(struct.pack('<I', _i_b(self, 'b', [ops[-1]])))
+        self.label(skip)
 
     def run(self, text):
         text = _strip_comments(text)
@@ -1676,6 +1702,9 @@ class _Asm:
                     raise AssemblerError('unsupported instruction %r' % parts[0])
                 if self.sec.nobits:
                     raise AssemblerError('instruction in nobits section %s' % self.sec.name)
+                if self.lineno in self.far:
+                    self.farbranch(f, mn, ops)
+                    continue
                 word = f(self, mn, ops)
                 if self.sec.size % 4:
                     raise AssemblerError('misaligned instruction')
@@ -1745,11 +1774,11 @@ class _Asm:
                 if size > 8 or size < 0:
                     raise AssemblerError('.fill size must be at most 8')
                 unit = struct.pack('<Q', val & M64)[:min(size, 4)].ljust(size, b'\0')
-                self.emit(unit * n)
+                self.fill(unit, n)
             else:
                 n = _int(args[0])
                 val = _imm(args[1]) if len(args) > 1 else 0
-                self.emit(bytes([val & 0xff]) * n)
+                self.fill(bytes([val & 0xff]), n)
         elif d == '.comm':
             args = _split(rest)
             if len(args) not in (2, 3):
@@ -1807,6 +1836,7 @@ class _Asm:
         """Resolve branches to non-global labels of the same section (as GNU as does) and turn
         everything else into relocations."""
         syms = self.obj.symbols
+        far = set()
         for sec, off, kind, name, add, lineno in self.fixups:
             s = syms.get(name)
             if s is None:
@@ -1817,7 +1847,10 @@ class _Asm:
                     raise AssemblerError('line %d: misaligned branch target %s' % (lineno, name))
                 bits = {'CONDBR19': 19, 'TSTBR14': 14}.get(kind, 26)  # tbz: 32 KB either way
                 if not -(1 << (bits + 1)) <= d < 1 << (bits + 1):
-                    raise AssemblerError('line %d: branch out of range: %s' % (lineno, name))
+                    if bits == 26 or lineno in self.far:
+                        raise AssemblerError('line %d: branch out of range: %s' % (lineno, name))
+                    far.add(lineno)
+                    continue
                 w = struct.unpack_from('<I', sec.data, off)[0]
                 if bits == 26:
                     w |= (d >> 2) & 0x3ffffff
@@ -1826,9 +1859,27 @@ class _Asm:
                 struct.pack_into('<I', sec.data, off, w)
             else:
                 sec.relocs.append(Reloc(off, kind, name, add))
+        if far:
+            raise _Far(far)
+
+
+class _Far(AssemblerError):
+    """Short branches out of reach, on these lines: assemble() runs again with them made long."""
+
+    def __init__(self, lines):
+        AssemblerError.__init__(self, 'branch out of range on line %d' % min(lines))
+        self.lines = lines
 
 
 def assemble(text, syntax='elf'):
     """Assemble arm64 GNU-syntax assembly text into an Object. syntax: 'elf' (QBE target
-    arm64) or 'macho' (arm64_apple)."""
-    return _Asm(syntax).run(text)
+    arm64) or 'macho' (arm64_apple). A b.cond, cbz or tbz that can't reach its target is assembled again as the
+    opposite test over a b (as LLVM's branch relaxation does)."""
+    far = set()
+    while True:
+        a = _Asm(syntax)
+        a.far = frozenset(far)
+        try:
+            return a.run(text)
+        except _Far as e:
+            far |= e.lines

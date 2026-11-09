@@ -379,6 +379,8 @@ def directive():
             next()
             if tok.kind != TNEWLINE and tok.kind != TEOF and len(words) < 64:
                 words.append(tokenstr(tok.kind) if not tok.lit else tok.lit)
+        if words[:1] == ['pack']:  # cimo
+            _pack(words[1:])
         if words[:1] == ['omp'] and 'simd' in words:  # cimo: the loop's reductions, for stmt
             U.ompnext = _reductions(words)
         if words[:2] == ['STDC', 'FENV_ACCESS'] and len(words) == 3:  # cimo (C11 7.6.1)
@@ -393,6 +395,54 @@ def directive():
         error(tok.loc, "invalid preprocessor directive #%s", tokenstr(tok.kind))
     tokencheck(tok, TNEWLINE, "after preprocessing directive")
     ppflags = oldflags
+
+
+def _pack(words):
+    """cimo: #pragma pack (gcc's forms): (n), (), (push[, name][, n]), (pop[, name][, n]); n is 1, 2, 4, 8 or 16."""
+    def bad():
+        error(tok.loc, "invalid '#pragma pack': expected (n), (), (push[, name][, n]) or (pop[, name][, n])")
+    if words[:1] != ['('] or words[-1:] != [')']:
+        bad()
+    args = [a for a in words[1:-1] if a != ',']
+    if len(words[1:-1]) != max(2 * len(args) - 1, 0):
+        bad()
+
+    def num(a):
+        try:
+            n = int(a, 0)
+        except ValueError:
+            bad()
+        if n not in (1, 2, 4, 8, 16):
+            error(tok.loc, "'#pragma pack' alignment must be 1, 2, 4, 8 or 16, not %s", a)
+        return n
+    if not args:
+        U.pack = 0
+    elif args[0] == 'push':
+        name = args[1] if len(args) > 1 and not args[1][0].isdigit() else None
+        rest = args[2:] if name else args[1:]
+        if len(rest) > 1:
+            bad()
+        U.packstack.append((name, U.pack))
+        if rest:
+            U.pack = num(rest[0])
+    elif args[0] == 'pop':
+        name = args[1] if len(args) > 1 and not args[1][0].isdigit() else None
+        rest = args[2:] if name else args[1:]
+        if len(rest) > 1:
+            bad()
+        if name:
+            k = max((i for i, (n, _) in enumerate(U.packstack) if n == name), default=None)
+            if k is not None:
+                U.pack = U.packstack[k][1]
+                del U.packstack[k:]
+        elif U.packstack:
+            U.pack = U.packstack.pop()[1]
+        if rest:
+            U.pack = num(rest[0])
+    elif len(args) == 1:
+        U.pack = num(args[0])
+    else:
+        bad()
 
 
 def _reductions(words):

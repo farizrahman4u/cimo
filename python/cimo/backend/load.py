@@ -219,6 +219,12 @@ def rebase(sl):
             sl.off = a.offset
 
 
+# cimo: instructions (and blocks) one load's search for its value looks at, at most: QBE's has no bound, and a
+# function of thousands of blocks made it quadratic (gcc.c-torture/compile 20001226-1.c); past it, the load stays
+STEPS = 20000
+_steps = STEPS
+
+
 def killsl(r, sl):
     if rtype(sl.ref) != RTmp:
         return 0
@@ -267,6 +273,10 @@ def def_(sl, msk, b, i, il):
     cls = Kl if sl.sz > 4 else Kw
     msks = MASK(sl.sz)
 
+    global _steps
+    _steps -= 1 + i + nlog // 8  # this block's instructions, its look at the log
+    if _steps < 0:
+        return Load()
     while i > 0:
         i -= 1
         ins = b.ins[i]
@@ -467,6 +477,8 @@ def loadopt(fn):
             sl = Slice(i.arg[0], 0, sz, i.cls)
             l = Loc(LRoot, ii, b)
             rebase(sl)
+            global _steps
+            _steps = STEPS
             i.arg[1] = def_(sl, MASK(sz), b, ii, l)
         b = b.link
     # qsort (glibc: stable merge sort)

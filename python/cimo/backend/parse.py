@@ -380,10 +380,10 @@ def findtyp(i):
 def parsecls():
     """Returns (k, tyn); tyn is set only for Kc."""
     t = next_()
+    S.lastp = t == Tp  # cimo: also for an aggregate (it read the previous class's, or none)
     if t == Ttyp:
         return Kc, findtyp(S.ntyp)
     m = {Tsb: Ksb, Tub: Kub, Tsh: Ksh, Tuh: Kuh, Tw: Kw, Tl: Kl, Ts: Ks, Td: Kd}
-    S.lastp = t == Tp
     if t == Tp:
         return Kl, None
     if t in m:

@@ -281,13 +281,13 @@ def hoistcons(fn):
 
 
 def _adddef(fn, r, k):
-    """The add or sub-of-a-constant defining r in class k, if r is only used once; or None."""
+    """The add or sub-of-an-integer-constant defining r in class k, if r is only used once; or None."""
     if D.rtype(r) != D.RTmp or (r & D.VMASK) < D.Tmp0:
         return None
     t = fn.tmp[r & D.VMASK]
     d = t.def_
     if d is None or d.cls != k or t.nuse != 1 or (d.op != D.Oadd and not (
-            d.op == D.Osub and D.rtype(d.arg[1]) == D.RCon)):
+            d.op == D.Osub and _conof(fn, d.arg[1]) is not None)):  # not an address's: `x - $t`
         return None
     return d
 

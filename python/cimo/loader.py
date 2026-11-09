@@ -518,7 +518,10 @@ class Image:
                 return
             except (OSError, _RangeError, AttributeError):
                 self.close()  # fall back to W^X
-        base = _map(csize + dsize, PROT_READ | PROT_WRITE)
+        try:
+            base = _map(csize + dsize, PROT_READ | PROT_WRITE)
+        except OSError as e:  # a huge static array, say
+            raise LoadError('cannot map %d bytes for the code and static data (%s)' % (csize + dsize, e)) from None
         self._maps.append((base, csize + dsize))
         cimg, dimg = build(base, base + csize)
         ctypes.memmove(base, bytes(cimg), csize)

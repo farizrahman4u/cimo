@@ -530,6 +530,12 @@ def decodechar(src, pos, desc, loc):
         if c0 in _SIMPLEESC:
             c = _SIMPLEESC[c0]
             s += 1
+        elif c0 == 'u' or c0 == 'U':  # cimo: a universal character name (C11 6.4.3): the character, encoded
+            k = 4 if c0 == 'u' else 8
+            c = int(src[s + 1:s + 1 + k], 16)
+            s += 1 + k
+            if (c < 0xa0 and c not in (0x24, 0x40, 0x60)) or 0xd800 <= c <= 0xdfff or c > 0x10ffff:
+                error(loc, "universal character name \\%s%0*X does not name a valid character", c0, k, c)
         elif c0 == 'x':
             s += 1
             c = 0

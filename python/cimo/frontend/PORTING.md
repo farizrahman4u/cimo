@@ -91,6 +91,17 @@ Recursive functions stay recursive (expressions, declarators, `emittype`, `cases
   pointer-to-const member was taken for one with a const member (a pointer type's `qual` is its
   target's) and could not be assigned; a negative value converted to a wider unsigned `_BitInt`,
   and unary minus of an unsigned `_BitInt`, did not wrap at its width (`-1uwb` was -1).
+- Found by gcc's `gcc.dg` run tests and `gcc.c-torture/compile` (2026-11-09): wide string literals were
+  deduplicated on their first `size` bytes, `size` counting elements, so `L"ab"` and `L"ac"` were one string;
+  a designator ending where a string-initialized array ends replaced the whole string (`initadd` compared ends
+  only), and one past the literal's own length was dropped (`emitdata`); a brace-enclosed initializer for a
+  designated subobject kept what earlier designators put in it (C11 6.7.9p19: it initializes all of it);
+  `__attribute__((mode(M)))` was ignored in a type name; `#pragma pack` was dropped; `\u` and `\U`
+  escapes were rejected; `*p` of a `void *` as a statement emitted a load of no type; a parameter's array bound
+  naming an identifier read `__func__`'s declaration before it existed; `int (*)[][n]` asserted. Still open: a VLA
+  bound in a type name is computed where the type name is parsed, before side effects of the expression around
+  it (`sizeof (*(++a, (char (*)[a])0))` is 1, not 2), and `typeof` of a variably modified expression doesn't
+  evaluate it.
 - Bugs fixed (marked `cimo:` in the code; found by gcc's torture tests): a block-scope `extern`
   that hides a local took the local's absent linkage and crashed (C11 6.2.2p4); the size of a
   variably modified typedef was computed at its first use, which need not dominate the others
@@ -202,8 +213,7 @@ passed by `cimo.compile`:
 Examples, all reproduced on purpose: `enum E : unsigned char { A }` errors ("no unsigned
 integer type can represent enumerator value"); `(_Bool)256` folds to 0 via an 8-bit mask but
 `_Bool b = 2` stores 2 in data; char data is printed as the 64-bit value (`b
-18446744073709551615`); multiple initialized union members assert; wide string literals are
-deduplicated on their first `size` bytes; the `__VA_ARGS__`/nested same-macro argument
+18446744073709551615`); multiple initialized union members assert; the `__VA_ARGS__`/nested same-macro argument
 handling of cproc's pp; `nextinto()` tests the global `tok` for "start of line".
 
 ## Checking

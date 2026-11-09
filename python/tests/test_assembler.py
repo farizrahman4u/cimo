@@ -197,6 +197,32 @@ def test_branch_resolution():
     assert [(r.offset, r.type, r.sym) for r in t.relocs] == [(4, 'CALL26', 'g')]
 
 
+@pytest.mark.parametrize('syntax', ['elf', 'macho'])
+def test_far_branches_are_relaxed(syntax):
+    """A tbz (32 KB), b.cond or cbz (1 MB) whose label is farther: the opposite test over a b (gcc.c-torture/compile
+    limits-caselabels.c, a switch of 100000 cases); a near one stays one instruction."""
+    import struct
+    o = assembler.assemble('f:\n\ttbz x0, #3, a\n\tb.ne c\n\tb.eq f\n' + '\tnop\n' * 12000 + 'a:\n'
+                           + '\tnop\n' * 270000 + 'c:\n\tcbz w1, f\n\tret\n', syntax)
+    t = o.section('.text')
+    w = struct.unpack('<%dI' % (len(t.data) // 4), bytes(t.data))
+
+    def target(k):  # the word a branch at k goes to
+        x = w[k]
+        if x >> 26 in (0x05, 0x25):  # b
+            off = x & 0x3ffffff
+            return k + off - (off >> 25 << 26)
+        bits, at = (14, 5) if x >> 25 & 0x3f == 0x1b else (19, 5)  # tbz/tbnz, else b.cond/cbz/cbnz
+        off = x >> at & ((1 << bits) - 1)
+        return k + off - (off >> (bits - 1) << bits)
+    a, c = 5 + 12000, 5 + 12000 + 270000
+    assert w[0] >> 24 == 0x37 and target(0) == 2 and target(1) == a  # tbnz over b a
+    assert w[2] & 0xff00001f == 0x54000000 and target(2) == 4 and target(3) == c  # b.eq over b c
+    assert w[4] & 0xff00001f == 0x54000000 and target(4) == 0  # b.eq f: near, as written
+    assert w[c] >> 24 == 0x35 and target(c) == c + 2 and target(c + 1) == 0  # cbnz over b f
+    assert len(w) == c + 3 and not t.relocs
+
+
 def test_register_offsets_and_cbz():
     """Register-offset addressing and cbz/cbnz (ext.isel)."""
     lines = []

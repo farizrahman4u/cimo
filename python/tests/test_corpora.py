@@ -10,8 +10,9 @@ corpora_expect.txt lists the programs that are not expected to pass:
 Every other program must pass.
 
     python tests/corpora.py                      # fetch the corpora (once)
-    pytest tests/test_corpora.py
-    python tests/test_corpora.py --update        # rewrite the 'unsupported' entries (on Linux:
+    pytest tests/test_corpora.py               # $CIMO_CORPORA_JOBS workers (default: one per CPU)
+    python tests/test_corpora.py --update [corpus ...] [-jN]
+                                                 # rewrite the 'unsupported' entries (on Linux:
                                                  # macOS accepts long double, so its list differs)
 """
 
@@ -89,7 +90,7 @@ def run_all(keys, jobs=None):
     env = dict(os.environ)
     env.setdefault('CIMO_CACHE_DIR', os.path.join(corpora.DIR, '.cache'))
     os.makedirs(env['CIMO_CACHE_DIR'], exist_ok=True)
-    jobs = jobs or os.cpu_count() or 4
+    jobs = jobs or int(os.environ.get('CIMO_CORPORA_JOBS') or 0) or os.cpu_count() or 4
     local = threading.local()
     workers = []
 
@@ -103,6 +104,8 @@ def run_all(keys, jobs=None):
         h = corpora.harness(name, rel)
         if h:
             line += '\t%s\t%s' % (h[0], os.pathsep.join(h[1]))
+        elif corpora.compile_only(name):
+            line += '\t\t\tcompile'
         return key, w.run(line)
     try:
         with ThreadPoolExecutor(jobs) as ex:
@@ -161,16 +164,21 @@ def _note(res):
     return msg.split(';', 1)[0][:120]
 
 
-def update():
+def update(names=(), jobs=None):
+    """names: only these corpora are run; the others' entries stay as they are."""
     old = read_expect() if os.path.exists(EXPECT) else {}
-    keys = [k for k in KEYS if old.get(k, ('',))[0] != 'skip']
-    res = run_all(keys)
+    mine = [k for k in KEYS if not names or k.split('/', 1)[0] in names]
+    keys = [k for k in mine if old.get(k, ('',))[0] != 'skip']
+    res = run_all(keys, jobs)
     lines = []
     triage = []
     for k in KEYS:
         cat, note = old.get(k, ('', ''))
         r = res.get(k)
-        if cat in ('skip', 'bug'):
+        if k not in mine:
+            if k in old:
+                lines.append((k, cat, note))
+        elif cat in ('skip', 'bug'):
             lines.append((k, cat, note))
         elif r.startswith('COMPILE '):
             lines.append((k, 'unsupported', _note(r)))
@@ -196,7 +204,9 @@ def update():
 
 
 if __name__ == '__main__':
-    if sys.argv[1:] == ['--update']:
-        update()
+    if sys.argv[1:2] == ['--update']:
+        names = [a for a in sys.argv[2:] if not a.startswith('-j')]
+        jobs = [int(a[2:]) for a in sys.argv[2:] if a.startswith('-j')]
+        update(names, jobs[0] if jobs else None)
     else:
         sys.exit(__doc__)
