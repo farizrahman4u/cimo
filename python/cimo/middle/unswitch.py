@@ -193,4 +193,6 @@ def clone(fn, lp, E, exits, subst=None):
 def _copy(i, m):
     c = Ins(i.op, i.cls, m(i.to), m(i.arg[0]), m(i.arg[1]))
     c.contract = i.contract
+    c.nsw = i.nsw  # cimo: and the other marks (a stride-versioned or unswitched copy of a `#pragma omp simd reduction`
+    c.reassoc = i.reassoc  # loop lost its reassoc, so its sum stayed in order and scalar)
     return c

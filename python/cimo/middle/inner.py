@@ -219,6 +219,7 @@ class Fast:
         self.ic = 1            # and vectors an iteration (vectorize.interleave)
         self.vchecks = ()      # and the arrays to compare before it
         self.vreds = ()        # and the reductions it collects (vectorize.Reduction)
+        self.vrestart = None   # closeloop: a flag to run the scalar loop again from the start (vectorize._select)
         self.vmem = ()         # and its memory accesses (vectorize.plan)
         self.vnarrow = None    # or, a loop over bytes: its pixel groups (vectorize._narrow)
         self.prom = []         # fields kept in registers through the loop (Promoted)
@@ -1195,6 +1196,10 @@ def emit_versioned(fn, lp, sh, A, ctl, fast, U, done):
             newblocks.add(VX)
             ev = Emitter(fn, VX)
             outv = vectorize.closeloop(fast, ev, MB, FP, out)
+            if fast.vrestart is not None:  # the loop's result depends on an order the lanes lost: all of it, scalar
+                for sv in svs:
+                    ev.ins(Ins(D.Osel0, Kw, R, fast.vrestart, R))
+                    outv[sv] = ev.raw(D.Osel1, _svcls(fn, sv, fast, [(None, state0[sv])]), state0[sv], outv[sv])
             ev.flush()
             ir.setjnz(MB, c, MB, VX)
             ir.setjmp(VX, RC)

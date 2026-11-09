@@ -1292,6 +1292,23 @@ terminal width and a spinner.
 - Compiling runtime members reports through `linker.progress` (the CLI shows a spinner);
   without it the library prints one line on stderr per link that compiled any.
 
+## Maximum, minimum and argmax (2026-11-09)
+
+A select reduction (`r = x > r ? x : r`, and every way round that orders x and r) was integers only: equal integers
+are the same, so lanes joined in any order give the scalar result. Floats aren't: `0.0 == -0.0`, and which the loop
+keeps depends on the order. Now each lane can keep an index beside its value (`vectorize.Index`: argmax's `at = i`,
+the same condition's second select; or hidden, for a float maximum), the lanes join by value and then by index (the
+first of equal ones, the last for `>=`), and a float condition must be false on NaN with x what it picks, so NaNs never
+win and a NaN start stays. A float maximum in a loop with no stores or calls keeps no index: the lanes join through the
+condition, and a zero result sends the whole loop through the scalar code again from its start state (the remainder
+loop, with every state variable reset): exact, and as cheap as an integer maximum otherwise. 64-bit values only (an
+index fills the same lanes). arm64 only for floats: x86-64 doesn't if-convert a float `if`. Measured (Snapdragon X,
+1M doubles, numpy 2.3): max 1016 to 122 us (numpy 112), argmax 1366 to 177 (313); 8 accumulators (a compare and a
+select, about 5 cycles, per chain; 4 gave 196); `qsel1` became `bit d, a, mask` with the kept value in the destination
+(bsl destroyed the mask: a copy every select, and a shuffle of copies at the back edge). Found on the way: stride
+versioning's copy dropped `reassoc` (a strided `#pragma omp simd` sum stayed scalar), and load elimination's
+`phi(x, itself)` of a value carried past the loop refused vectorization.
+
 ## Conformance corpora (2026-10-31)
 
 Most tests compare a port with its reference (cproc, QBE, gcc's cpp, gas); they show fidelity,

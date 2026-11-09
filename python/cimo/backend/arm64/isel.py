@@ -1082,6 +1082,7 @@ def callable(r, fn):
 
 
 _qdest = [R]  # what the q instruction that takes its third operand from the one before writes
+_qselb = [R]  # cimo: the qsel1's second operand, for its qsel0
 
 
 def sel(i, fn):
@@ -1098,7 +1099,19 @@ def sel(i, fn):
         emit(Oload, k, i.to, r, R)
         emit(Ocopy, Kl, r, CON(_newfpcon(_stashbits(bits, 8 if KWIDE(k) else 4), fn)), R)
         return
-    if i.op in (D.Oqfma0, D.Oqsel0, D.Oqwmla0):  # cimo (ext.vector): fmla, bsl, umlal keep their third operand in the destination
+    if i.op == D.Oqsel0:  # cimo (ext.vector): bit d, a, mask keeps the value the mask doesn't pick in the destination, as
+        # fmla its addend: qsel0 d marks it, the qsel1 after it reads (a, mask), and b reaches it only through the copy
+        # into d, which then coalesces (an accumulator's select is in place; bsl destroyed the mask, a copy per select)
+        d, b = _qdest[0], _qselb[0]
+        assert d != R, 'qsel0 without its qsel1 right after'
+        _qdest[0] = _qselb[0] = R
+        q1 = D.insb[D.curi]
+        assert q1.op == D.Oqsel1 and q1.to == d
+        q1.arg[1] = i.arg[0]
+        emit(i.op, D.Kq, R, d, R)
+        emit(Ocopy, D.Kq, d, b, R)
+        return
+    if i.op in (D.Oqfma0, D.Oqwmla0):  # cimo (ext.vector): fmla, umlal keep their third operand in the destination
         d = _qdest[0]
         assert d != R, 'qfma0/qsel0 without its qfma1/qsel1 right after'
         _qdest[0] = R  # one pair at a time: a stale destination must never reach another pair
@@ -1107,6 +1120,8 @@ def sel(i, fn):
         return
     if i.op in (D.Oqfma1s, D.Oqfma1d, D.Oqsel1, D.Oqwmla3, D.Oqwmla3h):
         _qdest[0] = i.to
+        if i.op == D.Oqsel1:
+            _qselb[0] = i.arg[1]
     if D.isqop(i.op):  # cimo (ext.vector): registers, and an address with a constant offset folded in ([x, #16])
         if i.op == D.Oqload:
             foldaddr(i.arg, 0, 16, fn)

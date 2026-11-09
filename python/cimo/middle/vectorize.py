@@ -133,7 +133,14 @@ def _distance(store, load, vf, storeat, loadat):
 class Reduction:
     """s = s op v, round the loop: t is s's phi, op the instruction, v the operand, ext how v comes from 32-bit lanes."""
     __slots__ = ('t', 'i', 'op', 'v', 'ext', 'acc0', 'in0', 'in1', 'out0', 'out1', 'cls', 'ordered', 'third',
-                 'cmp', 'sel0', 'identity', 'copies')
+                 'cmp', 'sel0', 'identity', 'copies', 'index', 'later', 'flt', 'restart')
+
+
+class Index:
+    """The position of a select reduction's value (Reduction.index): q, the phi of `q = cond ? b : q` beside the value's
+    select on the same condition (None: kept only to order equal values: float zeros), b an induction variable stepping
+    by step, sel0 and sel1 its select; its lanes in body and closeloop."""
+    __slots__ = ('q', 'b', 'step', 'sel0', 'sel1', 'bfirst', 'acc0', 'in0', 'out0', 'copies')
 
 
 _REDOPS = {D.Oadd: 'qadd', D.Osub: 'qsub', D.Oand: 'qand', D.Oor: 'qor', D.Oxor: 'qxor'}
@@ -187,8 +194,10 @@ def _select(fast, p, cloned):
     """p as a Reduction through a condition, or None: an integer s = (x > s) ? x : s, or any comparison of x and s that
     orders them, either way round, so a maximum or a minimum. Each lane keeps its own from the type's identity, and the
     lanes join the scalar value in closeloop through the same comparison and select. Equal integers are the same
-    integer, so the order doesn't matter; floats aren't taken (two zeros, NaNs)."""
-    if p.cls not in (Kw, Kl):
+    integer, so the order doesn't matter. A float one (a comparison false on NaN: NaNs never win) keeps an index beside
+    each lane (plan: Index), since its equal values aren't all the same (two zeros): the lanes join by value, then the
+    earlier or later index, as the loop would have."""
+    if p.cls not in (Kw, Kl, Kd):
         return None
     nxt = ir.phiargof(p, fast.sh.latch)
     if not ir.istmp(nxt):
@@ -212,31 +221,93 @@ def _select(fast, p, cloned):
     reads = sum(1 for y in cloned for a in y.arg[:2] if a == p.to)
     if reads != 2 or any(y is not sel1 and nxt in y.arg[:2] for y in cloned):
         return None
-    if any(cmp.to in y.arg[:2] for y in cloned if y is not sel0):
-        return None
+    if any(cmp.to in y.arg[:2] for y in cloned if y is not sel0 and y.op != D.Osel0):
+        return None  # other sel0s: an index's (plan checks)
     for q in ir.phis(fast.sh.H):
         if q is not p and (p.to in q.arg[:q.narg] or nxt in q.arg[:q.narg]):
             return None
+    flt = p.cls in (Ks, Kd)
+    if flt and (c[2] or sel1.arg[0] != x):
+        return None  # !(x <= s), or s > x ? s : x: a NaN would win
     bits = 8 * _SIZE[p.cls]
     unsigned = c[0].startswith('qcu')
-    if greater:
+    if flt:
+        identity = (0xfff0000000000000 if greater else 0x7ff0000000000000)  # -inf, +inf: nothing passes them strictly
+    elif greater:
         identity = 0 if unsigned else -(1 << (bits - 1))
     else:
         identity = -1 if unsigned else (1 << (bits - 1)) - 1
+    # does x win when it equals s? the condition holds on equality (>=), and x is what it picks then
+    eqtrue = c[0] in ('qcge', 'qcuge')
+    later = eqtrue == (sel1.arg[0] == x)
     r = Reduction()
     r.t, r.i, r.op, r.v, r.cls = rval(p.to), sel1, D.Osel1, x, p.cls
     r.ext = r.third = None
     r.ordered = False
     r.cmp, r.sel0, r.identity = cmp, sel0, identity
+    r.index, r.later, r.flt = None, later, flt
     return r
+
+
+def _index(fast, q, cloned, sels):
+    """q as the Index of one of the select reductions sels: q = cond ? b : q (or the other way round) on the same
+    condition, b an induction variable with a constant step; or None."""
+    if q.cls != Kl:
+        return None
+    nxt = ir.phiargof(q, fast.sh.latch)
+    if not ir.istmp(nxt):
+        return None
+    n = next((n for n, x in enumerate(cloned) if x.to == nxt), None)
+    if n is None or n < 1 or cloned[n].op != D.Osel1 or cloned[n].cls != Kl or cloned[n - 1].op != D.Osel0:
+        return None
+    sel1, sel0 = cloned[n], cloned[n - 1]
+    r = next((r for r in sels if r.cmp.to == sel0.arg[0] and r.index is None and r.cls in (Kl, Kd)), None)
+    if r is None or q.to not in sel1.arg[:2] or sel1.arg[0] == sel1.arg[1]:
+        return None
+    b = sel1.arg[1] if sel1.arg[0] == q.to else sel1.arg[0]
+    step = _bivstep(fast, b)
+    if step is None:
+        return None
+    reads = sum(1 for y in cloned for a in y.arg[:2] if a == q.to)
+    if reads != 1 or any(nxt in y.arg[:2] for y in cloned):
+        return None
+    for o in ir.phis(fast.sh.H):
+        if o is not q and (q.to in o.arg[:o.narg] or nxt in o.arg[:o.narg]):
+            return None
+    # the index follows the value: it takes b when the value takes x
+    x = r.v
+    if (sel1.arg[0] == b) != (r.i.arg[0] == x):
+        return None
+    ix = Index()
+    ix.q, ix.b, ix.step, ix.sel0, ix.sel1, ix.bfirst = q, b, step, sel0, sel1, sel1.arg[0] == b
+    return ix
+
+
+def _bivstep(fast, b):
+    """The constant step of induction variable b (a phi of the header), or None."""
+    if not ir.istmp(b) or rval(b) not in fast.A.biv:
+        return None
+    st = fast.A.biv[rval(b)][1]
+    return st.c if st.isconst() and st.c else None
+
+
+def _counter(fast):
+    """(address, step) of a load of the loop with a constant step: a float select's hidden index, which only orders
+    the iterations (an induction variable the loop doesn't otherwise use has no value in the vector loop); or None."""
+    for i in fast.cloned:
+        if _loadsize(i) is not None and ir.istmp(i.arg[0]):
+            f = fast.A.form(i.arg[0], 64)
+            if f is not None and f.S.isconst() and f.S.c:
+                return i.arg[0], f.S.c
+    return None
 
 
 def _last(fast, p, cloned):
     """Whether p is set to the same value every iteration (`f = 1`, or one from before the loop) and nothing in the loop
     reads it, so the loop leaves with that value once it has run: a vector iteration sets it as a scalar one does."""
     v = ir.phiargof(p, fast.sh.latch)
-    if ir.istmp(v) and fast.A.inloop(v):
-        return False
+    if ir.istmp(v) and fast.A.inloop(v) and v != p.to:  # p = phi(x, p) is x (load elimination's, carrying a load past
+        return False                                    # the loop to one after it)
     if any(p.to in x.arg[:2] for x in cloned):
         return False
     return not any(q is not p and p.to in q.arg[:q.narg] for q in ir.phis(fast.sh.H))
@@ -431,13 +502,15 @@ def plan(fast, rts):
         return _narrow(fast, rts)
     fast.vreds = []
     skip = set()
+    rest = []
     for p in ir.phis(sh.H):
         if rval(p.to) not in A.biv:
             r = _reduction(fast, p, fast.cloned) or _select(fast, p, fast.cloned) or _ordered(fast, p, fast.cloned)
             if r is None and _last(fast, p, fast.cloned):
                 continue
             if r is None:
-                return 0
+                rest.append(p)
+                continue
             if r.op == D.Osel1:
                 skip.add(id(r.cmp))
                 skip.add(id(r.sel0))
@@ -449,6 +522,34 @@ def plan(fast, rts):
             skip.add(id(r.i))
             if r.third is not None:
                 skip.add(id(r.third))
+    sels = [r for r in fast.vreds if r.op == D.Osel1]
+    for p in rest:  # positions of select reductions' values (argmax)
+        ix = _index(fast, p, fast.cloned, sels)
+        if ix is None:
+            return 0
+        next(r for r in sels if r.cmp.to == ix.sel0.arg[0] and r.index is None).index = ix
+        skip.add(id(ix.sel0))
+        skip.add(id(ix.sel1))
+    pure = not any(ir.isstore(i.op) or i.op == D.Ocall for b in fast.lp.blocks for i in ir.ins(b))
+    for r in sels:
+        r.restart = False
+        if r.flt and r.index is None and pure:
+            # equal floats aren't the same (two zeros): the lanes join through the condition, and where that gives a
+            # zero, which zero the loop would have kept depends on the order: the scalar loop runs again from the start
+            r.restart = True
+            continue
+        if r.flt and r.index is None:  # equal floats aren't the same: an index to order them
+            c = _counter(fast)
+            if c is None:
+                return 0
+            ix = Index()
+            ix.q, ix.b, ix.step, ix.sel0, ix.sel1, ix.bfirst = None, c[0], c[1], None, None, True
+            r.index = ix
+        if r.index is not None and r.cls not in (Kl, Kd):
+            return 0
+        if any(y.op == D.Osel0 and y.arg[0] == r.cmp.to and y is not r.sel0 and (r.index is None or y is not r.index.sel0)
+               for y in fast.cloned):
+            return 0
     widths = set()
     mem = []
     made = set()
@@ -636,6 +737,10 @@ def interleave(fast):
         return 1
     if stores:
         return 1
+    if any(r.op == D.Osel1 for r in fast.vreds) and D.T.name.startswith('arm64'):
+        # a compare and a select on each accumulator's chain, about 5 cycles: 8 of them in flight (32 registers; x86-64
+        # has 16, and an index doubles them). Snapdragon X, 1M doubles: max 196 to 121 us (numpy 114)
+        return 2 * INTERLEAVE
     return INTERLEAVE
 
 
@@ -840,6 +945,9 @@ def body(fast, em, state, copy=0):
         if r.op == D.Osel1:
             skip.add(id(r.cmp))
             skip.add(id(r.sel0))
+            if r.index is not None and r.index.sel0 is not None:
+                skip.add(id(r.index.sel0))
+                skip.add(id(r.index.sel1))
         if r.ext is not None:
             skip.add(id(r.ext))
         if r.third is not None:
@@ -943,6 +1051,18 @@ def body(fast, em, state, copy=0):
             em.ins(Ins(D.Oqsel0, Kq, R, m, R))
             r.out0 = em.raw(D.Oqsel1, Kq, pick(r.i.arg[0]), pick(r.i.arg[1]))
             r.out1 = None
+            ix = r.index
+            if ix is not None:  # the position beside each lane: b's value this copy, on every lane (closeloop adds n)
+                up = ix.step > 0  # positions grow with the iterations
+                ix.acc0 = fast.fp.raw(D.Oqdupl, Kq, fast.fp.con(_SENTINEL if r.later != up else -_SENTINEL))
+                ix.in0 = newtmp('v', Kq, fn)
+                bk = fast.opmap(ix.b, k0, env, state, None)
+                bv = em.raw(D.Oqdupl, Kq, bk)
+                em.ins(Ins(D.Oqsel0, Kq, R, m, R))
+                ix.out0 = em.raw(D.Oqsel1, Kq, *((bv, ix.in0) if ix.bfirst else (ix.in0, bv)))
+                if copy == 0:
+                    ix.copies = []
+                ix.copies.append((ix.acc0, ix.in0, ix.out0))
             _keep(r, copy)
             continue
         if r.cls in (Ks, Kd):
@@ -971,12 +1091,57 @@ def body(fast, em, state, copy=0):
         r.out0 = em.raw(op, Kq, r.in0, vec(r.v, r.cls))
         r.out1 = None
         _keep(r, copy)
-    reds = {r.t for r in fast.vreds}
+    reds = {r.t for r in fast.vreds} | {rval(r.index.q.to) for r in fast.vreds
+                                        if r.op == D.Osel1 and r.index is not None and r.index.q is not None}
     for p in ir.phis(fast.sh.H):  # the rest set to one value each iteration (_last)
         t = rval(p.to)
         if t not in fast.A.biv and t not in reds:
-            new[('phi', t)] = ir.phiargof(p, fast.sh.latch)
+            v = ir.phiargof(p, fast.sh.latch)
+            new[('phi', t)] = state[('phi', t)] if v == p.to else v  # phi(x, itself): x throughout
     return new
+
+
+_SENTINEL = 1 << 62  # a lane's index before it takes a value: loses every tie (minus it where the later one wins)
+
+
+def _closeindexed(fast, em, MB, FP, r, totals, state, out):
+    """A select reduction with positions (argmax, or a float maximum): each lane (value, index) into the scalar pair:
+    taken where the loop's condition picks it over the value so far, or, equal, where its index comes first (later, if
+    equal ones win: >=). The scalar pair is the loop's before the vector loop, whose positions all come before the lanes'
+    (a hidden index: below every lane's)."""
+    ix = r.index
+    idxs = []
+    for acc0, in0, out0 in ix.copies:
+        ir.addphi(MB, Kq, in0, [(FP, acc0), (MB, out0)])
+        idxs.append(out0)
+    k = r.cls
+    x = _LANE[k]
+    lanes = _ext.qbytes() // _SIZE[k]
+    v = state[('phi', r.t)]
+    up = ix.step > 0
+    idx = state[('phi', rval(ix.q.to))] if ix.q is not None else em.con(-(_SENTINEL >> 1) if up else _SENTINEL >> 1)
+    phi = r.i.arg[0] if r.i.arg[1] == r.v else r.i.arg[1]
+    eqop = D.Oceqd if k == Kd else D.Oceql
+    for total, itotal in zip(totals, idxs):
+        for n in range(lanes):
+            lv = em.raw(getattr(D, 'Oqget' + x), k, total, em.con(n))
+            li = em.raw(D.Oqgetl, Kl, itotal, em.con(n))
+            if n:
+                li = em.raw(D.Oadd, Kl, li, em.con(n * ix.step))
+            at = lambda a: v if a == phi else lv
+            cond = em.raw(r.cmp.op, Kw, at(r.cmp.arg[0]), at(r.cmp.arg[1]))
+            wins = cond if r.i.arg[0] == r.v else em.raw(D.Oxor, Kw, cond, em.con(1))
+            eq = em.raw(eqop, Kw, lv, v)
+            tie = em.raw(D.Ocsgtl if r.later == up else D.Ocsltl, Kw, li, idx)  # after (>=) or before, in the loop's order
+            take = em.raw(D.Oor, Kw, em.raw(D.Oand, Kw, wins, em.raw(D.Oxor, Kw, eq, em.con(1))),
+                          em.raw(D.Oand, Kw, eq, tie))
+            em.ins(Ins(D.Osel0, Kw, R, take, R))
+            v = em.raw(D.Osel1, k, lv, v)
+            em.ins(Ins(D.Osel0, Kw, R, take, R))
+            idx = em.raw(D.Osel1, Kl, li, idx)
+    out[('phi', r.t)] = v
+    if ix.q is not None:
+        out[('phi', rval(ix.q.to))] = idx
 
 
 def _keep(r, copy):
@@ -989,6 +1154,7 @@ def _keep(r, copy):
 def closeloop(fast, em, MB, FP, state):
     """The accumulators' phis in MB, and, in em, a block after it, the scalar values with what they've collected."""
     out = dict(state)
+    fast.vrestart = None
     for r in fast.vreds:
         if r.ordered:
             continue  # already in the scalar value
@@ -1004,6 +1170,9 @@ def closeloop(fast, em, MB, FP, state):
         x = _LANE[k]
         lanes = _ext.qbytes() // _SIZE[k]
         v = state[('phi', r.t)]
+        if r.op == D.Osel1 and r.index is not None:
+            _closeindexed(fast, em, MB, FP, r, totals, state, out)
+            continue
         if r.op == D.Osel1:  # each lane into the scalar value as the loop would: s = cond(lane, s) ? ... : ...
             phi = r.i.arg[0] if r.i.arg[1] == r.v else r.i.arg[1]
             for total, n in [(t, n) for t in totals for n in range(lanes)]:
@@ -1013,6 +1182,9 @@ def closeloop(fast, em, MB, FP, state):
                 em.ins(Ins(D.Osel0, Kw, R, c, R))
                 v = em.raw(D.Osel1, k, at(r.i.arg[0]), at(r.i.arg[1]))
             out[('phi', r.t)] = v
+            if r.restart:  # a zero: the scalar loop again from the start (inner.emit_versioned)
+                z = em.raw(D.Oceqd, Kw, v, em.con(0))
+                fast.vrestart = z if fast.vrestart is None else em.raw(D.Oor, Kw, fast.vrestart, z)
             continue
         op = D.Oadd if r.op in (D.Oadd, D.Osub, D.Ofma1) else r.op
         # the copies' accumulators into one, lane by lane (a subtraction's each hold 0 - their part: added)

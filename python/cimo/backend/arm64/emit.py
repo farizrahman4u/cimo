@@ -651,11 +651,14 @@ def _qins(i, e):
         third = e.qthird
         l = _QLANE[name[-1]] if name != 'qsel1' else '16b'
         mn = 'bsl' if name == 'qsel1' else 'fmla'
-        if name == 'qsel1':  # bsl: the mask is the destination
-            if rval(i.to) in (rval(i.arg[0]), rval(i.arg[1])) or not req(i.to, third):
-                f.write("\tmov\tv31.16b, %s\n\tbsl\tv31.16b, %s, %s\n\tmov\t%s, v31.16b\n" % (_qv(third), _qv(i.arg[0]), _qv(i.arg[1]), _qv(i.to)))
+        if name == 'qsel1':  # (a, mask), the value the mask doesn't pick in third (isel): bit, in place
+            if req(i.to, third):
+                f.write("\tbit\t%s, %s, %s\n" % (_qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
+            elif rval(i.to) in (rval(i.arg[0]), rval(i.arg[1])):
+                f.write("\tmov\tv31.16b, %s\n\tbit\tv31.16b, %s, %s\n\tmov\t%s, v31.16b\n"
+                        % (_qv(third), _qv(i.arg[0]), _qv(i.arg[1]), _qv(i.to)))
             else:
-                f.write("\tbsl\t%s, %s, %s\n" % (_qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
+                f.write("\tmov\t%s, %s\n\tbit\t%s, %s, %s\n" % (_qv(i.to), _qv(third), _qv(i.to), _qv(i.arg[0]), _qv(i.arg[1])))
             return True
         if req(i.to, third):  # fmla: the addend is the destination
             f.write("\tfmla\t%s, %s, %s\n" % (_qv(i.to, l), _qv(i.arg[0], l), _qv(i.arg[1], l)))

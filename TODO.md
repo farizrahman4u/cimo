@@ -260,9 +260,14 @@ in Python.
   **Done** for loops that count (`scalar._deadloops`).
 - `LoopIdiomRecognize`: memset, memcpy, popcount, ctz. GCC `crc_optimization`.
 - `LoopStrengthReduce`/GCC `iv_optimize`, with `AArch64` addressing modes as its cost.
-- SIMD targets from scramjit (float64, 1,000,000 elements, arm64; `sj_np_*` in its `_mathlib.py`): `x.max()` 1,564 µs against numpy's 175, `x.argmax()` 2,095 against 479,
-  `x.all()` 523 against 220. Its pairwise `x.sum()`, 8 parallel accumulators, is already within 15% of numpy, whose sum isn't SIMD either. Bits must stay: signed zeros and NaNs
-  in `max` follow numpy's scalar rule, and the pairwise order can't be reassociated.
+- ~~SIMD targets from scramjit~~ **Done** (2026-11-09; float64 and int64, 1M elements, Snapdragon X): float maximum,
+  minimum and argmax, int argmax vectorize exactly (`vectorize._select`, `Index`, `_closeindexed`; a float maximum in a
+  loop that stores nothing runs the scalar loop again on a zero result instead of keeping an index); select reductions
+  keep 8 accumulators on arm64; `qsel1` is `bit`, in place. scramjit's own C as it is: `max_i` 218 to 122 us (numpy
+  121), `argmax_i` 677 to 178 (172), `all` 153 (148). Its float `max`/`argmax` stop at a NaN, which no vectorizer takes:
+  rewritten as a strict maximum plus `z += e - e` under `#pragma omp simd reduction(+:z)`, the original loop only when
+  z is NaN: `max` 1016 to 176 (numpy 113), `argmax` 1366 to 258 (numpy 315). Open: x86-64 float selects (the scalar
+  `if` isn't if-converted there), 32-bit floats with an index, downward loops.
 - Store-to-load across iterations: `LoopLoadElimination`, GCC `predcom`. scramjit does the one-store case
   itself (`ema` 3.09 to 2.39 ns, where the same loop as hand C through cimo stays at 3.06).
 - ~~Tiling~~ **Done** for i, k, j nests (`middle/tile.py`: blocks of 16 values of k outside i; gemm). Open: other

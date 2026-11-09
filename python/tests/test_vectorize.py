@@ -700,9 +700,80 @@ def test_reduction_through_a_condition(k):
             assert on.f(a, n, r0) == off.f(a, n, r0), (n, list(a)[:n], r0)
 
 
-def test_float_maximum_stays_scalar():
-    """Two equal zeros or a NaN: lanes merged in their order needn't pick what the scalar loop does."""
-    assert not vectorized('double f(const double *a, long n, double r) { for (long i = 0; i < n; i++) if (a[i] > r) r = a[i]; return r; }')
+SELECTS = {
+    'fmax': 'double f(const double *a, long n, double r) { for (long i = 0; i < n; i++) { double e = a[i]; if (e > r) r = e; } return r; }',
+    'fmin': 'double f(const double *a, long n, double r) { for (long i = 0; i < n; i++) { double e = a[i]; if (e < r) r = e; } return r; }',
+    'fmaxge': 'double f(const double *a, long n, double r) { for (long i = 0; i < n; i++) { double e = a[i]; r = e >= r ? e : r; } return r; }',
+    'fargmax': 'long f(const double *a, long n, double r) { long at = -1; for (long i = 0; i < n; i++) { double e = a[i]; if (e > r) { r = e; at = i; } } return at; }',
+    'fargmin': 'long f(const double *a, long n, double r) { long at = -1; for (long i = 0; i < n; i++) { double e = a[i]; if (e < r) { r = e; at = i; } } return at; }',
+    'fargmaxge': 'long f(const double *a, long n, double r) { long at = -1; for (long i = 0; i < n; i++) { double e = a[i]; if (e >= r) { r = e; at = i; } } return at; }',
+    'iargmax': 'long f(const long *a, long n, long r) { long at = -1; for (long i = 0; i < n; i++) if (a[i] > r) { r = a[i]; at = i; } return at; }',
+    'uargmin': 'long f(const unsigned long *a, long n, unsigned long r) { long at = -1; for (long i = 0; i < n; i++) if (a[i] < r) { r = a[i]; at = i; } return at; }',
+    'fmaxstore': 'double f(double *a, long n, double r) { for (long i = 0; i < n; i++) { double e = a[i]; if (e > r) r = e; a[i] = e * 2; } return r; }',
+}
+
+
+@pytest.mark.parametrize('name', sorted(SELECTS))
+def test_maximum_and_argmax_bit_for_bit(name):
+    """A float maximum or minimum, and the position of one (argmax), float or integer: each lane keeps its own (and an
+    index beside it); the lanes join by value, then position, so two equal zeros come out as the loop's, and NaNs never
+    win. A float maximum in a loop that stores nothing keeps no index: a zero result runs the loop again from the start
+    (one that stores, fmaxstore, keeps a hidden one: it can't run again)."""
+    src = SELECTS[name]
+    flt = 'double' in src.split('(')[1]
+    if hosts.ARM64 or not flt:
+        assert vectorized(src), driver._build(src)[0]
+    on, off = both(src)
+    ctype = ctypes.c_double if flt else ctypes.c_uint64 if 'unsigned' in src else ctypes.c_int64
+    r = random.Random(len(name))
+    nan, inf = float('nan'), float('inf')
+    pools = ([[0.0, -0.0], [0.0, -0.0, -1.0, 1.0], [nan, 0.0, -0.0, 2.0], [-inf, inf, 0.0, -0.0], [1.5], [nan], None]
+             if flt else [[0, 1, -1, 5, -2 ** 63, 2 ** 63 - 1], [7], None])
+    for n in (0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 47, 100):
+        for pool in pools:
+            def one():
+                if pool:
+                    return r.choice(pool)
+                return r.uniform(-3, 3) if flt else r.randint(-2 ** 40, 2 ** 40)
+            vals = [one() for _ in range(n)]
+            r0 = one()
+            if ctype is ctypes.c_uint64:
+                vals, r0 = [v % 2 ** 64 for v in vals], r0 % 2 ** 64
+            a, b = (ctype * max(n, 1))(*vals), (ctype * max(n, 1))(*vals)
+            x, y = on.f(a, n, r0), off.f(b, n, r0)
+            if flt and isinstance(x, float):
+                assert struct.pack('<d', x) == struct.pack('<d', y), (n, vals, r0, x, y)
+            else:
+                assert x == y, (n, vals, r0)
+            assert bytes(a) == bytes(b)
+
+
+def test_numpy_style_maximum():
+    """scramjit's numpy max: the strict maximum and a NaN detector `z += e - e` in any order, one vectorized loop over
+    a strided array (stride versioning keeps the `#pragma omp simd` mark, and load elimination's phi(x, itself) of a[0]
+    for the fallback after the loop is no reduction to refuse); the fallback only where it says so."""
+    src = r'''
+static double slow(const double *a, long n, long st) {
+    double r = a[0];
+    for (long i = 0; i < n && r == r; i++) { double e = a[i * st]; if (e != e || e > r) r = e; }
+    return r;
+}
+double f(const double *a, long n, long st) {
+    double r = a[0], z = 0.0;
+#pragma omp simd reduction(+:z)
+    for (long i = 0; i < n; i++) { double e = a[i * st]; if (e > r) r = e; z += e - e; }
+    return z != z ? slow(a, n, st) : r;
+}'''
+    if hosts.ARM64:
+        assert vectorized(src), driver._build(src)[0]
+    on, off = both(src)
+    r = random.Random(5)
+    for n in (1, 2, 5, 16, 17, 40, 100):
+        for st in (1, 2):
+            for pool in ([0.0, -0.0, 1.0], [float('nan'), 2.0], None):
+                vals = [r.choice(pool) if pool else r.uniform(-1, 1) for _ in range(n * st)]
+                a = (ctypes.c_double * len(vals))(*vals)
+                assert struct.pack('<d', on.f(a, n, st)) == struct.pack('<d', off.f(a, n, st)), (n, st, vals)
 
 
 STRIDED = {

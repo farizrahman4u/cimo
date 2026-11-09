@@ -1073,7 +1073,7 @@ _NEON3 = {'add': (0x4e208400, 's'), 'sub': (0x6e208400, 's'), 'mul': (0x4e209c00
           'fadd': (0x4e20d400, 'f'), 'fsub': (0x4ea0d400, 'f'), 'fmul': (0x6e20dc00, 'f'), 'fdiv': (0x6e20fc00, 'f'),
           'fminnm': (0x4ea0c400, 'f'), 'fmaxnm': (0x4e20c400, 'f'), 'fmla': (0x4e20cc00, 'f'), 'fcmeq': (0x4e20e400, 'f'),
           'fcmge': (0x6e20e400, 'f'), 'fcmgt': (0x6ea0e400, 'f'), 'and': (0x4e201c00, ''), 'orr': (0x4ea01c00, ''),
-          'eor': (0x6e201c00, ''), 'bsl': (0x6e601c00, ''), 'sshl': (0x4e204400, 's'), 'ushl': (0x6e204400, 's'),
+          'eor': (0x6e201c00, ''), 'bsl': (0x6e601c00, ''), 'bit': (0x6ea01c00, ''), 'bif': (0x6ee01c00, ''), 'sshl': (0x4e204400, 's'), 'ushl': (0x6e204400, 's'),
           'zip1': (0x4e003800, 's'), 'zip2': (0x4e007800, 's'), 'uzp1': (0x4e001800, 's'), 'uzp2': (0x4e005800, 's'),
           'trn1': (0x4e002800, 's'), 'trn2': (0x4e006800, 's')}
 _NEON2 = {'neg': (0x6e20b800, 's'), 'fneg': (0x6ea0f800, 'f'), 'fabs': (0x4ea0f800, 'f'), 'fsqrt': (0x6ea1f800, 'f'),
