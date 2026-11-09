@@ -144,6 +144,8 @@ def _compile_options(c):
           help='No fused multiply-add contraction (results identical to `-ffp-contract=off`)')
     c.opt('--wrapv', flag=True, group=g,
           help='Signed integer overflow wraps, instead of being undefined')
+    c.opt('--host-libm', flag=True, group=g,
+          help="Math functions from the host's libm (CPython's bits on this machine), not cimo's")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -220,7 +222,8 @@ def _module(ctx, src, filename):
     try:
         with _Settings(ctx), _runtime_spinner(ctx):
             return driver._module(src, filename, v.get('include') or (), v.get('link') or (),
-                                  v.get('host_headers'), _defines(ctx))
+                                  v.get('host_headers'), _defines(ctx),
+                                  libm='host' if v.get('host_libm') else 'bundled')
     except driver.CompileError as e:
         report.compile_error(ctx.err, e, {filename: src})
         raise Failure(1)

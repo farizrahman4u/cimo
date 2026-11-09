@@ -471,8 +471,22 @@ def _report(rt, ncompiled, t0):
             'no writable cache: kept for this process'))
 
 
-def link(obj, hooks=None, libs=(), libsyms=None):
+# cimo's math library functions that stay bundled under libm='host': a long in their signature (32-bit in Windows
+# DLLs, 64-bit in cimo); all exact
+_KEEP_BUNDLED = frozenset('lrint lrintf lround lroundf scalbln scalblnf'.split())
+
+
+def hostmath(rt, pre):
+    """The symbols (with the target's prefix) that libm='host' takes from the host's libm: the public functions of
+    cimo's bundled math library."""
+    return frozenset(s for s, m in rt.provider.items() if m.startswith('math/') and s.startswith(pre)
+                     and not s[len(pre):].startswith('__') and s[len(pre):] not in _KEEP_BUNDLED)
+
+
+def link(obj, hooks=None, libs=(), libsyms=None, hostlibm=False):
     """Link a module's object with the runtime.
+
+    hostlibm: the math library's functions resolve in the host's libm (`libm='host'`), not cimo's.
 
     hooks: {C name: address} of the Python callbacks the runtime may import.
     libs: `link=` entries; their symbols resolve what neither the module nor the runtime
@@ -489,9 +503,12 @@ def link(obj, hooks=None, libs=(), libsyms=None):
     where = {s: None for s in defs}  # symbol -> runtime member (None: the module)
     pulled = set()
     work = sorted(undefs - defs)
+    host = hostmath(rt, pre) if hostlibm else frozenset()
+    if hostlibm and 'libm' not in libs:
+        libs = tuple(libs) + ('libm',)
     while work:
         s = work.pop()
-        if s in where:
+        if s in where or s in host:
             continue
         m = rt.provider.get(s)
         if m is None or m in pulled:

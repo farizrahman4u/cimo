@@ -4,7 +4,7 @@ cimo compiles C11. Kernels can use the whole language: structs, unions, bitfield
 
 ## The bundled C library
 
-cimo ships its own C library, so a kernel behaves the same on every platform, the browser included, and doesn't depend on the host's libc. These headers are available with no setup:
+cimo ships its own C library, so a kernel behaves the same on every platform, the browser included, and doesn't depend on the host's libc. For the host's math library instead (the same bits as Python's `math` on that machine), pass `libm="host"`. These headers are available with no setup:
 
 | Header | Contents |
 |---|---|

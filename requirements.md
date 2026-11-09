@@ -292,8 +292,12 @@ Also from scramjit's first measurements (its M0, 2026-11-01):
   loader run outside it). Without the lock, 15 of 16 concurrent compiles failed.
 - **Math functions against CPython:** the bundled libm differs in the last bit from the host libm
   CPython uses (glibc, arm64) for many inputs: `atan2` 18%, `hypot` 14%, `sin`/`cos` 3%,
-  `exp`/`pow` under 0.1%, `sqrt`/`log` none. Worth documenting; an option to link the host's libm
-  for math calls (native targets) would let generated code match CPython where that matters.
+  `exp`/`pow` under 0.1%, `sqrt`/`log` none. **`libm='host'` (2026-11-09):** the bundled math library's public
+  functions stay external and resolve in the host libm (`link=`'s `'libm'`: glibc, libSystem, the UCRT), cached
+  images included (the key has the choice); the results equal CPython's `math` bit for bit (20 functions x 3300
+  inputs, `tests/test_hostlibm.py`), except where CPython has its own (`hypot`, `lgamma`, `fsum`). `lrint`, `lround`,
+  `scalbln` and their `f` forms stay bundled (`long` is 32-bit in Windows DLLs); the inlined exact ones (`sqrt`,
+  `floor`, `fma`, ...) are instructions either way. CLI `--host-libm`. Not in Pyodide.
 - **Fast libm (2026-11-07):** bundled functions are to be as fast as glibc's, one at a time as kernels need them.
   `hypot` is glibc's algorithm now (fma kernel where `__FP_FAST_FMA`, arm64; a correction step on x86-64 and wasm),
   under 1 ulp, 1.47x faster than musl's on a `hypot` loop. It gives glibc's bits on each target, so arm64 and

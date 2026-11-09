@@ -346,6 +346,7 @@ MIDDLE = os.environ.get('CIMO_MIDDLE', '1') != '0'
 FMA = os.environ.get('CIMO_FMA', '1') != '0'
 _fma = contextvars.ContextVar('cimo_fma', default=None)  # compile(fma=): this call's choice
 _wrapv = contextvars.ContextVar('cimo_wrapv', default=None)  # compile(wrapv=): this call's choice
+_libm = contextvars.ContextVar('cimo_libm', default='bundled')  # compile(libm=): 'bundled' or 'host'
 WRAPV = os.environ.get('CIMO_WRAPV', '0') not in ('', '0')
 # the frontend and backend ports keep their state in module globals, as the C programs do: one
 # compilation at a time in a process. Taken only around them, and they take no other lock.
@@ -591,7 +592,7 @@ def _key(pp):
         _VERSION + _link.compiler_key().encode() + _link._key(TARGET).encode() + TARGET.encode()
         + b'p%d' % _jit.PAGE
         + b'x' + ','.join(sorted(_x86())).encode()
-        + (b'm' if MIDDLE else b'') + (b'f' if _contract() else b'') + (b'v' if _wraps() else b'') + (b'V' if _vectorizes() else b'') + b'i%d' % INLINE
+        + (b'm' if MIDDLE else b'') + (b'H' if _libm.get() == 'host' else b'') + (b'f' if _contract() else b'') + (b'v' if _wraps() else b'') + (b'V' if _vectorizes() else b'') + b'i%d' % INLINE
         + _code(pp).encode('utf-8', 'surrogateescape')).hexdigest()[:24]
 
 
@@ -972,7 +973,7 @@ class Module(Introspection):
         libsyms = {}
         try:
             obj = _link.assemble(text + _exe.glue(names, _APPLE, _WINDOWS, TARGET) + _pyasm(sigs), TARGET)
-            obj, resolve = _link.link(obj, libs=link, libsyms=libsyms)
+            obj, resolve = _link.link(obj, libs=link, libsyms=libsyms, hostlibm=_libm.get() == 'host')
             image = _jit.Image(obj, resolve, snapshot=snapshot)
         except (_asm.AssemblerError, _jit.LoadError, _link.LinkError) as e:
             raise CompileError(str(e)) from None
@@ -985,8 +986,9 @@ class Module(Introspection):
         sigs = blob[4:4 + n].decode('utf-8')
         libsyms = {}
         try:
+            libs = tuple(link) + (('libm',) if _libm.get() == 'host' and 'libm' not in link else ())
             image = _jit.Image.load(memoryview(blob)[4 + n:], lambda ext: _link.resolver(
-                ext, '_' if _APPLE else '', libs=link, libsyms=libsyms))
+                ext, '_' if _APPLE else '', libs=libs, libsyms=libsyms))
         except _jit.StaleImage:
             raise
         except (_jit.LoadError, _link.LinkError) as e:
@@ -1061,7 +1063,7 @@ class Module(Introspection):
 
 def compile(src: str, include_dirs: Iterable[PathArg] = (), link: Union[str, Iterable[str]] = (),
             host_headers: bool = False, defines: Defines = (), cache: bool = True,
-            fma: Optional[bool] = None, wrapv: Optional[bool] = None) -> Module:
+            fma: Optional[bool] = None, wrapv: Optional[bool] = None, libm: str = 'bundled') -> Module:
     """Compile C source and return a Module of callables.
 
     The module is linked with cimo's runtime library (string.h, math.h, printf, malloc, ...)
@@ -1077,20 +1079,28 @@ def compile(src: str, include_dirs: Iterable[PathArg] = (), link: Union[str, Ite
     default (on, or off with CIMO_FMA=0). Calls of fma() are always fused. wasm never
     contracts. wrapv: signed integer overflow wraps, like -fwrapv; otherwise it is undefined, as in
     C, and the compiler assumes it doesn't happen (None: the process default, off, or on with
-    CIMO_WRAPV=1)."""
-    return _module(src, '<string>', include_dirs, link, host_headers, defines, cache, fma, wrapv)
+    CIMO_WRAPV=1). libm='host': the math library's functions (sin, exp, pow, atan2, ...) are the host's libm, as
+    CPython's math module calls them, for the same bits as Python on that machine; 'bundled' (default): cimo's own,
+    the same on every target. Not in Pyodide."""
+    return _module(src, '<string>', include_dirs, link, host_headers, defines, cache, fma, wrapv, libm)
 
 
 def load(path: PathArg, include_dirs: Iterable[PathArg] = (), link: Union[str, Iterable[str]] = (),
          host_headers: bool = False, defines: Defines = (), cache: bool = True,
-         fma: Optional[bool] = None, wrapv: Optional[bool] = None) -> Module:
+         fma: Optional[bool] = None, wrapv: Optional[bool] = None, libm: str = 'bundled') -> Module:
     """Compile a .c file; its directory is searched for "..." includes. Options as compile()."""
     from .resources import read_text
     path = os.fspath(path)
-    return _module(read_text(path), path, include_dirs, link, host_headers, defines, cache, fma, wrapv)
+    return _module(read_text(path), path, include_dirs, link, host_headers, defines, cache, fma, wrapv, libm)
 
 
-def _module(src, filename, include_dirs, link, host_headers, defines, cache=True, fma=None, wrapv=None):
+def _module(src, filename, include_dirs, link, host_headers, defines, cache=True, fma=None, wrapv=None,
+            libm='bundled'):
+    if libm not in ('bundled', 'host'):
+        raise ValueError("libm must be 'bundled' or 'host', not %r" % (libm,))
+    if libm == 'host' and _PYODIDE:
+        raise CompileError("libm='host' is not available in Pyodide (there is no host C library)")
+    ltoken = _libm.set(libm)
     token = _link.cache_writes.set(bool(cache))
     ftoken = _fma.set(None if fma is None else bool(fma))
     vtoken = _wrapv.set(None if wrapv is None else bool(wrapv))
@@ -1098,11 +1108,13 @@ def _module(src, filename, include_dirs, link, host_headers, defines, cache=True
         m = _module1(src, filename, include_dirs, link, host_headers, defines)
         options = {k: v for k, v in (('include_dirs', tuple(include_dirs)), ('link', (link,) if isinstance(link, str) else tuple(link)),
                                      ('host_headers', host_headers or ()), ('defines', tuple(defines.items() if hasattr(defines, 'items') else defines)),
-                                     ('fma', () if fma is None else fma), ('wrapv', () if wrapv is None else wrapv)) if v != ()}
+                                     ('fma', () if fma is None else fma), ('wrapv', () if wrapv is None else wrapv),
+                                     ('libm', () if libm == 'bundled' else libm)) if v != ()}
         m._record(src, filename, options)
         return m
     finally:
         _wrapv.reset(vtoken)
+        _libm.reset(ltoken)
         _fma.reset(ftoken)
         _link.cache_writes.reset(token)
 

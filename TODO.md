@@ -399,9 +399,9 @@ devirtualization, matrix intrinsics, SVE and SME, per-CPU workarounds, `long dou
 - ~~FMA contraction slows reductions on arm64~~ **Done** (2026-11-07): `fmachain` runs on arm64 for accumulator chains
   (addend the loop's phi or another fma on it): Snapdragon X `dot` 1.47 to 1.12 ns an element, `bench/run.py` dot 273.8
   to 207.1 ms (gcc -O3 275), iir 830 to 768, mandelbrot unchanged. To confirm on Neoverse and Apple cores.
-- **Linking the host libm for math calls** (requested by scramjit; see the scramjit paragraph in
-  `requirements.md`): needed for results bit-identical to CPython's on native targets, on Linux,
-  macOS and Windows. **When done, note it in scramjit's `TODO.md`.**
+- ~~**Linking the host libm for math calls**~~ **Done** (2026-11-09, requested by scramjit): `compile(libm='host')`,
+  CLI `--host-libm`; results equal CPython's `math` bit for bit (see "Math functions against CPython" in
+  `requirements.md`). Noted in scramjit's `TODO.md`.
 
 - `edit_distance` 2.5x of gcc: needs `csel` (select) in the backend.
 - `rgb2gray` 1.3x of gcc: constant materialization / `madd`.

@@ -37,6 +37,7 @@ $ cimo compile -S kernels.c -o k.s    # stop after code generation: assembly
 | `-O0`, `--no-opt` | turn off the loop optimizer |
 | `--no-fma` | no fused multiply-add contraction |
 | `--wrapv` | signed integer overflow wraps, instead of being undefined |
+| `--host-libm` | math functions from the host's libm, as Python's `math` module calls them |
 
 ## cimo onefile
 
