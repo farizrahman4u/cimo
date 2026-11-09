@@ -927,7 +927,9 @@ ptxas when found; runs with libcuda; nvcc as the oracle when found), `tests/gpu_
   plus offsets; ptxas then merged four 32-bit shared loads into one 128-bit load (shared loads 134M to 34M, bank
   conflicts 67M to 0, 3.66 to 2.56 ms). (3) Division by constants hoisted out of loops, and `(x + c d) / d` split when x
   is known non-negative (thread ids have ranges): 2.56 to 2.29 ms. (4) Loop-invariant terms of a sum added first, so one
-  register per address stays live (gemm_gelu 168 to 150 registers).
+  register per address stays live (gemm_gelu 168 to 150 registers). Tried and dropped: gcm placing everything as
+  late as possible on PTX, leaving loop-invariant code motion to the driver: gemm_gelu 154 to 128 registers and 2.5%
+  faster, but the matmul 16% slower.
 - **Speed, NVIDIA L4 (sm_89), driver 595 (CUDA 13.2), against nvcc 12.9 -O3 on the same file, same driver**
   (ms, best of interleaved rounds; run-to-run noise on this card is up to ±10%):
 
