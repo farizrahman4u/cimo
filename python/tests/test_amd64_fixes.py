@@ -218,3 +218,30 @@ def test_big_struct_by_value_copies_with_memcpy(target):
     assert time.perf_counter() - t0 < 20
     assert text.count('memcpy') >= 3 and len(text) < 20000, len(text)
     assembler_amd64.assemble(text)
+
+
+_NAN_SUB = ('void k(double *restrict o, const double *a, const double *b, long n) {\n'
+            '    for (long i = 0; i < n; i++) { double x = a[i] - b[i]; o[i] = x - -a[i]; }\n}\n')
+
+
+@pytest.mark.parametrize('target', TARGETS)
+def test_a_float_sub_into_its_subtrahend_is_not_a_negated_add(target):
+    # -b + a for a - b (QBE's trick when the result's register is b's) flips the sign of a NaN b; the kernel
+    # has no additions, so any add is that trick
+    text = _asm86(_NAN_SUB, target)
+    assert not re.search(r'\tv?add[sp]d ', text), text
+    assembler_amd64.assemble(text)
+
+
+@pytest.mark.skipif(not (hosts.AMD64 and hosts.RUNS), reason='runs x86-64 code')
+def test_a_float_sub_keeps_the_sign_of_a_nan():
+    import ctypes
+    import struct
+    k = cimo.compile(_NAN_SUB).k
+    for n in (1, 12, 16, 19):   # the vector loop and the scalar tail (scramjit's test_mixed_dtypes_and_scalars)
+        a = (ctypes.c_double * n)(*[-2.25] * n)
+        b = (ctypes.c_double * n)(*[float('nan')] * n)
+        o = (ctypes.c_double * n)()
+        k(o, a, b, n)
+        bits = {struct.pack('<d', o[i]) for i in range(n)}
+        assert bits == {struct.pack('<d', float('nan'))}, (n, bits)
