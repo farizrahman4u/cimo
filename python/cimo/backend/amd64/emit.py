@@ -1157,7 +1157,14 @@ def emitins(i, e):
     elif op == Osub:
         # we have to use the negation trick to handle
         # some 3-address subtractions
-        if i.to == i.arg[1] and i.arg[0] != i.to:
+        if i.to == i.arg[1] and i.arg[0] != i.to and KBASE(i.cls) == 1:
+            # not for floats: -b + a flips the sign of a NaN b (a - b keeps it), so as Odiv, through xmm15
+            i.arg[1] = TMP(XMM0 + 15)
+            emitcopy(i.arg[1], i.to, i.cls, e)
+            emitcopy(i.to, i.arg[0], i.cls, e)
+            i.arg[0] = i.to
+            _table(i, e)
+        elif i.to == i.arg[1] and i.arg[0] != i.to:
             ineg = Ins(Oneg, i.cls, i.to, i.to)
             emitins(ineg, e)
             emitf("add%k %0, %=", i, e)
@@ -1545,6 +1552,8 @@ def _usesxmm15(fn):
             if i.cls == D.Kq or D.isqop(i.op):  # ext.vector: moves, lanes, operands in the way
                 return True
             if i.op == Odiv and KBASE(i.cls) == 1 and i.to == i.arg[1]:
+                return True
+            if i.op == Osub and KBASE(i.cls) == 1 and i.to == i.arg[1] and i.arg[0] != i.to:
                 return True
             if i.op == Ocopy and rtype(i.to) == RSlot and rtype(i.arg[0]) in (RSlot, RMem):
                 return True
